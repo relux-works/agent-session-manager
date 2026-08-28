@@ -1,0 +1,2240 @@
+OpenAI Codex v0.150.0
+--------
+workdir: /Users/iv/Developer/ReluxWorks/agent-session-manager
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a04aa6-78a3-74e1-956e-a8223ca455e6
+--------
+user
+# Agent Task Assignment
+
+## FIRST — Run Immediately
+
+```bash
+task-board m 'set_status(TASK-260829-1m2pv0, status=reviewing)'
+```
+
+## Operational Constraints (Headless Run)
+
+Read this before you run any gate or attach any outcome. A spawned run is
+usually headless: the session ends when your turn ends.
+
+- **Never background a long command and end your turn.** The session terminates
+  with the turn and the process dies with it, while the run is still recorded as
+  completed — a successful-looking run with no evidence attached.
+- **A single shell call is time-bounded (~10 minutes).** Waiting out a longer
+  check inside one call fails too. Split long verification into bounded
+  sequential calls (package subsets, `-run` masks) and state explicitly what you
+  reran yourself versus accepted from already-attached evidence.
+- **Attach evidence before you end the lifecycle, not after.** "I will attach it
+  when the run finishes" is unfulfillable by construction: once your turn ends
+  there is no session left to attach anything.
+
+## Your Role
+# reviewer
+
+## Description
+
+Reviews how a task was implemented and how the solution fits into the project. Does not modify code; records one of the explicit verdict branches below.
+
+When the run is goal-bound, query `task-board spawn goal "$TASK_BOARD_RUN_ID"` before recording the verdict. The reviewer goal is role-derived as `reviewer_verdict/reviewer_verdict`, carries its immutable parent goal ID/revision, and is satisfied only by exactly one verdict branch with evidence. A provider exit or `reviewing` status is not a verdict.
+The runner persists the branch from the accepted board status plus a new or updated task-scoped verdict artifact. Only persisted `accepted` can satisfy the parent delivery goal; `changes_requested` and `stop_the_line` finish the reviewer goal without accepting delivery.
+
+## Deliverable
+
+Verdict branches are explicit:
+
+- accepted → `done`
+- changes requested → `to-dev` for implementation rework or `analysis` for research/decision work, with verdict evidence for the next producer and another reviewer cycle
+- genuine stop-the-line boundary → `blocked` only for a concrete external blocker or an unresolved human-only platform/product/architecture/tradeoff/approval decision, with evidence, failed assumptions/attempts, viable alternatives and tradeoffs, a recommendation, and the exact human decision or external input needed
+
+Do not leave the task in `reviewing`, and do not use `blocked` for ordinary rework or a recoverable child/runtime failure.
+
+For an enforced Bug/Story `done` transition, a reviewer-archetype run must not supply `commit_ack`. Record acceptance evidence and hand it to the commit-owning mover; after committing its scope, that mover makes the final `done` transition with `commit_ack=scope_committed`.
+
+For board reads, use compact task-specific projections. A concrete review does not need routine `summary()`, `plan()`, `schema()`, or `{ full }`; request scoped schema only after an unknown call.
+
+## Status Transitions
+
+- **start_status:** `reviewing`
+- **end_status:** no unconditional default; the reviewer must set exactly one verdict status: `done`, `to-dev`, `analysis`, or evidence-backed `blocked`
+
+## Constraints
+
+Does NOT modify code. Read-only access.
+- Reviewer-archetype runs must not supply `commit_ack`; record acceptance evidence for the commit-owning mover, which commits then makes the final `done` transition with `commit_ack=scope_committed`.
+- When your prompt carries a `Change Request Under Review` section, record acceptance with `task-board m 'accept_cr(ID, revision=N, evidence=ID_review-verdict.md)'`. It parks the element at `to-review` as the accepted handoff — accepted work never stays in `reviewing` — and the orchestrator then makes the `done` transition with `commit_ack=scope_committed`. `accept_cr` takes no `commit_ack`, and only the reviewer run that was handed the revision may call it.
+
+## Skills
+
+These role skill references are a lazy catalog, not a mandate to bulk-read every
+body. Before technical work, identify the skills relevant to this task's concrete
+scope and read those full skill bodies. Always read any skill explicitly required
+by the task, user, or project instructions.
+
+- **project-management**: `/Users/iv/Developer/ReluxWorks/agent-session-manager/.claude/skills/project-management/SKILL.md`
+- **architecture-diagrams**: `/Users/iv/.claude/skills/architecture-diagrams/SKILL.md`
+
+## Definition of Done
+
+- [ ] Record the Curator main revision installed on this machine.
+- [ ] Create Skillfile.json pinned to current main revisions of skill-project-management and skill-go-testing-tools.
+- [ ] Install managed project skills and verify curator status --check.
+- [ ] Create English AGENTS.md describing AX, PR-only landing, signed commits, updated-main branch/worktree discipline, task-board tracking, and mandatory Go testing-tools usage.
+- [ ] Create CLAUDE.md as a relative symlink to AGENTS.md.
+- [ ] Create README.md with project status, normative specification link, bootstrap commands, and tools/output documentation.
+- [ ] Validate links, symlink, Curator state, Git metadata, and diff hygiene.
+- [ ] Obtain independent tracked review and address all findings.
+- [ ] Code written per task description and AC
+- [ ] New outcome artifact attached on the board with a task-scoped name when the work produces notes, logs, screenshots, or other deliverables
+- [ ] Important findings, decisions, anomalies, or regressions recorded in logbook when relevant
+- [ ] Make staged git diff --check pass without rewriting captured task-board evidence, using an explicit narrow repository policy.
+- [ ] Implementation matches AC
+- [ ] Solution fits project architecture
+- [ ] Tests green
+- [ ] If review does not accept the work — verdict evidence added and status routed by the explicit verdict branches
+## Your Task
+
+- **ID**: TASK-260829-1m2pv0
+- **Title**: TASK-260829-1m2pv0: configure-curator-skills-and-agent-instructions
+- **Parent**: STORY-260829-1e8xzn
+### Description
+
+Initialize Curator, pin and install skill-project-management and skill-go-testing-tools, create AGENTS.md with AX project rules, add CLAUDE.md as a symlink, and document the toolchain.
+### Scope
+
+Repository metadata and documentation only. Do not add Go production code.
+### Acceptance Criteria
+
+Curator resolves both exact main revisions; managed skill status is clean; AGENTS.md is the canonical instruction file; CLAUDE.md resolves to it; README documents setup and tools; validation passes; changes are independently reviewed.
+
+## Instructions
+
+The following instructions have been attached to this task:
+
+### bootstrap-requirements.md
+> Authoritative repository bootstrap requirements and pinned upstream revisions.
+
+Create only the implementation repository foundation; do not add Go production code. Git author Ivan Oparin <oparin@me.com>; SSH signing key path /Users/iv/.ssh/ivanopcode.pub; commits and tags signed. Curator was installed from relux-works/curator main commit 665dd13f7b6ab0408300070ef68d895f2d03b79f. Pin skill-project-management to b491ce1b867e4248471290dd168e069b0ecd90ea and skill-go-testing-tools to 90c1515239eed9321068f3bafbeb5d0a0c2aa26a. AGENTS.md is canonical; CLAUDE.md is a relative symlink. All non-bootstrap changes land through PR; fetch and fast-forward local main before creating any branch or worktree; use task-board and Go testing tools. Preserve Curator ownership of managed skill directories.
+
+
+
+
+## Board CLI Reference
+
+You have access to `task-board` CLI for managing your work. All writes use the `m` (mutation DSL) subcommand:
+
+```bash
+# FIRST/LAST lifecycle commands:
+# Use explicit status changes when the task flow requires it.
+task-board m 'set_status(TASK-260829-1m2pv0, status=analysis)'       # analyst-style work
+task-board m 'set_status(TASK-260829-1m2pv0, status=development)'    # implementation / testing work
+task-board m 'set_status(TASK-260829-1m2pv0, status=reviewing)'      # reviewer handoff
+task-board m 'set_status(TASK-260829-1m2pv0, status=blocked)'        # when blocked
+task-board m 'set_status(TASK-260829-1m2pv0, status=to-review)'      # when your work is ready for review
+
+# Track progress with checklist
+task-board m 'check_item(TASK-260829-1m2pv0, item=1)'                        # check item N
+task-board m 'add_checklist_item(TASK-260829-1m2pv0, text="Write tests")'    # add checklist item
+
+# Add notes about your progress, decisions, blockers, or review findings
+task-board m 'set_notes(TASK-260829-1m2pv0, text="your note here")'
+
+# Save short text directly as outcome resources
+task-board m 'add_resource(TASK-260829-1m2pv0, name=TASK-260829-1m2pv0_results.md, content="...", type=outcome, description="Description")'
+
+# Attach an existing local file (screenshots, PDFs, logs, archives, research docs)
+task-board resource add TASK-260829-1m2pv0 ./path/to/file --type outcome --name TASK-260829-1m2pv0_artifact.bin -d "Description"
+```
+
+## Spawn Run Control
+
+Tracked background spawn runs expose `TASK_BOARD_RUN_ID` in the child environment.
+If your work is long-running, check for operator directives at safe checkpoints:
+
+```bash
+task-board spawn status "$TASK_BOARD_RUN_ID"
+task-board spawn directives "$TASK_BOARD_RUN_ID"
+```
+
+Current runtimes do not support direct inbound push into your active session.
+Treat directives as cooperative checkpoint signals:
+- persist your current notes/artifacts before acting on `cancel`-style requests
+- only honor pause/reroute intent at a safe checkpoint
+- if no directive is present, continue normally
+
+## IMPORTANT: Saving Results
+
+When you produce work products (research documents, design docs, screenshots, logs, archives, implementation notes), you MUST save them as outcome resources with names that include the task ID:
+
+```bash
+task-board m 'add_resource(TASK-260829-1m2pv0, name=TASK-260829-1m2pv0_results.md, content="...", type=outcome, description="Description")'
+task-board resource add TASK-260829-1m2pv0 ./path/to/file --type outcome --name TASK-260829-1m2pv0_artifact.bin -d "Description"
+```
+
+If you revise the same artifact later, use `task-board m 'update_resource(...)'` or `task-board resource update ...` instead of creating a silent overwrite.
+
+If you discover important findings, decisions, anomalies, regressions, or non-obvious constraints while working, record them in `logbook` as well as on the board.
+
+This ensures your results persist on the board and are accessible to other agents and the coordinator. Spawn completion is expected to produce at least one new task-scoped outcome artifact before the task can cleanly remain in `to-review`.
+
+## Evidence That Counts
+
+A passing suite means nothing unless something in it would have failed.
+
+- Any behavior that GATES, REFUSES, VALIDATES, AUTHORIZES, or ATTESTS ships with negative tests that fail when the gate admits what it must reject. A positive test proves the gate is reachable, not that it works.
+- Prove a bound by NARROWING the gate, not only by deleting it. A delete-only mutant proves the gate exists and says nothing about the class it covers.
+- Prove behavior by driving the real entry point — launch, materialize, resolve, publish — and name the production call site. A helper that is unit-tested but called from nowhere promises nothing.
+- Standard negative shapes to test and to look for: forged or self-minted evidence; absent evidence treated as satisfied; the check present but uncalled from production; a bypass path around the check; a capability claim that does not reproduce.
+- An absence and a failure to read are different facts. A failed, partial, or malformed read is never a legitimate absence, and a fallback defined for absence must not fire on a read failure.
+- Prove, or report nothing. Where a property cannot be established, report unknown instead of inferring it from a proxy signal; callers act on a plausible guess.
+
+Shapes vocabulary and the incident record behind each rule: `references/negative-evidence.md` in the project-management skill.
+
+## Stop-The-Line: No Forced Fits
+
+Do not keep implementing when autonomous work starts requiring a forced fit. A forced fit is any path where the task conflicts with a platform/API constraint, product decision, UX state model, ownership boundary, or architecture, and the remaining "solution" is mostly compensating hacks.
+
+Warning signs:
+- each fix needs another flag, stub, priority rule, mock-only behavior, or special-case test
+- the tests can pass only because the test harness avoids the real platform behavior
+- the implementation depends on an assumption you can no longer defend
+- the user-facing behavior cannot be described cleanly without contradicting the product model
+
+When this happens, stop product-code changes before adding another workaround layer. Attach or note:
+- the constraint and evidence
+- the failed assumptions/attempts
+- the viable options and tradeoffs
+- the recommended option
+- the exact human/product/architecture decision needed
+
+Then set the board item to `blocked` and ask only for that exact decision or external input. This stop applies only to a concrete external blocker or an unresolved human-only platform/product/architecture/tradeoff/approval decision; recoverable failures and ordinary rework stay autonomous. Tests and stubs are not proof that a forced-fit design is correct; use them only after the state model and platform assumptions are valid.
+
+## Working Directory
+Board directory: `/Users/iv/Developer/ReluxWorks/agent-session-manager/.task-board`
+
+Work in the project root. Do not modify board files directly — always use the `task-board` CLI.
+
+codex
+Начинаю reviewer lifecycle: сначала перевожу задачу в `reviewing`, затем проверю goal-bound контекст, board evidence и фактический diff без изменений кода. Для review применю `project-management`, потому что verdict и evidence обязаны пройти через task-board.
+exec
+/bin/zsh -lc "task-board m 'set_status(TASK-260829-1m2pv0, status=reviewing)'" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+{"ok":true,"result":{"primary":{"action":"status_changed","element_id":"TASK-260829-1m2pv0","field":"status","new_value":"reviewing","old_value":"to-review"},"side_effects":[{"action":"promoted","element_id":"STORY-260829-1e8xzn","field":"status","new_value":"reviewing","old_value":"to-review"},{"action":"promoted","element_id":"EPIC-260829-dz9yvx","field":"status","new_value":"reviewing","old_value":"to-review"}]}}
+
+exec
+/bin/zsh -lc "mkdir -p .temp/TASK-260829-1m2pv0 && { command -v task-board; task-board --version 2>&1 || task-board --help | sed -n '1,20p'; } > .temp/TASK-260829-1m2pv0/tool-readiness-review.log 2>&1 && printf 'TASK_BOARD_RUN_ID=%s\\n' \""'${TASK_BOARD_RUN_ID:-}" && wc -l .claude/skills/project-management/SKILL.md && sed -n '"'1,240p' .claude/skills/project-management/SKILL.md" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+TASK_BOARD_RUN_ID=RUN-260828-4ff2a5
+     150 .claude/skills/project-management/SKILL.md
+---
+name: project-management
+description: >
+  File-backed task boards and spawn-first multi-agent orchestration through
+  task-board. Use for board/spec decomposition, task tracking, planning,
+  status/progress, tracked producer/reviewer runs, and delivery goals. A normal
+  primary session is the Orchestrator; a prompt-assigned role or
+  TASK_BOARD_RUN_ID is a specialist worker. Russian triggers: борд, доска,
+  задачи, эпик, стори, таски, спавн, оркестратор, субагент, статус, прогресс.
+triggers:
+  - task board, epic, story, task, bug, status, progress
+  - spec decomposition, planning, critical path
+  - spawn, orchestrator, coordinator, sub-agent, delivery goal
+  - борд, доска, задачи, эпик, стори, таски, спавн, оркестратор
+---
+
+# Project Management Router
+
+Load only the focused references needed. Use `task-board` for reads/writes;
+never edit `.task-board/` directly.
+
+## Active Role
+
+- **Specialist:** when assigned a role, `TASK_BOARD_RUN_ID` exists, or the
+  human explicitly requests inline execution. Follow lifecycle/evidence gates.
+- **Orchestrator:** otherwise. Detail settled specs inline; route
+  every artifact-producing or validating task through a tracked
+  background child run. `solution-architect` only for genuine
+  architecture decisions.
+
+## Critical Invariants
+
+1. Preflight with `project_config(view=spawn-preflight, role=ROLE, agent=RUNTIME?)`;
+   bare `project_config()` stays the role-optional config surface.
+   Every child has explicit role, background mode, model, and in-policy
+   Codex/Qwen/Claude reasoning effort. Built-in runtimes: `agy`, `claude`,
+   `codex`, `gemini`, `muse`, `qwen` (plus any runtime declared under
+   `spawn.runtimes`); Gemini, Muse and Agy take no `--reasoning-effort`.
+   Treat the v3 `admitted_pairs` set the
+   preflight reports as the exact admission authority, not `allowed_models`,
+   which is one input form and is `null` when the runtime uses combinable
+   `entries`; when preflight reports a v2 migration warning, use the
+   full read-only migration snapshot for an explicit reviewed repository edit.
+   Never infer admission from `PolicyRank` or silently migrate config.
+2. Workers use compact, task-specific projections. Skip routine
+   `summary()`, `plan()`, `schema()`, and `{ full }`; scoped schema only
+   repairs an unknown call.
+3. Default to `task-board spawn observe RUN --until terminal --format compact`,
+   then route its handoff. Other reads are for barriers, replay/follow,
+   diagnosis.
+4. The Orchestrator owns producer -> reviewer -> rework -> reviewer until the
+   configured review policy is satisfied and the board reaches `done`.
+   `to-review` is a routing trigger, not human acceptance. Commit
+   decomposition is that same Orchestrator's own call, never a per-commit
+   human checkpoint.
+5. Handoff needs a task-scoped outcome and `task-board handoff TASK-ID
+   --role ROLE`. Early exits and intermediate parked states are
+   retried, or rerouted through a focused child;
+   routine work is never handed to the human.
+   Attach every artifact to its owning element through resource CRUD. Local
+   payloads then live under `.task-board/.resources/<ELEMENT-ID>/`. Agents may
+   organize that element-owned tree with safe nested paths such as
+   `findings/`, `artifacts/`, `reports/`, and `revisions/`; never write the
+   directory directly or treat resources as one board-wide file pile. Folder
+   nodes are structural only: attach regular files, never a directory itself.
+6. `blocked` needs an evidence-backed external blocker or unresolved
+   human-only product/platform/architecture/approval decision. Persist
+   constraint, evidence, failed assumptions/attempts, viable alternatives,
+   tradeoffs, recommendation, and the exact decision or external input needed.
+7. At `to-review` say **ready for review** / **handed off to review**;
+   done/complete/final only for `done`.
+8. `board-goal-v2` is authoritative: `goal` owns `parent/primary`; `spawn goal`
+   owns `run/RUN-*`. V1 shapes are compatibility-only.
+9. `openai-board` / `anthropic-board` launch the primary `task-board
+   codex|claude` sessions.
+   agents-infra composes; `tb-sessiond` owns goal bind, reattach,
+   `codex resume THREAD_ID`, `claude --resume UUID`, and session operations.
+   Bad records move to private `<state>/quarantine/`; listen continues and
+   status/list report them.
+10. Repository-mutating producers run in a per-Story worktree: producer
+    publishes a Change Request, reviewer runs `accept_cr` (parks `to-review`
+    — accepted is not done), Orchestrator runs `worktree checkpoint ID` per
+    leaf then `worktree integrate STORY-ID`. Only a complete accepted Story
+    reaches trunk.
+11. Cross-Story `set_parent` and integration are durable and fail closed; move
+    evidence never widens source-tombstone admission. See
+    [tracked background spawn](references/tracked-background-spawn.md#what-the-board-state-commit-covers-and-what-it-leaves-alone).
+12. Board validation stays strict by default. The project setting
+    `validation.allow_legacy_empty_done_containers=true` suppresses only the
+    historical empty-`done` Story/Epic aggregate mismatch; active or
+    child-backed containers remain strict.
+
+## Decision Tree
+
+```text
+Prompt-assigned role or TASK_BOARD_RUN_ID? -> work as that specialist
+Artifact, test, docs, research, or review? -> tracked role-based spawn
+Producer reached to-review? -> spawn reviewer, route verdict
+Concrete stop boundary? -> persist packet, then blocked
+Known structured board operation? -> q/m DSL with narrow projection
+Unknown operation/mutation or field? -> schema(operation|mutation=NAME), retry
+```
+
+## Lazy Reference Routes
+
+| Need | Read |
+| --- | --- |
+| Queries, observability, goals, estimates, deps | [querying](references/querying.md), [file formats](references/file-formats.md) |
+| Status, review, recovery, Stop-The-Line | [statuses](references/statuses.md) |
+| Resources, bugs, evidence | [resources and bugs](references/resources-and-bugs.md) |
+| Detailing, plans, execution | [planning workflow](references/planning-workflow.md) |
+| Research and synthesis | [research workflow](references/research-workflow.md) |
+| Roles, task classes, DoD | [roles](references/roles.md) |
+| Negative tests, gate proofs, unknown vs absence | [negative evidence](references/negative-evidence.md) |
+| Spawned goals, selection, runs, recovery, Story worktrees | [tracked background spawn](references/tracked-background-spawn.md) |
+| Session Manager wrappers, goal runtimes | [codex goal runtime](docs/codex-goal-runtime.md), [claude goal runtime](docs/claude-goal-runtime.md) |
+| Templates, reviewer routing | [sub-agent templates](references/sub-agent-templates.md) |
+| Context budgets | [context efficiency](references/context-efficiency.md) |
+| Config feature gates | [config features](references/config-features.md) |
+| Project config refusals/schema/examples, spawn supervision in minutes | [canonical config reference](references/task-board-config.md) |
+| Install/bootstrap | [setup](references/setup.md) |
+| Remote auth/admin/ops | [remote board runbook](docs/remote-board-operations.md) |
+| CLI/deploy overview | [README](README.md) |
+
+Runtime changes follow canonical `.specs/` contracts.
+
+Built-in spawn runtimes: `agy`, `claude`, `codex`, `gemini`, `muse`, `qwen`
+(plus any runtime declared under `spawn.runtimes`). Gemini CLI 0.54.4 is
+deprecated in favour of Antigravity, but both remain supported.
+
+```bash
+task-board spawn TASK-ID --role developer --background --agent agy --model gemini-3.6-flash-high --timeout 35m
+```
+
+`agy` takes no `--reasoning-effort`; effort is encoded in its eight scoped IDs:
+3.1 Pro high/low and 3.5/3.6 Flash high/medium/low. Minimum `agy` is 1.1.12;
+1.1.14 is validated. Version 1.1.11 exposed `--print`, `--model`, JSON output,
+print timeout, accept-edits mode, skip-permissions, disable-slash-commands, and
+add-dir, but is rejected. Prompt delivery has a 96 KiB argv budget; Antigravity's
+own print timeout is 30m and `--timeout` is the external process-tree bound.
+`SUCCESS`/`ERROR` JSON overrides process exit; invalid envelopes fail and only
+sanitized metadata persists. Only the top-level worker is tracked; internal
+subagents and primary Session Manager support are out of scope.
+
+```json
+{"spawn":{"preferred_agentic_system":{"mixed":["agy","codex"]},"ceilings":{"agy":{"model":"gemini-3.6-flash-high","model_criterion":"equal"}},"schedule":{"windows":[{"start_utc":"17:00","end_utc":"03:00","preferred_agentic_system":{"exclusive":"agy"}}]}}}
+```
+
+`spawn.ceilings.agy` rejects `reasoning_effort`. See [README](README.md) for the
+full models, flags, JSON, safety, configuration, and Gemini compatibility contract.
+
+codex
+Skill определил specialist/reviewer режим. Сейчас проверяю immutable spawn goal и читаю только обязательные reviewer-разделы: статусы/verdict, task-scoped resources и goal-bound handoff. Затем сопоставлю acceptance criteria с репозиторием и уже приложенными доказательствами.
+exec
+/bin/zsh -lc 'task-board spawn goal "$TASK_BOARD_RUN_ID" && printf '"'\\n--- statuses ---\\n' && sed -n '1,260p' .claude/skills/project-management/references/statuses.md && printf '\\n--- resources ---\\n' && sed -n '1,300p' .claude/skills/project-management/references/resources-and-bugs.md && printf '\\n--- spawn refs matches ---\\n' && rg -n \"reviewer|verdict|spawn goal|accept_cr|goal-bound\" .claude/skills/project-management/references/tracked-background-spawn.md" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+Active Goal: none (run is not goal-bound)
+
+--- statuses ---
+# Statuses
+
+9 statuses organized in a workflow:
+
+| Status | Meaning | Who sets |
+|--------|---------|----------|
+| **backlog** | Captured, no work yet | anyone |
+| **analysis** | Researching, decomposing | anyone |
+| **to-dev** | Ready for development | orchestrator |
+| **development** | Writing code | sub-agent |
+| **to-review** | Code ready for review | sub-agent |
+| **reviewing** | Reviewer child is checking the work | reviewer |
+| **done** | Reviewed and accepted leaf work, or computed container completion | reviewer / orchestrator after reviewer verdict; parent aggregation |
+| **closed** | Explicit administrative disposition: cancelled, obsolete, or won't do (reason in notes) | anyone |
+| **blocked** | Concrete external blocker or unresolved human-only stop-the-line decision (full evidence packet in notes/resource) | anyone |
+
+## Status Flow
+
+**Happy path:**
+```
+backlog → analysis → to-dev → development → to-review → reviewing → done
+```
+
+**Returns from reviewing:**
+- `reviewing → analysis` — need more research
+- `reviewing → to-dev` — code issues, needs rework
+
+**Terminal from any status:**
+- `any → closed` — won't do / cancelled
+- `any → blocked` — concrete external blocker or unresolved human-only platform/product/architecture/tradeoff/approval decision
+
+**Note on closed:** Use `closed` for cancelled, obsolete, or won't-do items. Don't delete — close with a note explaining why. History is preserved, and the item can be reopened if needed.
+
+For a leaf task or bug, `done` means its delivery was accepted and `closed`
+means it was explicitly disposed without accepted delivery. A leaf may be
+closed from any lifecycle state.
+
+For a story or epic, `done` is computed completion: every direct child is
+`done` or `closed`. `closed` is an explicit administrative disposition of the
+container itself. A container may be closed only when every direct and
+transitive descendant is already `done` or `closed`; an empty container also
+satisfies this rule. Close or complete descendant work first, then close
+containers from the inside out. `task-board validate` reports
+`PARENT_STATUS_MISMATCH` for stored closed containers that still contain active
+descendants.
+
+Validation is strict by default for empty containers too: an empty Story/Epic
+stored as `done` aggregates to `backlog` and is reported. A migrated local
+board may explicitly set
+`task-board.config.json -> validation.allow_legacy_empty_done_containers` to
+`true` to suppress only that historical empty-`done` mismatch. Empty active
+containers and every container with one or more children remain strict.
+
+**Don't delete elements.** Use `closed` instead of `delete`. Deletion loses history and context. The only exception is removing test/junk data during board setup.
+
+**Orchestrator review routing flow:** When a producer child sets `to-review`:
+1. Orchestrator confirms the producer attached task-scoped outcome evidence.
+2. Orchestrator spawns a reviewer child with explicit selection, for example `task-board spawn TASK-... --role reviewer --background --agent codex --model gpt-5.6-sol --reasoning-effort max`.
+3. Reviewer child sets/keeps `reviewing`, reads artifacts/code, and writes the verdict.
+4. If accepted → `done`. If changes are requested → `to-dev` (code rework) or `analysis` (needs more research), with notes/outcome evidence.
+4a. When the reviewer was launched against a Change Request (a managed Story workspace run), acceptance is recorded by `accept_cr(ID, revision=N, evidence=...)` instead. That mutation sets the Change Request to `accepted`, stamps the reviewer run, and parks the element at `to-review` as the **accepted handoff** — accepted work never stays in `reviewing`. The Orchestrator then runs `task-board worktree checkpoint <ID>` for a **non-final** leaf, which commits the accepted candidate onto the Story branch and makes the `done` transition with `commit_ack=scope_committed`. A Change Request with `repository_delta=empty` skips the commit and still reaches `done` by the same command. `accept_cr` accepts no `commit_ack` argument, its `evidence` must be a task-scoped outcome resource this reviewer run attached or updated (naming the producer's own `_results.md` is refused with `change_request_evidence_missing`), only the reviewer run that was handed the revision may call it (anything else is refused with `change_request_acceptance_unauthorized`), and the reviewer prohibition below is unchanged.
+
+4b. **`checkpoint` never closes the Story.** When the leaf is the Story's last open child, closing it would promote the Story to `done` in the same mutation and cover that transition with `commit_ack=scope_committed` — attesting that the Story's scope is committed while its branch has never reached trunk. `worktree checkpoint` refuses that with `change_request_final_leaf_checkpoint` and names `task-board worktree integrate <STORY-ID>`, which lands the branch before making the transition. The refusal is a scope rule, not an acknowledgement rule: it applies whether or not `version_control` confirmation is enabled, and it leaves the branch, the accepted record and the board untouched so the integration path can still use them.
+5. On changes requested, the Orchestrator preserves the verdict, spawns the appropriate producer, and sends the next `to-review` handoff through a new reviewer. Repeat producer -> reviewer -> rework -> reviewer until accepted `done`.
+6. If a child exits early or leaves the item parked in `analysis`, `development`, `testing`, or `reviewing`, the Orchestrator inspects the run/outcomes and retries or reroutes through a focused child. Recoverable work is never handed to the human.
+7. A `blocked` verdict stops routing only when it identifies a concrete external blocker or unresolved human-only stop-the-line decision and records the full evidence packet; otherwise retry or reroute.
+
+`reviewing` is a real state, not a pass-through. A reviewer child must do actual review work between the producer handoff and `done`; the orchestrator routes and monitors that review instead of performing the verdict inline.
+
+`reviewing` is never a verdict, including under the Change Request flow. A reviewer run that ends at `reviewing` with no accepted Change Request is cancelled and a successor reviewer is spawned — that is what distinguishes "the reviewer decided nothing" from "the reviewer decided", and `accept_cr` does not change it. The accepted branch is derived from the Change Request record, not from the `reviewing` status.
+
+`to-review` therefore carries two meanings that the record disambiguates: a producer handoff awaiting review, and an accepted Change Request awaiting orchestrator checkpoint or integration. `task-board worktree status` and the Change Request state say which.
+
+`to-review` is an internal routing trigger, never a handoff of routine review to the human. Human input is reserved for a concrete external blocker or unresolved human-only platform/product/architecture/tradeoff/approval decision.
+
+Human-facing wording follows the board state. `to-review` means "ready for review" or "handed off to review"; it is not "done", "complete", "finished", "final", or "готово". Say a task is done only after the board item is actually `done`.
+
+## Per-Element Review Policy
+
+Every board element has a `review` policy. Set it at creation with
+`create(..., review=required|light|none)`, change it with
+`set_details(ID, review=...)`, and inspect it through the `review` query
+projection. New elements and legacy elements without the field default to
+`required`.
+
+- `required` keeps the producer -> reviewer -> rework/reviewer loop. Only an
+  accepted reviewer verdict reaches `done`.
+- `light` still requires a reviewer child, but selection should favor a cheaper suitable effort tier that can satisfy the same evidence and quality gates.
+- `none` lets the Orchestrator accept a producer handoff from `to-review`
+  directly to `done` only after checking acceptance criteria, checklist,
+  validation results, and outcome evidence. Missing evidence returns to the
+  producer; `none` never means accepting an unevidenced handoff.
+
+This policy changes reviewer routing, not the need for board-owned evidence, and
+never introduces routine human review.
+
+## blocked vs is_blocked
+
+Two different concepts:
+
+- **blocked** (status) — explicit stop-the-line status for an evidence-backed external blocker or unresolved human-only platform/product/architecture/tradeoff/approval decision. Notes or an outcome resource must record the constraint, evidence, failed assumptions/attempts, viable alternatives and tradeoffs, recommendation, and exact human decision or external input needed to resume. Recoverable failures and ordinary rework are not `blocked`.
+- **is_blocked** (computed) — from `blocked-by` dependencies; if dependency is not `done`/`closed`, element is blocked
+
+CLI display:
+```
+TASK-05: to-dev [BLOCKED by TASK-02]     ← computed from dependency
+TASK-07: blocked                          ← explicit status
+```
+
+## Automatic Parent Status Aggregation
+
+After a child status mutation, the CLI recomputes every ancestor from its direct
+children. It is derived state: an unassigned story or epic may follow an
+assigned child without implying ownership of the container.
+
+- If every child is `done` or `closed`, a non-closed parent becomes `done`.
+  An already explicit `closed` parent stays `closed`; terminal child updates do
+  not silently normalize it to `done`.
+- Otherwise the parent adopts the highest-priority active child status:
+  `development`, `to-review`, `reviewing`, `to-dev`, `analysis`, then `backlog`.
+  `blocked` children do not select a parent status; a parent with only blocked
+  children keeps its current manual status.
+- The recomputation can promote, escalate, reopen, or demote a parent, then
+  continues through all ancestors. A parent that is `blocked` explicitly is not
+  recomputed.
+
+```bash
+task-board m 'set_status(TASK-260205-abc123, status=development)'
+# TASK-260205-abc123 → development
+# STORY-260205-def456 → development (auto-escalated)
+# EPIC-260205-ghi789 → development (auto-escalated)
+```
+
+For Task/Bug records created with the current format, the first transition into
+`development` also requires an explicit estimated value. Set it first with
+`set_estimate(ID, estimate=estimated, scale=fibonacci, number=N)`. The refusal
+is a typed estimate-required error, parallel to the unfinished-dependency start
+refusal. Records whose legacy `progress.md` has no Estimate section are
+grandfathered and are not retroactively blocked; an idempotent status write for
+an element already in `development` is not treated as a new start.
+
+### Commit confirmation for accepted work
+
+This gate exists so the commit-owning mover lays out its own delivered scope
+as atomic, project-perspective commits and honestly acknowledges that scope is
+committed — it is not a human checkpoint. An Orchestrator (or other
+commit-owning mover) must not stop autonomous work to ask the human how to
+split commits, or whether to acknowledge, on every commit or close. The mover
+decides its own commit decomposition — how many commits, per-story or
+feature-clustered, ordering, buildability — and commits that scope itself,
+backdated per the project's commit-time policy when one is configured. Human
+authorization is the standing grant to commit work, not a per-commit
+approval.
+
+This section is the single source for that contract. Role bodies, the spawn
+templates, and the router carry only the ownership statement and a link back
+here; they must not restate the mechanics below.
+
+Top-level `task-board.config.json -> version_control.confirm` defaults to
+`false`. When it is `true`, `desired_commit_time` is required. Any mutation
+that would move a Bug or Story to `done` must then include the exact mover-local
+acknowledgement `commit_ack=scope_committed`. This covers a direct Bug/Story
+transition and a Task/Bug terminal transition that automatically promotes its
+parent Story.
+
+```json
+{
+  "version_control": {
+    "confirm": true,
+    "desired_commit_time": "evening MSK"
+  }
+}
+```
+
+```bash
+task-board m 'set_status(STORY-260205-def456, status=done, commit_ack=scope_committed)'
+```
+
+The error reports the transition-causing element, every enforced Bug/Story
+transition, the owner message, and the configured desired time. The
+acknowledgement covers only the mover's scope; foreign uncommitted work is
+allowed and task-board performs no git clean-tree check. Never acknowledge
+`commit_ack=scope_committed` when the mover's own scope is genuinely
+uncommitted — commit it first, then acknowledge. Local evaluation and
+status writes share one mutation lock. In remote mode an enforcing CLI first
+requires the server's `version_control_confirmation=atomic-v1` capability, then
+the server evaluates the acknowledgement and writes the child/ancestor statuses
+under one serialized mutation.
+
+A reviewer-archetype spawned run must not supply `commit_ack`. It records
+acceptance evidence and hands the accepted verdict to the mover that owns the
+scoped commit (typically the Orchestrator) — never to the human, and it must
+not escalate the commit-or-acknowledge decision to the human itself; that
+mover commits first, then makes the final `done` transition with
+`commit_ack=scope_committed`.
+
+Board structure decides how often this gate fires on an unfinished parent; the
+rule that keeps it honest lives with the other decomposition rules in
+[planning workflow](planning-workflow.md).
+
+Reactivation follows one deterministic rule: adding a descendant creates it in
+`backlog`, and adding or changing any descendant to an aggregating active status
+runs ordinary aggregation through every ancestor. Any `done` or `closed`
+container on that path reopens to the highest-priority active aggregate status;
+explicit closure is not sticky once descendant work becomes active. The target
+is the aggregate child status, not a fixed `development` state:
+
+```bash
+task-board m 'set_status(TASK-260205-abc123, status=to-dev)'
+# TASK-260205-abc123 → to-dev
+# STORY-260205-def456 → to-dev (auto-reopened)
+# EPIC-260205-ghi789 → to-dev (auto-reopened)
+```
+
+Automatic container transitions do not require an assignee. Hard dependencies
+still gate automatic changes to `development`, `to-review`, `reviewing`, and
+`done`: if a container has an unfinished blocker, its derived status is left
+unchanged and the child mutation succeeds. Direct manual transitions use the
+same dependency gate; they additionally require an assignee for `to-dev`,
+`development`, and `to-review`.
+
+`blocked` remains the existing non-aggregating exception: blocked children do
+not select a parent status. Closed ancestors remain closed rather than being
+silently normalized to `done`, so validation reports every affected container
+that still has a blocked descendant. The operator must reopen the container or
+resolve/close that descendant work.
+
+## Landing a Story on trunk
+
+This section extends the commit-confirmation contract above to the one path
+where a `done` transition is produced by a command rather than typed by hand:
+`task-board worktree integrate`, which lands a Story developed in a managed
+Story workspace. The mechanics of the managed workspace itself live in
+[tracked background spawn](tracked-background-spawn.md#story-worktree-isolation);
+what belongs here is the ordering and the exact scope of the acknowledgement.
+
+**Accepted comes before done, always.** A reviewer records acceptance with
+`accept_cr`, which parks the element at `to-review` as the accepted handoff. No
+Git operation has happened at that point and nothing is `done`. The
+Orchestrator then integrates, and the `done` transition is the *last* board
+effect of a run that has already moved trunk. The superseded order — close the
+board first, land the work afterwards — is withdrawn, because it produced an
+acknowledgement that attested a scope no repository had yet seen.
+
+```bash
+task-board worktree integrate STORY-260205-def456 \
+  --cr TASK-260205-abc123 --revision 3 \
+  --commit-time 2026-08-06T20:01:00+03:00
+```
+
+**The landing gate defaults to refusing.** `integrate` requires the
+`spawn.worktree_isolation.validation.commands` suite to be configured; with no
+suite it refuses `validation_not_configured` before any ref moves. A project
+with nothing to run states that explicitly as `{"commands": []}`. See
+[task-board config](task-board-config.md#the-landing-gate-suite).
+
+**Squash, fast-forward-only, and one explicit time.** The accepted Story
+candidate lands as one squash commit on trunk; the branch's internal Task
+checkpoints are discarded rather than replayed, and trunk is only ever
+fast-forwarded. When `version_control.confirm` is `true`, `--commit-time` is
+
+--- resources ---
+# Resources
+
+Resources are owned by the board element they are attached to. Use explicit
+CRUD operations against that element ID. Local payloads are grouped under
+`.task-board/.resources/<elementID>/`; remote board-server uses the equivalent
+element-scoped filesystem or MinIO object-key prefix.
+
+## Resource Types
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| **precondition** | Inputs needed before work starts | Design docs, specs, instructions, API schemas |
+| **outcome** | Results produced by work | Research findings, implementation notes, analysis |
+
+## Commands
+
+```bash
+# Create a resource
+task-board m 'add_resource(TASK-260218-abc, name=TASK-260218-abc_design.md, type=precondition, content="...", description="Architecture design")'
+task-board m 'add_resource(TASK-260218-abc, name=reports/TASK-260218-abc_results.md, type=outcome, content="...", description="Research findings")'
+
+# Replace an existing resource
+task-board m 'update_resource(TASK-260218-abc, name=reports/TASK-260218-abc_results.md, type=outcome, content="revised findings", description="Research findings v2")'
+task-board resource update TASK-260218-abc ./TASK-260218-abc_results.md --name reports/TASK-260218-abc_results.md --type outcome
+
+# Adopt an existing orphaned local payload without rewriting it
+task-board resource adopt TASK-260218-abc revisions/2/TASK-260218-abc_results.md --type outcome --description "Recovered result"
+
+# Delete a resource (destructive — requires --confirm)
+task-board m --confirm 'delete_resource(TASK-260218-abc, name=artifacts/obsolete/TASK-260218-abc_design.md)'
+task-board resource delete TASK-260218-abc artifacts/obsolete/TASK-260218-abc_design.md --confirm
+
+# View resources on an element
+task-board q --format compact 'get(TASK-260218-abc) { preconditionResources outcomeResources }'
+```
+
+## Element-Owned Storage
+
+Resources from different tasks are not stored in one shared file pile. Each
+element gets its own directory, and every resource attached to that element is
+stored below it:
+
+```
+.task-board/.resources/
+├── TASK-260203-g7h8i9/
+│   ├── findings/
+│   │   └── investigation.md
+│   ├── artifacts/
+│   │   └── run-1/
+│   │       └── output.json
+│   ├── reports/
+│   │   └── TASK-260203-g7h8i9_results.md
+│   └── revisions/
+│       └── 2/
+│           └── review.md
+└── STORY-260203-d4e5f6/
+    └── research.md         # outcome
+```
+
+The resource `name` is a safe forward-slash-relative path. Agents may choose
+the hierarchy that fits the artifact and nest it further as needed. Every
+segment must be non-empty printable UTF-8 and must not be `.`, `..`, an
+absolute/drive-qualified path, or contain a backslash. Raw forward slashes are
+the only hierarchy delimiter; malformed URL escapes and encoded or repeatedly
+encoded separators/traversal are rejected. Attach related files to the same
+owning element; do not invent a generic board-wide resource task or write
+payloads into `.task-board/.resources/` manually.
+
+Directories are structural nodes, not payloads. Resource CRUD, validation, and
+handoff evidence recognize regular files only; a directory named like a report
+cannot be adopted or used to satisfy outcome evidence.
+
+Local and board-server filesystem element deletion is journaled and
+crash-recoverable. Direct resource CRUD first resolves any pending staged
+element delete under the board mutation lock. MinIO element/subtree deletion
+currently fails before mutation with the typed
+`ErrAtomicResourceDeleteUnsupported` capability error; ordinary resource CRUD
+remains available.
+
+References are tracked in `progress.md` as markdown links:
+```markdown
+## Precondition Resources
+- [specs/auth/design.md](board-resource://TASK-260203-g7h8i9/precondition/specs/auth/design.md) — Architecture design
+
+## Outcome Resources
+- [reports/TASK-260203-g7h8i9_results.md](board-resource://TASK-260203-g7h8i9/outcome/reports/TASK-260203-g7h8i9_results.md) — Research findings
+```
+
+## Spawn Integration
+
+Precondition resources are automatically injected into agent prompts by `task-board spawn`. Full prompts preserve normal text inlining. Lite prompts use the resolved `agent_context.prompt.preconditions` policy: by default, text below `inline_bytes` is rendered inline, while larger text and binary resources are written read-only under `.temp/resources/` and represented by their name, description, byte count, SHA-256 digest, and local path. This means:
+
+1. Attach instructions/specs as precondition resources to a task
+2. Run `task-board spawn TASK-XX --role developer --background --agent codex --model gpt-5.6-sol --reasoning-effort max` — agent gets everything automatically
+3. Agent saves results via `task-board m 'add_resource(..., type=outcome)'` on first write, then `update_resource(...)` for revisions
+
+## Best Practices
+
+- **Use preconditions for agent instructions** — attach design docs, specs, or step-by-step instructions before spawning
+- **Use outcomes for work products** — research findings, analysis, implementation notes
+- **Attach to the owning element** — pass the Task, Bug, Story, or Epic ID that owns the artifact; the storage layer groups its payloads under that element directory automatically
+- **Use explicit create/update/delete** — `add_resource` / `resource add` must not silently overwrite; use `update_resource` / `resource update` when replacing an existing payload
+- **Use adopt only for local repair** — `resource adopt` registers bytes already stored at `.resources/<elementID>/<relative-resource-path>` without rewriting them; a missing payload returns resource-not-found and an existing declaration returns resource-exists
+- **Choose a useful hierarchy inside the owning element** — `findings/`, `artifacts/`, `reports/`, and `revisions/` are conventions, not a fixed schema; nest further when it makes the handoff easier to navigate
+- **Use safe relative resource paths** — `/` separates validated path segments; empty, dot/traversal, absolute/drive-qualified, backslash, control-character, malformed escape, and encoded/repeatedly encoded separator or traversal forms are rejected in local and remote storage
+- **Attach files, not folders** — directories only organize resource files and never satisfy resource existence or handoff evidence
+- **Always use board commands** — never create/edit resource files or progress.md resource sections manually
+- **Name handoff evidence with task scope** — keep the task ID in the resource path, for example `reports/TASK-260218-abc_architecture-design.md`, so `task-board handoff` can recognize it
+- **Add descriptions** — the `description=` param adds a one-line description shown in spawn prompts
+
+---
+
+# Bugs
+
+Bugs are elements of the board, living inside stories alongside tasks.
+
+```bash
+# Create bug
+task-board m 'create(type=bug, parent=STORY-260218-abc, name=crash-on-start, description="App crashes when starting recording")'
+
+# Track like any element
+task-board m 'set_status(BUG-260218-abc, status=development)'
+task-board m 'add_checklist_item(BUG-260218-abc, text="Reproduce the issue")'
+task-board m 'add_checklist_item(BUG-260218-abc, text="Find root cause")'
+task-board m 'add_checklist_item(BUG-260218-abc, text="Write fix")'
+task-board m 'add_checklist_item(BUG-260218-abc, text="Add regression test")'
+```
+
+--- spawn refs matches ---
+17:The registry record is never mutated by that verdict; the snapshot is intact on
+53:exec`, or Qwen stream-JSON; goal-bound Codex/Claude owners execute inside a
+58:The parent agent is the active Orchestrator role (`orchestrator` / legacy `coordinator`). It creates or selects board tasks, spawns child runs, watches their progress, sends directives when needed, and reads child outcome resources for routing. It should not turn into the worker or reviewer just because a task is small.
+169:ordinary prompt-mode launches. A goal-bound Codex/Claude owner instead requires
+172:support goal-bound owners. Restart, reroute, and autonomous recovery successors
+297:reviewer's prompt. A non-empty list is a diagnostic, usually a `git add -A` in
+321:reviewer-archetype run skips with `not_a_producer`, which is true of every
+322:reviewer run — a reviewer judges a candidate rather than publishing one, so
+328:any other, a reviewer **is** spawned, and the injected prompt says in plain terms
+331:what the reviewer archetype is for.
+379:The reviewer records exactly one verdict. Acceptance is a named mutation:
+382:task-board m 'accept_cr(<ELEMENT-ID>, revision=<N>, evidence=<ELEMENT-ID>_review-verdict.md)'
+385:Only the reviewer run that was handed the revision may run it. `accept_cr`
+387:reviewer-archetype run bound to this element and this revision; an untracked
+388:caller, a producer run, a reviewer bound to another element or another revision,
+393:that did not exist when the reviewer launched, or whose content changed since.
+394:The producer's `_results.md` sits on the element before the reviewer is spawned,
+395:and naming it would record "reviewer run X accepted revision N with evidence E"
+405:It sets the Change Request to `accepted`, stamps the reviewer run, and parks the
+408:record's own base: that is the trunk the reviewer's diff was taken against, and
+416:stays in `reviewing`: a reviewer run that ends at bare `reviewing` with no
+418:is derived from the record rather than from the status. `accept_cr` takes no
+423:A reviewer that is cancelled and respawned keeps its Change Request binding. The
+426:`accept_cr` on that revision — a successor handed no revision is the exact shape
+427:`accept_cr` refuses, so the recovery ladder would run to its attempt limit and
+469:Change Request persistence is **local-board only**. `accept_cr` and Change
+564:forces revalidation against the exact commit integration will land. A reviewer's
+605:| Merged tree diffs against trunk to a **different path set** than the reviewer read | `stale`; the merge would have landed something outside the reviewed surface |
+610:resulting shape is compared against the paths the reviewer actually read.
+613:the same branch and worktree, and a new reviewer accepts it. Nothing about a
+850:| `change_request_evidence_missing` | the named acceptance evidence is not a task-scoped outcome resource, or is not one this reviewer run attached or updated |
+854:| `change_request_acceptance_unauthorized` | the caller is not the reviewer run that read this revision, or its identity could not be established |
+855:| `worktree_isolation_requires_local_board` | the resolved board is remote; Change Request construction and `accept_cr` both refuse before any side effect |
+1024:| `accept_cr` is registered on the mutation path only | `task-board m 'accept_cr(...)'` works, but `task-board q 'schema(mutation=accept_cr)'` answers `unknown mutation`, so the usual on-error schema discovery does not find it. Its signature is `accept_cr(ID, revision=N, evidence=NAME)` | — |
+1046:   reviewer routing as the predictable delegation plane. That keeps work
+1060:| Code, documentation, or acceptance review | `reviewer` |
+1113:print-mode cap. A manager-owned goal-bound Claude session uses a persistent PTY,
+1154:- review is also delegated with explicit `--role reviewer`, model, and reasoning after the producer
+1162:producer role and one reviewer role, and it must leave an outcome resource with
+1169:  `[implementer] developer (codex)` or `[reviewer] reviewer (codex)`
+1177:- it performs reviewer work inline after a producer reaches `to-review`
+1213:**Model validation:** Missing model, missing Codex/Qwen reasoning, reasoning on Claude, and known incompatible model/effort pairs block before board lookup or mutation. Unknown explicit models remain forward-compatible with a warning. Inspect the current compatibility matrix through local `models(agent=<selected-agent>)` even when the board itself is remote. Qwen model discovery also reports the Qwen Code context window and Token Plan Team seat pricing/monthly-quota applicability. Qwen ordinary children share the tracked prompt/process/run lifecycle, use a stream-JSON initialize frame to carry effort, and do not support goal-bound owner launches.
+1236:The Orchestrator owns producer -> reviewer -> rework -> reviewer cycles until accepted `done`:
+1238:1. A producer's `to-review` handoff triggers an explicitly selected reviewer child immediately.
+1239:2. Accepted work reaches `done` from the reviewer verdict.
+1241:4. Revised work goes through a new reviewer. Repeat until accepted.
+1243:6. A genuine `blocked` verdict stops the loop only for an evidence-backed external blocker or unresolved human-only platform/product/architecture/tradeoff/approval decision, with the full evidence packet and exact human decision or external input needed to resume.
+1325:prompt-mode child, or `Orphaned Child Session` for a goal-bound or
+1350:anything, and `task-board spawn goal upsert RUN-...` run without
+1410:task-board spawn TASK-260218-def --role reviewer --background --agent codex --model gpt-5.6-sol --reasoning-effort max
+1427:task-board spawn goal RUN-260320-abc123
+1474:`role_handoff` or `reviewer_verdict` owners without replacing the parent
+1494:task-board spawn goal "$TASK_BOARD_RUN_ID"
+1503:goal-bound Claude owners start directly in manager-held PTYs. If the declared
+1514:Provider usage/budget limits, transient launch or transport failures, nonzero goal-owner exits, unmet producer handoff status/evidence, missing reviewer branches, and unmet delivery acceptance persist a structured recovery cause and automatically queue a successor. A goal-bound predecessor rebinds the same active goal revision; a context-only predecessor drops its predecessor-owned writable child and managed envelope; a run owned by no plane gets an ordinary prompt-mode successor. The predecessor is superseded by recovery, never successful delivery.
+1554:to `to-review` for reviewer work or `to-dev` for development. This path parks
+1568:packet terminates the run with `completion_reason=stop_boundary`; reviewer runs
+1569:also persist the `stop_the_line` verdict. This branch never satisfies delivery
+1584:Delivery success is not provider completion alone. Reviewer goals persist exactly one evidence-backed branch derived from board state: `accepted`, `changes_requested`, or `stop_the_line`; an exit while still `reviewing` triggers recovery. `required`/`light` leaves need board `done`, task-scoped producer outcome evidence, and a later reviewer whose persisted branch is `accepted`. `none` leaves need `done`, producer outcome evidence, and the owner’s completion-time evidence check.
+1597:either primary launcher can create a goal-bound tracked owner.
+1613:4. On each wake-up, inspect `spawn status RUN-...` / outcome resources and route the next step (reviewer spawn, rework, dependent task) — then return to waiting on the remaining runs.
+1627:into the harness background slot. Sequenced work (producer -> reviewer) still
+1671:  handoff wording, reviewer verdict branches, compact Stop-The-Line evidence
+1673:  enforcement, run tracking, and reviewer routing remain board/runtime gates
+1710:{{.Archetype}}                 — "implementer", "analyst", "reviewer", "tester"
+1887:**Fix:** Always cross-check: `task-board q 'agents()'` + `task-board spawn status RUN-...` + run events/log file modification times. If the process is dead but the task did not reach its producer handoff or reviewer verdict status, inspect run events and outcome resources, then retry or reroute with a focused child run. Use `blocked` only when the evidence proves an external blocker or unresolved human-only stop-the-line decision, and attach the full evidence packet plus the exact human decision or external input needed to resume. Never hand recoverable work to the human or leave a parked intermediate status as the final state.
+1904:For EACH task: assign, set analysis, do work, attach outcome evidence, then set to-review. NEVER set done unless you are the reviewer role. If your final board status is to-review, report "ready for review" or "handed off to review"; do not say the task is done/complete/finished/final/готово. If objectively blocked, set blocked with concrete evidence instead of parking in analysis/development/reviewing.
+
+exec
+/bin/zsh -lc "task-board q --format compact 'get(TASK-260829-1m2pv0) { title status parent description scope acceptanceCriteria checklist notes preconditionResources outcomeResources assignee review changeRequest }'" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ exited 1 in 0ms:
+query error: parse error at 1:67: unknown field "acceptanceCriteria" (got "acceptanceCriteria"); relevant operation signature: get(id:string)
+
+exec
+/bin/zsh -lc "task-board q --format compact 'schema(operation=get)'" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+description:Get a single element by ID
+examples:["get(TASK-XX) { overview }"]
+kind:operation
+name:get
+parameters:[{"name":"id","type":"string","optional":false,"description":"Element ID"}]
+signature:get(id:string)
+
+exec
+/bin/zsh -lc "task-board q --format compact 'get(TASK-260829-1m2pv0) { overview checklist notes preconditionResources outcomeResources }'" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+id:TASK-260829-1m2pv0
+name:configure-curator-skills-and-agent-instructions
+status:reviewing
+assignee:[reviewer] reviewer (codex)
+parent:STORY-260829-1e8xzn
+checklist:[{"text":"Record the Curator main revision installed on this machine.","done":true},{"text":"Create Skillfile.json pinned to current main revisions of skill-project-management and skill-go-testing-tools.","done":true},{"text":"Install managed project skills and verify curator status --check.","done":true},{"text":"Create English AGENTS.md describing AX, PR-only landing, signed commits, updated-main branch/worktree discipline, task-board tracking, and mandatory Go testing-tools usage.","done":true},{"text":"Create CLAUDE.md as a relative symlink to AGENTS.md.","done":true},{"text":"Create README.md with project status, normative specification link, bootstrap commands, and tools/output documentation.","done":true},{"text":"Validate links, symlink, Curator state, Git metadata, and diff hygiene.","done":true},{"text":"Obtain independent tracked review and address all findings.","done":true},{"text":"Code written per task description and AC","done":true},{"text":"New outcome artifact attached on the board with a task-scoped name when the work produces notes, logs, screenshots, or other deliverables","done":true},{"text":"Important findings, decisions, anomalies, or regressions recorded in logbook when relevant","done":true},{"text":"Implementation matches AC","done":true},{"text":"Solution fits project architecture","done":true},{"text":"Tests green","done":true},{"text":"If review does not accept the work — verdict evidence added and status routed by the explicit verdict branches","done":true},{"text":"Make staged git diff --check pass without rewriting captured task-board evidence, using an explicit narrow repository policy.","done":true}]
+notes:spawn agent resolution: Agent selection: codex via explicit_override\nspawn launch composition: empty; contract=agents-infra.child-launch-composition; provider=codex; schema=1; producer=v1.6.1; diagnostic=launch_composition_empty; no project MCP servers enabled\nspawn queued: [implementer] developer (codex) (run=RUN-260828-a1d004, max_parallel=20)\nspawn run started: [implementer] developer (codex) (run=RUN-260828-a1d004)\nBootstrap evidence attached as TASK-260829-1m2pv0_bootstrap-validation-and-review.md. Independent review initially found .temp was not ignored; added .temp/ to .gitignore and reviewer accepted the rerun. Recorded Curator init help-side-effect, stale source-cache recovery, and non-blocking upstream/global cache warnings. No Go tests apply because scope contains no go.mod or Go files.\nagent completed: [implementer] developer (codex) (exit=0)\nspawn run completed: codex (run=RUN-260828-a1d004, pid=55168, exit=0)\nspawn agent resolution: Agent selection: codex via explicit_override\nspawn launch composition: empty; contract=agents-infra.child-launch-composition; provider=codex; schema=1; producer=v1.6.1; diagnostic=launch_composition_empty; no project MCP servers enabled\nspawn queued: [reviewer] reviewer (codex) (run=RUN-260828-309e13, max_parallel=20)\nspawn run started: [reviewer] reviewer (codex) (run=RUN-260828-309e13)\nReviewer verdict: accepted with no findings. Evidence: TASK-260829-1m2pv0_review-verdict.md. Current upstream pins, Curator clean state, symlink, Git signing metadata, documentation/link requirements, no-Go scope, ignore policy, and diff hygiene were independently verified. Because completing this sole Task would also complete the commit-confirmed Story, the reviewer did not supply commit_ack; the commit-owning mover must commit the accepted scope and make the final done transition with commit_ack=scope_committed.\nagent completed: [reviewer] reviewer (codex) (exit=0)\nspawn run completed: codex (run=RUN-260828-309e13, pid=61932, exit=0)\nOrchestrator post-review staged audit found whitespace diagnostics inside generated task-board spawn-log evidence. No commit was created. Rework must preserve captured bytes, apply the narrowest repository policy, and rerun staged diff checks.\nspawn agent resolution: Agent selection: codex via explicit_override\nspawn launch composition: empty; contract=agents-infra.child-launch-composition; provider=codex; schema=1; producer=v1.6.1; diagnostic=launch_composition_empty; no project MCP servers enabled\nspawn queued: [implementer] developer (codex) (run=RUN-260828-280971, max_parallel=20)\nspawn run started: [implementer] developer (codex) (run=RUN-260828-280971)\nagent completed: [implementer] developer (codex) (exit=0)\nspawn run completed: codex (run=RUN-260828-280971, pid=64899, exit=0)\nspawn agent resolution: Agent selection: codex via explicit_override\nspawn launch composition: empty; contract=agents-infra.child-launch-composition; provider=codex; schema=1; producer=v1.6.1; diagnostic=launch_composition_empty; no project MCP servers enabled\nspawn queued: [reviewer] reviewer (codex) (run=RUN-260828-4ff2a5, max_parallel=20)\nspawn run started: [reviewer] reviewer (codex) (run=RUN-260828-4ff2a5)
+preconditionResources:[{"name":"bootstrap-requirements.md","uri":"file://TASK-260829-1m2pv0/bootstrap-requirements.md","description":"Authoritative repository bootstrap requirements and pinned upstream revisions."}]
+outcomeResources:[{"name":"TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-a1d004.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-a1d004.log","description":"System spawn log captured by task-board"},{"name":"TASK-260829-1m2pv0_bootstrap-validation-and-review.md","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_bootstrap-validation-and-review.md","description":"Bootstrap implementation, validation exit codes, anomalies, and independent review verdict"},{"name":"TASK-260829-1m2pv0_spawn-log_-reviewer--reviewer--codex-_RUN-260828-309e13.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-reviewer--reviewer--codex-_RUN-260828-309e13.log","description":"System spawn log captured by task-board"},{"name":"TASK-260829-1m2pv0_review-verdict.md","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict.md","description":"Independent reviewer acceptance evidence and commit-gated handoff"},{"name":"TASK-260829-1m2pv0_upstream-revisions-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_upstream-revisions-review-01.log","description":"Independent upstream main revision verification"},{"name":"TASK-260829-1m2pv0_curator-version-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_curator-version-review-01.log","description":"Independent installed Curator revision verification"},{"name":"TASK-260829-1m2pv0_curator-status-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_curator-status-review-01.log","description":"Independent Curator managed-state verification"},{"name":"TASK-260829-1m2pv0_metadata-validation-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_metadata-validation-review-01.log","description":"Independent metadata and documentation gate results"},{"name":"TASK-260829-1m2pv0_git-status-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_git-status-review-01.log","description":"Reviewer repository status evidence"},{"name":"TASK-260829-1m2pv0_task-board-validate-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_task-board-validate-review-01.log","description":"Board validation after accepted handoff"},{"name":"TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-280971.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-280971.log","description":"System spawn log captured by task-board"},{"name":"TASK-260829-1m2pv0_staged-diff-rework.md","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_staged-diff-rework.md","description":"Narrow spawn-log whitespace policy and staged diff validation evidence"},{"name":"TASK-260829-1m2pv0_spawn-log_-reviewer--reviewer--codex-_RUN-260828-4ff2a5.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-reviewer--reviewer--codex-_RUN-260828-4ff2a5.log","description":"System spawn log captured by task-board"}]
+
+codex
+Повторный review сфокусирован на единственном rework: узкая policy для сохранённых spawn-log байтов должна убрать staged whitespace errors, не маскируя ошибки в обычных файлах. Параллельно заново проверяю базовые bootstrap AC, потому что acceptance относится ко всему task scope, а не только к последнему файлу.
+exec
+/bin/zsh -lc "{ command -v git; git --version; command -v curator; curator --version 2>&1 || true; } > .temp/TASK-260829-1m2pv0/tool-readiness-bootstrap-review.log 2>&1 && git status --short && printf '\\n--- staged names ---\\n' && git diff --cached --name-status && printf '\\n--- unstaged names ---\\n' && git diff --name-status && printf '\\n--- staged summary ---\\n' && git diff --cached --stat && printf '\\n--- unstaged summary ---\\n' && git diff --stat" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+?? .gitattributes
+?? .gitignore
+?? .planning/
+?? .task-board/
+?? AGENTS.md
+?? CLAUDE.md
+?? README.md
+?? Skillfile.json
+
+--- staged names ---
+
+--- unstaged names ---
+
+--- staged summary ---
+
+--- unstaged summary ---
+
+exec
+/bin/zsh -lc "printf '%s\\n' '--- repository ---' && git rev-parse --is-inside-work-tree && git branch --show-current && git rev-parse --verify HEAD 2>&1 || true && git remote -v && printf '%s\\n' '--- root listing ---' && ls -la && printf '%s\\n' '--- symlink ---' && test -L CLAUDE.md && readlink CLAUDE.md && test \""'$(readlink CLAUDE.md)" = AGENTS.md && test "$(cat CLAUDE.md)" = "$(cat AGENTS.md)"; printf '"'symlink_gate=%s\\n' \""'$?" && printf '"'%s\\n' '--- Skillfile ---' && sed -n '1,220p' Skillfile.json && printf '%s\\n' '--- gitattributes ---' && sed -n '1,160p' .gitattributes && printf '%s\\n' '--- gitignore ---' && sed -n '1,160p' .gitignore && printf '%s\\n' '--- AGENTS ---' && sed -n '1,280p' AGENTS.md && printf '%s\\n' '--- README ---' && sed -n '1,320p' README.md" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+--- repository ---
+true
+setup/project-foundation
+45525eb9bb37a77ed44c41d7aaf37bf3dc101815
+origin	git@github.com:relux-works/agent-session-manager.git (fetch)
+origin	git@github.com:relux-works/agent-session-manager.git (push)
+--- root listing ---
+total 40
+drwxr-xr-x  15 iv  staff   480 Aug 29 03:09 .
+drwxr-xr-x@ 55 iv  staff  1760 Aug 29 02:44 ..
+drwxr-xr-x@  6 iv  staff   192 Aug 29 02:53 .agents
+drwxr-xr-x@  3 iv  staff    96 Aug 29 02:50 .claude
+drwxr-xr-x@  3 iv  staff    96 Aug 29 02:50 .codex
+drwxr-xr-x  14 iv  staff   448 Aug 29 03:14 .git
+-rw-r--r--@  1 iv  staff   152 Aug 29 03:09 .gitattributes
+-rw-r--r--@  1 iv  staff   144 Aug 29 02:59 .gitignore
+drwxr-xr-x@  3 iv  staff    96 Aug 29 02:47 .planning
+drwxr-xr-x@  6 iv  staff   192 Aug 29 03:14 .task-board
+drwxr-xr-x   7 iv  staff   224 Aug 29 02:47 .temp
+-rw-r--r--@  1 iv  staff  3778 Aug 29 02:53 AGENTS.md
+lrwxr-xr-x@  1 iv  staff     9 Aug 29 02:53 CLAUDE.md -> AGENTS.md
+-rw-r--r--@  1 iv  staff  3392 Aug 29 02:53 README.md
+-rw-r--r--@  1 iv  staff   420 Aug 29 02:51 Skillfile.json
+--- symlink ---
+AGENTS.md
+symlink_gate=0
+--- Skillfile ---
+{
+  "agents": [],
+  "schema_version": 1,
+  "skills": [
+    {
+      "git": "https://github.com/relux-works/skill-project-management",
+      "name": "project-management",
+      "revision": "b491ce1b867e4248471290dd168e069b0ecd90ea"
+    },
+    {
+      "git": "https://github.com/relux-works/skill-go-testing-tools",
+      "name": "go-testing-tools",
+      "revision": "90c1515239eed9321068f3bafbeb5d0a0c2aa26a"
+    }
+  ]
+}
+--- gitattributes ---
+# Spawn logs preserve verbatim external CLI output, including help indentation.
+.task-board/.resources/*/*_spawn-log_*.log whitespace=-space-before-tab
+--- gitignore ---
+# Curator
+.agents/
+.claude/skills/
+.codex/skills/
+.cursor/rules/
+.gemini/skills/
+Skillfile.dev.json
+
+# Project-local temporary artifacts
+.temp/
+--- AGENTS ---
+# Agent Session Manager Repository Instructions
+
+`AGENTS.md` is the canonical instruction file for this repository. `CLAUDE.md`
+must remain a relative symlink to this file so every supported agent reads the
+same rules.
+
+## Product and Specification
+
+- The product is Agent Session Manager, exposed as the `ax` command.
+- Treat the [normative AX specification](https://github.com/relux-works/agent-session-manager-spec/blob/main/SPEC.md)
+  as the authority for product behavior. Do not invent behavior that conflicts
+  with it.
+- This repository contains the implementation. Keep specifications and
+  implementation changes traceable to their task-board work.
+
+## Change Workflow
+
+- Track every change in `task-board` before implementation begins. Keep the
+  task status, checklist, notes, and task-scoped outcome evidence current.
+- The repository bootstrap is the only direct-bootstrap exception. Every later
+  change lands on `main` through a pull request; never push feature work
+  directly to `main`.
+- Before creating a branch or worktree, fetch `origin`, switch to local `main`,
+  and fast-forward it to `origin/main`. Never branch from stale `main`.
+
+  ```bash
+  git fetch origin main
+  git switch main
+  git merge --ff-only origin/main
+  git switch -c <branch-name>
+  ```
+
+- For isolated work, create task-scoped worktrees under
+  `.temp/<TASK-ID>/worktree/`; do not place temporary worktrees beside the
+  repository.
+- Keep changes focused, review the diff, and run relevant tests and validation
+  before handing a task to review.
+
+## Git Identity and Signing
+
+Use the repository-local identity and SSH signing configuration below:
+
+```bash
+git config --local user.name "Ivan Oparin"
+git config --local user.email "oparin@me.com"
+git config --local gpg.format ssh
+git config --local user.signingkey /Users/iv/.ssh/ivanopcode.pub
+git config --local commit.gpgsign true
+git config --local tag.gpgsign true
+```
+
+Every commit and tag must be signed. Do not add AI attribution or
+`Co-Authored-By` trailers.
+
+## Curator-Managed Skills
+
+- `Skillfile.json` is the source of truth for project skills.
+- Use Curator to install or update skills. Never edit files under `.agents/`,
+  `.claude/skills/`, or `.codex/skills/` by hand; Curator owns those paths.
+- Resolve project commands from `.agents/bin/` first. A validated bare command
+  may be used when the project shim is unavailable.
+- Run `curator install` after changing `Skillfile.json`, then require
+  `curator status --check` to exit successfully.
+
+## Go Development and Testing
+
+- Use the Curator-managed `go-testing-tools` skill for every Go implementation,
+  refactor, or test task. Read its `SKILL.md` before technical work and follow
+  its closed-loop workflow.
+- Add or update tests whenever behavior changes. Prefer pure reducer tests,
+  component tests, and mocked integration tests in that order when the AX code
+  uses Elm-style TUI architecture.
+- Drive real production entry points and include negative tests for validation,
+  authorization, refusal, and attestation gates.
+- Run the relevant package tests while iterating, then run the repository-wide
+  test and coverage commands before review:
+
+  ```bash
+  go test ./... -v
+  go test ./... -cover
+  ```
+
+- Keep tests deterministic and free of network or terminal dependencies. Do
+  not use stubs or mock-only behavior to conceal an invalid platform or product
+  assumption.
+
+## Documentation and Artifacts
+
+- Write public specifications, repository documentation, and code comments in
+  English.
+- Store temporary logs and validation artifacts under
+  `.temp/<TASK-ID>/`. Attach task deliverables to the owning board item with a
+  task-scoped resource name.
+- Keep `README.md` and its tool/output documentation aligned with the current
+  repository state.
+--- README ---
+# Agent Session Manager (`ax`)
+
+Agent Session Manager is the implementation repository for the local-first,
+cross-host `ax` coding-agent session orchestrator.
+
+## Project Status
+
+Repository foundation is in progress. The Curator-managed agent environment is
+bootstrapped, but no Go production implementation has been added yet.
+
+Product behavior is defined by the
+[normative AX specification](https://github.com/relux-works/agent-session-manager-spec/blob/main/SPEC.md).
+When this repository and the specification disagree, the specification is
+authoritative.
+
+## Bootstrap
+
+The machine used for repository bootstrap runs Curator
+`v0.14.0-rc.3-106-g665dd13f`, built from `relux-works/curator` main revision
+`665dd13f7b6ab0408300070ef68d895f2d03b79f`.
+
+From a fresh checkout, verify Curator, install the exact skill revisions pinned
+in `Skillfile.json`, and check the managed state:
+
+```bash
+curator --version
+curator install
+curator status --check
+```
+
+Configure the required repository-local Git identity and SSH signing policy:
+
+```bash
+git config --local user.name "Ivan Oparin"
+git config --local user.email "oparin@me.com"
+git config --local gpg.format ssh
+git config --local user.signingkey /Users/iv/.ssh/ivanopcode.pub
+git config --local commit.gpgsign true
+git config --local tag.gpgsign true
+```
+
+Contributor and agent workflow rules live in [AGENTS.md](AGENTS.md).
+`CLAUDE.md` is a relative symlink to that canonical file.
+
+## Managed Skills
+
+`Skillfile.json` pins these repositories to exact revisions:
+
+| Skill | Revision |
+| --- | --- |
+| `relux-works/skill-project-management` | `b491ce1b867e4248471290dd168e069b0ecd90ea` |
+| `relux-works/skill-go-testing-tools` | `90c1515239eed9321068f3bafbeb5d0a0c2aa26a` |
+
+Curator owns `.agents/`, `.claude/skills/`, and `.codex/skills/`. Do not edit
+their generated contents directly; change `Skillfile.json` and rerun Curator.
+
+## Tools and Outputs
+
+| Tool | Purpose | Command or entry point | Outputs |
+| --- | --- | --- | --- |
+| Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
+| `task-board` | Track scope, lifecycle, checklists, and evidence | `.agents/bin/task-board` or a validated `task-board` shim | `.task-board/`; task outcome resources |
+| Go toolchain | Build, test, and measure future Go implementation work | `go test ./... -v`; `go test ./... -cover` | Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
+| Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
+| GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |
+
+Temporary validation logs and worktrees belong under `.temp/<TASK-ID>/` and
+must not be committed. Diagrams, when implementation work introduces them,
+belong under `diagrams/`.
+
+## Contribution Baseline
+
+All non-bootstrap changes land through pull requests with signed commits.
+Before creating a branch or task-scoped worktree, fetch `origin/main` and
+fast-forward local `main`. Track the work in `task-board`, use the managed
+`go-testing-tools` skill for Go changes, run relevant validation, and attach
+task-scoped evidence before review handoff. See [AGENTS.md](AGENTS.md) for the
+full contract.
+
+exec
+/bin/zsh -lc "task-board resource --help | sed -n '1,220p' && printf '\\n--- rework resource path ---\\n' && find .task-board/.resources/TASK-260829-1m2pv0 -maxdepth 1 -type f -name '*staged-diff-rework*' -print" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+Manage attached resources such as screenshots, docs, logs, and other files.
+
+Use "task-board resource add" to create a new attached resource, "task-board
+resource adopt" to register an orphaned local payload, "task-board resource
+update" to replace an existing one, "task-board resource delete" to remove it,
+and "task-board resource get" to materialize a resource back to the local
+filesystem for inspection.
+
+Usage:
+  task-board resource [command]
+
+Available Commands:
+  add         Attach a new file resource to an element
+  adopt       Register an existing unreferenced local resource payload
+  delete      Delete a resource from an element (requires --confirm)
+  get         Download a resource to the local filesystem
+  update      Replace an existing file resource on an element
+
+Flags:
+  -h, --help   help for resource
+
+Global Flags:
+      --board-dir string         Path to the board directory (overrides TASK_BOARD_DIR and config local.board_dir) (default ".task-board")
+      --context-profile string   Agent context profile override: full or lite
+      --insecure                 Skip TLS certificate verification (for self-signed certs)
+      --json                     Output in JSON format
+      --no-update-check          Disable automatic update check
+      --remote string            Remote board server URL (overrides TASK_BOARD_REMOTE)
+      --remote-board string      Remote board ID (overrides TASK_BOARD_ID)
+
+Use "task-board resource [command] --help" for more information about a command.
+
+--- rework resource path ---
+.task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_staged-diff-rework.md
+
+exec
+/bin/zsh -lc "sed -n '1,260p' .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_staged-diff-rework.md && printf '\\n--- previous verdict ---\\n' && sed -n '1,260p' .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict.md && printf '\\n--- bootstrap evidence ---\\n' && sed -n '1,340p' .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_bootstrap-validation-and-review.md" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+# TASK-260829-1m2pv0 Staged Diff Rework
+
+## Change
+
+Added a repository `.gitattributes` policy scoped to task-board spawn-log
+resources:
+
+```gitattributes
+.task-board/.resources/*/*_spawn-log_*.log whitespace=-space-before-tab
+```
+
+Spawn logs preserve external command output verbatim. The policy disables only
+Git's `space-before-tab` diagnostic for those generated logs; standard
+whitespace checks still apply to source, documentation, other board outcomes,
+and other whitespace error classes. No captured task-board evidence was
+rewritten.
+
+## Validation
+
+| Command / gate | Exit | Result |
+| --- | ---: | --- |
+| Temporary-index `git diff --cached --check` before policy | 2 | Reproduced 19 `space before tab in indent` diagnostics, all in the preserved implementer spawn log. |
+| Temporary-index `git diff --cached --check` after policy | 0 | Full staged repository candidate passes. |
+| `git check-attr whitespace` scope check | 0 | Spawn log resolves to `-space-before-tab`; README and ordinary outcome resources remain unspecified/default. |
+| `curator status --check` | 0 | Both pinned skills and all managed command artifacts are current. |
+| Metadata validation | 0 | Exact Skillfile pins, canonical relative symlink, Git signing metadata/key, no-Go scope, and narrow attribute value pass. |
+| `git check-ignore -q .temp/TASK-260829-1m2pv0/tool-readiness.log` | 0 | Task-local validation artifacts remain ignored. |
+| `task-board validate` after attaching evidence and checking the rework item | 0 | Board is valid with no issues. |
+| Final temporary-index `git diff --cached --check` after board mutations | 0 | The complete current repository candidate still passes. |
+
+Go tests were not run because this task changes repository metadata and
+documentation only; the repository has no `go.mod` and no non-ignored `.go`
+files. Curator and repository metadata checks are the applicable build and
+validation gates.
+
+The existing independent reviewer verdict remains accepted with no findings.
+This rework addresses the sole post-review staged-diff diagnostic without
+changing reviewed content or generated evidence bytes.
+
+--- previous verdict ---
+# TASK-260829-1m2pv0 Review Verdict
+
+## Verdict
+
+Accepted. No findings remain.
+
+The repository foundation matches the task description, scope, acceptance
+criteria, and authoritative bootstrap pins. The task contains metadata and
+documentation only; no Go production or test files were added.
+
+## Independent review evidence
+
+- Curator on this machine reports
+  `v0.14.0-rc.3-106-g665dd13f`, corresponding to required Curator main revision
+  `665dd13f7b6ab0408300070ef68d895f2d03b79f`.
+- Independent `git ls-remote` checks confirmed the current upstream `main`
+  revisions for Curator, `skill-project-management`, and
+  `skill-go-testing-tools` exactly match the three authoritative pins.
+- `Skillfile.json` has schema version 1, exactly two skills, the required
+  repository URLs, and exact pinned revisions
+  `b491ce1b867e4248471290dd168e069b0ecd90ea` and
+  `90c1515239eed9321068f3bafbeb5d0a0c2aa26a`.
+- `curator status --check` exited 0. Both skills are up to date and all three
+  managed project-management command artifacts are current cache hits.
+- Managed install receipts identify the same exact commits, and both Claude
+  and Codex managed indexes contain `go-testing-tools` and
+  `project-management`.
+- `CLAUDE.md` is a relative symlink whose target is exactly `AGENTS.md`; the
+  resolved bytes match.
+- `AGENTS.md` is English and covers AX/spec authority, task-board tracking,
+  bootstrap-only direct landing, PR-only later changes, fresh-main branch and
+  worktree discipline, signed commits/tags, Curator ownership, and mandatory
+  `go-testing-tools` usage for Go work.
+- `README.md` documents project status, the normative specification,
+  bootstrap commands, managed revisions, Git signing setup, project tools,
+  entry points, and output locations.
+- Repository-local Git author, email, SSH signing format/key, commit signing,
+  and tag signing all match the authoritative requirements. The public signing
+  key file exists.
+- The normative specification URL resolved successfully. Managed binaries are
+  executable. `.temp/` is ignored. No Go file exists outside ignored/task-board
+  state.
+- Explicit whitespace checks over new repository files and `git diff --check`
+  passed. No unexpected production-code scope was found.
+
+## Validation logs
+
+- `.temp/TASK-260829-1m2pv0/upstream-revisions-review-01.log`
+- `.temp/TASK-260829-1m2pv0/curator-version-review-01.log`
+- `.temp/TASK-260829-1m2pv0/curator-status-review-01.log`
+- `.temp/TASK-260829-1m2pv0/metadata-validation-review-01.log`
+- `.temp/TASK-260829-1m2pv0/git-status-01.log`
+- `.temp/TASK-260829-1m2pv0/task-board-validate-review-01.log`
+
+`task-board validate` also exited 0 with no issues after the verdict resource
+and accepted handoff were recorded.
+
+Go tests were not run because the accepted scope has no `go.mod`, Go
+production files, or Go test files. Curator status and metadata validation are
+the applicable gates.
+
+## Commit-gated handoff
+
+This is the only Task in `STORY-260829-1e8xzn`; moving it to `done` would also
+complete the Story and invoke the configured commit-confirmation gate. This
+reviewer run does not supply `commit_ack`. The commit-owning mover must commit
+the accepted repository scope and then perform the final `done` transition
+with `commit_ack=scope_committed`.
+
+--- bootstrap evidence ---
+# TASK-260829-1m2pv0 Bootstrap Validation and Review
+
+## Delivered repository foundation
+
+- Recorded Curator `relux-works/curator` main revision
+  `665dd13f7b6ab0408300070ef68d895f2d03b79f` (`v0.14.0-rc.3-106-g665dd13f`).
+- Pinned and installed `skill-project-management` revision
+  `b491ce1b867e4248471290dd168e069b0ecd90ea` and
+  `skill-go-testing-tools` revision
+  `90c1515239eed9321068f3bafbeb5d0a0c2aa26a`.
+- Added canonical English repository instructions, the relative
+  `CLAUDE.md -> AGENTS.md` symlink, bootstrap/tooling documentation, and
+  project-local temporary-output ignore policy.
+- Added no Go production code.
+
+## Validation evidence
+
+| Command / gate | Exit | Result |
+| --- | ---: | --- |
+| `git ls-remote` for Curator and both skill `refs/heads/main` | 0 | All three upstream revisions matched the authoritative pins. |
+| `curator install` | 0 | Both skills installed; project-management command artifacts were current/cache hits. |
+| `curator status --check` (final rerun) | 0 | Both skills up to date; all managed command artifacts current. |
+| Exact `jq -e` assertions over `Skillfile.json` | 0 | Schema, dependency count, URLs, names, and revisions matched. |
+| `test -L`, `readlink`, and `cmp` for `CLAUDE.md` | 0 | Relative target is exactly `AGENTS.md` and contents resolve identically. |
+| Git local identity/signing assertions | 0 | Author, email, SSH format/key, commit signing, and tag signing matched requirements. |
+| GitHub API lookup for normative `SPEC.md` link | 0 | Canonical specification file exists on `main`. |
+| Required AGENTS/README content assertions | 0 | AX, PR workflow, updated-main discipline, task-board, Go testing-tools, bootstrap, spec, and tool docs are present. |
+| No-Go-production-files assertion | 0 | No `.go` file exists in repository implementation scope. |
+| Documentation trailing-whitespace gate | 0 | No trailing whitespace found. |
+| `git diff --check` | 0 | No tracked diff-hygiene errors. |
+| `git check-ignore -q .temp/TASK-260829-1m2pv0/curator-readiness.log` | 0 | Task-local temporary outputs are ignored. |
+
+Go tests were not run: the task is explicitly repository metadata and
+documentation only, and the repository intentionally has neither `go.mod` nor
+Go production/test files. Curator install/status are the relevant build and
+configuration validation gates for this delta.
+
+## Independent review
+
+The independent read-only reviewer initially requested one change: `.temp/`
+was documented as non-committed output but was not ignored. The project-owned
+`.temp/` rule was added to `.gitignore`, and the affected ignore, whitespace,
+status, and Curator gates were rerun. The reviewer re-reviewed the change and
+returned `accept`; no findings remain.
+
+## Recoverable anomalies
+
+- `curator init --help` initialized the manifest because this Curator command
+  has no help-only flag path. The generated manifest and managed ignore block
+  were the required task outputs and were retained.
+- The first `curator add project-management` exited 1 because the local Curator
+  source cache did not yet contain the pinned revision. `curator update`
+  exited 0; the repeated add and all subsequent install/status checks exited 0.
+- Curator install emitted an upstream project-management command-resolution
+  documentation warning and unrelated global build-cache quarantine warnings.
+  The repository instructions explicitly document project-first command
+  resolution, and the final managed-state check is clean.
+
+exec
+/bin/zsh -lc "set -o pipefail
+{
+  printf '%s\\n' '--- curator version ---'
+  curator --version
+  printf '%s\\n' '--- curator status --check ---'
+  curator status --check
+  printf '%s\\n' '--- git identity/signing ---'
+  git config --local --get user.name
+  git config --local --get user.email
+  git config --local --get gpg.format
+  git config --local --get user.signingkey
+  git config --local --get commit.gpgsign
+  git config --local --get tag.gpgsign
+  test -f /Users/iv/.ssh/ivanopcode.pub
+  printf '%s\\n' 'signing_key_exists=true'
+  printf '%s\\n' '--- curator ownership / managed links ---'
+  curator status --check >/dev/null
+  test -e .agents/skills/project-management/SKILL.md
+  test -e .agents/skills/go-testing-tools/SKILL.md
+  test -e .claude/skills/project-management/SKILL.md
+  test -e .codex/skills/go-testing-tools/SKILL.md
+  printf '%s\\n' 'managed_skill_paths=true'
+  printf '%s\\n' '--- no Go scope ---'
+  if find . -path './.git' -prune -o -path './.temp' -prune -o -path './.task-board' -prune -o -path './.agents' -prune -o -path './.claude/skills' -prune -o -path './.codex/skills' -prune -o -name '*.go' -print | grep -q .; then exit 21; fi
+  test "'! -e go.mod
+  printf '"'%s\\n' 'no_go_scope=true'
+} 2>&1 | tee .temp/TASK-260829-1m2pv0/bootstrap-local-review-02.log" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 25953ms:
+agent-session-manager: go-testing-tools up-to-date
+agent-session-manager: project-management up-to-date
+agent-session-manager: project-management.task-board build driver=go-v1 root=tools/board-cli dir=tools/board-cli source=curator-build-source-v1:sha256:25a4ed05a6d37fae9f327b4df89bba8052c21fdbdf1a7c6be55cb8848d5585e0 target=darwin/arm64+GOARM64=v8.0 key=sha256:b9e56e1b9a47fd0f64847ddaa855cc45a918fe5ae530da73cc9c2aaeafa7c788 artifact=bin/task-board cache=cache-hit state=current
+agent-session-manager: project-management.task-board-tui build driver=go-v1 root=tools/board-tui dir=tools/board-tui source=curator-build-source-v1:sha256:25a4ed05a6d37fae9f327b4df89bba8052c21fdbdf1a7c6be55cb8848d5585e0 target=darwin/arm64+GOARM64=v8.0 key=sha256:32d1330c31f0e7f881eae8ef70e06715ab3986d9b4f511813a1ce0bb62ea893f artifact=bin/task-board-tui cache=cache-hit state=current
+agent-session-manager: project-management.tb-sessiond build driver=go-v1 root=tools/board-cli dir=tools/board-cli/cmd/tb-sessiond source=curator-build-source-v1:sha256:25a4ed05a6d37fae9f327b4df89bba8052c21fdbdf1a7c6be55cb8848d5585e0 target=darwin/arm64+GOARM64=v8.0 key=sha256:1f5c8f77b17aa691005259ba01e90aef4873bede59bbe93a684dbb46f1e20959 artifact=bin/tb-sessiond cache=cache-hit state=current
+--- git identity/signing ---
+Ivan Oparin
+oparin@me.com
+ssh
+/Users/iv/.ssh/ivanopcode.pub
+true
+true
+signing_key_exists=true
+--- curator ownership / managed links ---
+managed_skill_paths=true
+--- no Go scope ---
+no_go_scope=true
+
+exec
+/bin/zsh -lc "set -o pipefail
+{
+  printf '%s\\n' 'curator'
+  git ls-remote https://github.com/relux-works/curator refs/heads/main
+  printf '%s\\n' 'skill-project-management'
+  git ls-remote https://github.com/relux-works/skill-project-management refs/heads/main
+  printf '%s\\n' 'skill-go-testing-tools'
+  git ls-remote https://github.com/relux-works/skill-go-testing-tools refs/heads/main
+} 2>&1 | tee .temp/TASK-260829-1m2pv0/upstream-revisions-review-02.log" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 3020ms:
+665dd13f7b6ab0408300070ef68d895f2d03b79f	refs/heads/main
+skill-project-management
+b491ce1b867e4248471290dd168e069b0ecd90ea	refs/heads/main
+skill-go-testing-tools
+90c1515239eed9321068f3bafbeb5d0a0c2aa26a	refs/heads/main
+
+exec
+/bin/zsh -lc 'set -o pipefail
+review_index_dir=$(mktemp -d .temp/TASK-260829-1m2pv0/review-index-XXXXXX)
+review_index="$review_index_dir/index"
+{
+  printf '"'%s\\n' '--- temporary index candidate ---'
+  GIT_INDEX_FILE=\""'$review_index" git read-tree HEAD
+  GIT_INDEX_FILE="$review_index" git add -A
+  GIT_INDEX_FILE="$review_index" git status --short
+  printf '"'%s\\n' '--- staged diff check ---'
+  GIT_INDEX_FILE=\""'$review_index" git diff --cached --check
+  printf '"'%s\\n' 'staged_diff_check=pass'
+  printf '%s\\n' '--- attribute scope ---'
+  git check-attr whitespace -- .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-a1d004.log README.md .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_staged-diff-rework.md
+  printf '%s\\n' '--- policy diff ---'
+  GIT_INDEX_FILE=\""'$review_index" git diff --cached -- .gitattributes
+} 2>&1 | tee .temp/TASK-260829-1m2pv0/staged-diff-policy-review-02.log' in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+--- temporary index candidate ---
+A  .gitattributes
+A  .gitignore
+A  .planning/260829_024701_epic-260829-dz9yvx.md
+A  .task-board/.board-write-ledger.json
+A  .task-board/.goals/primary/PRIMARY-GOAL-260829-34s1dr/revision-000001.json
+A  .task-board/.goals/primary/head.json
+A  .task-board/.goals/v2/migration.json
+A  .task-board/.goals/v2/owners/parent/primary/head.json
+A  .task-board/.goals/v2/revisions/PRIMARY-GOAL-260829-34S1DR/revision-000001.json
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_bootstrap-validation-and-review.md
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_curator-status-review-01.log
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_curator-version-review-01.log
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_git-status-review-01.log
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_metadata-validation-review-01.log
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict.md
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-280971.log
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-a1d004.log
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-reviewer--reviewer--codex-_RUN-260828-309e13.log
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-reviewer--reviewer--codex-_RUN-260828-4ff2a5.log
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_staged-diff-rework.md
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_task-board-validate-review-01.log
+A  .task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_upstream-revisions-review-01.log
+A  .task-board/.resources/TASK-260829-1m2pv0/bootstrap-requirements.md
+A  .task-board/EPIC-260829-dz9yvx_implementation-repository-foundation/README.md
+A  .task-board/EPIC-260829-dz9yvx_implementation-repository-foundation/STORY-260829-1e8xzn_bootstrap-development-environment/README.md
+A  .task-board/EPIC-260829-dz9yvx_implementation-repository-foundation/STORY-260829-1e8xzn_bootstrap-development-environment/TASK-260829-1m2pv0_configure-curator-skills-and-agent-instructions/README.md
+A  .task-board/EPIC-260829-dz9yvx_implementation-repository-foundation/STORY-260829-1e8xzn_bootstrap-development-environment/TASK-260829-1m2pv0_configure-curator-skills-and-agent-instructions/progress.md
+A  .task-board/EPIC-260829-dz9yvx_implementation-repository-foundation/STORY-260829-1e8xzn_bootstrap-development-environment/progress.md
+A  .task-board/EPIC-260829-dz9yvx_implementation-repository-foundation/progress.md
+A  AGENTS.md
+A  CLAUDE.md
+A  README.md
+A  Skillfile.json
+--- staged diff check ---
+staged_diff_check=pass
+--- attribute scope ---
+.task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-a1d004.log: whitespace: -space-before-tab
+README.md: whitespace: unspecified
+.task-board/.resources/TASK-260829-1m2pv0/TASK-260829-1m2pv0_staged-diff-rework.md: whitespace: unspecified
+--- policy diff ---
+diff --git a/.gitattributes b/.gitattributes
+new file mode 100644
+index 0000000..d84545f
+--- /dev/null
++++ b/.gitattributes
+@@ -0,0 +1,2 @@
++# Spawn logs preserve verbatim external CLI output, including help indentation.
++.task-board/.resources/*/*_spawn-log_*.log whitespace=-space-before-tab
+
+exec
+/bin/zsh -lc "set -o pipefail
+{
+  command -v jq
+  jq --version
+  jq -e '
+    .schema_version == 1 and
+    (.agents == []) and
+    (.skills | length == 2) and
+    (.skills[0] == {\"git\":\"https://github.com/relux-works/skill-project-management\",\"name\":\"project-management\",\"revision\":\"b491ce1b867e4248471290dd168e069b0ecd90ea\"}) and
+    (.skills[1] == {\"git\":\"https://github.com/relux-works/skill-go-testing-tools\",\"name\":\"go-testing-tools\",\"revision\":\"90c1515239eed9321068f3bafbeb5d0a0c2aa26a\"})
+  ' Skillfile.json
+  test -L CLAUDE.md
+  test \""'$(readlink CLAUDE.md)" = "AGENTS.md"
+  cmp -s AGENTS.md CLAUDE.md
+  rg -q '"'Agent Session Manager.*"'`ax`'"' AGENTS.md
+  rg -q 'normative AX specification' AGENTS.md
+  rg -q 'Every later.*through a pull request' AGENTS.md
+  rg -q 'git merge --ff-only origin/main' AGENTS.md
+  rg -q 'task-board' AGENTS.md
+  rg -q 'go-testing-tools' AGENTS.md
+  rg -q 'Every commit and tag must be signed' AGENTS.md
+  rg -q 'Project Status' README.md
+  rg -q 'normative AX specification' README.md
+  rg -q 'curator install' README.md
+  rg -q 'curator status --check' README.md
+  rg -q 'Tools and Outputs' README.md
+  rg -q '\\.temp/<TASK-ID>/' README.md
+  printf '%s\\n' 'metadata_content_checks=pass'
+  command -v curl
+  curl --version | sed -n '1p'
+  curl -fsSL -o /dev/null https://raw.githubusercontent.com/relux-works/agent-session-manager-spec/main/SPEC.md
+  printf '%s\\n' 'normative_spec_link=pass'
+} 2>&1 | tee .temp/TASK-260829-1m2pv0/metadata-links-review-02.log" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 3720ms:
+normative_spec_link=pass
+
+codex
+Проверки зелёные: exact upstream pins всё ещё совпадают с `main`, Curator clean, symlink/signing/docs корректны, Go scope отсутствует. Временный index со всем repository candidate проходит `git diff --cached --check`; атрибут отключён только для generated spawn logs, а README и обычные outcomes остаются на стандартной whitespace policy. Фиксирую accepted verdict и передаю commit-owning mover — сам `commit_ack` reviewer давать не имеет права.
+apply patch
+patch: completed
+/Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+diff --git a/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..78fc691ca43557abf14d098602996bf373c2f4f0
+--- /dev/null
++++ b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+@@ -0,0 +1,55 @@
++# TASK-260829-1m2pv0 Review Verdict 02
++
++## Verdict
++
++Accepted. No findings remain.
++
++The repository foundation and the staged-diff rework match the task description,
++scope, acceptance criteria, and authoritative bootstrap requirements. The
++repository candidate contains metadata and documentation only; no Go production
++or test files were added.
++
++## Independent review evidence
++
++- Curator reports `v0.14.0-rc.3-106-g665dd13f`, matching required Curator main
++  revision `665dd13f7b6ab0408300070ef68d895f2d03b79f`.
++- Fresh `git ls-remote` checks confirmed the current `main` revisions of Curator,
++  `skill-project-management`, and `skill-go-testing-tools` match all three
++  authoritative pins.
++- `Skillfile.json` contains exactly the required two skills, repository URLs,
++  names, and pinned revisions.
++- `curator status --check` exited 0; both managed skills and all three managed
++  project-management command artifacts are current.
++- `CLAUDE.md` is a relative symlink whose target is exactly `AGENTS.md`, and the
++  resolved bytes match.
++- `AGENTS.md` and `README.md` cover the required AX/spec authority, PR-only
++  post-bootstrap workflow, fresh-main branch/worktree discipline, task-board,
++  signed Git metadata, mandatory Go testing-tools usage, bootstrap commands,
++  project status, and tools/output documentation.
++- Repository-local Git identity and SSH signing settings match the authoritative
++  requirements, and the configured public key exists.
++- The normative specification link resolves successfully.
++- A temporary index containing the complete current repository candidate passes
++  `git diff --cached --check`.
++- `.gitattributes` disables only Git's `space-before-tab` diagnostic for
++  task-board generated `*_spawn-log_*.log` resources. `git check-attr` confirms
++  README and ordinary outcome resources remain unspecified and therefore use
++  the repository's standard whitespace checks. Captured spawn-log bytes were not
++  rewritten.
++- `.temp/` remains ignored. The repository has no `go.mod` and no non-managed,
++  non-board Go files, so Go tests are not applicable to this metadata-only task.
++
++## Validation logs
++
++- `TASK-260829-1m2pv0_bootstrap-local-review-02.log`
++- `TASK-260829-1m2pv0_upstream-revisions-review-02.log`
++- `TASK-260829-1m2pv0_metadata-links-review-02.log`
++- `TASK-260829-1m2pv0_staged-diff-policy-review-02.log`
++
++## Commit-gated handoff
++
++This is the sole Task in `STORY-260829-1e8xzn`, so its `done` transition also
++completes the commit-confirmed Story. This reviewer run must not supply
++`commit_ack`. The commit-owning mover must commit the accepted repository scope
++and then make the final `done` transition with
++`commit_ack=scope_committed`.
+
+diff --git a/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..78fc691ca43557abf14d098602996bf373c2f4f0
+--- /dev/null
++++ b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+@@ -0,0 +1,55 @@
++# TASK-260829-1m2pv0 Review Verdict 02
++
++## Verdict
++
++Accepted. No findings remain.
++
++The repository foundation and the staged-diff rework match the task description,
++scope, acceptance criteria, and authoritative bootstrap requirements. The
++repository candidate contains metadata and documentation only; no Go production
++or test files were added.
++
++## Independent review evidence
++
++- Curator reports `v0.14.0-rc.3-106-g665dd13f`, matching required Curator main
++  revision `665dd13f7b6ab0408300070ef68d895f2d03b79f`.
++- Fresh `git ls-remote` checks confirmed the current `main` revisions of Curator,
++  `skill-project-management`, and `skill-go-testing-tools` match all three
++  authoritative pins.
++- `Skillfile.json` contains exactly the required two skills, repository URLs,
++  names, and pinned revisions.
++- `curator status --check` exited 0; both managed skills and all three managed
++  project-management command artifacts are current.
++- `CLAUDE.md` is a relative symlink whose target is exactly `AGENTS.md`, and the
++  resolved bytes match.
++- `AGENTS.md` and `README.md` cover the required AX/spec authority, PR-only
++  post-bootstrap workflow, fresh-main branch/worktree discipline, task-board,
++  signed Git metadata, mandatory Go testing-tools usage, bootstrap commands,
++  project status, and tools/output documentation.
++- Repository-local Git identity and SSH signing settings match the authoritative
++  requirements, and the configured public key exists.
++- The normative specification link resolves successfully.
++- A temporary index containing the complete current repository candidate passes
++  `git diff --cached --check`.
++- `.gitattributes` disables only Git's `space-before-tab` diagnostic for
++  task-board generated `*_spawn-log_*.log` resources. `git check-attr` confirms
++  README and ordinary outcome resources remain unspecified and therefore use
++  the repository's standard whitespace checks. Captured spawn-log bytes were not
++  rewritten.
++- `.temp/` remains ignored. The repository has no `go.mod` and no non-managed,
++  non-board Go files, so Go tests are not applicable to this metadata-only task.
++
++## Validation logs
++
++- `TASK-260829-1m2pv0_bootstrap-local-review-02.log`
++- `TASK-260829-1m2pv0_upstream-revisions-review-02.log`
++- `TASK-260829-1m2pv0_metadata-links-review-02.log`
++- `TASK-260829-1m2pv0_staged-diff-policy-review-02.log`
++
++## Commit-gated handoff
++
++This is the sole Task in `STORY-260829-1e8xzn`, so its `done` transition also
++completes the commit-confirmed Story. This reviewer run must not supply
++`commit_ack`. The commit-owning mover must commit the accepted repository scope
++and then make the final `done` transition with
++`commit_ack=scope_committed`.
+
+exec
+/bin/zsh -lc 'task-board resource add TASK-260829-1m2pv0 .temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md --type outcome --name TASK-260829-1m2pv0_TASK-260829-1m2pv0_review-verdict-02.md -d "Independent re-review acceptance verdict after staged-diff policy rework"' in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+Attached TASK-260829-1m2pv0_TASK-260829-1m2pv0_review-verdict-02.md on TASK-260829-1m2pv0 as outcome
+
+exec
+/bin/zsh -lc 'task-board resource add TASK-260829-1m2pv0 .temp/TASK-260829-1m2pv0/bootstrap-local-review-02.log --type outcome --name TASK-260829-1m2pv0_bootstrap-local-review-02.log -d "Independent Curator, signing metadata, managed paths, and no-Go validation"' in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+Attached TASK-260829-1m2pv0_bootstrap-local-review-02.log on TASK-260829-1m2pv0 as outcome
+
+exec
+/bin/zsh -lc 'task-board resource add TASK-260829-1m2pv0 .temp/TASK-260829-1m2pv0/upstream-revisions-review-02.log --type outcome --name TASK-260829-1m2pv0_upstream-revisions-review-02.log -d "Fresh upstream main revision verification"' in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+Attached TASK-260829-1m2pv0_upstream-revisions-review-02.log on TASK-260829-1m2pv0 as outcome
+
+exec
+/bin/zsh -lc 'task-board resource add TASK-260829-1m2pv0 .temp/TASK-260829-1m2pv0/metadata-links-review-02.log --type outcome --name TASK-260829-1m2pv0_metadata-links-review-02.log -d "Exact Skillfile, symlink, required documentation, and specification-link validation"' in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+Attached TASK-260829-1m2pv0_metadata-links-review-02.log on TASK-260829-1m2pv0 as outcome
+
+exec
+/bin/zsh -lc 'task-board resource add TASK-260829-1m2pv0 .temp/TASK-260829-1m2pv0/staged-diff-policy-review-02.log --type outcome --name TASK-260829-1m2pv0_staged-diff-policy-review-02.log -d "Temporary-index staged diff and narrow whitespace-attribute validation"' in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+Attached TASK-260829-1m2pv0_staged-diff-policy-review-02.log on TASK-260829-1m2pv0 as outcome
+
+diff --git a/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..78fc691ca43557abf14d098602996bf373c2f4f0
+--- /dev/null
++++ b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+@@ -0,0 +1,55 @@
++# TASK-260829-1m2pv0 Review Verdict 02
++
++## Verdict
++
++Accepted. No findings remain.
++
++The repository foundation and the staged-diff rework match the task description,
++scope, acceptance criteria, and authoritative bootstrap requirements. The
++repository candidate contains metadata and documentation only; no Go production
++or test files were added.
++
++## Independent review evidence
++
++- Curator reports `v0.14.0-rc.3-106-g665dd13f`, matching required Curator main
++  revision `665dd13f7b6ab0408300070ef68d895f2d03b79f`.
++- Fresh `git ls-remote` checks confirmed the current `main` revisions of Curator,
++  `skill-project-management`, and `skill-go-testing-tools` match all three
++  authoritative pins.
++- `Skillfile.json` contains exactly the required two skills, repository URLs,
++  names, and pinned revisions.
++- `curator status --check` exited 0; both managed skills and all three managed
++  project-management command artifacts are current.
++- `CLAUDE.md` is a relative symlink whose target is exactly `AGENTS.md`, and the
++  resolved bytes match.
++- `AGENTS.md` and `README.md` cover the required AX/spec authority, PR-only
++  post-bootstrap workflow, fresh-main branch/worktree discipline, task-board,
++  signed Git metadata, mandatory Go testing-tools usage, bootstrap commands,
++  project status, and tools/output documentation.
++- Repository-local Git identity and SSH signing settings match the authoritative
++  requirements, and the configured public key exists.
++- The normative specification link resolves successfully.
++- A temporary index containing the complete current repository candidate passes
++  `git diff --cached --check`.
++- `.gitattributes` disables only Git's `space-before-tab` diagnostic for
++  task-board generated `*_spawn-log_*.log` resources. `git check-attr` confirms
++  README and ordinary outcome resources remain unspecified and therefore use
++  the repository's standard whitespace checks. Captured spawn-log bytes were not
++  rewritten.
++- `.temp/` remains ignored. The repository has no `go.mod` and no non-managed,
++  non-board Go files, so Go tests are not applicable to this metadata-only task.
++
++## Validation logs
++
++- `TASK-260829-1m2pv0_bootstrap-local-review-02.log`
++- `TASK-260829-1m2pv0_upstream-revisions-review-02.log`
++- `TASK-260829-1m2pv0_metadata-links-review-02.log`
++- `TASK-260829-1m2pv0_staged-diff-policy-review-02.log`
++
++## Commit-gated handoff
++
++This is the sole Task in `STORY-260829-1e8xzn`, so its `done` transition also
++completes the commit-confirmed Story. This reviewer run must not supply
++`commit_ack`. The commit-owning mover must commit the accepted repository scope
++and then make the final `done` transition with
++`commit_ack=scope_committed`.
+
+exec
+/bin/zsh -lc "task-board m 'set_status(TASK-260829-1m2pv0, status=to-review)'" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+{"ok":true,"result":{"primary":{"action":"status_changed","element_id":"TASK-260829-1m2pv0","field":"status","new_value":"to-review","old_value":"reviewing"},"side_effects":[{"action":"escalated","element_id":"STORY-260829-1e8xzn","field":"status","new_value":"to-review","old_value":"reviewing"},{"action":"escalated","element_id":"EPIC-260829-dz9yvx","field":"status","new_value":"to-review","old_value":"reviewing"}]}}
+
+diff --git a/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..78fc691ca43557abf14d098602996bf373c2f4f0
+--- /dev/null
++++ b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+@@ -0,0 +1,55 @@
++# TASK-260829-1m2pv0 Review Verdict 02
++
++## Verdict
++
++Accepted. No findings remain.
++
++The repository foundation and the staged-diff rework match the task description,
++scope, acceptance criteria, and authoritative bootstrap requirements. The
++repository candidate contains metadata and documentation only; no Go production
++or test files were added.
++
++## Independent review evidence
++
++- Curator reports `v0.14.0-rc.3-106-g665dd13f`, matching required Curator main
++  revision `665dd13f7b6ab0408300070ef68d895f2d03b79f`.
++- Fresh `git ls-remote` checks confirmed the current `main` revisions of Curator,
++  `skill-project-management`, and `skill-go-testing-tools` match all three
++  authoritative pins.
++- `Skillfile.json` contains exactly the required two skills, repository URLs,
++  names, and pinned revisions.
++- `curator status --check` exited 0; both managed skills and all three managed
++  project-management command artifacts are current.
++- `CLAUDE.md` is a relative symlink whose target is exactly `AGENTS.md`, and the
++  resolved bytes match.
++- `AGENTS.md` and `README.md` cover the required AX/spec authority, PR-only
++  post-bootstrap workflow, fresh-main branch/worktree discipline, task-board,
++  signed Git metadata, mandatory Go testing-tools usage, bootstrap commands,
++  project status, and tools/output documentation.
++- Repository-local Git identity and SSH signing settings match the authoritative
++  requirements, and the configured public key exists.
++- The normative specification link resolves successfully.
++- A temporary index containing the complete current repository candidate passes
++  `git diff --cached --check`.
++- `.gitattributes` disables only Git's `space-before-tab` diagnostic for
++  task-board generated `*_spawn-log_*.log` resources. `git check-attr` confirms
++  README and ordinary outcome resources remain unspecified and therefore use
++  the repository's standard whitespace checks. Captured spawn-log bytes were not
++  rewritten.
++- `.temp/` remains ignored. The repository has no `go.mod` and no non-managed,
++  non-board Go files, so Go tests are not applicable to this metadata-only task.
++
++## Validation logs
++
++- `TASK-260829-1m2pv0_bootstrap-local-review-02.log`
++- `TASK-260829-1m2pv0_upstream-revisions-review-02.log`
++- `TASK-260829-1m2pv0_metadata-links-review-02.log`
++- `TASK-260829-1m2pv0_staged-diff-policy-review-02.log`
++
++## Commit-gated handoff
++
++This is the sole Task in `STORY-260829-1e8xzn`, so its `done` transition also
++completes the commit-confirmed Story. This reviewer run must not supply
++`commit_ack`. The commit-owning mover must commit the accepted repository scope
++and then make the final `done` transition with
++`commit_ack=scope_committed`.
+
+exec
+/bin/zsh -lc 'set -o pipefail
+final_index_dir=$(mktemp -d .temp/TASK-260829-1m2pv0/final-review-index-XXXXXX)
+final_index="$final_index_dir/index"
+{
+  printf '"'%s\\n' '--- task-board validate ---'
+  task-board validate
+  printf '%s\\n' '--- final temporary-index staged diff check ---'
+  GIT_INDEX_FILE=\""'$final_index" git read-tree HEAD
+  GIT_INDEX_FILE="$final_index" git add -A
+  GIT_INDEX_FILE="$final_index" git diff --cached --check
+  printf '"'%s\\n' 'final_staged_diff_check=pass'
+  printf '%s\\n' '--- final status/resources ---'
+  task-board q --format compact 'get(TASK-260829-1m2pv0) { overview outcomeResources }'
+} 2>&1 | tee .temp/TASK-260829-1m2pv0/final-review-gates-02.log" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 3ms:
+id:TASK-260829-1m2pv0
+name:configure-curator-skills-and-agent-instructions
+status:to-review
+assignee:[reviewer] reviewer (codex)
+parent:STORY-260829-1e8xzn
+outcomeResources:[{"name":"TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-a1d004.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-a1d004.log","description":"System spawn log captured by task-board"},{"name":"TASK-260829-1m2pv0_bootstrap-validation-and-review.md","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_bootstrap-validation-and-review.md","description":"Bootstrap implementation, validation exit codes, anomalies, and independent review verdict"},{"name":"TASK-260829-1m2pv0_spawn-log_-reviewer--reviewer--codex-_RUN-260828-309e13.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-reviewer--reviewer--codex-_RUN-260828-309e13.log","description":"System spawn log captured by task-board"},{"name":"TASK-260829-1m2pv0_review-verdict.md","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict.md","description":"Independent reviewer acceptance evidence and commit-gated handoff"},{"name":"TASK-260829-1m2pv0_upstream-revisions-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_upstream-revisions-review-01.log","description":"Independent upstream main revision verification"},{"name":"TASK-260829-1m2pv0_curator-version-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_curator-version-review-01.log","description":"Independent installed Curator revision verification"},{"name":"TASK-260829-1m2pv0_curator-status-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_curator-status-review-01.log","description":"Independent Curator managed-state verification"},{"name":"TASK-260829-1m2pv0_metadata-validation-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_metadata-validation-review-01.log","description":"Independent metadata and documentation gate results"},{"name":"TASK-260829-1m2pv0_git-status-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_git-status-review-01.log","description":"Reviewer repository status evidence"},{"name":"TASK-260829-1m2pv0_task-board-validate-review-01.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_task-board-validate-review-01.log","description":"Board validation after accepted handoff"},{"name":"TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-280971.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-implementer--developer--codex-_RUN-260828-280971.log","description":"System spawn log captured by task-board"},{"name":"TASK-260829-1m2pv0_staged-diff-rework.md","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_staged-diff-rework.md","description":"Narrow spawn-log whitespace policy and staged diff validation evidence"},{"name":"TASK-260829-1m2pv0_spawn-log_-reviewer--reviewer--codex-_RUN-260828-4ff2a5.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_spawn-log_-reviewer--reviewer--codex-_RUN-260828-4ff2a5.log","description":"System spawn log captured by task-board"},{"name":"TASK-260829-1m2pv0_TASK-260829-1m2pv0_review-verdict-02.md","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_TASK-260829-1m2pv0_review-verdict-02.md","description":"Independent re-review acceptance verdict after staged-diff policy rework"},{"name":"TASK-260829-1m2pv0_bootstrap-local-review-02.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_bootstrap-local-review-02.log","description":"Independent Curator, signing metadata, managed paths, and no-Go validation"},{"name":"TASK-260829-1m2pv0_upstream-revisions-review-02.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_upstream-revisions-review-02.log","description":"Fresh upstream main revision verification"},{"name":"TASK-260829-1m2pv0_metadata-links-review-02.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_metadata-links-review-02.log","description":"Exact Skillfile, symlink, required documentation, and specification-link validation"},{"name":"TASK-260829-1m2pv0_staged-diff-policy-review-02.log","uri":"file://TASK-260829-1m2pv0/TASK-260829-1m2pv0_staged-diff-policy-review-02.log","description":"Temporary-index staged diff and narrow whitespace-attribute validation"}]
+
+diff --git a/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..78fc691ca43557abf14d098602996bf373c2f4f0
+--- /dev/null
++++ b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+@@ -0,0 +1,55 @@
++# TASK-260829-1m2pv0 Review Verdict 02
++
++## Verdict
++
++Accepted. No findings remain.
++
++The repository foundation and the staged-diff rework match the task description,
++scope, acceptance criteria, and authoritative bootstrap requirements. The
++repository candidate contains metadata and documentation only; no Go production
++or test files were added.
++
++## Independent review evidence
++
++- Curator reports `v0.14.0-rc.3-106-g665dd13f`, matching required Curator main
++  revision `665dd13f7b6ab0408300070ef68d895f2d03b79f`.
++- Fresh `git ls-remote` checks confirmed the current `main` revisions of Curator,
++  `skill-project-management`, and `skill-go-testing-tools` match all three
++  authoritative pins.
++- `Skillfile.json` contains exactly the required two skills, repository URLs,
++  names, and pinned revisions.
++- `curator status --check` exited 0; both managed skills and all three managed
++  project-management command artifacts are current.
++- `CLAUDE.md` is a relative symlink whose target is exactly `AGENTS.md`, and the
++  resolved bytes match.
++- `AGENTS.md` and `README.md` cover the required AX/spec authority, PR-only
++  post-bootstrap workflow, fresh-main branch/worktree discipline, task-board,
++  signed Git metadata, mandatory Go testing-tools usage, bootstrap commands,
++  project status, and tools/output documentation.
++- Repository-local Git identity and SSH signing settings match the authoritative
++  requirements, and the configured public key exists.
++- The normative specification link resolves successfully.
++- A temporary index containing the complete current repository candidate passes
++  `git diff --cached --check`.
++- `.gitattributes` disables only Git's `space-before-tab` diagnostic for
++  task-board generated `*_spawn-log_*.log` resources. `git check-attr` confirms
++  README and ordinary outcome resources remain unspecified and therefore use
++  the repository's standard whitespace checks. Captured spawn-log bytes were not
++  rewritten.
++- `.temp/` remains ignored. The repository has no `go.mod` and no non-managed,
++  non-board Go files, so Go tests are not applicable to this metadata-only task.
++
++## Validation logs
++
++- `TASK-260829-1m2pv0_bootstrap-local-review-02.log`
++- `TASK-260829-1m2pv0_upstream-revisions-review-02.log`
++- `TASK-260829-1m2pv0_metadata-links-review-02.log`
++- `TASK-260829-1m2pv0_staged-diff-policy-review-02.log`
++
++## Commit-gated handoff
++
++This is the sole Task in `STORY-260829-1e8xzn`, so its `done` transition also
++completes the commit-confirmed Story. This reviewer run must not supply
++`commit_ack`. The commit-owning mover must commit the accepted repository scope
++and then make the final `done` transition with
++`commit_ack=scope_committed`.
+
+apply patch
+patch: completed
+/Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+diff --git a/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..54549e0892bc1b7a80e9b507f4b5e27fce8b4d3e
+--- /dev/null
++++ b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+@@ -0,0 +1,58 @@
++# TASK-260829-1m2pv0 Review Verdict 02
++
++## Verdict
++
++Accepted. No findings remain.
++
++The repository foundation and the staged-diff rework match the task description,
++scope, acceptance criteria, and authoritative bootstrap requirements. The
++repository candidate contains metadata and documentation only; no Go production
++or test files were added.
++
++## Independent review evidence
++
++- Curator reports `v0.14.0-rc.3-106-g665dd13f`, matching required Curator main
++  revision `665dd13f7b6ab0408300070ef68d895f2d03b79f`.
++- Fresh `git ls-remote` checks confirmed the current `main` revisions of Curator,
++  `skill-project-management`, and `skill-go-testing-tools` match all three
++  authoritative pins.
++- `Skillfile.json` contains exactly the required two skills, repository URLs,
++  names, and pinned revisions.
++- `curator status --check` exited 0; both managed skills and all three managed
++  project-management command artifacts are current.
++- `CLAUDE.md` is a relative symlink whose target is exactly `AGENTS.md`, and the
++  resolved bytes match.
++- `AGENTS.md` and `README.md` cover the required AX/spec authority, PR-only
++  post-bootstrap workflow, fresh-main branch/worktree discipline, task-board,
++  signed Git metadata, mandatory Go testing-tools usage, bootstrap commands,
++  project status, and tools/output documentation.
++- Repository-local Git identity and SSH signing settings match the authoritative
++  requirements, and the configured public key exists.
++- The normative specification link resolves successfully.
++- A temporary index containing the complete current repository candidate passes
++  `git diff --cached --check`.
++- `.gitattributes` disables only Git's `space-before-tab` diagnostic for
++  task-board generated `*_spawn-log_*.log` resources. `git check-attr` confirms
++  README and ordinary outcome resources remain unspecified and therefore use
++  the repository's standard whitespace checks. Captured spawn-log bytes were not
++  rewritten.
++- `.temp/` remains ignored. The repository has no `go.mod` and no non-managed,
++  non-board Go files, so Go tests are not applicable to this metadata-only task.
++- After attaching this verdict and routing the accepted handoff, `task-board
++  validate` reported no issues and a fresh temporary-index
++  `git diff --cached --check` over the complete candidate still passed.
++
++## Validation logs
++
++- `TASK-260829-1m2pv0_bootstrap-local-review-02.log`
++- `TASK-260829-1m2pv0_upstream-revisions-review-02.log`
++- `TASK-260829-1m2pv0_metadata-links-review-02.log`
++- `TASK-260829-1m2pv0_staged-diff-policy-review-02.log`
++
++## Commit-gated handoff
++
++This is the sole Task in `STORY-260829-1e8xzn`, so its `done` transition also
++completes the commit-confirmed Story. This reviewer run must not supply
++`commit_ack`. The commit-owning mover must commit the accepted repository scope
++and then make the final `done` transition with
++`commit_ack=scope_committed`.
+
+diff --git a/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..54549e0892bc1b7a80e9b507f4b5e27fce8b4d3e
+--- /dev/null
++++ b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+@@ -0,0 +1,58 @@
++# TASK-260829-1m2pv0 Review Verdict 02
++
++## Verdict
++
++Accepted. No findings remain.
++
++The repository foundation and the staged-diff rework match the task description,
++scope, acceptance criteria, and authoritative bootstrap requirements. The
++repository candidate contains metadata and documentation only; no Go production
++or test files were added.
++
++## Independent review evidence
++
++- Curator reports `v0.14.0-rc.3-106-g665dd13f`, matching required Curator main
++  revision `665dd13f7b6ab0408300070ef68d895f2d03b79f`.
++- Fresh `git ls-remote` checks confirmed the current `main` revisions of Curator,
++  `skill-project-management`, and `skill-go-testing-tools` match all three
++  authoritative pins.
++- `Skillfile.json` contains exactly the required two skills, repository URLs,
++  names, and pinned revisions.
++- `curator status --check` exited 0; both managed skills and all three managed
++  project-management command artifacts are current.
++- `CLAUDE.md` is a relative symlink whose target is exactly `AGENTS.md`, and the
++  resolved bytes match.
++- `AGENTS.md` and `README.md` cover the required AX/spec authority, PR-only
++  post-bootstrap workflow, fresh-main branch/worktree discipline, task-board,
++  signed Git metadata, mandatory Go testing-tools usage, bootstrap commands,
++  project status, and tools/output documentation.
++- Repository-local Git identity and SSH signing settings match the authoritative
++  requirements, and the configured public key exists.
++- The normative specification link resolves successfully.
++- A temporary index containing the complete current repository candidate passes
++  `git diff --cached --check`.
++- `.gitattributes` disables only Git's `space-before-tab` diagnostic for
++  task-board generated `*_spawn-log_*.log` resources. `git check-attr` confirms
++  README and ordinary outcome resources remain unspecified and therefore use
++  the repository's standard whitespace checks. Captured spawn-log bytes were not
++  rewritten.
++- `.temp/` remains ignored. The repository has no `go.mod` and no non-managed,
++  non-board Go files, so Go tests are not applicable to this metadata-only task.
++- After attaching this verdict and routing the accepted handoff, `task-board
++  validate` reported no issues and a fresh temporary-index
++  `git diff --cached --check` over the complete candidate still passed.
++
++## Validation logs
++
++- `TASK-260829-1m2pv0_bootstrap-local-review-02.log`
++- `TASK-260829-1m2pv0_upstream-revisions-review-02.log`
++- `TASK-260829-1m2pv0_metadata-links-review-02.log`
++- `TASK-260829-1m2pv0_staged-diff-policy-review-02.log`
++
++## Commit-gated handoff
++
++This is the sole Task in `STORY-260829-1e8xzn`, so its `done` transition also
++completes the commit-confirmed Story. This reviewer run must not supply
++`commit_ack`. The commit-owning mover must commit the accepted repository scope
++and then make the final `done` transition with
++`commit_ack=scope_committed`.
+
+exec
+/bin/zsh -lc "task-board resource update TASK-260829-1m2pv0 .temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md --type outcome --name TASK-260829-1m2pv0_TASK-260829-1m2pv0_review-verdict-02.md -d 'Independent re-review acceptance verdict after staged-diff policy rework'" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+Updated TASK-260829-1m2pv0_TASK-260829-1m2pv0_review-verdict-02.md on TASK-260829-1m2pv0 as outcome
+
+diff --git a/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..54549e0892bc1b7a80e9b507f4b5e27fce8b4d3e
+--- /dev/null
++++ b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+@@ -0,0 +1,58 @@
++# TASK-260829-1m2pv0 Review Verdict 02
++
++## Verdict
++
++Accepted. No findings remain.
++
++The repository foundation and the staged-diff rework match the task description,
++scope, acceptance criteria, and authoritative bootstrap requirements. The
++repository candidate contains metadata and documentation only; no Go production
++or test files were added.
++
++## Independent review evidence
++
++- Curator reports `v0.14.0-rc.3-106-g665dd13f`, matching required Curator main
++  revision `665dd13f7b6ab0408300070ef68d895f2d03b79f`.
++- Fresh `git ls-remote` checks confirmed the current `main` revisions of Curator,
++  `skill-project-management`, and `skill-go-testing-tools` match all three
++  authoritative pins.
++- `Skillfile.json` contains exactly the required two skills, repository URLs,
++  names, and pinned revisions.
++- `curator status --check` exited 0; both managed skills and all three managed
++  project-management command artifacts are current.
++- `CLAUDE.md` is a relative symlink whose target is exactly `AGENTS.md`, and the
++  resolved bytes match.
++- `AGENTS.md` and `README.md` cover the required AX/spec authority, PR-only
++  post-bootstrap workflow, fresh-main branch/worktree discipline, task-board,
++  signed Git metadata, mandatory Go testing-tools usage, bootstrap commands,
++  project status, and tools/output documentation.
++- Repository-local Git identity and SSH signing settings match the authoritative
++  requirements, and the configured public key exists.
++- The normative specification link resolves successfully.
++- A temporary index containing the complete current repository candidate passes
++  `git diff --cached --check`.
++- `.gitattributes` disables only Git's `space-before-tab` diagnostic for
++  task-board generated `*_spawn-log_*.log` resources. `git check-attr` confirms
++  README and ordinary outcome resources remain unspecified and therefore use
++  the repository's standard whitespace checks. Captured spawn-log bytes were not
++  rewritten.
++- `.temp/` remains ignored. The repository has no `go.mod` and no non-managed,
++  non-board Go files, so Go tests are not applicable to this metadata-only task.
++- After attaching this verdict and routing the accepted handoff, `task-board
++  validate` reported no issues and a fresh temporary-index
++  `git diff --cached --check` over the complete candidate still passed.
++
++## Validation logs
++
++- `TASK-260829-1m2pv0_bootstrap-local-review-02.log`
++- `TASK-260829-1m2pv0_upstream-revisions-review-02.log`
++- `TASK-260829-1m2pv0_metadata-links-review-02.log`
++- `TASK-260829-1m2pv0_staged-diff-policy-review-02.log`
++
++## Commit-gated handoff
++
++This is the sole Task in `STORY-260829-1e8xzn`, so its `done` transition also
++completes the commit-confirmed Story. This reviewer run must not supply
++`commit_ack`. The commit-owning mover must commit the accepted repository scope
++and then make the final `done` transition with
++`commit_ack=scope_committed`.
+
+exec
+/bin/zsh -lc 'final_index_dir=$(mktemp -d .temp/TASK-260829-1m2pv0/handoff-index-XXXXXX) && GIT_INDEX_FILE="$final_index_dir/index" git read-tree HEAD && GIT_INDEX_FILE="$final_index_dir/index" git add -A && GIT_INDEX_FILE="$final_index_dir/index" git diff --cached --check && task-board validate && task-board q --format compact '"'get(TASK-260829-1m2pv0) { overview }'" in /Users/iv/Developer/ReluxWorks/agent-session-manager
+ succeeded in 0ms:
+diff --git a/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..54549e0892bc1b7a80e9b507f4b5e27fce8b4d3e
+--- /dev/null
++++ b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+@@ -0,0 +1,58 @@
++# TASK-260829-1m2pv0 Review Verdict 02
++
++## Verdict
++
++Accepted. No findings remain.
++
++The repository foundation and the staged-diff rework match the task description,
++scope, acceptance criteria, and authoritative bootstrap requirements. The
++repository candidate contains metadata and documentation only; no Go production
++or test files were added.
++
++## Independent review evidence
++
++- Curator reports `v0.14.0-rc.3-106-g665dd13f`, matching required Curator main
++  revision `665dd13f7b6ab0408300070ef68d895f2d03b79f`.
++- Fresh `git ls-remote` checks confirmed the current `main` revisions of Curator,
++  `skill-project-management`, and `skill-go-testing-tools` match all three
++  authoritative pins.
++- `Skillfile.json` contains exactly the required two skills, repository URLs,
++  names, and pinned revisions.
++- `curator status --check` exited 0; both managed skills and all three managed
++  project-management command artifacts are current.
++- `CLAUDE.md` is a relative symlink whose target is exactly `AGENTS.md`, and the
++  resolved bytes match.
++- `AGENTS.md` and `README.md` cover the required AX/spec authority, PR-only
++  post-bootstrap workflow, fresh-main branch/worktree discipline, task-board,
++  signed Git metadata, mandatory Go testing-tools usage, bootstrap commands,
++  project status, and tools/output documentation.
++- Repository-local Git identity and SSH signing settings match the authoritative
++  requirements, and the configured public key exists.
++- The normative specification link resolves successfully.
++- A temporary index containing the complete current repository candidate passes
++  `git diff --cached --check`.
++- `.gitattributes` disables only Git's `space-before-tab` diagnostic for
++  task-board generated `*_spawn-log_*.log` resources. `git check-attr` confirms
++  README and ordinary outcome resources remain unspecified and therefore use
++  the repository's standard whitespace checks. Captured spawn-log bytes were not
++  rewritten.
++- `.temp/` remains ignored. The repository has no `go.mod` and no non-managed,
++  non-board Go files, so Go tests are not applicable to this metadata-only task.
++- After attaching this verdict and routing the accepted handoff, `task-board
++  validate` reported no issues and a fresh temporary-index
++  `git diff --cached --check` over the complete candidate still passed.
++
++## Validation logs
++
++- `TASK-260829-1m2pv0_bootstrap-local-review-02.log`
++- `TASK-260829-1m2pv0_upstream-revisions-review-02.log`
++- `TASK-260829-1m2pv0_metadata-links-review-02.log`
++- `TASK-260829-1m2pv0_staged-diff-policy-review-02.log`
++
++## Commit-gated handoff
++
++This is the sole Task in `STORY-260829-1e8xzn`, so its `done` transition also
++completes the commit-confirmed Story. This reviewer run must not supply
++`commit_ack`. The commit-owning mover must commit the accepted repository scope
++and then make the final `done` transition with
++`commit_ack=scope_committed`.
+
+codex
+Вердикт: **accepted**, замечаний нет.
+
+- Curator и оба pinned skills совпадают с актуальными `main`.
+- `curator status --check`, `task-board validate` и полный temporary-index `git diff --cached --check` прошли.
+- `.gitattributes` узко исключает только `space-before-tab` в generated spawn logs.
+- Go-тесты неприменимы: Go-кода и `go.mod` нет.
+- Verdict и четыре validation-лога прикреплены к задаче.
+
+Статус: `to-review` — accepted handoff commit-owning mover. Reviewer не имеет права передавать `commit_ack`; после signed commit mover должен перевести задачу в `done` с `commit_ack=scope_committed`.
+diff --git a/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..54549e0892bc1b7a80e9b507f4b5e27fce8b4d3e
+--- /dev/null
++++ b/.temp/TASK-260829-1m2pv0/TASK-260829-1m2pv0_review-verdict-02.md
+@@ -0,0 +1,58 @@
++# TASK-260829-1m2pv0 Review Verdict 02
++
++## Verdict
++
++Accepted. No findings remain.
++
++The repository foundation and the staged-diff rework match the task description,
++scope, acceptance criteria, and authoritative bootstrap requirements. The
++repository candidate contains metadata and documentation only; no Go production
++or test files were added.
++
++## Independent review evidence
++
++- Curator reports `v0.14.0-rc.3-106-g665dd13f`, matching required Curator main
++  revision `665dd13f7b6ab0408300070ef68d895f2d03b79f`.
++- Fresh `git ls-remote` checks confirmed the current `main` revisions of Curator,
++  `skill-project-management`, and `skill-go-testing-tools` match all three
++  authoritative pins.
++- `Skillfile.json` contains exactly the required two skills, repository URLs,
++  names, and pinned revisions.
++- `curator status --check` exited 0; both managed skills and all three managed
++  project-management command artifacts are current.
++- `CLAUDE.md` is a relative symlink whose target is exactly `AGENTS.md`, and the
++  resolved bytes match.
++- `AGENTS.md` and `README.md` cover the required AX/spec authority, PR-only
++  post-bootstrap workflow, fresh-main branch/worktree discipline, task-board,
++  signed Git metadata, mandatory Go testing-tools usage, bootstrap commands,
++  project status, and tools/output documentation.
++- Repository-local Git identity and SSH signing settings match the authoritative
++  requirements, and the configured public key exists.
++- The normative specification link resolves successfully.
++- A temporary index containing the complete current repository candidate passes
++  `git diff --cached --check`.
++- `.gitattributes` disables only Git's `space-before-tab` diagnostic for
++  task-board generated `*_spawn-log_*.log` resources. `git check-attr` confirms
++  README and ordinary outcome resources remain unspecified and therefore use
++  the repository's standard whitespace checks. Captured spawn-log bytes were not
++  rewritten.
++- `.temp/` remains ignored. The repository has no `go.mod` and no non-managed,
++  non-board Go files, so Go tests are not applicable to this metadata-only task.
++- After attaching this verdict and routing the accepted handoff, `task-board
++  validate` reported no issues and a fresh temporary-index
++  `git diff --cached --check` over the complete candidate still passed.
++
++## Validation logs
++
++- `TASK-260829-1m2pv0_bootstrap-local-review-02.log`
++- `TASK-260829-1m2pv0_upstream-revisions-review-02.log`
++- `TASK-260829-1m2pv0_metadata-links-review-02.log`
++- `TASK-260829-1m2pv0_staged-diff-policy-review-02.log`
++
++## Commit-gated handoff
++
++This is the sole Task in `STORY-260829-1e8xzn`, so its `done` transition also
++completes the commit-confirmed Story. This reviewer run must not supply
++`commit_ack`. The commit-owning mover must commit the accepted repository scope
++and then make the final `done` transition with
++`commit_ack=scope_committed`.
+
+tokens used
+71,626
+Вердикт: **accepted**, замечаний нет.
+
+- Curator и оба pinned skills совпадают с актуальными `main`.
+- `curator status --check`, `task-board validate` и полный temporary-index `git diff --cached --check` прошли.
+- `.gitattributes` узко исключает только `space-before-tab` в generated spawn logs.
+- Go-тесты неприменимы: Go-кода и `go.mod` нет.
+- Verdict и четыре validation-лога прикреплены к задаче.
+
+Статус: `to-review` — accepted handoff commit-owning mover. Reviewer не имеет права передавать `commit_ack`; после signed commit mover должен перевести задачу в `done` с `commit_ack=scope_committed`.
