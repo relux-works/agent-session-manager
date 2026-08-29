@@ -21,8 +21,7 @@ same rules.
   only its reviewed scope, create author-signed commits, publish the feature
   branch, open or update the pull request, complete review and checks, and land
   the accepted exact head in `main`. Do not stop merely to ask whether the
-  completed task should be committed, pushed, or landed. An explicit request
-  to stop uncommitted or at the PR boundary narrows this default.
+  completed task should be committed, pushed, or landed.
 - The repository bootstrap is the only direct-bootstrap exception. Every later
   change must be reviewed through a pull request. After approval and passing
   checks, land the exact signed feature head with a plain fast-forward push to
