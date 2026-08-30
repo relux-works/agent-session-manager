@@ -6,8 +6,11 @@ cross-host `ax` coding-agent session orchestrator.
 ## Project Status
 
 The Curator-managed repository foundation is complete and the published AX
-v0.5.0 specification has been decomposed into an implementation board. No Go
-production implementation has been added yet.
+v0.5.0 specification has been decomposed into an implementation board. The
+first Go production slice pins the immutable normative source, contract
+versions, compatibility baseline, and shipped fixture identities. Session,
+provider, terminal, mesh, and operator command behavior is not implemented or
+advertised by this slice.
 
 Product behavior is defined by the
 [normative AX specification](https://github.com/relux-works/agent-session-manager-spec/blob/main/SPEC.md).
@@ -68,6 +71,20 @@ section coverage, board IDs, counts, and execution rules. Generated planning
 snapshots live in [.planning/](.planning/); the live task-board remains the
 planning authority.
 
+## Normative Source Pin
+
+[`internal/specpin`](internal/specpin) embeds one implementation lock for
+`agent-session-manager-spec@v0.5.0`. Its production `Current` and `Verify`
+entry points fail closed on a partial read, unknown member, source substitution,
+contract or fixture drift, and any byte-level lock change. It also projects the
+exact historical v0.4.3 registry without widening that immutable baseline.
+
+This package is read-only and does not mutate durable state. Repeated reads are
+idempotent and isolated from caller mutation. It deliberately adds no `ax`
+command, `doctor` result, conformance-target declaration, or runtime capability
+claim; those surfaces remain unavailable until their owning implementation and
+acceptance tasks land.
+
 ## Managed Skills
 
 `Skillfile.json` targets the Curator-standard `claude_code` and `codex_cli`
@@ -90,7 +107,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | --- | --- | --- | --- |
 | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
-| Go toolchain | Build, test, and measure future Go implementation work | `go test ./... -v`; `go test ./... -cover` | Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
+| Go toolchain | Build, test, and measure the Go implementation | `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
 | GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |
 

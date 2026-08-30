@@ -7,6 +7,7 @@ specification, not from mutable prose in this repository.
 
 - Repository: `relux-works/agent-session-manager-spec`
 - Release: `v0.5.0`
+- Annotated tag object: `d3da6614a6c7bf119a88c9596a86c0853c22cfb9`
 - Peeled commit: `28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c`
 - `SPEC.md` SHA-256: `562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a`
 - Normative source: <https://github.com/relux-works/agent-session-manager-spec/blob/v0.5.0/SPEC.md>
@@ -14,6 +15,22 @@ specification, not from mutable prose in this repository.
 The upstream specification remains normative. This file records the consumed
 release and implementation ownership; it does not copy, amend, or supersede
 the specification.
+
+The implementation consumes this identity through the embedded
+[`internal/specpin/v0.5.0.lock.json`](../internal/specpin/v0.5.0.lock.json)
+lock. The lock records the ordered 60-row Section 1.5 registry, the exact
+v0.4.3 compatibility delta, and these shipped fixture identities:
+
+| Fixture ID | Upstream path | SHA-256 |
+| --- | --- | --- |
+| `ax-session-directory-conformance-v1` | `fixtures/session_directory_conformance.json` | `a6351a83e25a3a909297ed20bd1f4a75622b10f536a06b164fff3b12cb66f2ce` |
+| `ax-terminal-backend-conformance-v1` | `fixtures/terminal_backend_conformance.json` | `67de0d78d76c9c445c742af5c4c14ffa5cecd620d4cb07dc5497d391b421ad37` |
+| `ax-v0.4.3-roadmap-terminal-realm-v1` | `fixtures/v0_4_3_roadmap_terminal_realm.json` | `6023ec0d1562e8868b8bef3dc41cfd66ea0b4a4054fbaf13d3aec504578a7f74` |
+
+`internal/specpin.Current` and `internal/specpin.Verify` reject partial reads,
+unknown fields, substituted source identities, contract drift, fixture drift,
+and any byte-different lock. This slice is read-only: it mutates no durable
+state and advertises no provider, platform, backend, or CLI capability.
 
 ## Program shape
 
