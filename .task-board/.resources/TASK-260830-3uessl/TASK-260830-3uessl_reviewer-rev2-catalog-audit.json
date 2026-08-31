@@ -1,0 +1,124 @@
+{
+  "source": {
+    "repository": "relux-works/agent-session-manager-spec",
+    "release": "v0.5.0",
+    "commit": "28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c",
+    "document_path": "SPEC.md",
+    "document_sha256": "562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a"
+  },
+  "normative_scope": [
+    "1",
+    "17",
+    "20",
+    "appendix-a",
+    "appendix-d"
+  ],
+  "counts_v0_5_0": {
+    "operations": 99,
+    "capabilities": 46,
+    "events": 112,
+    "errors": 109
+  },
+  "observation_event_traceability": [
+    {
+      "normative_section": "18.1",
+      "fixture_families": [
+        "Appendix D: Observation Event",
+        "Appendix D: Observation result"
+      ]
+    }
+  ],
+  "terminal_backend_durable": [
+    {
+      "operations": [
+        "create"
+      ],
+      "idempotency_key": "session_id + \"/\" + bootstrap_operation_id",
+      "recovery_evidence": [
+        "persist receipt before wrapper_started",
+        "identical retry replays receipt",
+        "uncertainty requires status",
+        "binding plus capability/credential evidence"
+      ]
+    },
+    {
+      "operations": [
+        "attach"
+      ],
+      "idempotency_key": "terminal_instance_id + \"/\" + client_id",
+      "recovery_evidence": [
+        "durable client receipt determines whether timeout created authorized input",
+        "retry same client_id",
+        "attach-policy/capability evidence"
+      ]
+    },
+    {
+      "operations": [
+        "quiesce-input"
+      ],
+      "idempotency_key": "terminal_instance_id + \"/quiesce/\" + quiescence_generation",
+      "recovery_evidence": [
+        "receipt precedes input closure",
+        "identical retry replays receipt",
+        "uncertainty requires status",
+        "evidence binds closure time/generation"
+      ]
+    },
+    {
+      "operations": [
+        "wait-safe-boundary"
+      ],
+      "idempotency_key": "terminal_instance_id + \"/boundary/\" + quiescence_generation + \"/\" + provider_proof_kind",
+      "recovery_evidence": [
+        "lesser of request deadline and timeout",
+        "identical retry returns same proof",
+        "no proof on timeout",
+        "safe-boundary evidence"
+      ]
+    },
+    {
+      "operations": [
+        "request-stop"
+      ],
+      "idempotency_key": "terminal_instance_id + \"/stop/\" + safe_boundary_evidence_id",
+      "recovery_evidence": [
+        "lesser of request deadline and graceful timeout",
+        "lost result requires status",
+        "same-key retry only when not closed",
+        "boundary and closure evidence"
+      ]
+    },
+    {
+      "operations": [
+        "terminate-stale"
+      ],
+      "idempotency_key": "terminal_instance_id + \"/terminate/\" + stale_lease_id + \"/\" + decimal(stale_epoch)",
+      "recovery_evidence": [
+        "deadline may leave uncertain closure",
+        "status before same-key retry",
+        "diagnostic, fencing, and closure evidence"
+      ]
+    },
+    {
+      "operations": [
+        "restore"
+      ],
+      "idempotency_key": "session_id + \"/\" + bootstrap_operation_id",
+      "recovery_evidence": [
+        "persist receipt before restore",
+        "identical retry replays receipt",
+        "uncertainty requires status",
+        "prior binding, checkpoint, new binding, and capability/credential evidence"
+      ]
+    }
+  ],
+  "capability_metadata_shape": [
+    "capabilities",
+    "contract_id",
+    "contract_versions",
+    "family",
+    "fixture_families",
+    "normative_section",
+    "releases"
+  ]
+}

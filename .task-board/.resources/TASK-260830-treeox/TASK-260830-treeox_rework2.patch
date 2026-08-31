@@ -1,0 +1,91 @@
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index c5d81b1..b34fc6b 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -4,9 +4,12 @@ import (
+ 	"bytes"
+ 	"errors"
+ 	"io"
++	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/traceability"
+ )
+ 
+ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+@@ -45,6 +48,43 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	}
+ }
+ 
++func TestRunRejectsRegisteredContractWithoutImplementationOwner(t *testing.T) {
++	t.Parallel()
++
++	repositoryRoot := filepath.Join("..", "..", "..", "..")
++	fixtureRoot := t.TempDir()
++	if err := os.CopyFS(
++		filepath.Join(fixtureRoot, "internal"),
++		os.DirFS(filepath.Join(repositoryRoot, "internal")),
++	); err != nil {
++		t.Fatalf("copy repository fixture: %v", err)
++	}
++
++	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.5.0.json")
++	registry, err := os.ReadFile(registryPath)
++	if err != nil {
++		t.Fatalf("read ownership registry fixture: %v", err)
++	}
++	const contract = "Session Directory Query [urn:ax:schema:session-directory-query]"
++	owner := []byte(",\n        \"" + contract + "\"")
++	if count := bytes.Count(registry, owner); count != 1 {
++		t.Fatalf("ownership registry contains contract owner %q %d times, want exactly once", contract, count)
++	}
++	if err := os.WriteFile(registryPath, bytes.Replace(registry, owner, nil, 1), 0o644); err != nil {
++		t.Fatalf("write narrowed ownership registry fixture: %v", err)
++	}
++
++	var output bytes.Buffer
++	err = run([]string{"-root", fixtureRoot}, &output)
++	want := "registered contract \"" + contract + "\" has no implementation owner"
++	if err == nil || !errors.Is(err, traceability.ErrTraceability) || !strings.Contains(err.Error(), want) {
++		t.Fatalf("run(missing contract owner) error = %v, want ErrTraceability containing %q", err, want)
++	}
++	if output.Len() != 0 {
++		t.Fatalf("failed ownership run emitted success output %q", output.String())
++	}
++}
++
+ type failingWriter struct {
+ 	err error
+ }
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 7d50e2f..b9ae31f 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -116,6 +116,25 @@ func TestVerifyRepositoryRejectsAbsentAcceptanceTestDeclaration(t *testing.T) {
+ 	}
+ }
+ 
++func TestVerifyRepositoryRejectsAbsentAcceptanceProductionDeclaration(t *testing.T) {
++	t.Parallel()
++
++	repository := repositorySnapshot(t)
++	replaceRepositorySourceOnce(
++		t,
++		repository,
++		"internal/catalog/cmd/cataloggen/main.go",
++		"func writeIfChanged(",
++		"func writeIfChangedWithoutOwnership(",
++	)
++
++	_, err := VerifyRepository(repository)
++	want := "acceptance case \"catalog-generation-idempotency-recovery\" production owner: declaration \"writeIfChanged\" is absent from \"internal/catalog/cmd/cataloggen/main.go\""
++	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), want) {
++		t.Fatalf("VerifyRepository() error = %v, want ErrTraceability containing %q", err, want)
++	}
++}
++
+ func TestVerifyRepositoryRejectsAbsentOwnershipGroupProductionDeclaration(t *testing.T) {
+ 	t.Parallel()
+ 
