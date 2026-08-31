@@ -17,6 +17,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"regexp"
 	"strings"
 
 	"github.com/relux-works/agent-session-manager/internal/catalog"
@@ -36,7 +37,7 @@ const (
 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
 	// formatting may change, but ownership claims cannot be self-minted without
 	// an explicit review of this binding.
-	reviewedOwnershipCanonicalSHA256 = "66c846ef679c117b4d45ba0dc9b0eb4a20de5f78f3c358d1237ba4ab7fe8a419"
+	reviewedOwnershipCanonicalSHA256 = "947212c330b5d2413528483433a4d89aeb8b41db5813fc55e371649f2880e66f"
 )
 
 var ErrTraceability = errors.New("spec-to-code traceability check failed")
@@ -49,6 +50,7 @@ type Report struct {
 	AcceptanceCases        int
 	Fixtures               int
 	CompatibilityContracts int
+	AssignedScopes         int
 }
 
 type ownershipKind string
@@ -56,6 +58,7 @@ type ownershipKind string
 const (
 	ownershipContract         ownershipKind = "contract"
 	ownershipNormativeSection ownershipKind = "normative_section"
+	ownershipSectionBinding   ownershipKind = "section_binding"
 	ownershipFixture          ownershipKind = "fixture"
 )
 
@@ -93,10 +96,33 @@ type codeReference struct {
 	Declaration string `json:"declaration"`
 }
 
+type assignedSectionBinding struct {
+	Scope string
+	Keys  []string
+}
+
+var assignedSectionPattern = regexp.MustCompile(`^((?:20|1[0-9]|[1-9])(?:\.(?:[0-9]+|[A-Za-z]))*)(?:-((?:20|1[0-9]|[1-9])(?:\.(?:[0-9]+|[A-Za-z]))*))?$`)
+var catalogAppendixPattern = regexp.MustCompile(`(?i)^Appendix ([A-D]):`)
+
 // VerifyRepository is the production CI entry point. It verifies exact pinned
 // inputs, stale generated output, compatibility coverage, and every registered
 // ownership reference against the supplied repository filesystem.
 func VerifyRepository(repository fs.FS) (Report, error) {
+	return verifyRepository(repository, nil)
+}
+
+// VerifyAssignedSections is the production Story-scope entry point. Each exact
+// assigned subsection, or every heading in a same-section range, must have its
+// own scoped production declaration and executable acceptance-case link. A
+// pinned top-level source owner alone never satisfies assigned-scope admission.
+func VerifyAssignedSections(repository fs.FS, sections []string) (Report, error) {
+	if len(sections) == 0 {
+		return Report{}, fail("assigned section scope is empty")
+	}
+	return verifyRepository(repository, sections)
+}
+
+func verifyRepository(repository fs.FS, assignedSections []string) (Report, error) {
 	if repository == nil {
 		return Report{}, fail("repository filesystem is nil")
 	}
@@ -146,7 +172,11 @@ func VerifyRepository(repository fs.FS) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	return verifyOwnership(repository, registry, manifest, currentCatalog, compatibilityCatalog)
+	bindings, err := resolveAssignedSections(manifest.Source.NormativeScope, assignedSections)
+	if err != nil {
+		return Report{}, err
+	}
+	return verifyOwnership(repository, registry, manifest, currentCatalog, compatibilityCatalog, bindings)
 }
 
 func readRequired(repository fs.FS, filename string) ([]byte, error) {
@@ -180,6 +210,7 @@ func verifyOwnership(
 	manifest specpin.Manifest,
 	currentCatalog catalog.Catalog,
 	compatibilityCatalog catalog.Catalog,
+	assignedBindings []assignedSectionBinding,
 ) (Report, error) {
 	if registry.Format != ownershipFormat || registry.FormatVersion != ownershipFormatVersion {
 		return Report{}, fail("unsupported ownership registry format %q version %d", registry.Format, registry.FormatVersion)
@@ -196,16 +227,45 @@ func verifyOwnership(
 	expected := map[ownershipKind]map[string]struct{}{
 		ownershipContract:         expectedContracts(manifest.Contracts),
 		ownershipNormativeSection: expectedNormativeSections(manifest, currentCatalog),
+		ownershipSectionBinding:   expectedSectionBindingInventory(),
 		ownershipFixture:          expectedFixtures(manifest, currentCatalog),
+	}
+	requiredSectionBindings, err := expectedCatalogSectionBindings(currentCatalog)
+	if err != nil {
+		return Report{}, err
+	}
+	required := map[ownershipKind]map[string]struct{}{
+		ownershipContract:         expected[ownershipContract],
+		ownershipNormativeSection: expected[ownershipNormativeSection],
+		ownershipSectionBinding:   requiredSectionBindings,
+		ownershipFixture:          expected[ownershipFixture],
+	}
+	selectedSectionBindings := map[string]struct{}(nil)
+	if assignedBindings != nil {
+		required = cloneOwnershipSets(expected)
+		selectedSectionBindings = make(map[string]struct{})
+		for _, binding := range assignedBindings {
+			for _, key := range binding.Keys {
+				selectedSectionBindings[key] = struct{}{}
+			}
+		}
+		required[ownershipSectionBinding] = make(map[string]struct{})
 	}
 	checker := newSourceChecker(repository)
 	acceptanceIDs, err := verifyAcceptanceCases(checker, registry.AcceptanceCases)
 	if err != nil {
 		return Report{}, err
 	}
-	owned, err := verifyOwnershipGroups(checker, registry.Ownership, acceptanceIDs, expected)
+	owned, err := verifyOwnershipGroups(checker, registry.Ownership, acceptanceIDs, expected, required, selectedSectionBindings)
 	if err != nil {
 		return Report{}, err
+	}
+	for _, binding := range assignedBindings {
+		for _, key := range binding.Keys {
+			if _, ok := owned[ownershipSectionBinding][key]; !ok {
+				return Report{}, fail("assigned section %q binding %q has no scoped implementation owner", binding.Scope, key)
+			}
+		}
 	}
 	for _, contract := range compatibilityCatalog.Contracts {
 		key := contractKey(contract.Name, string(contract.ID))
@@ -230,6 +290,7 @@ func verifyOwnership(
 		AcceptanceCases:        len(acceptanceIDs),
 		Fixtures:               len(expected[ownershipFixture]),
 		CompatibilityContracts: len(compatibilityCatalog.Contracts),
+		AssignedScopes:         len(assignedBindings),
 	}, nil
 }
 
@@ -270,27 +331,51 @@ func verifyOwnershipGroups(
 	checker *sourceChecker,
 	groups []ownershipGroup,
 	acceptanceIDs map[string]struct{},
-	expected map[ownershipKind]map[string]struct{},
+	allowed map[ownershipKind]map[string]struct{},
+	required map[ownershipKind]map[string]struct{},
+	selectedSectionBindings map[string]struct{},
 ) (map[ownershipKind]map[string]struct{}, error) {
 	owned := map[ownershipKind]map[string]struct{}{
 		ownershipContract:         make(map[string]struct{}),
 		ownershipNormativeSection: make(map[string]struct{}),
+		ownershipSectionBinding:   make(map[string]struct{}),
 		ownershipFixture:          make(map[string]struct{}),
 	}
 	if len(groups) == 0 {
 		return nil, fail("implementation ownership registry is empty")
 	}
 	for index, group := range groups {
-		if _, ok := expected[group.Kind]; !ok {
+		if _, ok := allowed[group.Kind]; !ok {
 			return nil, fail("ownership group %d has unknown kind %q", index, group.Kind)
+		}
+		if group.Kind == ownershipSectionBinding && selectedSectionBindings != nil {
+			selected := false
+			for _, key := range group.Keys {
+				if _, ok := selectedSectionBindings[key]; ok {
+					selected = true
+					break
+				}
+			}
+			if !selected {
+				continue
+			}
+		}
+		if group.Kind == ownershipSectionBinding && len(group.Keys) != 1 {
+			return nil, fail("section binding ownership group %d has %d keys, want exactly one", index, len(group.Keys))
 		}
 		if len(group.Keys) == 0 {
 			return nil, fail("ownership group %d (%s) has no registered keys", index, group.Kind)
 		}
 		if err := checker.verify(group.Production, false); err != nil {
+			if group.Kind == ownershipSectionBinding {
+				return nil, fail("section binding %q production owner: %v", group.Keys[0], err)
+			}
 			return nil, fail("ownership group %d (%s) production owner: %v", index, group.Kind, err)
 		}
 		if len(group.AcceptanceCases) == 0 {
+			if group.Kind == ownershipSectionBinding {
+				return nil, fail("section binding %q has no scope-specific acceptance owner", group.Keys[0])
+			}
 			return nil, fail("ownership group %d (%s) has no acceptance owner", index, group.Kind)
 		}
 		caseSeen := make(map[string]struct{}, len(group.AcceptanceCases))
@@ -300,6 +385,9 @@ func verifyOwnershipGroups(
 			}
 			caseSeen[acceptanceID] = struct{}{}
 			if _, ok := acceptanceIDs[acceptanceID]; !ok {
+				if group.Kind == ownershipSectionBinding {
+					return nil, fail("section binding %q references unregistered acceptance case %q", group.Keys[0], acceptanceID)
+				}
 				return nil, fail("ownership group %d (%s) references unregistered acceptance case %q", index, group.Kind, acceptanceID)
 			}
 		}
@@ -313,19 +401,197 @@ func verifyOwnershipGroups(
 			owned[group.Kind][key] = struct{}{}
 		}
 	}
-	for kind, wanted := range expected {
+	for kind, wanted := range required {
 		for key := range wanted {
 			if _, ok := owned[kind][key]; !ok {
 				return nil, fail("registered %s %q has no implementation owner", kind, key)
 			}
 		}
-		for key := range owned[kind] {
-			if _, ok := wanted[key]; !ok {
+	}
+	for kind, registered := range owned {
+		for key := range registered {
+			if _, ok := allowed[kind][key]; !ok {
 				return nil, fail("implementation owner is self-minted for unknown %s %q", kind, key)
 			}
 		}
 	}
 	return owned, nil
+}
+
+func resolveAssignedSections(pinned []string, assigned []string) ([]assignedSectionBinding, error) {
+	if assigned == nil {
+		return nil, nil
+	}
+	pinnedSet := make(map[string]struct{}, len(pinned))
+	for _, section := range pinned {
+		pinnedSet[section] = struct{}{}
+	}
+	bindings := make([]assignedSectionBinding, 0, len(assigned))
+	seen := make(map[string]struct{}, len(assigned))
+	for _, raw := range assigned {
+		scope := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "§"))
+		if scope == "" {
+			return nil, fail("invalid assigned section %q", raw)
+		}
+		canonical := strings.ToLower(strings.Join(strings.Fields(scope), "-"))
+		root := canonical
+		identifiers := []string{canonical}
+		if strings.HasPrefix(canonical, "appendix-") {
+			if !specpin.IsSectionV050(canonical) {
+				return nil, fail("assigned section %q is not a real v0.5.0 section identifier", raw)
+			}
+		} else {
+			matches := assignedSectionPattern.FindStringSubmatch(scope)
+			if matches == nil {
+				return nil, fail("invalid assigned section %q", raw)
+			}
+			start := canonicalNumericSection(matches[1])
+			end := start
+			if matches[2] != "" {
+				end = canonicalNumericSection(matches[2])
+			}
+			root = strings.Split(start, ".")[0]
+			if strings.Split(end, ".")[0] != root {
+				return nil, fail("invalid assigned section %q", raw)
+			}
+			for _, identifier := range []string{start, end} {
+				if !specpin.IsSectionV050(identifier) {
+					return nil, fail("assigned section %q is not a real v0.5.0 section identifier", raw)
+				}
+			}
+			expanded, expandErr := expandV050SectionRange(start, end)
+			if expandErr != nil {
+				return nil, fail("invalid assigned section %q: %v", raw, expandErr)
+			}
+			identifiers = expanded
+		}
+		if _, ok := pinnedSet[root]; !ok {
+			return nil, fail("assigned section %q is outside pinned normative scope", raw)
+		}
+		keys := make([]string, len(identifiers))
+		for index, identifier := range identifiers {
+			keys[index] = sectionBindingKey(identifier)
+		}
+		bindingIdentity := strings.Join(keys, "\x00")
+		if _, duplicate := seen[bindingIdentity]; duplicate {
+			continue
+		}
+		seen[bindingIdentity] = struct{}{}
+		bindings = append(bindings, assignedSectionBinding{Scope: raw, Keys: keys})
+	}
+	return bindings, nil
+}
+
+func expandV050SectionRange(start, end string) ([]string, error) {
+	inventory := specpin.SectionInventoryV050()
+	startIndex := -1
+	endIndex := -1
+	for index, identifier := range inventory {
+		if identifier == start {
+			startIndex = index
+		}
+		if identifier == end {
+			endIndex = index
+		}
+	}
+	if startIndex == -1 || endIndex == -1 {
+		return nil, fmt.Errorf("range endpoint is not a real v0.5.0 section identifier")
+	}
+	if endIndex < startIndex {
+		return nil, fmt.Errorf("section range descends from %s to %s", start, end)
+	}
+	return append([]string(nil), inventory[startIndex:endIndex+1]...), nil
+}
+
+func sectionBindingKey(identifier string) string {
+	return "section:" + identifier
+}
+
+func expectedSectionBindingInventory() map[string]struct{} {
+	result := make(map[string]struct{})
+	for _, identifier := range specpin.SectionInventoryV050() {
+		result[sectionBindingKey(identifier)] = struct{}{}
+	}
+	return result
+}
+
+func expectedCatalogSectionBindings(value catalog.Catalog) (map[string]struct{}, error) {
+	result := make(map[string]struct{})
+	addDefinition := func(normativeSection string, fixtures []string) error {
+		for _, expression := range strings.Split(normativeSection, ",") {
+			expression = strings.TrimSpace(expression)
+			parts := strings.Split(expression, "-")
+			if len(parts) > 2 || len(parts) == 0 {
+				return fail("catalog normative section %q is not an exact section or range", normativeSection)
+			}
+			start := canonicalNumericSection(strings.TrimSpace(parts[0]))
+			end := start
+			if len(parts) == 2 {
+				end = canonicalNumericSection(strings.TrimSpace(parts[1]))
+			}
+			identifiers, err := expandV050SectionRange(start, end)
+			if err != nil {
+				return fail("catalog normative section %q: %v", normativeSection, err)
+			}
+			for _, identifier := range identifiers {
+				result[sectionBindingKey(identifier)] = struct{}{}
+			}
+		}
+		for _, fixture := range fixtures {
+			match := catalogAppendixPattern.FindStringSubmatch(fixture)
+			if match != nil {
+				result[sectionBindingKey("appendix-"+strings.ToLower(match[1]))] = struct{}{}
+			}
+		}
+		return nil
+	}
+	for _, operation := range value.Operations {
+		if err := addDefinition(operation.NormativeSection, operation.FixtureFamilies); err != nil {
+			return nil, err
+		}
+	}
+	for _, capability := range value.Capabilities {
+		if err := addDefinition(capability.NormativeSection, capability.FixtureFamilies); err != nil {
+			return nil, err
+		}
+	}
+	for _, event := range value.Events {
+		if err := addDefinition(event.NormativeSection, event.FixtureFamilies); err != nil {
+			return nil, err
+		}
+	}
+	for _, item := range value.Errors {
+		if err := addDefinition(item.NormativeSection, item.FixtureFamilies); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func canonicalNumericSection(identifier string) string {
+	parts := strings.Split(identifier, ".")
+	for index := 1; index < len(parts); index++ {
+		if len(parts[index]) != 1 {
+			continue
+		}
+		character := parts[index][0]
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') {
+			parts[index] = strings.ToUpper(parts[index])
+		}
+	}
+	return strings.Join(parts, ".")
+}
+
+func cloneOwnershipSets(source map[ownershipKind]map[string]struct{}) map[ownershipKind]map[string]struct{} {
+	result := make(map[ownershipKind]map[string]struct{}, len(source))
+	for kind, values := range source {
+		cloned := make(map[string]struct{}, len(values))
+		for value := range values {
+			cloned[value] = struct{}{}
+		}
+		result[kind] = cloned
+	}
+	return result
 }
 
 func verifyCatalogContracts(want []specpin.ContractPin, got []catalog.Contract) error {

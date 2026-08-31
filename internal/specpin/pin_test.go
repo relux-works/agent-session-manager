@@ -28,6 +28,17 @@ func TestCurrentPinsPublishedV050Source(t *testing.T) {
 	if manifest.Source.Document.SHA256 != specpin.DocumentSHA256 {
 		t.Errorf("document digest = %q, want %q", manifest.Source.Document.SHA256, specpin.DocumentSHA256)
 	}
+	if manifest.Source.SectionInventorySHA256 != specpin.SectionInventorySHA256 {
+		t.Errorf("section inventory digest = %q, want %q", manifest.Source.SectionInventorySHA256, specpin.SectionInventorySHA256)
+	}
+	wantScope := []string{
+		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+		"11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+		"appendix-a", "appendix-b", "appendix-c", "appendix-d",
+	}
+	if !reflect.DeepEqual(manifest.Source.NormativeScope, wantScope) {
+		t.Errorf("normative scope = %v, want %v", manifest.Source.NormativeScope, wantScope)
+	}
 	if len(manifest.Contracts) != 60 {
 		t.Fatalf("contract rows = %d, want 60", len(manifest.Contracts))
 	}
@@ -73,6 +84,19 @@ func TestVerifyRejectsIdentityAndContractDrift(t *testing.T) {
 			name: "document digest",
 			mutate: func(document map[string]any) {
 				document["source"].(map[string]any)["document"].(map[string]any)["sha256"] = strings.Repeat("0", 64)
+			},
+		},
+		{
+			name: "normative scope",
+			mutate: func(document map[string]any) {
+				source := document["source"].(map[string]any)
+				source["normative_scope"] = source["normative_scope"].([]any)[1:]
+			},
+		},
+		{
+			name: "section inventory digest",
+			mutate: func(document map[string]any) {
+				document["source"].(map[string]any)["section_inventory_sha256"] = strings.Repeat("0", 64)
 			},
 		},
 		{

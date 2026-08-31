@@ -21,7 +21,7 @@ import (
 const (
 	metadataFormat                  = "ax-implementation-catalog"
 	metadataFormatVersion           = 1
-	reviewedMetadataCanonicalSHA256 = "e1fa0e1c7c775e87e128709b7cffa597cb070ab3bb7998ddcd4b93c61e4b45ed"
+	reviewedMetadataCanonicalSHA256 = "4ddf049a7bc1abf29030283eaf7ad397555a4be2b4b4fce34d458a3ca2b089e8"
 )
 
 var ErrInvalidMetadata = errors.New("invalid implementation catalog metadata")
@@ -394,8 +394,9 @@ func validateMetadata(value metadata, manifest specpin.Manifest) error {
 		return invalid("encode canonical metadata: %v", err)
 	}
 	digest := sha256.Sum256(canonical)
-	if hex.EncodeToString(digest[:]) != reviewedMetadataCanonicalSHA256 {
-		return invalid("metadata projection differs from the reviewed catalog")
+	gotDigest := hex.EncodeToString(digest[:])
+	if gotDigest != reviewedMetadataCanonicalSHA256 {
+		return invalid("metadata projection digest %s differs from reviewed %s", gotDigest, reviewedMetadataCanonicalSHA256)
 	}
 	return nil
 }

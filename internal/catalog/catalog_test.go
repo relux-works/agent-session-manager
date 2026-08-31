@@ -23,6 +23,14 @@ func TestCurrentMatchesReviewedV050Catalog(t *testing.T) {
 		got.Source.DocumentSHA256 != specpin.DocumentSHA256 {
 		t.Fatalf("Current().Source = %#v, want exact spec pin", got.Source)
 	}
+	wantScope := []string{
+		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+		"11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+		"appendix-a", "appendix-b", "appendix-c", "appendix-d",
+	}
+	if !reflect.DeepEqual(got.Source.NormativeScope, wantScope) {
+		t.Fatalf("Current().Source.NormativeScope = %v, want %v", got.Source.NormativeScope, wantScope)
+	}
 
 	manifest, err := specpin.Current()
 	if err != nil {

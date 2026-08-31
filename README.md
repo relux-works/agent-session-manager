@@ -103,9 +103,10 @@ semantic identity.
 | v0.5.0 | 60 | 99 | 46 | 112 | 109 |
 | v0.4.3 | 55 | 89 | 30 | 112 | 94 |
 
-The metadata is traceable to specification Sections 1, 17, and 20 and
-Appendices A and D, with each generated family retaining its exact defining
-section and named Appendix D fixture anchors. Durable operation entries include
+The source pin and catalog metadata cover every normative top-level section
+claimed by the implementation board: Sections 1-20 and Appendices A-D. Each
+generated family retains its exact defining section and named
+Appendix D fixture anchors. Durable operation entries include
 their reviewed idempotency scope and crash/lost-result recovery evidence;
 Terminal Backend entries reproduce the distinct Section 4.C canonical keys.
 Capability entries are vocabulary members only: the public type has no
@@ -125,7 +126,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
 repository gate used by CI. Its reviewed
 [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
 registry independently enumerates implementation owners for all 60 current
-contract rows, 17 pinned or catalog-referenced normative section keys, 15
+contract rows, 36 pinned or catalog-referenced normative section keys, 16
 executable acceptance cases, and 30 exact fixture identities or Appendix D
 anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
 
@@ -138,7 +139,18 @@ build:
 
 ```bash
 go run ./internal/traceability/cmd/tracecheck
+go run ./internal/traceability/cmd/tracecheck -section 9.2 -section 7.9
 ```
+
+The repeated `-section` form is the Story-scope production gate. It resolves
+each assigned subsection, and every heading in a same-top-level range, against
+the immutable v0.5.0 inventory. Every exact `section_binding` must name its own
+production declaration and executable acceptance case. A generic top-level
+source pin is not a scoped implementation owner: for example, Section 10.1 is
+pinned but `tracecheck -section 10.1` refuses until the scalar implementation
+registers its real owner. The default command remains green for pinned but
+unassigned sections. Malformed, nonexistent, unpinned, or unowned assignments
+fail closed.
 
 Successful output reports ownership inventory counts only. The gate does not
 mutate repository or product state, add an `ax` command or `doctor` result,
@@ -166,7 +178,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | --- | --- | --- | --- |
 | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
-| Go toolchain | Verify specification ownership, generate the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go generate ./internal/catalog`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
+| Go toolchain | Verify global and assigned-scope specification ownership, generate the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 9.2`; `go generate ./internal/catalog`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | GitHub Actions | Enforce traceability, generated-output, test, vet, and build gates on pull requests and `main` | `.github/workflows/ci.yml` | GitHub-hosted CI check results |
 | Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
 | GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |

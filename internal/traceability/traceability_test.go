@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/relux-works/agent-session-manager/internal/catalog"
 )
 
 func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
@@ -24,13 +26,78 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 	}
 	want := Report{
 		Contracts:              60,
-		NormativeSections:      17,
-		AcceptanceCases:        15,
+		NormativeSections:      36,
+		AcceptanceCases:        16,
 		Fixtures:               30,
 		CompatibilityContracts: 55,
 	}
 	if !reflect.DeepEqual(report, want) {
 		t.Fatalf("VerifyRepository() report = %#v, want %#v", report, want)
+	}
+}
+
+func TestVerifyAssignedSectionsBindsGranularScopeToOwnersAndExecutableCases(t *testing.T) {
+	t.Parallel()
+
+	report, err := VerifyAssignedSections(repositorySnapshot(t), []string{"9.2", "7.9"})
+	if err != nil {
+		t.Fatalf("VerifyAssignedSections() error = %v", err)
+	}
+	if report.AssignedScopes != 2 {
+		t.Fatalf("VerifyAssignedSections() assigned scopes = %d, want 2", report.AssignedScopes)
+	}
+
+	for _, scope := range []string{"11.2-11.3", "§4.B-4.C", "Appendix D"} {
+		report, err := VerifyAssignedSections(repositorySnapshot(t), []string{scope})
+		if err != nil {
+			t.Errorf("VerifyAssignedSections(%q) error = %v", scope, err)
+			continue
+		}
+		if report.AssignedScopes != 1 {
+			t.Errorf("VerifyAssignedSections(%q) assigned scopes = %d, want 1", scope, report.AssignedScopes)
+		}
+	}
+}
+
+func TestVerifyAssignedSectionsRejectsPinnedSectionWithoutScopedImplementation(t *testing.T) {
+	t.Parallel()
+
+	_, err := VerifyAssignedSections(repositorySnapshot(t), []string{"10.1"})
+	want := `assigned section "10.1" binding "section:10.1" has no scoped implementation owner`
+	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), want) {
+		t.Fatalf("VerifyAssignedSections(10.1) error = %v, want ErrTraceability containing %q", err, want)
+	}
+}
+
+func TestVerifyAssignedSectionsRejectsMalformedUnpinnedAndEmptyScope(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		sections []string
+		contains string
+	}{
+		{name: "empty", sections: nil, contains: "assigned section scope is empty"},
+		{name: "malformed", sections: []string{"10.x!"}, contains: "invalid assigned section"},
+		{name: "nonexistent", sections: []string{"10.999"}, contains: "not a real v0.5.0 section identifier"},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := VerifyAssignedSections(repositorySnapshot(t), test.sections)
+			if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("VerifyAssignedSections() error = %v, want ErrTraceability containing %q", err, test.contains)
+			}
+		})
+	}
+}
+
+func TestResolveAssignedSectionsRejectsRealButUnpinnedSection(t *testing.T) {
+	t.Parallel()
+
+	_, err := resolveAssignedSections([]string{"1"}, []string{"10.1"})
+	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), "outside pinned normative scope") {
+		t.Fatalf("resolveAssignedSections() error = %v, want unpinned-scope refusal", err)
 	}
 }
 
@@ -57,6 +124,13 @@ func TestVerifyRepositoryRejectsNarrowedOwnership(t *testing.T) {
 				group.Keys = group.Keys[1:]
 			},
 			contains: "registered normative_section",
+		},
+		{
+			name: "one exact catalog section binding loses ownership",
+			mutate: func(registry *ownershipRegistry) {
+				removeOwnershipGroupByKey(t, registry, "section:9.2")
+			},
+			contains: "registered section_binding \"section:9.2\"",
 		},
 		{
 			name: "one exact fixture loses ownership",
@@ -94,6 +168,30 @@ func TestVerifyRepositoryRejectsNarrowedOwnership(t *testing.T) {
 				t.Fatalf("VerifyRepository() error = %v, want ErrTraceability containing %q", err, test.contains)
 			}
 		})
+	}
+}
+
+func TestCatalogSectionBindingCoverageIsExactAndDoesNotClaimUnimplementedScope(t *testing.T) {
+	t.Parallel()
+
+	current, err := catalog.ForRelease(catalog.ReleaseV050)
+	if err != nil {
+		t.Fatalf("ForRelease(v0.5.0) error = %v", err)
+	}
+	bindings, err := expectedCatalogSectionBindings(current)
+	if err != nil {
+		t.Fatalf("expectedCatalogSectionBindings() error = %v", err)
+	}
+	if len(bindings) != 24 {
+		t.Fatalf("catalog-scoped binding inventory has %d entries, want 24", len(bindings))
+	}
+	for _, required := range []string{"section:4.B", "section:9.2", "section:18.1", "section:appendix-d"} {
+		if _, ok := bindings[required]; !ok {
+			t.Errorf("catalog-scoped binding inventory lacks %q", required)
+		}
+	}
+	if _, claimed := bindings["section:10.1"]; claimed {
+		t.Fatal("catalog-scoped binding inventory falsely claims unimplemented Section 10.1")
 	}
 }
 
@@ -148,7 +246,7 @@ func TestVerifyRepositoryRejectsAbsentOwnershipGroupProductionDeclaration(t *tes
 	)
 
 	_, err := VerifyRepository(repository)
-	want := "ownership group 3 (fixture) production owner: declaration \"Fixture\" is absent from \"internal/specpin/pin.go\""
+	want := "(fixture) production owner: declaration \"Fixture\" is absent from \"internal/specpin/pin.go\""
 	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), want) {
 		t.Fatalf("VerifyRepository() error = %v, want ErrTraceability containing %q", err, want)
 	}
@@ -375,6 +473,19 @@ func ownershipGroupByKind(t *testing.T, registry *ownershipRegistry, kind owners
 	}
 	t.Fatalf("ownership group %q not found", kind)
 	return nil
+}
+
+func removeOwnershipGroupByKey(t *testing.T, registry *ownershipRegistry, key string) {
+	t.Helper()
+	for index, group := range registry.Ownership {
+		for _, candidate := range group.Keys {
+			if candidate == key {
+				registry.Ownership = append(registry.Ownership[:index], registry.Ownership[index+1:]...)
+				return
+			}
+		}
+	}
+	t.Fatalf("ownership key %q not found", key)
 }
 
 func snapshotDigest(repository fstest.MapFS) [32]byte {

@@ -35,7 +35,7 @@ const (
 	RoadmapV043FixtureID      = "ax-v0.4.3-roadmap-terminal-realm-v1"
 
 	// ManifestSHA256 pins the exact bytes embedded in this package.
-	ManifestSHA256 = "edd67e84cb173fb66efb9d719b28ae02cf7cd5c7c1462551f5c7667b35cf78b6"
+	ManifestSHA256 = "6fa3a22be22525b4a0146fe9f995aad63c49c2230e86c7039f8eacb87df1ab8c"
 )
 
 var (
@@ -67,13 +67,14 @@ type Manifest struct {
 }
 
 type SourcePin struct {
-	Repository     string      `json:"repository"`
-	Release        string      `json:"release"`
-	Tag            string      `json:"tag"`
-	TagObject      string      `json:"tag_object"`
-	Commit         string      `json:"commit"`
-	Document       DocumentPin `json:"document"`
-	NormativeScope []string    `json:"normative_scope"`
+	Repository             string      `json:"repository"`
+	Release                string      `json:"release"`
+	Tag                    string      `json:"tag"`
+	TagObject              string      `json:"tag_object"`
+	Commit                 string      `json:"commit"`
+	Document               DocumentPin `json:"document"`
+	SectionInventorySHA256 string      `json:"section_inventory_sha256"`
+	NormativeScope         []string    `json:"normative_scope"`
 }
 
 type DocumentPin struct {
@@ -191,13 +192,19 @@ func validate(manifest Manifest) error {
 	source := manifest.Source
 	if source.Repository != Repository || source.Release != ReleaseV050 || source.Tag != TagV050 ||
 		source.TagObject != TagObjectV050 || source.Commit != CommitV050 ||
-		source.Document.Path != DocumentPath || source.Document.SHA256 != DocumentSHA256 {
+		source.Document.Path != DocumentPath || source.Document.SHA256 != DocumentSHA256 ||
+		source.SectionInventorySHA256 != SectionInventorySHA256 {
 		return mismatch("source identity drift")
 	}
-	if !hex40.MatchString(source.TagObject) || !hex40.MatchString(source.Commit) || !hex64.MatchString(source.Document.SHA256) {
+	if !hex40.MatchString(source.TagObject) || !hex40.MatchString(source.Commit) ||
+		!hex64.MatchString(source.Document.SHA256) || !hex64.MatchString(source.SectionInventorySHA256) {
 		return mismatch("malformed source digest")
 	}
-	if !reflect.DeepEqual(source.NormativeScope, []string{"1", "17", "20", "appendix-a", "appendix-d"}) {
+	if !reflect.DeepEqual(source.NormativeScope, []string{
+		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+		"11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+		"appendix-a", "appendix-b", "appendix-c", "appendix-d",
+	}) {
 		return mismatch("normative scope drift")
 	}
 
