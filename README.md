@@ -7,10 +7,10 @@ cross-host `ax` coding-agent session orchestrator.
 
 The Curator-managed repository foundation is complete and the published AX
 v0.5.0 specification has been decomposed into an implementation board. The
-first Go production slice pins the immutable normative source, contract
-versions, compatibility baseline, and shipped fixture identities. Session,
-provider, terminal, mesh, and operator command behavior is not implemented or
-advertised by this slice.
+Go contract foundation pins the immutable normative source and generates typed
+contract, operation, capability-vocabulary, event, and error catalogs from
+reviewed implementation metadata. Session, provider, terminal, mesh, and
+operator command behavior is not implemented or advertised by this slice.
 
 Product behavior is defined by the
 [normative AX specification](https://github.com/relux-works/agent-session-manager-spec/blob/main/SPEC.md).
@@ -85,6 +85,65 @@ command, `doctor` result, conformance-target declaration, or runtime capability
 claim; those surfaces remain unavailable until their owning implementation and
 acceptance tasks land.
 
+## Generated Contract Catalogs
+
+[`internal/catalog`](internal/catalog) exposes typed records through
+`catalog.Current()` for v0.5.0 and `catalog.ForRelease()` for the exact pinned
+v0.4.3 compatibility projection. The reviewed input is
+[`catalog.v0.5.0.json`](internal/catalog/catalog.v0.5.0.json); generation first
+verifies the exact [`specpin`](internal/specpin) lock, strictly rejects partial,
+unknown, substituted, duplicate, release-incompatible, or unreviewed semantic
+metadata through a canonical projection digest, then writes
+[`catalog_gen.go`](internal/catalog/catalog_gen.go) atomically and
+deterministically. JSON whitespace and formatting do not alter that reviewed
+semantic identity.
+
+| Release projection | Contracts | Operations | Capability names | Events | Error codes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| v0.5.0 | 60 | 99 | 46 | 112 | 109 |
+| v0.4.3 | 55 | 89 | 30 | 112 | 94 |
+
+The metadata is traceable to specification Sections 1, 17, and 20 and
+Appendices A and D, with each generated family retaining its exact defining
+section and named Appendix D fixture anchors. Durable operation entries include
+their reviewed idempotency scope and crash/lost-result recovery evidence;
+Terminal Backend entries reproduce the distinct Section 4.C canonical keys.
+Capability entries are vocabulary members only: the public type has no
+availability, enabled, supported, or status field, so catalog generation cannot
+advertise runtime capability.
+
+Regenerate and verify the committed output with:
+
+```bash
+go generate ./internal/catalog
+go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/cataloggen -count=1
+```
+
+## Specification-to-Code Ownership Gate
+
+[`internal/traceability`](internal/traceability) provides the read-only
+repository gate used by CI. Its reviewed
+[`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
+registry independently enumerates implementation owners for all 60 current
+contract rows, 17 pinned or catalog-referenced normative section keys, 15
+executable acceptance cases, and 30 exact fixture identities or Appendix D
+anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
+
+The production validator re-verifies the exact source lock and reviewed catalog
+metadata, refuses stale generated output, requires every production and test
+owner to resolve to a real Go declaration, and rejects gaps, duplicates,
+self-minted keys, partial or malformed reads, and semantic ownership drift.
+GitHub Actions invokes the gate directly before generation, tests, vet, and
+build:
+
+```bash
+go run ./internal/traceability/cmd/tracecheck
+```
+
+Successful output reports ownership inventory counts only. The gate does not
+mutate repository or product state, add an `ax` command or `doctor` result,
+or claim that any catalog capability is available, enabled, or supported.
+
 ## Managed Skills
 
 `Skillfile.json` targets the Curator-standard `claude_code` and `codex_cli`
@@ -107,7 +166,8 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | --- | --- | --- | --- |
 | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
-| Go toolchain | Build, test, and measure the Go implementation | `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
+| Go toolchain | Verify specification ownership, generate the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go generate ./internal/catalog`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
+| GitHub Actions | Enforce traceability, generated-output, test, vet, and build gates on pull requests and `main` | `.github/workflows/ci.yml` | GitHub-hosted CI check results |
 | Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
 | GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |
 

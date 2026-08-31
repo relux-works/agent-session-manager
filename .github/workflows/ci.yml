@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify implementation ownership
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Verify specification-to-code ownership
+        run: go run ./internal/traceability/cmd/tracecheck
+
+      - name: Verify generated catalog is current
+        run: |
+          go generate ./internal/catalog
+          git diff --exit-code -- internal/catalog/catalog_gen.go
+
+      - name: Test
+        run: go test ./... -v
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
