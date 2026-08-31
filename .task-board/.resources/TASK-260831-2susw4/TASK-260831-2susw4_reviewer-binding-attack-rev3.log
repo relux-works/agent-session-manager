@@ -1,0 +1,68 @@
+Candidate binding attack (CR revision 3)
+candidate_tree=5e0189423f4cf12252c23b8f40241260faa5397a
+patch_sha256=1023652af9a32c2879c0126cc879d2b547574d0cc12825096ae1ef52a9dc9222
+
+$ test ! -d internal/scalar
+[exit 0: TASK-260830-1pbx0c implementation is absent from this candidate]
+$ jq source normative owner group
+{
+  "keys": [
+    "source:1",
+    "source:2",
+    "source:3",
+    "source:4",
+    "source:5",
+    "source:6",
+    "source:7",
+    "source:8",
+    "source:9",
+    "source:10",
+    "source:11",
+    "source:12",
+    "source:13",
+    "source:14",
+    "source:15",
+    "source:16",
+    "source:17",
+    "source:18",
+    "source:19",
+    "source:20",
+    "source:appendix-a",
+    "source:appendix-b",
+    "source:appendix-c",
+    "source:appendix-d"
+  ],
+  "production": {
+    "path": "internal/specpin/pin.go",
+    "declaration": "Verify"
+  },
+  "acceptance_cases": [
+    "source-pin-exact",
+    "source-pin-refusal",
+    "source-pin-compatibility",
+    "source-pin-idempotency-isolation",
+    "assigned-section-binding"
+  ]
+}
+$ go run tracecheck -section 10.1 ... 10.4
+traceability ok: contracts=60 normative_sections=36 acceptance_cases=16 fixtures=30 compatibility_contracts=55 assigned_scopes=4
+[exit 0]
+
+Narrowed acceptance-link mutant
+Mutation: remove only assigned-section-binding from source:* group; keep acceptance case registry row and every source key; update reviewedOwnershipCanonicalSHA256 to the mutant canonical digest.
+$ rg assigned-section-binding ownership.v0.5.0.json
+223:      "id": "assigned-section-binding",
+$ jq mutant source:10 group acceptance cases
+[
+  "source-pin-exact",
+  "source-pin-refusal",
+  "source-pin-compatibility",
+  "source-pin-idempotency-isolation"
+]
+$ (mutant) go run tracecheck -section 10.1
+traceability ok: contracts=60 normative_sections=36 acceptance_cases=16 fixtures=30 compatibility_contracts=55 assigned_scopes=1
+[exit 0: mutant survived]
+$ (mutant) go test ./internal/traceability/... -count=1
+ok  	github.com/relux-works/agent-session-manager/internal/traceability	0.340s
+ok  	github.com/relux-works/agent-session-manager/internal/traceability/cmd/tracecheck	3.020s
+[exit 0: mutant survived full changed-package tests]

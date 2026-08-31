@@ -1,0 +1,798 @@
+diff --git a/README.md b/README.md
+index 0e769db..19eee6a 100644
+--- a/README.md
++++ b/README.md
+@@ -103,9 +103,10 @@ semantic identity.
+ | v0.5.0 | 60 | 99 | 46 | 112 | 109 |
+ | v0.4.3 | 55 | 89 | 30 | 112 | 94 |
+ 
+-The metadata is traceable to specification Sections 1, 17, and 20 and
+-Appendices A and D, with each generated family retaining its exact defining
+-section and named Appendix D fixture anchors. Durable operation entries include
++The source pin and catalog metadata cover every normative top-level section
++claimed by the implementation board: Sections 1-11 and 13-20, plus Appendices
++A and D. Each generated family retains its exact defining section and named
++Appendix D fixture anchors. Durable operation entries include
+ their reviewed idempotency scope and crash/lost-result recovery evidence;
+ Terminal Backend entries reproduce the distinct Section 4.C canonical keys.
+ Capability entries are vocabulary members only: the public type has no
+@@ -125,7 +126,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
+ registry independently enumerates implementation owners for all 60 current
+-contract rows, 17 pinned or catalog-referenced normative section keys, 15
++contract rows, 33 pinned or catalog-referenced normative section keys, 16
+ executable acceptance cases, and 30 exact fixture identities or Appendix D
+ anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
+ 
+@@ -138,8 +139,16 @@ build:
+ 
+ ```bash
+ go run ./internal/traceability/cmd/tracecheck
++go run ./internal/traceability/cmd/tracecheck -section 10.1 -section 10.2 -section 10.3 -section 10.4
+ ```
+ 
++The repeated `-section` form is the Story-scope production gate. It resolves
++each assigned subsection or same-top-level range to the pinned top-level
++section, then requires that binding to have a real production declaration and
++registered executable acceptance case. A scoped run does not infer ownership
++from catalog-row consistency alone; malformed and unpinned assignments fail
++closed.
++
+ Successful output reports ownership inventory counts only. The gate does not
+ mutate repository or product state, add an `ax` command or `doctor` result,
+ or claim that any catalog capability is available, enabled, or supported.
+@@ -166,7 +175,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
+ | --- | --- | --- | --- |
+ | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
+ | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
+-| Go toolchain | Verify specification ownership, generate the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go generate ./internal/catalog`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
++| Go toolchain | Verify global and assigned-scope specification ownership, generate the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 10.1`; `go generate ./internal/catalog`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
+ | GitHub Actions | Enforce traceability, generated-output, test, vet, and build gates on pull requests and `main` | `.github/workflows/ci.yml` | GitHub-hosted CI check results |
+ | Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
+ | GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |
+diff --git a/internal/catalog/catalog.v0.5.0.json b/internal/catalog/catalog.v0.5.0.json
+index 60ee3ff..c7eb057 100644
+--- a/internal/catalog/catalog.v0.5.0.json
++++ b/internal/catalog/catalog.v0.5.0.json
+@@ -8,7 +8,10 @@
+     "document_path": "SPEC.md",
+     "document_sha256": "562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a"
+   },
+-  "normative_scope": ["1", "17", "20", "appendix-a", "appendix-d"],
++  "normative_scope": [
++    "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
++    "13", "14", "15", "16", "17", "18", "19", "20", "appendix-a", "appendix-d"
++  ],
+   "operation_families": [
+     {
+       "family": "terminal_backend",
+diff --git a/internal/catalog/catalog_gen.go b/internal/catalog/catalog_gen.go
+index 44cc7ad..66644ee 100644
+--- a/internal/catalog/catalog_gen.go
++++ b/internal/catalog/catalog_gen.go
+@@ -1,5 +1,5 @@
+ // Code generated by go generate ./internal/catalog; DO NOT EDIT.
+-// Metadata SHA-256: c6455cf12e4deedcd03c7beccc53f925d0a9803592d8a23fefa7d0f6039406d2
++// Metadata SHA-256: 174c0e51f52573ce29c28db0f6c9c253404bbc6fb359bd4a8638b32d86ceaf85
+ 
+ package catalog
+ 
+@@ -10,9 +10,9 @@ var generatedDefinition = catalogDefinition{
+ 		Commit:         "28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c",
+ 		DocumentPath:   "SPEC.md",
+ 		DocumentSHA256: "562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a",
+-		NormativeScope: []string{"1", "17", "20", "appendix-a", "appendix-d"},
++		NormativeScope: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "13", "14", "15", "16", "17", "18", "19", "20", "appendix-a", "appendix-d"},
+ 	},
+-	MetadataSHA256: "c6455cf12e4deedcd03c7beccc53f925d0a9803592d8a23fefa7d0f6039406d2",
++	MetadataSHA256: "174c0e51f52573ce29c28db0f6c9c253404bbc6fb359bd4a8638b32d86ceaf85",
+ 	Contracts: map[Release][]Contract{
+ 		Release("v0.4.3"): {
+ 			{Name: "Configuration", ID: "urn:ax:schema:config", Versions: []string{"1.0.0", "2.0.0"}},
+diff --git a/internal/catalog/catalog_test.go b/internal/catalog/catalog_test.go
+index dd29e8f..72bd429 100644
+--- a/internal/catalog/catalog_test.go
++++ b/internal/catalog/catalog_test.go
+@@ -23,6 +23,13 @@ func TestCurrentMatchesReviewedV050Catalog(t *testing.T) {
+ 		got.Source.DocumentSHA256 != specpin.DocumentSHA256 {
+ 		t.Fatalf("Current().Source = %#v, want exact spec pin", got.Source)
+ 	}
++	wantScope := []string{
++		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
++		"13", "14", "15", "16", "17", "18", "19", "20", "appendix-a", "appendix-d",
++	}
++	if !reflect.DeepEqual(got.Source.NormativeScope, wantScope) {
++		t.Fatalf("Current().Source.NormativeScope = %v, want %v", got.Source.NormativeScope, wantScope)
++	}
+ 
+ 	manifest, err := specpin.Current()
+ 	if err != nil {
+diff --git a/internal/cataloggen/generate.go b/internal/cataloggen/generate.go
+index 0e20e4d..f78f8e6 100644
+--- a/internal/cataloggen/generate.go
++++ b/internal/cataloggen/generate.go
+@@ -21,7 +21,7 @@ import (
+ const (
+ 	metadataFormat                  = "ax-implementation-catalog"
+ 	metadataFormatVersion           = 1
+-	reviewedMetadataCanonicalSHA256 = "e1fa0e1c7c775e87e128709b7cffa597cb070ab3bb7998ddcd4b93c61e4b45ed"
++	reviewedMetadataCanonicalSHA256 = "9bb868974de70bd86ba01c701a32981721ccc32d46ca529aac55f85971428d93"
+ )
+ 
+ var ErrInvalidMetadata = errors.New("invalid implementation catalog metadata")
+@@ -394,8 +394,9 @@ func validateMetadata(value metadata, manifest specpin.Manifest) error {
+ 		return invalid("encode canonical metadata: %v", err)
+ 	}
+ 	digest := sha256.Sum256(canonical)
+-	if hex.EncodeToString(digest[:]) != reviewedMetadataCanonicalSHA256 {
+-		return invalid("metadata projection differs from the reviewed catalog")
++	gotDigest := hex.EncodeToString(digest[:])
++	if gotDigest != reviewedMetadataCanonicalSHA256 {
++		return invalid("metadata projection digest %s differs from reviewed %s", gotDigest, reviewedMetadataCanonicalSHA256)
+ 	}
+ 	return nil
+ }
+diff --git a/internal/specpin/pin.go b/internal/specpin/pin.go
+index 0bacb25..515e7cc 100644
+--- a/internal/specpin/pin.go
++++ b/internal/specpin/pin.go
+@@ -35,7 +35,7 @@ const (
+ 	RoadmapV043FixtureID      = "ax-v0.4.3-roadmap-terminal-realm-v1"
+ 
+ 	// ManifestSHA256 pins the exact bytes embedded in this package.
+-	ManifestSHA256 = "edd67e84cb173fb66efb9d719b28ae02cf7cd5c7c1462551f5c7667b35cf78b6"
++	ManifestSHA256 = "2bf6f65b244fee705a2f15986beecc120b173bc70c7860b48c9e0b40a50f246c"
+ )
+ 
+ var (
+@@ -197,7 +197,10 @@ func validate(manifest Manifest) error {
+ 	if !hex40.MatchString(source.TagObject) || !hex40.MatchString(source.Commit) || !hex64.MatchString(source.Document.SHA256) {
+ 		return mismatch("malformed source digest")
+ 	}
+-	if !reflect.DeepEqual(source.NormativeScope, []string{"1", "17", "20", "appendix-a", "appendix-d"}) {
++	if !reflect.DeepEqual(source.NormativeScope, []string{
++		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
++		"13", "14", "15", "16", "17", "18", "19", "20", "appendix-a", "appendix-d",
++	}) {
+ 		return mismatch("normative scope drift")
+ 	}
+ 
+diff --git a/internal/specpin/pin_test.go b/internal/specpin/pin_test.go
+index 82dfa71..f1ca33e 100644
+--- a/internal/specpin/pin_test.go
++++ b/internal/specpin/pin_test.go
+@@ -28,6 +28,13 @@ func TestCurrentPinsPublishedV050Source(t *testing.T) {
+ 	if manifest.Source.Document.SHA256 != specpin.DocumentSHA256 {
+ 		t.Errorf("document digest = %q, want %q", manifest.Source.Document.SHA256, specpin.DocumentSHA256)
+ 	}
++	wantScope := []string{
++		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11",
++		"13", "14", "15", "16", "17", "18", "19", "20", "appendix-a", "appendix-d",
++	}
++	if !reflect.DeepEqual(manifest.Source.NormativeScope, wantScope) {
++		t.Errorf("normative scope = %v, want %v", manifest.Source.NormativeScope, wantScope)
++	}
+ 	if len(manifest.Contracts) != 60 {
+ 		t.Fatalf("contract rows = %d, want 60", len(manifest.Contracts))
+ 	}
+@@ -75,6 +82,13 @@ func TestVerifyRejectsIdentityAndContractDrift(t *testing.T) {
+ 				document["source"].(map[string]any)["document"].(map[string]any)["sha256"] = strings.Repeat("0", 64)
+ 			},
+ 		},
++		{
++			name: "normative scope",
++			mutate: func(document map[string]any) {
++				source := document["source"].(map[string]any)
++				source["normative_scope"] = source["normative_scope"].([]any)[1:]
++			},
++		},
+ 		{
+ 			name: "contract version",
+ 			mutate: func(document map[string]any) {
+diff --git a/internal/specpin/v0.5.0.lock.json b/internal/specpin/v0.5.0.lock.json
+index ff4b144..2609a12 100644
+--- a/internal/specpin/v0.5.0.lock.json
++++ b/internal/specpin/v0.5.0.lock.json
+@@ -13,7 +13,23 @@
+     },
+     "normative_scope": [
+       "1",
++      "2",
++      "3",
++      "4",
++      "5",
++      "6",
++      "7",
++      "8",
++      "9",
++      "10",
++      "11",
++      "13",
++      "14",
++      "15",
++      "16",
+       "17",
++      "18",
++      "19",
+       "20",
+       "appendix-a",
+       "appendix-d"
+diff --git a/internal/traceability/cmd/tracecheck/main.go b/internal/traceability/cmd/tracecheck/main.go
+index 23924b4..88d0d04 100644
+--- a/internal/traceability/cmd/tracecheck/main.go
++++ b/internal/traceability/cmd/tracecheck/main.go
+@@ -7,6 +7,7 @@ import (
+ 	"fmt"
+ 	"io"
+ 	"os"
++	"strings"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/traceability"
+ )
+@@ -22,6 +23,8 @@ func run(arguments []string, stdout io.Writer) error {
+ 	flags := flag.NewFlagSet("tracecheck", flag.ContinueOnError)
+ 	flags.SetOutput(io.Discard)
+ 	root := flags.String("root", ".", "repository root")
++	var sections sectionFlags
++	flags.Var(&sections, "section", "assigned normative section or same-section range; repeat for multiple scopes")
+ 	if err := flags.Parse(arguments); err != nil {
+ 		return err
+ 	}
+@@ -29,18 +32,36 @@ func run(arguments []string, stdout io.Writer) error {
+ 		return fmt.Errorf("unexpected positional arguments: %v", flags.Args())
+ 	}
+ 
+-	report, err := traceability.VerifyRepository(os.DirFS(*root))
++	var report traceability.Report
++	var err error
++	if len(sections) == 0 {
++		report, err = traceability.VerifyRepository(os.DirFS(*root))
++	} else {
++		report, err = traceability.VerifyAssignedSections(os.DirFS(*root), sections)
++	}
+ 	if err != nil {
+ 		return err
+ 	}
+ 	_, err = fmt.Fprintf(
+ 		stdout,
+-		"traceability ok: contracts=%d normative_sections=%d acceptance_cases=%d fixtures=%d compatibility_contracts=%d\n",
++		"traceability ok: contracts=%d normative_sections=%d acceptance_cases=%d fixtures=%d compatibility_contracts=%d assigned_scopes=%d\n",
+ 		report.Contracts,
+ 		report.NormativeSections,
+ 		report.AcceptanceCases,
+ 		report.Fixtures,
+ 		report.CompatibilityContracts,
++		report.AssignedScopes,
+ 	)
+ 	return err
+ }
++
++type sectionFlags []string
++
++func (sections *sectionFlags) String() string {
++	return strings.Join(*sections, ",")
++}
++
++func (sections *sectionFlags) Set(value string) error {
++	*sections = append(*sections, value)
++	return nil
++}
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index b34fc6b..8b797c7 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -2,9 +2,11 @@ package main
+ 
+ import (
+ 	"bytes"
++	"encoding/json"
+ 	"errors"
+ 	"io"
+ 	"os"
++	"os/exec"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
+@@ -20,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=17 acceptance_cases=15 fixtures=30 compatibility_contracts=55\n"
++	want := "traceability ok: contracts=60 normative_sections=33 acceptance_cases=16 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+ 	}
+@@ -46,6 +48,57 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if !errors.Is(err, writeErr) {
+ 		t.Fatalf("run(failing writer) error = %v, want %v", err, writeErr)
+ 	}
++
++	output.Reset()
++	err = run([]string{"-root", repositoryRoot, "-section", "10.1", "-section", "10.2", "-section", "10.3", "-section", "10.4"}, &output)
++	if err != nil {
++		t.Fatalf("run(assigned sections) error = %v", err)
++	}
++	want = "traceability ok: contracts=60 normative_sections=33 acceptance_cases=16 fixtures=30 compatibility_contracts=55 assigned_scopes=4\n"
++	if output.String() != want {
++		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
++	}
++}
++
++// TestMainRejectsOneNarrowedAssignedSectionBinding drives the production
++// main -> run -> traceability.VerifyAssignedSections call chain in an isolated
++// module. It re-pins the intentionally narrowed registry so the source:10
++// refusal, rather than the existing digest gate, is what makes the test red.
++// The unrelated source:9 binding must remain executable and green.
++func TestMainRejectsOneNarrowedAssignedSectionBinding(t *testing.T) {
++	if testing.Short() {
++		t.Skip("builds an isolated tracecheck binary")
++	}
++
++	repositoryRoot := filepath.Join("..", "..", "..", "..")
++	fixtureRoot := t.TempDir()
++	copyFile(t, filepath.Join(repositoryRoot, "go.mod"), filepath.Join(fixtureRoot, "go.mod"))
++	if err := os.CopyFS(
++		filepath.Join(fixtureRoot, "internal"),
++		os.DirFS(filepath.Join(repositoryRoot, "internal")),
++	); err != nil {
++		t.Fatalf("copy repository fixture: %v", err)
++	}
++
++	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.5.0.json")
++	removeOwnershipKey(t, registryPath, "source:10")
++
++	output, err := runTracecheck(t, fixtureRoot, "-section", "9.2")
++	if err == nil || !strings.Contains(output, "projection digest ") {
++		t.Fatalf("unrepinned narrowed tracecheck error = %v output = %q, want projection digest refusal", err, output)
++	}
++	repinOwnershipDigest(t, fixtureRoot, output)
++
++	output, err = runTracecheck(t, fixtureRoot, "-section", "10.1")
++	want := `assigned section "10.1" binding "source:10" has no implementation owner`
++	if err == nil || !strings.Contains(output, want) || strings.Contains(output, "traceability ok:") {
++		t.Fatalf("narrowed assigned tracecheck error = %v output = %q, want refusal %q and no success output", err, output, want)
++	}
++
++	output, err = runTracecheck(t, fixtureRoot, "-section", "9.2")
++	if err != nil || !strings.Contains(output, "assigned_scopes=1") {
++		t.Fatalf("unrelated assigned tracecheck error = %v output = %q, want green source:9 binding", err, output)
++	}
+ }
+ 
+ func TestRunRejectsRegisteredContractWithoutImplementationOwner(t *testing.T) {
+@@ -89,6 +142,89 @@ type failingWriter struct {
+ 	err error
+ }
+ 
++func copyFile(t *testing.T, source, destination string) {
++	t.Helper()
++	value, err := os.ReadFile(source)
++	if err != nil {
++		t.Fatalf("read %q: %v", source, err)
++	}
++	if err := os.WriteFile(destination, value, 0o644); err != nil {
++		t.Fatalf("write %q: %v", destination, err)
++	}
++}
++
++func removeOwnershipKey(t *testing.T, filename, target string) {
++	t.Helper()
++	value, err := os.ReadFile(filename)
++	if err != nil {
++		t.Fatalf("read ownership registry: %v", err)
++	}
++	var document map[string]any
++	if err := json.Unmarshal(value, &document); err != nil {
++		t.Fatalf("decode ownership registry: %v", err)
++	}
++	removed := 0
++	for _, rawGroup := range document["ownership"].([]any) {
++		group := rawGroup.(map[string]any)
++		keys := group["keys"].([]any)
++		filtered := keys[:0]
++		for _, key := range keys {
++			if key == target {
++				removed++
++				continue
++			}
++			filtered = append(filtered, key)
++		}
++		group["keys"] = filtered
++	}
++	if removed != 1 {
++		t.Fatalf("removed ownership key %q %d times, want exactly once", target, removed)
++	}
++	value, err = json.MarshalIndent(document, "", "  ")
++	if err != nil {
++		t.Fatalf("encode narrowed ownership registry: %v", err)
++	}
++	if err := os.WriteFile(filename, value, 0o644); err != nil {
++		t.Fatalf("write narrowed ownership registry: %v", err)
++	}
++}
++
++func runTracecheck(t *testing.T, root string, arguments ...string) (string, error) {
++	t.Helper()
++	commandArguments := append([]string{"run", "./internal/traceability/cmd/tracecheck", "-root", "."}, arguments...)
++	command := exec.Command("go", commandArguments...)
++	command.Dir = root
++	command.Env = append(os.Environ(), "GOWORK=off", "GOTOOLCHAIN=local")
++	output, err := command.CombinedOutput()
++	return string(output), err
++}
++
++func repinOwnershipDigest(t *testing.T, root, refusal string) {
++	t.Helper()
++	const marker = "projection digest "
++	start := strings.Index(refusal, marker)
++	if start == -1 {
++		t.Fatalf("digest refusal %q lacks %q", refusal, marker)
++	}
++	digest := strings.Fields(refusal[start+len(marker):])[0]
++	filename := filepath.Join(root, "internal", "traceability", "traceability.go")
++	value, err := os.ReadFile(filename)
++	if err != nil {
++		t.Fatalf("read traceability source: %v", err)
++	}
++	const assignment = `reviewedOwnershipCanonicalSHA256 = "`
++	assignmentStart := bytes.Index(value, []byte(assignment))
++	if assignmentStart == -1 {
++		t.Fatalf("traceability source lacks reviewed digest assignment")
++	}
++	digestStart := assignmentStart + len(assignment)
++	digestEnd := digestStart + 64
++	value = append(append(append([]byte(nil), value[:digestStart]...), digest...), value[digestEnd:]...)
++	if err := os.WriteFile(filename, value, 0o644); err != nil {
++		t.Fatalf("write re-pinned traceability source: %v", err)
++	}
++}
++
+ func (writer failingWriter) Write([]byte) (int, error) {
+ 	return 0, writer.err
+ }
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 1678123..4ccb06c 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -219,6 +219,23 @@
+         }
+       ]
+     },
++    {
++      "id": "assigned-section-binding",
++      "production": {
++        "path": "internal/traceability/traceability.go",
++        "declaration": "VerifyAssignedSections"
++      },
++      "tests": [
++        {
++          "path": "internal/traceability/traceability_test.go",
++          "declaration": "TestVerifyAssignedSectionsBindsGranularScopeToOwnersAndExecutableCases"
++        },
++        {
++          "path": "internal/traceability/cmd/tracecheck/main_test.go",
++          "declaration": "TestMainRejectsOneNarrowedAssignedSectionBinding"
++        }
++      ]
++    },
+     {
+       "id": "ci-entrypoint",
+       "production": {
+@@ -315,7 +332,23 @@
+       "kind": "normative_section",
+       "keys": [
+         "source:1",
++        "source:2",
++        "source:3",
++        "source:4",
++        "source:5",
++        "source:6",
++        "source:7",
++        "source:8",
++        "source:9",
++        "source:10",
++        "source:11",
++        "source:13",
++        "source:14",
++        "source:15",
++        "source:16",
+         "source:17",
++        "source:18",
++        "source:19",
+         "source:20",
+         "source:appendix-a",
+         "source:appendix-d"
+@@ -328,7 +361,8 @@
+         "source-pin-exact",
+         "source-pin-refusal",
+         "source-pin-compatibility",
+-        "source-pin-idempotency-isolation"
++        "source-pin-idempotency-isolation",
++        "assigned-section-binding"
+       ]
+     },
+     {
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index e8bb931..2b4ed8d 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -17,6 +17,7 @@ import (
+ 	"io"
+ 	"io/fs"
+ 	"path"
++	"regexp"
+ 	"strings"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/catalog"
+@@ -36,7 +37,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "66c846ef679c117b4d45ba0dc9b0eb4a20de5f78f3c358d1237ba4ab7fe8a419"
++	reviewedOwnershipCanonicalSHA256 = "e7c47a14c7c6ef00133c9ac889c0c36a625240c3c14697bd2f3f47261275a6ab"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+@@ -49,6 +50,7 @@ type Report struct {
+ 	AcceptanceCases        int
+ 	Fixtures               int
+ 	CompatibilityContracts int
++	AssignedScopes         int
+ }
+ 
+ type ownershipKind string
+@@ -93,10 +95,33 @@ type codeReference struct {
+ 	Declaration string `json:"declaration"`
+ }
+ 
++type assignedSectionBinding struct {
++	Scope string
++	Key   string
++}
++
++var assignedSectionPattern = regexp.MustCompile(`^([1-9]|1[0-9]|20)(?:\.(?:[0-9]+|[A-Za-z]))*(?:-([1-9]|1[0-9]|20)(?:\.(?:[0-9]+|[A-Za-z]))*)?$`)
++
+ // VerifyRepository is the production CI entry point. It verifies exact pinned
+ // inputs, stale generated output, compatibility coverage, and every registered
+ // ownership reference against the supplied repository filesystem.
+ func VerifyRepository(repository fs.FS) (Report, error) {
++	return verifyRepository(repository, nil)
++}
++
++// VerifyAssignedSections is the production Story-scope entry point. Each
++// assigned subsection or same-section range must resolve to a pinned top-level
++// source section with a real production declaration and at least one registered
++// executable acceptance case. The immutable registry digest and every
++// non-section ownership class remain fully verified.
++func VerifyAssignedSections(repository fs.FS, sections []string) (Report, error) {
++	if len(sections) == 0 {
++		return Report{}, fail("assigned section scope is empty")
++	}
++	return verifyRepository(repository, sections)
++}
++
++func verifyRepository(repository fs.FS, assignedSections []string) (Report, error) {
+ 	if repository == nil {
+ 		return Report{}, fail("repository filesystem is nil")
+ 	}
+@@ -146,7 +171,11 @@ func VerifyRepository(repository fs.FS) (Report, error) {
+ 	if err != nil {
+ 		return Report{}, err
+ 	}
+-	return verifyOwnership(repository, registry, manifest, currentCatalog, compatibilityCatalog)
++	bindings, err := resolveAssignedSections(manifest.Source.NormativeScope, assignedSections)
++	if err != nil {
++		return Report{}, err
++	}
++	return verifyOwnership(repository, registry, manifest, currentCatalog, compatibilityCatalog, bindings)
+ }
+ 
+ func readRequired(repository fs.FS, filename string) ([]byte, error) {
+@@ -180,6 +209,7 @@ func verifyOwnership(
+ 	manifest specpin.Manifest,
+ 	currentCatalog catalog.Catalog,
+ 	compatibilityCatalog catalog.Catalog,
++	assignedBindings []assignedSectionBinding,
+ ) (Report, error) {
+ 	if registry.Format != ownershipFormat || registry.FormatVersion != ownershipFormatVersion {
+ 		return Report{}, fail("unsupported ownership registry format %q version %d", registry.Format, registry.FormatVersion)
+@@ -198,15 +228,25 @@ func verifyOwnership(
+ 		ownershipNormativeSection: expectedNormativeSections(manifest, currentCatalog),
+ 		ownershipFixture:          expectedFixtures(manifest, currentCatalog),
+ 	}
++	required := expected
++	if assignedBindings != nil {
++		required = cloneOwnershipSets(expected)
++		required[ownershipNormativeSection] = make(map[string]struct{})
++	}
+ 	checker := newSourceChecker(repository)
+ 	acceptanceIDs, err := verifyAcceptanceCases(checker, registry.AcceptanceCases)
+ 	if err != nil {
+ 		return Report{}, err
+ 	}
+-	owned, err := verifyOwnershipGroups(checker, registry.Ownership, acceptanceIDs, expected)
++	owned, err := verifyOwnershipGroups(checker, registry.Ownership, acceptanceIDs, expected, required)
+ 	if err != nil {
+ 		return Report{}, err
+ 	}
++	for _, binding := range assignedBindings {
++		if _, ok := owned[ownershipNormativeSection][binding.Key]; !ok {
++			return Report{}, fail("assigned section %q binding %q has no implementation owner", binding.Scope, binding.Key)
++		}
++	}
+ 	for _, contract := range compatibilityCatalog.Contracts {
+ 		key := contractKey(contract.Name, string(contract.ID))
+ 		if _, ok := owned[ownershipContract][key]; !ok {
+@@ -230,6 +270,7 @@ func verifyOwnership(
+ 		AcceptanceCases:        len(acceptanceIDs),
+ 		Fixtures:               len(expected[ownershipFixture]),
+ 		CompatibilityContracts: len(compatibilityCatalog.Contracts),
++		AssignedScopes:         len(assignedBindings),
+ 	}, nil
+ }
+ 
+@@ -270,7 +311,8 @@ func verifyOwnershipGroups(
+ 	checker *sourceChecker,
+ 	groups []ownershipGroup,
+ 	acceptanceIDs map[string]struct{},
+-	expected map[ownershipKind]map[string]struct{},
++	allowed map[ownershipKind]map[string]struct{},
++	required map[ownershipKind]map[string]struct{},
+ ) (map[ownershipKind]map[string]struct{}, error) {
+ 	owned := map[ownershipKind]map[string]struct{}{
+ 		ownershipContract:         make(map[string]struct{}),
+@@ -281,7 +323,7 @@ func verifyOwnershipGroups(
+ 		return nil, fail("implementation ownership registry is empty")
+ 	}
+ 	for index, group := range groups {
+-		if _, ok := expected[group.Kind]; !ok {
++		if _, ok := allowed[group.Kind]; !ok {
+ 			return nil, fail("ownership group %d has unknown kind %q", index, group.Kind)
+ 		}
+ 		if len(group.Keys) == 0 {
+@@ -313,14 +355,16 @@ func verifyOwnershipGroups(
+ 			owned[group.Kind][key] = struct{}{}
+ 		}
+ 	}
+-	for kind, wanted := range expected {
++	for kind, wanted := range required {
+ 		for key := range wanted {
+ 			if _, ok := owned[kind][key]; !ok {
+ 				return nil, fail("registered %s %q has no implementation owner", kind, key)
+ 			}
+ 		}
+-		for key := range owned[kind] {
+-			if _, ok := wanted[key]; !ok {
++	}
++	for kind, registered := range owned {
++		for key := range registered {
++			if _, ok := allowed[kind][key]; !ok {
+ 				return nil, fail("implementation owner is self-minted for unknown %s %q", kind, key)
+ 			}
+ 		}
+@@ -328,6 +372,56 @@ func verifyOwnershipGroups(
+ 	return owned, nil
+ }
+ 
++func resolveAssignedSections(pinned []string, assigned []string) ([]assignedSectionBinding, error) {
++	if assigned == nil {
++		return nil, nil
++	}
++	pinnedSet := make(map[string]struct{}, len(pinned))
++	for _, section := range pinned {
++		pinnedSet[section] = struct{}{}
++	}
++	bindings := make([]assignedSectionBinding, 0, len(assigned))
++	seen := make(map[string]struct{}, len(assigned))
++	for _, raw := range assigned {
++		scope := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "§"))
++		if scope == "" {
++			return nil, fail("invalid assigned section %q", raw)
++		}
++		canonical := strings.ToLower(strings.ReplaceAll(scope, " ", "-"))
++		root := canonical
++		if !strings.HasPrefix(canonical, "appendix-") {
++			matches := assignedSectionPattern.FindStringSubmatch(scope)
++			if matches == nil || (matches[2] != "" && matches[2] != matches[1]) {
++				return nil, fail("invalid assigned section %q", raw)
++			}
++			root = matches[1]
++		}
++		if _, ok := pinnedSet[root]; !ok {
++			return nil, fail("assigned section %q is outside pinned normative scope", raw)
++		}
++		binding := assignedSectionBinding{Scope: raw, Key: "source:" + root}
++		identity := binding.Scope + "\x00" + binding.Key
++		if _, duplicate := seen[identity]; duplicate {
++			continue
++		}
++		seen[identity] = struct{}{}
++		bindings = append(bindings, binding)
++	}
++	return bindings, nil
++}
++
++func cloneOwnershipSets(source map[ownershipKind]map[string]struct{}) map[ownershipKind]map[string]struct{} {
++	result := make(map[ownershipKind]map[string]struct{}, len(source))
++	for kind, values := range source {
++		cloned := make(map[string]struct{}, len(values))
++		for value := range values {
++			cloned[value] = struct{}{}
++		}
++		result[kind] = cloned
++	}
++	return result
++}
++
+ func verifyCatalogContracts(want []specpin.ContractPin, got []catalog.Contract) error {
+ 	if len(got) != len(want) {
+ 		return fail("current catalog has %d contracts, verified source has %d", len(got), len(want))
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index b9ae31f..f276bbe 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -24,8 +24,8 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	}
+ 	want := Report{
+ 		Contracts:              60,
+-		NormativeSections:      17,
+-		AcceptanceCases:        15,
++		NormativeSections:      33,
++		AcceptanceCases:        16,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 	}
+@@ -34,6 +34,52 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	}
+ }
+ 
++func TestVerifyAssignedSectionsBindsGranularScopeToOwnersAndExecutableCases(t *testing.T) {
++	t.Parallel()
++
++	report, err := VerifyAssignedSections(repositorySnapshot(t), []string{"10.1", "10.2", "10.3", "10.4"})
++	if err != nil {
++		t.Fatalf("VerifyAssignedSections() error = %v", err)
++	}
++	if report.AssignedScopes != 4 {
++		t.Fatalf("VerifyAssignedSections() assigned scopes = %d, want 4", report.AssignedScopes)
++	}
++
++	for _, scope := range []string{"10.1-10.4", "§4.C-4.E", "Appendix D"} {
++		report, err := VerifyAssignedSections(repositorySnapshot(t), []string{scope})
++		if err != nil {
++			t.Errorf("VerifyAssignedSections(%q) error = %v", scope, err)
++			continue
++		}
++		if report.AssignedScopes != 1 {
++			t.Errorf("VerifyAssignedSections(%q) assigned scopes = %d, want 1", scope, report.AssignedScopes)
++		}
++	}
++}
++
++func TestVerifyAssignedSectionsRejectsMalformedUnpinnedAndEmptyScope(t *testing.T) {
++	t.Parallel()
++
++	for _, test := range []struct {
++		name     string
++		sections []string
++		contains string
++	}{
++		{name: "empty", sections: nil, contains: "assigned section scope is empty"},
++		{name: "malformed", sections: []string{"10.x!"}, contains: "invalid assigned section"},
++		{name: "unpinned", sections: []string{"12.1"}, contains: "outside pinned normative scope"},
++	} {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			_, err := VerifyAssignedSections(repositorySnapshot(t), test.sections)
++			if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), test.contains) {
++				t.Fatalf("VerifyAssignedSections() error = %v, want ErrTraceability containing %q", err, test.contains)
++			}
++		})
++	}
++}
++
+ func TestVerifyRepositoryRejectsNarrowedOwnership(t *testing.T) {
+ 	t.Parallel()
+ 
