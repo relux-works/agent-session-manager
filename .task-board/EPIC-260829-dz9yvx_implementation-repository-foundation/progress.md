@@ -1,5 +1,5 @@
 ## Status
-to-dev
+done
 
 ## Review
 required
@@ -28,7 +28,7 @@ code
 2026-08-28T22:46:24Z
 
 ## Last Update
-2026-08-31T10:23:14Z
+2026-08-31T10:36:27Z
 
 ## Assigned To
 codex-orchestrator
