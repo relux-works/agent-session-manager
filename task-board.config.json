@@ -110,12 +110,16 @@
     "worktree_isolation": {
       "validation": {
         "commands": [
-          "test -z \"$(gofmt -l .)\"",
+          "test -z \"$(gofmt -l $(git ls-files --cached --others --exclude-standard -- '*.go'))\"",
           "go build ./...",
           "go vet ./...",
           "go test ./... -count=1 -v",
           "go test ./... -race -count=1",
           "go test ./... -cover -count=1",
+          "go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1",
+          "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1",
+          "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1",
+          "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1",
           "go run ./internal/traceability/cmd/tracecheck",
           "go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check",
           "GOOS=linux GOARCH=amd64 go build ./...",

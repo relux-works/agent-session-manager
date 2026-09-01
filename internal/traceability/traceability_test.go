@@ -27,7 +27,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 	want := Report{
 		Contracts:              60,
 		NormativeSections:      36,
-		AcceptanceCases:        16,
+		AcceptanceCases:        29,
 		Fixtures:               30,
 		CompatibilityContracts: 55,
 	}
@@ -62,10 +62,10 @@ func TestVerifyAssignedSectionsBindsGranularScopeToOwnersAndExecutableCases(t *t
 func TestVerifyAssignedSectionsRejectsPinnedSectionWithoutScopedImplementation(t *testing.T) {
 	t.Parallel()
 
-	_, err := VerifyAssignedSections(repositorySnapshot(t), []string{"10.1"})
-	want := `assigned section "10.1" binding "section:10.1" has no scoped implementation owner`
+	_, err := VerifyAssignedSections(repositorySnapshot(t), []string{"10.5"})
+	want := `assigned section "10.5" binding "section:10.5" has no scoped implementation owner`
 	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), want) {
-		t.Fatalf("VerifyAssignedSections(10.1) error = %v, want ErrTraceability containing %q", err, want)
+		t.Fatalf("VerifyAssignedSections(10.5) error = %v, want ErrTraceability containing %q", err, want)
 	}
 }
 
@@ -211,6 +211,31 @@ func TestVerifyRepositoryRejectsAbsentAcceptanceTestDeclaration(t *testing.T) {
 	want := "acceptance case \"ci-entrypoint\" test owner: declaration \"TestRunReportsExactCoverageAndFailsClosed\" is absent from \"internal/traceability/cmd/tracecheck/main_test.go\""
 	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), want) {
 		t.Fatalf("VerifyRepository() error = %v, want ErrTraceability containing %q", err, want)
+	}
+}
+
+func TestSourceCheckerAcceptsNativeFuzzAndRejectsNonExecutableHelpers(t *testing.T) {
+	t.Parallel()
+
+	repository := fstest.MapFS{
+		"boundary_test.go": &fstest.MapFile{Data: []byte(`package boundary
+
+import "testing"
+
+func FuzzBoundary(f *testing.F) {}
+func Fuzzhelper(f *testing.F) {}
+func BenchmarkBoundary(b *testing.B) {}
+`)},
+	}
+	checker := newSourceChecker(repository)
+	if err := checker.verify(codeReference{Path: "boundary_test.go", Declaration: "FuzzBoundary"}, true); err != nil {
+		t.Fatalf("native fuzz reference refused: %v", err)
+	}
+	for _, declaration := range []string{"Fuzzhelper", "BenchmarkBoundary"} {
+		err := checker.verify(codeReference{Path: "boundary_test.go", Declaration: declaration}, true)
+		if err == nil || !strings.Contains(err.Error(), "not an executable Go test reference") {
+			t.Errorf("sourceChecker.verify(%s) error = %v, want executable-test refusal", declaration, err)
+		}
 	}
 }
 

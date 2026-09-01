@@ -24,6 +24,7 @@ func run(arguments []string) error {
 	metadataPath := flags.String("metadata", "", "reviewed catalog metadata JSON")
 	contractsPath := flags.String("contracts", "", "verified normative contract lock")
 	outputPath := flags.String("output", "", "generated Go output")
+	check := flags.Bool("check", false, "verify generated Go output without rewriting it")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -43,8 +44,25 @@ func run(arguments []string) error {
 	if err != nil {
 		return fmt.Errorf("generate catalog: %w", err)
 	}
+	if *check {
+		if err := checkUnchanged(*outputPath, generated); err != nil {
+			return fmt.Errorf("check catalog: %w", err)
+		}
+		return nil
+	}
 	if err := writeIfChanged(*outputPath, generated); err != nil {
 		return fmt.Errorf("write catalog: %w", err)
+	}
+	return nil
+}
+
+func checkUnchanged(path string, content []byte) error {
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(existing, content) {
+		return fmt.Errorf("generated catalog is stale; run go generate ./internal/catalog")
 	}
 	return nil
 }

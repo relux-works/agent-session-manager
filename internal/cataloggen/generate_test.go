@@ -124,6 +124,57 @@ func TestGenerateRejectsDuplicateAndUnboundOperations(t *testing.T) {
 	}
 }
 
+func TestGenerateRejectsInvalidOrNarrowedSelfIdentityContracts(t *testing.T) {
+	t.Parallel()
+
+	metadata, lock := sourceInputs(t)
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{
+			name: "deleted reviewed contract",
+			mutate: func(document map[string]any) {
+				identities := document["self_identity_contracts"].([]any)
+				document["self_identity_contracts"] = identities[1:]
+			},
+		},
+		{
+			name: "unknown contract",
+			mutate: func(document map[string]any) {
+				document["self_identity_contracts"].([]any)[0].(map[string]any)["contract_id"] = "urn:ax:schema:forged"
+			},
+		},
+		{
+			name: "unsupported version",
+			mutate: func(document map[string]any) {
+				document["self_identity_contracts"].([]any)[0].(map[string]any)["contract_versions"] = []any{"9.9.9"}
+			},
+		},
+		{
+			name: "invalid self field",
+			mutate: func(document map[string]any) {
+				document["self_identity_contracts"].([]any)[0].(map[string]any)["self_field"] = "RecordID"
+			},
+		},
+		{
+			name: "incomplete discriminator",
+			mutate: func(document map[string]any) {
+				document["self_identity_contracts"].([]any)[0].(map[string]any)["discriminator_name"] = "document_kind"
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			candidate := mutateMetadata(t, metadata, test.mutate)
+			if _, err := cataloggen.Generate(candidate, lock); !errors.Is(err, cataloggen.ErrInvalidMetadata) {
+				t.Fatalf("Generate() error = %v, want ErrInvalidMetadata", err)
+			}
+		})
+	}
+}
+
 func TestGenerateRejectsNonEmptyNarrowedDurableMutationEvidence(t *testing.T) {
 	t.Parallel()
 

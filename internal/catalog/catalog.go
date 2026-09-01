@@ -59,6 +59,19 @@ type Contract struct {
 	Versions []string
 }
 
+// SelfIdentityContract defines the schema-directed JCS omit-self rule for an
+// immutable logical object. Membership is reviewed metadata from the pinned
+// specification; it does not imply that any wider schema behavior is
+// implemented.
+type SelfIdentityContract struct {
+	ContractID         ContractID
+	ContractVersions   []string
+	SelfField          string
+	DiscriminatorName  string
+	DiscriminatorValue string
+	NormativeSection   string
+}
+
 // OperationEffect classifies whether an operation mutates authoritative
 // durable state. Isolated output is restricted to caller-created sinks and is
 // not an authoritative state transition.
@@ -124,6 +137,7 @@ type Catalog struct {
 	Release        Release
 	MetadataSHA256 string
 	Contracts      []Contract
+	SelfIdentities []SelfIdentityContract
 	Operations     []Operation
 	Capabilities   []Capability
 	Events         []Event
@@ -134,10 +148,16 @@ type catalogDefinition struct {
 	Source         Source
 	MetadataSHA256 string
 	Contracts      map[Release][]Contract
+	SelfIdentities []scopedSelfIdentityContract
 	Operations     []scopedOperation
 	Capabilities   []scopedCapability
 	Events         []scopedEvent
 	Errors         []scopedError
+}
+
+type scopedSelfIdentityContract struct {
+	Definition SelfIdentityContract
+	Releases   []Release
 }
 
 type scopedOperation struct {
@@ -181,11 +201,14 @@ func ForRelease(release Release) (Catalog, error) {
 
 	allowedVersions := make(map[ContractID]map[string]struct{}, len(contracts))
 	for _, contract := range contracts {
-		versions := make(map[string]struct{}, len(contract.Versions))
+		versions := allowedVersions[contract.ID]
+		if versions == nil {
+			versions = make(map[string]struct{}, len(contract.Versions))
+			allowedVersions[contract.ID] = versions
+		}
 		for _, version := range contract.Versions {
 			versions[version] = struct{}{}
 		}
-		allowedVersions[contract.ID] = versions
 	}
 
 	result := Catalog{
@@ -193,6 +216,16 @@ func ForRelease(release Release) (Catalog, error) {
 		Release:        release,
 		MetadataSHA256: generatedDefinition.MetadataSHA256,
 		Contracts:      cloneContracts(contracts),
+	}
+	for _, scoped := range generatedDefinition.SelfIdentities {
+		if !containsRelease(scoped.Releases, release) {
+			continue
+		}
+		definition := cloneSelfIdentityContract(scoped.Definition)
+		definition.ContractVersions = filterVersions(definition.ContractVersions, allowedVersions[definition.ContractID])
+		if len(definition.ContractVersions) != 0 {
+			result.SelfIdentities = append(result.SelfIdentities, definition)
+		}
 	}
 	for _, scoped := range generatedDefinition.Operations {
 		if !containsRelease(scoped.Releases, release) {
@@ -268,6 +301,11 @@ func cloneContracts(contracts []Contract) []Contract {
 		result[index] = contract
 	}
 	return result
+}
+
+func cloneSelfIdentityContract(contract SelfIdentityContract) SelfIdentityContract {
+	contract.ContractVersions = append([]string(nil), contract.ContractVersions...)
+	return contract
 }
 
 func cloneOperation(operation Operation) Operation {

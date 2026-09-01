@@ -56,6 +56,56 @@ func TestCurrentMatchesReviewedV050Catalog(t *testing.T) {
 	if len(got.Errors) != 109 {
 		t.Errorf("errors = %d, want 109", len(got.Errors))
 	}
+	if len(got.SelfIdentities) != 40 {
+		t.Errorf("self identity contracts = %d, want 40", len(got.SelfIdentities))
+	}
+	identityRows := 0
+	for _, identity := range got.SelfIdentities {
+		identityRows += len(identity.ContractVersions)
+	}
+	if identityRows != 46 {
+		t.Errorf("self identity schema/version rows = %d, want 46", identityRows)
+	}
+	var foundManagedReplicaMarker bool
+	for _, identity := range got.SelfIdentities {
+		if identity.ContractID == "urn:ax:schema:materialization-journal" {
+			foundManagedReplicaMarker = reflect.DeepEqual(identity.ContractVersions, []string{"2.0.0"}) &&
+				identity.SelfField == "marker_id" &&
+				identity.DiscriminatorName == "document_kind" &&
+				identity.DiscriminatorValue == "managed_replica_marker"
+		}
+	}
+	if !foundManagedReplicaMarker {
+		t.Error("v0.5.0 catalog lost the materialization-journal 2.0.0 managed-replica marker identity while merging duplicate contract IDs")
+	}
+
+	wantAdditionalIdentities := map[catalog.ContractID]string{
+		"urn:ax:schema:terminal-backend-probe":            "probe_id",
+		"urn:ax:schema:terminal-instance-binding":         "binding_id",
+		"urn:ax:schema:terminal-capability-evidence":      "evidence_id",
+		"urn:ax:schema:clone-raw-object-manifest":         "raw_object_manifest_id",
+		"urn:ax:schema:clone-capture-manifest":            "capture_manifest_id",
+		"urn:ax:schema:canonical-session":                 "canonical_session_id",
+		"urn:ax:schema:fidelity-report":                   "fidelity_report_id",
+		"urn:ax:schema:projection-plan":                   "projection_plan_id",
+		"urn:ax:schema:clone-projected-object-manifest":   "projected_object_manifest_id",
+		"urn:ax:schema:clone-read-back-evidence-manifest": "read_back_evidence_manifest_id",
+		"urn:ax:schema:clone-validation-report":           "validation_report_id",
+		"urn:ax:schema:migration-checkpoint":              "migration_checkpoint_id",
+		"urn:ax:schema:clone-lineage-receipt":             "lineage_receipt_id",
+		"urn:ax:schema:supported-environment-tuples":      "registry_digest",
+	}
+	for _, identity := range got.SelfIdentities {
+		if want, ok := wantAdditionalIdentities[identity.ContractID]; ok {
+			if identity.SelfField != want || !reflect.DeepEqual(identity.ContractVersions, []string{"1.0.0"}) {
+				t.Errorf("self identity %s = (%q, %v), want (%q, [1.0.0])", identity.ContractID, identity.SelfField, identity.ContractVersions, want)
+			}
+			delete(wantAdditionalIdentities, identity.ContractID)
+		}
+	}
+	if len(wantAdditionalIdentities) != 0 {
+		t.Errorf("generated self identity catalog omitted reviewed contracts: %v", wantAdditionalIdentities)
+	}
 
 	assertFamilyNames(t, operationNames(got), map[string][]string{
 		"terminal_backend": {
@@ -621,13 +671,16 @@ func TestCurrentIsIdempotentAndReturnsIsolatedData(t *testing.T) {
 	}
 
 	first.Contracts[0].Versions[0] = "9.9.9"
+	first.SelfIdentities[0].ContractVersions[0] = "9.9.9"
 	first.Operations[0].RecoveryEvidence = append(first.Operations[0].RecoveryEvidence, "forged")
 	first.Events[0].ContractVersions[0] = "9.9.9"
 	third := catalog.Current()
 	if reflect.DeepEqual(first, third) {
 		t.Fatal("caller mutation leaked into the generated catalog")
 	}
-	if third.Contracts[0].Versions[0] == "9.9.9" || third.Events[0].ContractVersions[0] == "9.9.9" {
+	if third.Contracts[0].Versions[0] == "9.9.9" ||
+		third.SelfIdentities[0].ContractVersions[0] == "9.9.9" ||
+		third.Events[0].ContractVersions[0] == "9.9.9" {
 		t.Fatal("nested caller mutation leaked into the generated catalog")
 	}
 }

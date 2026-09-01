@@ -21,20 +21,31 @@ import (
 const (
 	metadataFormat                  = "ax-implementation-catalog"
 	metadataFormatVersion           = 1
-	reviewedMetadataCanonicalSHA256 = "4ddf049a7bc1abf29030283eaf7ad397555a4be2b4b4fce34d458a3ca2b089e8"
+	reviewedMetadataCanonicalSHA256 = "7bbc5172fbd77216ef4888126787a91a2aabea63b8aa308a9a8ac2ccbc1e5bab"
 )
 
 var ErrInvalidMetadata = errors.New("invalid implementation catalog metadata")
 
 type metadata struct {
-	Format             string             `json:"format"`
-	FormatVersion      int                `json:"format_version"`
-	Source             sourceMetadata     `json:"source"`
-	NormativeScope     []string           `json:"normative_scope"`
-	OperationFamilies  []operationFamily  `json:"operation_families"`
-	CapabilityFamilies []capabilityFamily `json:"capability_families"`
-	EventFamilies      []eventFamily      `json:"event_families"`
-	ErrorCatalog       errorCatalog       `json:"error_catalog"`
+	Format             string                 `json:"format"`
+	FormatVersion      int                    `json:"format_version"`
+	Source             sourceMetadata         `json:"source"`
+	NormativeScope     []string               `json:"normative_scope"`
+	SelfIdentities     []selfIdentityContract `json:"self_identity_contracts"`
+	OperationFamilies  []operationFamily      `json:"operation_families"`
+	CapabilityFamilies []capabilityFamily     `json:"capability_families"`
+	EventFamilies      []eventFamily          `json:"event_families"`
+	ErrorCatalog       errorCatalog           `json:"error_catalog"`
+}
+
+type selfIdentityContract struct {
+	ContractID         string   `json:"contract_id"`
+	ContractVersions   []string `json:"contract_versions"`
+	SelfField          string   `json:"self_field"`
+	Releases           []string `json:"releases"`
+	DiscriminatorName  string   `json:"discriminator_name,omitempty"`
+	DiscriminatorValue string   `json:"discriminator_value,omitempty"`
+	NormativeSection   string   `json:"normative_section"`
 }
 
 type sourceMetadata struct {
@@ -184,6 +195,7 @@ func Generate(metadataBytes, contractLock []byte) ([]byte, error) {
 	writeSource(&output, decoded)
 	fmt.Fprintf(&output, "\tMetadataSHA256: %q,\n", hex.EncodeToString(digest[:]))
 	writeContracts(&output, manifest)
+	writeSelfIdentities(&output, decoded.SelfIdentities)
 	writeOperations(&output, operations)
 	writeCapabilities(&output, capabilities)
 	writeEvents(&output, events)
@@ -246,6 +258,35 @@ func validateMetadata(value metadata, manifest specpin.Manifest) error {
 	releaseContracts, err := releaseContractVersions(manifest)
 	if err != nil {
 		return invalid("build release contract projections: %v", err)
+	}
+	if len(value.SelfIdentities) == 0 {
+		return invalid("self-identity contract catalog must be present")
+	}
+	seenSelfIdentities := make(map[string]struct{})
+	for index, identity := range value.SelfIdentities {
+		if err := validateContractBinding(identity.ContractID, identity.ContractVersions, contracts); err != nil {
+			return invalid("self-identity contract %d: %v", index, err)
+		}
+		if err := validateReleases(identity.Releases); err != nil {
+			return invalid("self-identity contract %d: %v", index, err)
+		}
+		if err := validateReleaseBinding(identity.ContractID, identity.ContractVersions, identity.Releases, releaseContracts); err != nil {
+			return invalid("self-identity contract %d: %v", index, err)
+		}
+		if !capabilityPattern.MatchString(identity.SelfField) || identity.NormativeSection == "" {
+			return invalid("self-identity contract %d has invalid self field or normative section", index)
+		}
+		if (identity.DiscriminatorName == "") != (identity.DiscriminatorValue == "") ||
+			(identity.DiscriminatorName != "" && !capabilityPattern.MatchString(identity.DiscriminatorName)) {
+			return invalid("self-identity contract %d has incomplete or invalid discriminator", index)
+		}
+		for _, version := range identity.ContractVersions {
+			key := identity.ContractID + "\x00" + version
+			if _, duplicate := seenSelfIdentities[key]; duplicate {
+				return invalid("self-identity catalog repeats contract %q version %q", identity.ContractID, version)
+			}
+			seenSelfIdentities[key] = struct{}{}
+		}
 	}
 
 	seenFamilies := make(map[string]struct{})
@@ -629,6 +670,17 @@ func writeContracts(output *bytes.Buffer, manifest specpin.Manifest) {
 			fmt.Fprintf(output, "\t\t\t{Name: %q, ID: %q, Versions: %s},\n", contract.Name, contract.ID, stringSliceLiteral(contract.Versions))
 		}
 		output.WriteString("\t\t},\n")
+	}
+	output.WriteString("\t},\n")
+}
+
+func writeSelfIdentities(output *bytes.Buffer, values []selfIdentityContract) {
+	output.WriteString("\tSelfIdentities: []scopedSelfIdentityContract{\n")
+	for _, value := range values {
+		fmt.Fprintf(output, "\t\t{Definition: SelfIdentityContract{ContractID: %q, ContractVersions: %s, SelfField: %q, DiscriminatorName: %q, DiscriminatorValue: %q, NormativeSection: %q}, Releases: %s},\n",
+			value.ContractID, stringSliceLiteral(value.ContractVersions), value.SelfField,
+			value.DiscriminatorName, value.DiscriminatorValue, value.NormativeSection,
+			releaseSliceLiteral(value.Releases))
 	}
 	output.WriteString("\t},\n")
 }

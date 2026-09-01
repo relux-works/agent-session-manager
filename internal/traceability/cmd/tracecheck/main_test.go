@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=16 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
+	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
 	if output.String() != want {
 		t.Fatalf("run() output = %q, want %q", output.String(), want)
 	}
@@ -54,28 +54,86 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run(assigned sections) error = %v", err)
 	}
-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=16 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
+	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
 	if output.String() != want {
 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
 	}
 }
 
-func TestRunDefaultStaysGreenForPinnedButUnownedSections(t *testing.T) {
+func TestRunAssignedScalarSectionsUseScopedImplementationOwners(t *testing.T) {
 	t.Parallel()
 
 	repositoryRoot := filepath.Join("..", "..", "..", "..")
-	var output bytes.Buffer
-	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
-		t.Fatalf("default run() error = %v, want global inventory verification to ignore unassigned Section 10.1", err)
+	for _, section := range []string{"1.6", "10.1", "10.2", "10.3", "10.4", "17.3"} {
+		var output bytes.Buffer
+		if err := run([]string{"-root", repositoryRoot, "-section", section}, &output); err != nil {
+			t.Errorf("run(-section %s) error = %v", section, err)
+			continue
+		}
+		if !strings.Contains(output.String(), "assigned_scopes=1") {
+			t.Errorf("run(-section %s) output = %q, want assigned_scopes=1", section, output.String())
+		}
 	}
-	if !strings.Contains(output.String(), "assigned_scopes=0") {
-		t.Fatalf("default run() output = %q, want assigned_scopes=0", output.String())
+}
+
+// TestMainRejectsRenamedScalarSectionOwnerDeclarations attacks each assigned
+// scalar binding through main -> run -> VerifyAssignedSections. Each mutant
+// renames the real Go declaration while leaving the reviewed registry intact.
+func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds isolated tracecheck binaries")
 	}
 
-	output.Reset()
-	err := run([]string{"-root", repositoryRoot, "-section", "10.1"}, &output)
-	if err == nil || !strings.Contains(err.Error(), `assigned section "10.1" binding "section:10.1" has no scoped implementation owner`) {
-		t.Fatalf("assigned run(10.1) error = %v output = %q, want scoped-owner refusal", err, output.String())
+	tests := []struct {
+		section     string
+		path        string
+		declaration string
+		from        string
+		to          string
+	}{
+		{"1.6", "internal/scalar/scalar.go", "ErrInvalidScalar", "var ErrInvalidScalar", "var RenamedErrInvalidScalar"},
+		{"10.1", "internal/canonicaljson/closed_shapes.go", "validateImmutableObjectShape", "func validateImmutableObjectShape(", "func renamedValidateImmutableObjectShape("},
+		{"10.2", "internal/canonicaljson/closed_shapes.go", "validateBlobDescriptor", "func validateBlobDescriptor", "func renamedValidateBlobDescriptor"},
+		{"10.3", "internal/canonicaljson/closed_shapes.go", "validateBlobDescriptor", "func validateBlobDescriptor", "func renamedValidateBlobDescriptor"},
+		{"10.4", "internal/canonicaljson/closed_shapes.go", "validateTransferManifest", "func validateTransferManifest", "func renamedValidateTransferManifest"},
+		{"17.3", "internal/canonicaljson/closed_shapes.go", "validateMigrationProvenance", "func validateMigrationProvenance", "func renamedValidateMigrationProvenance"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.section, func(t *testing.T) {
+			fixtureRoot := isolatedTracecheckFixture(t)
+			renameGoDeclaration(t, filepath.Join(fixtureRoot, test.path), test.from, test.to)
+
+			output, err := runTracecheck(t, fixtureRoot, "-section", test.section)
+			want := `section binding "section:` + test.section + `" production owner: declaration "` + test.declaration + `" is absent`
+			if err == nil || !strings.Contains(output, want) || strings.Contains(output, "traceability ok:") {
+				t.Fatalf("tracecheck -section %s error = %v output = %q, want refusal %q", test.section, err, output, want)
+			}
+		})
+	}
+}
+
+// TestMainRejectsRenamedCanonicalIdentityEntryPoint proves that the assigned
+// Section 1.6 gate reaches the production omit-self verifier through its
+// executable acceptance case. A registry link without the call site must not
+// satisfy traceability.
+func TestMainRejectsRenamedCanonicalIdentityEntryPoint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds an isolated tracecheck binary")
+	}
+
+	fixtureRoot := isolatedTracecheckFixture(t)
+	renameGoDeclaration(
+		t,
+		filepath.Join(fixtureRoot, "internal/canonicaljson/canonical.go"),
+		"func VerifyObjectIdentity",
+		"func RenamedVerifyObjectIdentity",
+	)
+
+	output, err := runTracecheck(t, fixtureRoot, "-section", "1.6")
+	want := `acceptance case "canonical-identity-refusal" production owner: declaration "VerifyObjectIdentity" is absent`
+	if err == nil || !strings.Contains(output, want) || strings.Contains(output, "traceability ok:") {
+		t.Fatalf("tracecheck -section 1.6 error = %v output = %q, want refusal %q", err, output, want)
 	}
 }
 
@@ -183,7 +241,8 @@ func TestMainRejectsMissingScopeSpecificProductionDeclaration(t *testing.T) {
 // TestMainRejectsSyntacticallyValidNonexistentV050Section drives the production
 // main -> run -> traceability.VerifyAssignedSections call chain. A plausible
 // subsection must not inherit the top-level owner unless that exact identifier
-// exists in the immutable v0.5.0 inventory.
+// exists in the immutable v0.5.0 inventory. A real but still unowned section
+// remains a separate refusal shape.
 func TestMainRejectsSyntacticallyValidNonexistentV050Section(t *testing.T) {
 	if testing.Short() {
 		t.Skip("launches the production tracecheck entry point")
@@ -196,10 +255,10 @@ func TestMainRejectsSyntacticallyValidNonexistentV050Section(t *testing.T) {
 		t.Fatalf("tracecheck -section 10.999 error = %v output = %q, want refusal %q and no success output", err, output, want)
 	}
 
-	output, err = runTracecheck(t, repositoryRoot, "-section", "10.1")
-	want = `assigned section "10.1" binding "section:10.1" has no scoped implementation owner`
+	output, err = runTracecheck(t, repositoryRoot, "-section", "10.5")
+	want = `assigned section "10.5" binding "section:10.5" has no scoped implementation owner`
 	if err == nil || !strings.Contains(output, want) || strings.Contains(output, "traceability ok:") {
-		t.Fatalf("tracecheck -section 10.1 error = %v output = %q, want refusal %q and no success output", err, output, want)
+		t.Fatalf("tracecheck -section 10.5 error = %v output = %q, want refusal %q and no success output", err, output, want)
 	}
 }
 
@@ -252,6 +311,21 @@ func copyFile(t *testing.T, source, destination string) {
 	}
 	if err := os.WriteFile(destination, value, 0o644); err != nil {
 		t.Fatalf("write %q: %v", destination, err)
+	}
+}
+
+func renameGoDeclaration(t *testing.T, filename, from, to string) {
+	t.Helper()
+	value, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatalf("read %q: %v", filename, err)
+	}
+	if count := bytes.Count(value, []byte(from)); count != 1 {
+		t.Fatalf("%q contains declaration marker %q %d times, want exactly once", filename, from, count)
+	}
+	value = bytes.Replace(value, []byte(from), []byte(to), 1)
+	if err := os.WriteFile(filename, value, 0o644); err != nil {
+		t.Fatalf("write %q: %v", filename, err)
 	}
 }
 

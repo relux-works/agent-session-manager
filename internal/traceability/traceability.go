@@ -19,6 +19,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/relux-works/agent-session-manager/internal/catalog"
 	"github.com/relux-works/agent-session-manager/internal/cataloggen"
@@ -37,7 +39,7 @@ const (
 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
 	// formatting may change, but ownership claims cannot be self-minted without
 	// an explicit review of this binding.
-	reviewedOwnershipCanonicalSHA256 = "947212c330b5d2413528483433a4d89aeb8b41db5813fc55e371649f2880e66f"
+	reviewedOwnershipCanonicalSHA256 = "30403d58757c36e9d0e5c5849c17105684b3fbd5d1f80cb5b57fd3d227a57a65"
 )
 
 var ErrTraceability = errors.New("spec-to-code traceability check failed")
@@ -685,7 +687,7 @@ func (checker *sourceChecker) verify(reference codeReference, test bool) error {
 		return fmt.Errorf("code reference %q is not a Go source file", clean)
 	}
 	if test {
-		if !strings.HasSuffix(clean, "_test.go") || !strings.HasPrefix(reference.Declaration, "Test") {
+		if !strings.HasSuffix(clean, "_test.go") || !isExecutableTestName(reference.Declaration) {
 			return fmt.Errorf("test owner %s:%s is not an executable Go test reference", clean, reference.Declaration)
 		}
 	} else if strings.HasSuffix(clean, "_test.go") {
@@ -708,6 +710,21 @@ func (checker *sourceChecker) verify(reference codeReference, test bool) error {
 		return fmt.Errorf("declaration %q is absent from %q", reference.Declaration, clean)
 	}
 	return nil
+}
+
+func isExecutableTestName(name string) bool {
+	for _, prefix := range []string{"Test", "Fuzz"} {
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		suffix := name[len(prefix):]
+		if suffix == "" {
+			return true
+		}
+		first, _ := utf8.DecodeRuneInString(suffix)
+		return !unicode.IsLower(first)
+	}
+	return false
 }
 
 func hasDeclaration(file *ast.File, name string, test bool) bool {

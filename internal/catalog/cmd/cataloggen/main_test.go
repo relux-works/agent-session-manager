@@ -32,6 +32,9 @@ func TestRunGeneratesCommittedCatalogAndSupportsIdenticalRetry(t *testing.T) {
 	if !bytes.Equal(got, want) {
 		t.Fatal("run output differs from committed generated catalog")
 	}
+	if err := run(append(append([]string(nil), arguments...), "-check")); err != nil {
+		t.Fatalf("check run() error = %v", err)
+	}
 
 	stableTime := time.Unix(1_700_000_000, 0)
 	if err := os.Chtimes(output, stableTime, stableTime); err != nil {
@@ -46,6 +49,33 @@ func TestRunGeneratesCommittedCatalogAndSupportsIdenticalRetry(t *testing.T) {
 	}
 	if !info.ModTime().Equal(stableTime) {
 		t.Fatalf("identical run retry replaced output: modtime = %v, want %v", info.ModTime(), stableTime)
+	}
+}
+
+func TestRunCheckRefusesStaleOutputWithoutRewritingIt(t *testing.T) {
+	t.Parallel()
+
+	output := filepath.Join(t.TempDir(), "catalog_gen.go")
+	stale := []byte("package catalog\n\n// stale\n")
+	if err := os.WriteFile(output, stale, 0o600); err != nil {
+		t.Fatalf("write stale output: %v", err)
+	}
+	arguments := []string{
+		"-metadata", filepath.Join("..", "..", "catalog.v0.5.0.json"),
+		"-contracts", filepath.Join("..", "..", "..", "specpin", "v0.5.0.lock.json"),
+		"-output", output,
+		"-check",
+	}
+	err := run(arguments)
+	if err == nil || !strings.Contains(err.Error(), "generated catalog is stale") {
+		t.Fatalf("check run() error = %v, want stale-output refusal", err)
+	}
+	got, readErr := os.ReadFile(output)
+	if readErr != nil {
+		t.Fatalf("read stale output after refusal: %v", readErr)
+	}
+	if !bytes.Equal(got, stale) {
+		t.Fatal("check run rewrote stale output")
 	}
 }
 
