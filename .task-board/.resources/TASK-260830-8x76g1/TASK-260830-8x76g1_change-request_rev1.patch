@@ -1,0 +1,4351 @@
+diff --git a/.gitignore b/.gitignore
+index 9103d3a..f2b8d2b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -6,6 +6,9 @@
+ .gemini/skills/
+ Skillfile.dev.json
+ 
++# macOS Finder metadata
++.DS_Store
++
+ # Project-local temporary artifacts
+ .temp/
+ .task-board/.board-write-ledger.json
+diff --git a/README.md b/README.md
+index 75b877a..029bccf 100644
+--- a/README.md
++++ b/README.md
+@@ -85,6 +85,101 @@ command, `doctor` result, conformance-target declaration, or runtime capability
+ claim; those surfaces remain unavailable until their owning implementation and
+ acceptance tasks land.
+ 
++## Common Wire Scalar Types
++
++[`internal/scalar`](internal/scalar) implements the validated AX value types
++used by later schema owners: canonical lowercase UUIDv4 and UUIDv7 values, real
++UTC RFC3339 timestamps with millisecond-or-finer precision, SHA-256 digest
++identifiers, the current four-member AX platform vocabulary, bounded provider
++IDs, platform-neutral relative paths, platform-bound absolute paths, safe and
++bounded JSON integers, `decimal_uint64`, and exact lower-snake-case closed
++enums.
++
++Timestamp validation accepts published UTC leap seconds, including
++`1990-12-31T23:59:60.000Z`, while refusing a fabricated `:60` in an ordinary
++minute or on an unpublished date. Because Go's `time.Time` has no leap-second
++representation, `Timestamp.Time` maps an accepted leap second to the following
++representable UTC second while the scalar retains the original wire text.
++
++Constructors and JSON/text decoders fail closed on malformed, null,
++out-of-range, wrong-version, traversal, encoded-separator, wrong-platform,
++unknown-enum, or fabricated leap-second inputs. `AbsolutePath` decoding
++requires the containing platform, and generic closed-enum decoding requires
++the exact negotiated vocabulary; neither guesses that context from a field
++name or value prefix. Native Windows paths additionally refuse Win32-reserved
++component punctuation, control characters, and DOS device names even when a
++device name has an extension; those Windows-only component rules do not alter
++POSIX path validation. These types are read-only value validation. They do not
++mutate durable state and add no `ax doctor` result, provider/platform
++availability claim, or runtime capability advertisement.
++
++`FuzzScalarProductionEntries` drives the production constructors and wire
++decoders with a checked-in corpus covering published and fabricated leap
++seconds, lowercase RFC3339, impossible dates, malformed identifiers, unsafe
++integer boundaries, and Windows reserved-device and wildcard components. Any
++accepted value must publish and read back byte-for-byte without a later
++refusal.
++
++Run the focused tests and assigned-scope gate with:
++
++```bash
++go test ./internal/scalar -count=1
++go test ./internal/scalar -cover -count=1
++go test ./internal/scalar -run=^$ \
++  -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1
++go run ./internal/traceability/cmd/tracecheck \
++  -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4
++```
++
++## Canonical JSON and Immutable Object Identities
++
++[`internal/canonicaljson`](internal/canonicaljson) exposes the production RFC
++8785 JCS entry point and the AX immutable-object identity calculation. The JCS
++path validates I-JSON input before canonicalization, including duplicate-name,
++UTF-8, surrogate-pair, ECMAScript number-formatting, string-escaping, and
++UTF-16 property-ordering rules. Its number behavior is checked against every
++finite RFC 8785 Appendix B sample through the production entry point.
++
++The AX identity path additionally enforces the Section 1.6 common model: JSON
++numbers are integral safe integers, and the exact `schema`/`schema_version`
++pair selects the schema-defined self field from the generated catalog bound to
++the pinned v0.5.0 source. The catalog contains the complete reviewed terminal,
++clone, registry, and common-object omit-self set; production does not maintain
++a second hand-copied schema list. Other registered ID names may remain as
++ordinary references; only the selected schema's own field is removed before
++JCS and SHA-256. Callers cannot choose an omit field. Verification recomputes
++that identity and refuses unsupported or malformed schema contracts, a missing
++or malformed selected self field, raw-byte `chunk_id` objects, mutable journal
++variants, self-included digests, duplicate keys, unsafe integers, and
++floating-point literals.
++
++Native fuzz targets recursively attack malformed member syntax, duplicate
++names, unpaired surrogates, and UTF-16 ordering through `Canonicalize`, then
++prove canonical read-back, outer-whitespace invariance, omit-self identity
++order independence, and successful verification of every accepted generated
++identity. The checked-in cross-platform golden runs equivalent LF and CRLF
++representations with different property orders against one language-neutral
++SHA-256 identity. Validation uses fixed `100x` budgets and one worker per fuzz
++target so the gate is bounded by an input count rather than wall-clock timing.
++
++This package is read-only and deterministic; it does not mutate durable state.
++It supplies identity calculation for a new schema-versioned object under
++Section 17.3, but does not claim to implement migration publication, atomic
++reference advancement, rollback retention, `ax migrate`, `ax doctor`, or any
++runtime capability. Those surfaces remain unavailable until their owning
++implementation tasks land.
++
++Run its focused tests with:
++
++```bash
++go test ./internal/canonicaljson -count=1
++go test ./internal/canonicaljson -cover -count=1
++go test ./internal/canonicaljson -run=^$ \
++  -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1
++go test ./internal/canonicaljson -run=^$ \
++  -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1
++```
++
+ ## Generated Contract Catalogs
+ 
+ [`internal/catalog`](internal/catalog) exposes typed records through
+@@ -117,6 +212,7 @@ Regenerate and verify the committed output with:
+ 
+ ```bash
+ go generate ./internal/catalog
++go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check
+ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/cataloggen -count=1
+ ```
+ 
+@@ -126,9 +222,13 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
+ registry independently enumerates implementation owners for all 60 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 16
++contract rows, 36 pinned or catalog-referenced normative section keys, 29
+ executable acceptance cases, and 30 exact fixture identities or Appendix D
+ anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
++The generated v0.5.0 catalog also carries the reviewed schema/version/self-field
++contracts used by canonical object identity calculation; generator validation
++binds each row to a pinned contract and rejects duplicate, unsupported,
++malformed, or digest-drifted metadata.
+ 
+ The production validator re-verifies the exact source lock and reviewed catalog
+ metadata, refuses stale generated output, requires every production and test
+@@ -146,11 +246,9 @@ The repeated `-section` form is the Story-scope production gate. It resolves
+ each assigned subsection, and every heading in a same-top-level range, against
+ the immutable v0.5.0 inventory. Every exact `section_binding` must name its own
+ production declaration and executable acceptance case. A generic top-level
+-source pin is not a scoped implementation owner: for example, Section 10.1 is
+-pinned but `tracecheck -section 10.1` refuses until the scalar implementation
+-registers its real owner. The default command remains green for pinned but
+-unassigned sections. Malformed, nonexistent, unpinned, or unowned assignments
+-fail closed.
++source pin is not a scoped implementation owner. The scalar implementation now
++owns its assigned Section 1.6 and Sections 10.1-10.4 bindings; malformed,
++nonexistent, unpinned, or otherwise unowned assignments fail closed.
+ 
+ Successful output reports ownership inventory counts only. The gate does not
+ mutate repository or product state, add an `ax` command or `doctor` result,
+@@ -178,7 +276,8 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
+ | --- | --- | --- | --- |
+ | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
+ | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
+-| Go toolchain | Verify global and assigned-scope specification ownership, generate the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 9.2`; `go generate ./internal/catalog`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
++| Go toolchain | Verify global and assigned-scope specification ownership, validate and fuzz common wire scalars and canonical identities, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
++| `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
+ | GitHub Actions | Enforce traceability, generated-output, test, vet, and build gates on pull requests and `main` | `.github/workflows/ci.yml` | GitHub-hosted CI check results |
+ | Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
+ | GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |
+diff --git a/go.mod b/go.mod
+index 3a417b9..050e6d0 100644
+--- a/go.mod
++++ b/go.mod
+@@ -1,3 +1,5 @@
+ module github.com/relux-works/agent-session-manager
+ 
+ go 1.25.0
++
++require github.com/gowebpki/jcs v1.0.1
+diff --git a/go.sum b/go.sum
+new file mode 100644
+index 0000000..44bfad4
+--- /dev/null
++++ b/go.sum
+@@ -0,0 +1,12 @@
++github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
++github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/gowebpki/jcs v1.0.1 h1:Qjzg8EOkrOTuWP7DqQ1FbYtcpEbeTzUoTN9bptp8FOU=
++github.com/gowebpki/jcs v1.0.1/go.mod h1:CID1cNZ+sHp1CCpAR8mPf6QRtagFBgPJE0FCUQ6+BrI=
++github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
++github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
++github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
++github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5CcY=
++github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
++gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
++gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c h1:dUUwHk2QECo/6vqA44rthZ8ie2QXMNeKRTHCNY2nXvo=
++gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+diff --git a/internal/canonicaljson/canonical.go b/internal/canonicaljson/canonical.go
+new file mode 100644
+index 0000000..8581b98
+--- /dev/null
++++ b/internal/canonicaljson/canonical.go
+@@ -0,0 +1,465 @@
++// Package canonicaljson implements the RFC 8785 JSON Canonicalization Scheme
++// and the AX omit-self-field identity boundary for immutable logical objects.
++package canonicaljson
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"strconv"
++	"strings"
++	"unicode/utf8"
++
++	"github.com/gowebpki/jcs"
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const maxSafeInteger int64 = 9007199254740991
++
++var (
++	// ErrInvalidJSON reports input outside the RFC 8785 I-JSON surface.
++	ErrInvalidJSON = errors.New("invalid canonical JSON input")
++	// ErrInvalidIdentity reports input outside the AX omit-self identity contract.
++	ErrInvalidIdentity = errors.New("invalid canonical object identity")
++)
++
++// SelfField is one of the pinned AX immutable-object self-identity namespaces.
++// Chunk IDs are intentionally absent: Section 10.3 defines chunk_id as a
++// digest of raw bytes, not of a JSON object.
++type SelfField string
++
++const (
++	SelfRecordID                   SelfField = "record_id"
++	SelfEventID                    SelfField = "event_id"
++	SelfCheckpointID               SelfField = "checkpoint_id"
++	SelfDescriptorID               SelfField = "descriptor_id"
++	SelfManifestID                 SelfField = "manifest_id"
++	SelfPlanID                     SelfField = "plan_id"
++	SelfTombstoneID                SelfField = "tombstone_id"
++	SelfAckID                      SelfField = "ack_id"
++	SelfBundleID                   SelfField = "bundle_id"
++	SelfMarkerID                   SelfField = "marker_id"
++	SelfObservationID              SelfField = "observation_id"
++	SelfBatchID                    SelfField = "batch_id"
++	SelfLineageLinkID              SelfField = "lineage_link_id"
++	SelfAnnotationID               SelfField = "annotation_id"
++	SelfProfileID                  SelfField = "profile_id"
++	SelfJobRequestID               SelfField = "job_request_id"
++	SelfJobReceiptID               SelfField = "job_receipt_id"
++	SelfDirectoryReceiptID         SelfField = "directory_receipt_id"
++	SelfProbeID                    SelfField = "probe_id"
++	SelfBindingID                  SelfField = "binding_id"
++	SelfEvidenceID                 SelfField = "evidence_id"
++	SelfRawObjectManifestID        SelfField = "raw_object_manifest_id"
++	SelfCaptureManifestID          SelfField = "capture_manifest_id"
++	SelfCanonicalSessionID         SelfField = "canonical_session_id"
++	SelfFidelityReportID           SelfField = "fidelity_report_id"
++	SelfProjectionPlanID           SelfField = "projection_plan_id"
++	SelfProjectedObjectManifestID  SelfField = "projected_object_manifest_id"
++	SelfReadBackEvidenceManifestID SelfField = "read_back_evidence_manifest_id"
++	SelfValidationReportID         SelfField = "validation_report_id"
++	SelfMigrationCheckpointID      SelfField = "migration_checkpoint_id"
++	SelfLineageReceiptID           SelfField = "lineage_receipt_id"
++	SelfRegistryDigest             SelfField = "registry_digest"
++)
++
++type schemaIdentityKey struct {
++	schema  string
++	version string
++}
++
++type schemaIdentityContract struct {
++	selfField          SelfField
++	discriminatorName  string
++	discriminatorValue string
++}
++
++// schemaIdentityContracts is derived from the generated catalog whose source
++// is bound to the pinned v0.5.0 document. A schema may legitimately carry a
++// differently named ID as a reference, so field-name counting is not an
++// identity contract.
++var schemaIdentityContracts = mustBuildSchemaIdentityContracts(catalog.Current().SelfIdentities)
++
++func mustBuildSchemaIdentityContracts(definitions []catalog.SelfIdentityContract) map[schemaIdentityKey]schemaIdentityContract {
++	contracts, err := buildSchemaIdentityContracts(definitions)
++	if err != nil {
++		panic(fmt.Sprintf("generated self-identity catalog is invalid: %v", err))
++	}
++	return contracts
++}
++
++func buildSchemaIdentityContracts(definitions []catalog.SelfIdentityContract) (map[schemaIdentityKey]schemaIdentityContract, error) {
++	contracts := make(map[schemaIdentityKey]schemaIdentityContract)
++	for _, definition := range definitions {
++		contract := schemaIdentityContract{
++			selfField:          SelfField(definition.SelfField),
++			discriminatorName:  definition.DiscriminatorName,
++			discriminatorValue: definition.DiscriminatorValue,
++		}
++		for _, version := range definition.ContractVersions {
++			key := schemaIdentityKey{schema: string(definition.ContractID), version: version}
++			if _, duplicate := contracts[key]; duplicate {
++				return nil, fmt.Errorf("duplicate self-identity contract for %s@%s", key.schema, key.version)
++			}
++			contracts[key] = contract
++		}
++	}
++	if err := validateSchemaIdentityContracts(contracts, definitions); err != nil {
++		return nil, err
++	}
++	return contracts, nil
++}
++
++func validateSchemaIdentityContracts(contracts map[schemaIdentityKey]schemaIdentityContract, definitions []catalog.SelfIdentityContract) error {
++	expected := 0
++	for _, definition := range definitions {
++		for _, version := range definition.ContractVersions {
++			expected++
++			key := schemaIdentityKey{schema: string(definition.ContractID), version: version}
++			contract, ok := contracts[key]
++			if !ok {
++				return fmt.Errorf("missing self-identity contract for %s@%s", key.schema, key.version)
++			}
++			if contract.selfField != SelfField(definition.SelfField) ||
++				contract.discriminatorName != definition.DiscriminatorName ||
++				contract.discriminatorValue != definition.DiscriminatorValue {
++				return fmt.Errorf("self-identity contract for %s@%s differs from generated catalog", key.schema, key.version)
++			}
++		}
++	}
++	if len(contracts) != expected {
++		return fmt.Errorf("self-identity contract table has %d rows, generated catalog has %d", len(contracts), expected)
++	}
++	return nil
++}
++
++// Canonicalize is the production RFC 8785 entry point. It rejects malformed
++// UTF-8, invalid surrogate escapes, duplicate object names, and non-I-JSON
++// input before producing the canonical UTF-8 byte sequence.
++func Canonicalize(input []byte) ([]byte, error) {
++	value, err := decodeStrict(input)
++	if err != nil {
++		return nil, err
++	}
++	// Re-encode the parsed logical value before the JCS transform. This removes
++	// leading/trailing whitespace around primitive top-level values without
++	// changing json.Number tokens or string data.
++	normalized, err := json.Marshal(value)
++	if err != nil {
++		return nil, invalidJSON("serialize logical JSON value: %v", err)
++	}
++	canonical, err := jcs.Transform(normalized)
++	if err != nil {
++		return nil, invalidJSON("canonicalize RFC 8785 value: %v", err)
++	}
++	return canonical, nil
++}
++
++// CalculateObjectIdentity validates the AX common logical number model,
++// resolves the one self field from the object's trusted schema/version
++// contract, omits that field, applies RFC 8785 JCS, and returns the SHA-256
++// identity. Callers cannot select an arbitrary field to omit, which prevents
++// self inclusion and digest cycles.
++func CalculateObjectIdentity(input []byte) (scalar.Digest, SelfField, error) {
++	value, err := decodeStrict(input)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	if err := validateAXNumbers(value); err != nil {
++		return scalar.Digest{}, "", err
++	}
++	object, ok := value.(map[string]any)
++	if !ok {
++		return scalar.Digest{}, "", invalidIdentity("identity input must be a JSON object")
++	}
++
++	selfField, _, err := resolveSelfField(object)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	omitted := make(map[string]any, len(object)-1)
++	for name, member := range object {
++		if name != string(selfField) {
++			omitted[name] = member
++		}
++	}
++	serialized, err := json.Marshal(omitted)
++	if err != nil {
++		return scalar.Digest{}, "", invalidIdentity("serialize omit-self object: %v", err)
++	}
++	canonical, err := jcs.Transform(serialized)
++	if err != nil {
++		return scalar.Digest{}, "", invalidIdentity("canonicalize omit-self object: %v", err)
++	}
++	return scalar.SHA256Digest(canonical), selfField, nil
++}
++
++// VerifyObjectIdentity drives the same production calculation and refuses a
++// malformed, self-included, or otherwise mismatched claimed identity.
++func VerifyObjectIdentity(input []byte) (scalar.Digest, SelfField, error) {
++	value, err := decodeStrict(input)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	object, ok := value.(map[string]any)
++	if !ok {
++		return scalar.Digest{}, "", invalidIdentity("identity input must be a JSON object")
++	}
++	selfField, claimed, err := resolveSelfField(object)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	calculated, calculatedField, err := CalculateObjectIdentity(input)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	if calculatedField != selfField || claimed != calculated {
++		return scalar.Digest{}, "", invalidIdentity(
++			"%s claim %q does not match omit-self digest %q",
++			selfField,
++			claimed,
++			calculated,
++		)
++	}
++	return calculated, selfField, nil
++}
++
++func resolveSelfField(object map[string]any) (SelfField, scalar.Digest, error) {
++	schema, err := requiredStringMember(object, "schema")
++	if err != nil {
++		return "", scalar.Digest{}, err
++	}
++	version, err := requiredStringMember(object, "schema_version")
++	if err != nil {
++		return "", scalar.Digest{}, err
++	}
++	contract, ok := schemaIdentityContracts[schemaIdentityKey{schema: schema, version: version}]
++	if !ok {
++		return "", scalar.Digest{}, invalidIdentity(
++			"schema %q version %q has no supported immutable self-identity contract",
++			schema,
++			version,
++		)
++	}
++	if contract.discriminatorName != "" {
++		discriminator, err := requiredStringMember(object, contract.discriminatorName)
++		if err != nil {
++			return "", scalar.Digest{}, err
++		}
++		if discriminator != contract.discriminatorValue {
++			return "", scalar.Digest{}, invalidIdentity(
++				"schema %q version %q variant %s=%q is not an immutable self-identity contract",
++				schema,
++				version,
++				contract.discriminatorName,
++				discriminator,
++			)
++		}
++	}
++
++	value, ok := object[string(contract.selfField)]
++	if !ok {
++		return "", scalar.Digest{}, invalidIdentity(
++			"schema %q version %q requires self field %s",
++			schema,
++			version,
++			contract.selfField,
++		)
++	}
++	text, ok := value.(string)
++	if !ok {
++		return "", scalar.Digest{}, invalidIdentity("self field %s must contain a digest string", contract.selfField)
++	}
++	claim, err := scalar.ParseDigest(text)
++	if err != nil {
++		return "", scalar.Digest{}, invalidIdentity("self field %s: %v", contract.selfField, err)
++	}
++	return contract.selfField, claim, nil
++}
++
++func requiredStringMember(object map[string]any, name string) (string, error) {
++	value, ok := object[name]
++	if !ok {
++		return "", invalidIdentity("identity input requires string member %s", name)
++	}
++	text, ok := value.(string)
++	if !ok || text == "" {
++		return "", invalidIdentity("identity input member %s must be a non-empty string", name)
++	}
++	return text, nil
++}
++
++func decodeStrict(input []byte) (any, error) {
++	if len(input) == 0 {
++		return nil, invalidJSON("input is empty")
++	}
++	if !utf8.Valid(input) {
++		return nil, invalidJSON("input is not valid UTF-8")
++	}
++	if err := validateSurrogateEscapes(input); err != nil {
++		return nil, err
++	}
++
++	decoder := json.NewDecoder(bytes.NewReader(input))
++	decoder.UseNumber()
++	value, err := decodeValue(decoder)
++	if err != nil {
++		return nil, err
++	}
++	if token, err := decoder.Token(); !errors.Is(err, io.EOF) {
++		if err != nil {
++			return nil, invalidJSON("read trailing JSON data: %v", err)
++		}
++		return nil, invalidJSON("unexpected trailing JSON token %v", token)
++	}
++	return value, nil
++}
++
++func decodeValue(decoder *json.Decoder) (any, error) {
++	token, err := decoder.Token()
++	if err != nil {
++		return nil, invalidJSON("decode JSON token: %v", err)
++	}
++	delimiter, ok := token.(json.Delim)
++	if !ok {
++		return token, nil
++	}
++
++	switch delimiter {
++	case '{':
++		object := make(map[string]any)
++		for decoder.More() {
++			nameToken, err := decoder.Token()
++			if err != nil {
++				return nil, invalidJSON("decode object name: %v", err)
++			}
++			name, ok := nameToken.(string)
++			if !ok {
++				return nil, invalidJSON("object name is not a string")
++			}
++			if _, duplicate := object[name]; duplicate {
++				return nil, invalidJSON("duplicate object member %q", name)
++			}
++			value, err := decodeValue(decoder)
++			if err != nil {
++				return nil, err
++			}
++			object[name] = value
++		}
++		end, err := decoder.Token()
++		if err != nil || end != json.Delim('}') {
++			return nil, invalidJSON("decode object terminator: %v", err)
++		}
++		return object, nil
++	case '[':
++		array := make([]any, 0)
++		for decoder.More() {
++			value, err := decodeValue(decoder)
++			if err != nil {
++				return nil, err
++			}
++			array = append(array, value)
++		}
++		end, err := decoder.Token()
++		if err != nil || end != json.Delim(']') {
++			return nil, invalidJSON("decode array terminator: %v", err)
++		}
++		return array, nil
++	default:
++		return nil, invalidJSON("unexpected delimiter %q", delimiter)
++	}
++}
++
++func validateAXNumbers(value any) error {
++	switch typed := value.(type) {
++	case json.Number:
++		literal := typed.String()
++		if strings.ContainsAny(literal, ".eE") {
++			return invalidIdentity("floating-point number %q is forbidden by the AX common model", literal)
++		}
++		integer, err := strconv.ParseInt(literal, 10, 64)
++		if err != nil || integer < -maxSafeInteger || integer > maxSafeInteger {
++			return invalidIdentity("integer %q is outside the AX safe-integer interval", literal)
++		}
++	case []any:
++		for _, element := range typed {
++			if err := validateAXNumbers(element); err != nil {
++				return err
++			}
++		}
++	case map[string]any:
++		for _, member := range typed {
++			if err := validateAXNumbers(member); err != nil {
++				return err
++			}
++		}
++	}
++	return nil
++}
++
++func validateSurrogateEscapes(input []byte) error {
++	for index := 0; index < len(input); index++ {
++		if input[index] != '"' {
++			continue
++		}
++		for index++; index < len(input); index++ {
++			switch input[index] {
++			case '"':
++				goto stringComplete
++			case '\\':
++				index++
++				if index >= len(input) {
++					return invalidJSON("unterminated string escape")
++				}
++				if input[index] != 'u' {
++					continue
++				}
++				codeUnit, end, err := readUTF16Escape(input, index-1)
++				if err != nil {
++					return err
++				}
++				index = end - 1
++				switch {
++				case codeUnit >= 0xd800 && codeUnit <= 0xdbff:
++					second, secondEnd, err := readUTF16Escape(input, end)
++					if err != nil || second < 0xdc00 || second > 0xdfff {
++						return invalidJSON("high surrogate escape must be followed by a low surrogate escape")
++					}
++					index = secondEnd - 1
++				case codeUnit >= 0xdc00 && codeUnit <= 0xdfff:
++					return invalidJSON("lone low surrogate escape is forbidden")
++				}
++			case 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
++				0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
++				0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
++				0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f:
++				return invalidJSON("unescaped control character in string")
++			}
++		}
++		return invalidJSON("unterminated JSON string")
++	stringComplete:
++	}
++	return nil
++}
++
++func readUTF16Escape(input []byte, start int) (uint16, int, error) {
++	if start < 0 || start+6 > len(input) || input[start] != '\\' || input[start+1] != 'u' {
++		return 0, start, invalidJSON("expected UTF-16 escape")
++	}
++	value, err := strconv.ParseUint(string(input[start+2:start+6]), 16, 16)
++	if err != nil {
++		return 0, start, invalidJSON("malformed UTF-16 escape")
++	}
++	return uint16(value), start + 6, nil
++}
++
++func invalidJSON(format string, arguments ...any) error {
++	return fmt.Errorf("%w: %s", ErrInvalidJSON, fmt.Sprintf(format, arguments...))
++}
++
++func invalidIdentity(format string, arguments ...any) error {
++	return fmt.Errorf("%w: %s", ErrInvalidIdentity, fmt.Sprintf(format, arguments...))
++}
+diff --git a/internal/canonicaljson/canonical_test.go b/internal/canonicaljson/canonical_test.go
+new file mode 100644
+index 0000000..479f12f
+--- /dev/null
++++ b/internal/canonicaljson/canonical_test.go
+@@ -0,0 +1,433 @@
++package canonicaljson
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"fmt"
++	"math"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++)
++
++const zeroDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
++
++func TestCanonicalizeMatchesPublishedRFC8785PrimitiveAndStringVector(t *testing.T) {
++	input := []byte(`{
++  "numbers": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001],
++  "string": "\u20ac$\u000F\u000aA'\u0042\u0022\u005c\\\"\/",
++  "literals": [null, true, false]
++}`)
++	want := `{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],"string":"€$\u000f\nA'B\"\\\\\"/"}`
++
++	got, err := Canonicalize(input)
++	if err != nil {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.2 vector) error = %v", err)
++	}
++	if string(got) != want {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.2 vector) = %q, want %q", got, want)
++	}
++
++	again, err := Canonicalize(got)
++	if err != nil || string(again) != want {
++		t.Fatalf("Canonicalize(canonical vector) = %q, %v; want identical %q", again, err, want)
++	}
++
++	primitive, err := Canonicalize([]byte(" \n -0 \t"))
++	if err != nil || string(primitive) != "0" {
++		t.Fatalf("Canonicalize(whitespace-wrapped minus zero) = %q, %v; want RFC value 0", primitive, err)
++	}
++}
++
++func TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample(t *testing.T) {
++	vectors := []struct {
++		bits uint64
++		want string
++	}{
++		{0x0000000000000000, "0"},
++		{0x8000000000000000, "0"},
++		{0x0000000000000001, "5e-324"},
++		{0x8000000000000001, "-5e-324"},
++		{0x7fefffffffffffff, "1.7976931348623157e+308"},
++		{0xffefffffffffffff, "-1.7976931348623157e+308"},
++		{0x4340000000000000, "9007199254740992"},
++		{0xc340000000000000, "-9007199254740992"},
++		{0x4430000000000000, "295147905179352830000"},
++		{0x44b52d02c7e14af5, "9.999999999999997e+22"},
++		{0x44b52d02c7e14af6, "1e+23"},
++		{0x44b52d02c7e14af7, "1.0000000000000001e+23"},
++		{0x444b1ae4d6e2ef4e, "999999999999999700000"},
++		{0x444b1ae4d6e2ef4f, "999999999999999900000"},
++		{0x444b1ae4d6e2ef50, "1e+21"},
++		{0x3eb0c6f7a0b5ed8c, "9.999999999999997e-7"},
++		{0x3eb0c6f7a0b5ed8d, "0.000001"},
++		{0x41b3de4355555553, "333333333.3333332"},
++		{0x41b3de4355555554, "333333333.33333325"},
++		{0x41b3de4355555555, "333333333.3333333"},
++		{0x41b3de4355555556, "333333333.3333334"},
++		{0x41b3de4355555557, "333333333.33333343"},
++		{0xbecbf647612f3696, "-0.0000033333333333333333"},
++		{0x43143ff3c1cb0959, "1424953923781206.2"},
++	}
++
++	for _, vector := range vectors {
++		name := fmt.Sprintf("%016x", vector.bits)
++		t.Run(name, func(t *testing.T) {
++			value := math.Float64frombits(vector.bits)
++			input := strconv.FormatFloat(value, 'g', -1, 64)
++			got, err := Canonicalize([]byte(input))
++			if err != nil {
++				t.Fatalf("Canonicalize(%q) error = %v", input, err)
++			}
++			if string(got) != vector.want {
++				t.Fatalf("Canonicalize(%q) = %q, want RFC Appendix B %q", input, got, vector.want)
++			}
++		})
++	}
++
++	if _, err := Canonicalize([]byte("1e999")); err == nil {
++		t.Fatal("Canonicalize(out-of-range number) error = nil, want I-JSON refusal")
++	}
++}
++
++func TestCanonicalizeUsesRFC8785UTF16PropertyOrdering(t *testing.T) {
++	input := []byte(`{
++  "\u20ac": "Euro Sign",
++  "\r": "Carriage Return",
++  "\ufb33": "Hebrew Letter Dalet With Dagesh",
++  "1": "One",
++  "\ud83d\ude00": "Emoji: Grinning Face",
++  "\u0080": "Control",
++  "\u00f6": "Latin Small Letter O With Diaeresis"
++}`)
++	want := `{"\r":"Carriage Return","1":"One","":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}`
++
++	got, err := Canonicalize(input)
++	if err != nil {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.3 vector) error = %v", err)
++	}
++	if string(got) != want {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.3 vector) = %q, want %q", got, want)
++	}
++}
++
++func TestCalculateObjectIdentityOmitsEveryGeneratedV050SelfIdentityContract(t *testing.T) {
++	definitions := catalog.Current().SelfIdentities
++	if len(definitions) == 0 {
++		t.Fatal("generated v0.5.0 self-identity catalog is empty")
++	}
++	rows := 0
++	for _, definition := range definitions {
++		for _, version := range definition.ContractVersions {
++			rows++
++			testName := string(definition.ContractID) + "@" + version
++			t.Run(testName, func(t *testing.T) {
++				extra := ""
++				if definition.DiscriminatorName != "" {
++					extra = fmt.Sprintf("%q:%q,", definition.DiscriminatorName, definition.DiscriminatorValue)
++				}
++				selfField := SelfField(definition.SelfField)
++				input := []byte(fmt.Sprintf(
++					`{"schema":%q,"schema_version":%q,%s"%s":"%s","a":1}`,
++					definition.ContractID,
++					version,
++					extra,
++					selfField,
++					zeroDigest,
++				))
++				got, gotField, err := CalculateObjectIdentity(input)
++				if err != nil {
++					t.Fatalf("CalculateObjectIdentity(%s) error = %v", testName, err)
++				}
++				omitted := fmt.Sprintf(`{"a":1,%s"schema":%q,"schema_version":%q}`, extra, definition.ContractID, version)
++				want := digestHex(omitted)
++				if gotField != selfField || got.String() != want {
++					t.Fatalf("CalculateObjectIdentity(%s) = %q, %q; want %q, %q", testName, got, gotField, want, selfField)
++				}
++			})
++		}
++	}
++	if rows != len(schemaIdentityContracts) {
++		t.Fatalf("production self-identity table has %d rows, generated catalog defines %d", len(schemaIdentityContracts), rows)
++	}
++}
++
++func TestCalculateObjectIdentitySupportsAdditionalTerminalCloneAndRegistryContracts(t *testing.T) {
++	tests := []struct {
++		schema    string
++		selfField SelfField
++	}{
++		{"urn:ax:schema:terminal-backend-probe", SelfProbeID},
++		{"urn:ax:schema:terminal-instance-binding", SelfBindingID},
++		{"urn:ax:schema:terminal-capability-evidence", SelfEvidenceID},
++		{"urn:ax:schema:clone-raw-object-manifest", SelfRawObjectManifestID},
++		{"urn:ax:schema:clone-capture-manifest", SelfCaptureManifestID},
++		{"urn:ax:schema:canonical-session", SelfCanonicalSessionID},
++		{"urn:ax:schema:fidelity-report", SelfFidelityReportID},
++		{"urn:ax:schema:projection-plan", SelfProjectionPlanID},
++		{"urn:ax:schema:clone-projected-object-manifest", SelfProjectedObjectManifestID},
++		{"urn:ax:schema:clone-read-back-evidence-manifest", SelfReadBackEvidenceManifestID},
++		{"urn:ax:schema:clone-validation-report", SelfValidationReportID},
++		{"urn:ax:schema:migration-checkpoint", SelfMigrationCheckpointID},
++		{"urn:ax:schema:clone-lineage-receipt", SelfLineageReceiptID},
++		{"urn:ax:schema:supported-environment-tuples", SelfRegistryDigest},
++	}
++	for _, test := range tests {
++		t.Run(test.schema, func(t *testing.T) {
++			input := []byte(fmt.Sprintf(
++				`{"schema":%q,"schema_version":"1.0.0","%s":"%s","referenced_id":"%s"}`,
++				test.schema,
++				test.selfField,
++				zeroDigest,
++				"sha256:1111111111111111111111111111111111111111111111111111111111111111",
++			))
++			if _, gotField, err := CalculateObjectIdentity(input); err != nil || gotField != test.selfField {
++				t.Fatalf("CalculateObjectIdentity(%s) field = %q, error = %v; want %q", test.schema, gotField, err, test.selfField)
++			}
++		})
++	}
++}
++
++func TestSelfIdentityCompletenessRejectsDeletedImplementationContract(t *testing.T) {
++	definitions := catalog.Current().SelfIdentities
++	narrowed := make(map[schemaIdentityKey]schemaIdentityContract, len(schemaIdentityContracts))
++	for key, contract := range schemaIdentityContracts {
++		narrowed[key] = contract
++	}
++	deleted := schemaIdentityKey{schema: "urn:ax:schema:canonical-session", version: "1.0.0"}
++	delete(narrowed, deleted)
++
++	err := validateSchemaIdentityContracts(narrowed, definitions)
++	if err == nil || !strings.Contains(err.Error(), "missing self-identity contract for urn:ax:schema:canonical-session@1.0.0") {
++		t.Fatalf("validateSchemaIdentityContracts(deleted canonical-session row) error = %v, want exact missing-row refusal", err)
++	}
++}
++
++func TestCalculateObjectIdentityAcceptsEveryRegisteredVersionForMultiVersionSchemas(t *testing.T) {
++	tests := []struct {
++		schema    string
++		versions  []string
++		selfField SelfField
++	}{
++		{"urn:ax:schema:session-record", []string{"1.0.0", "2.0.0", "3.0.0"}, SelfRecordID},
++		{"urn:ax:schema:session-event", []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0"}, SelfEventID},
++		{"urn:ax:schema:materialization-plan", []string{"1.0.0", "2.0.0"}, SelfPlanID},
++	}
++	for _, test := range tests {
++		for _, version := range test.versions {
++			name := test.schema + "@" + version
++			t.Run(name, func(t *testing.T) {
++				input := []byte(fmt.Sprintf(
++					`{"schema":%q,"schema_version":%q,"%s":"%s"}`,
++					test.schema,
++					version,
++					test.selfField,
++					zeroDigest,
++				))
++				if _, gotField, err := CalculateObjectIdentity(input); err != nil || gotField != test.selfField {
++					t.Fatalf("CalculateObjectIdentity(%s) field = %q, error = %v; want %q", name, gotField, err, test.selfField)
++				}
++			})
++		}
++	}
++}
++
++func TestCalculateObjectIdentityUsesSchemaDefinedSelfFieldWithRegisteredReferences(t *testing.T) {
++	referenceA := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
++	referenceB := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
++	tests := []struct {
++		name      string
++		selfField SelfField
++		input     string
++		omitted   string
++	}{
++		{
++			"Session Annotation",
++			SelfAnnotationID,
++			`{"schema":"urn:ax:schema:session-annotation","schema_version":"1.0.0","annotation_id":"` + zeroDigest + `","profile_id":"` + referenceA + `"}`,
++			`{"profile_id":"` + referenceA + `","schema":"urn:ax:schema:session-annotation","schema_version":"1.0.0"}`,
++		},
++		{
++			"Enrichment Job Request",
++			SelfJobRequestID,
++			`{"schema":"urn:ax:schema:session-enrichment-job-request","schema_version":"1.0.0","job_request_id":"` + zeroDigest + `","profile_id":"` + referenceA + `"}`,
++			`{"profile_id":"` + referenceA + `","schema":"urn:ax:schema:session-enrichment-job-request","schema_version":"1.0.0"}`,
++		},
++		{
++			"Enrichment Job Receipt",
++			SelfJobReceiptID,
++			`{"schema":"urn:ax:schema:session-enrichment-job-receipt","schema_version":"1.0.0","job_receipt_id":"` + zeroDigest + `","job_request_id":"` + referenceA + `","profile_id":"` + referenceB + `"}`,
++			`{"job_request_id":"` + referenceA + `","profile_id":"` + referenceB + `","schema":"urn:ax:schema:session-enrichment-job-receipt","schema_version":"1.0.0"}`,
++		},
++		{
++			"Directory Operation Receipt",
++			SelfDirectoryReceiptID,
++			`{"schema":"urn:ax:schema:session-directory-operation-receipt","schema_version":"1.0.0","directory_receipt_id":"` + zeroDigest + `","plan_id":"` + referenceA + `"}`,
++			`{"plan_id":"` + referenceA + `","schema":"urn:ax:schema:session-directory-operation-receipt","schema_version":"1.0.0"}`,
++		},
++	}
++
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			calculated, gotField, err := CalculateObjectIdentity([]byte(test.input))
++			if err != nil {
++				t.Fatalf("CalculateObjectIdentity(%s with registered references) error = %v", test.name, err)
++			}
++			want := digestHex(test.omitted)
++			if gotField != test.selfField || calculated.String() != want {
++				t.Fatalf("CalculateObjectIdentity(%s) = %q, %q; want schema self field %q and %q", test.name, calculated, gotField, test.selfField, want)
++			}
++
++			claimed := strings.Replace(test.input, zeroDigest, calculated.String(), 1)
++			verified, verifiedField, err := VerifyObjectIdentity([]byte(claimed))
++			if err != nil || verified != calculated || verifiedField != test.selfField {
++				t.Fatalf("VerifyObjectIdentity(%s with registered references) = %q, %q, %v", test.name, verified, verifiedField, err)
++			}
++		})
++	}
++}
++
++func TestCalculateObjectIdentityMatchesAXPublishedFixtures(t *testing.T) {
++	t.Run("safe integer maximum", func(t *testing.T) {
++		input := []byte(`{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","record_id":"` + zeroDigest + `","n":9007199254740991}`)
++		got, _, err := CalculateObjectIdentity(input)
++		want := digestHex(`{"n":9007199254740991,"schema":"urn:ax:schema:session-record","schema_version":"1.0.0"}`)
++		if err != nil || got.String() != want {
++			t.Fatalf("CalculateObjectIdentity(NUM-SAFE-MAX) = %q, %v", got, err)
++		}
++	})
++
++	t.Run("UTF-16 order", func(t *testing.T) {
++		input := []byte(`{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","record_id":"` + zeroDigest + `","\uE000":1,"\uD800\uDC00":2}`)
++		got, _, err := CalculateObjectIdentity(input)
++		want := digestHex(`{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","𐀀":2,"":1}`)
++		if err != nil || got.String() != want {
++			t.Fatalf("CalculateObjectIdentity(JCS-UTF16-ORDER) = %q, %v", got, err)
++		}
++	})
++
++	t.Run("Blob Descriptor", func(t *testing.T) {
++		input := []byte(`{
++  "schema": "urn:ax:schema:blob",
++  "schema_version": "1.0.0",
++  "descriptor_id": "sha256:390c8f21900483a010c1cbc3f9be01afebcf6e4da87263ba09fc5776dd6503ee",
++  "blob_id": "sha256:9c21bad65c1b3d0403ac85d7d5bd134bb8d894432702a396a77b0477b8eb3b50",
++  "size": 11,
++  "media_type": "application/octet-stream",
++  "chunks": [{
++    "index": 0,
++    "offset": 0,
++    "size": 11,
++    "chunk_id": "sha256:9c21bad65c1b3d0403ac85d7d5bd134bb8d894432702a396a77b0477b8eb3b50"
++  }]
++}`)
++		got, field, err := VerifyObjectIdentity(input)
++		if err != nil || field != SelfDescriptorID || got.Hex() != "390c8f21900483a010c1cbc3f9be01afebcf6e4da87263ba09fc5776dd6503ee" {
++			t.Fatalf("VerifyObjectIdentity(Blob Descriptor) = %q, %q, %v", got, field, err)
++		}
++	})
++}
++
++func TestObjectIdentityIsStableAcrossRepresentationAndClaimChanges(t *testing.T) {
++	first := []byte(`{"z":[{"b":2,"a":1}],"record_id":"` + zeroDigest + `","schema":"urn:ax:schema:session-record","schema_version":"1.0.0"}`)
++	calculated, field, err := CalculateObjectIdentity(first)
++	if err != nil {
++		t.Fatalf("CalculateObjectIdentity(first) error = %v", err)
++	}
++	second := []byte(" { \n  \"schema_version\" : \"1.0.0\", \"schema\" : \"urn:ax:schema:session-record\", \"record_id\" : \"" + calculated.String() + "\", \"z\" : [ { \"a\" : 1, \"b\" : 2 } ] } \n")
++	recalculated, secondField, err := CalculateObjectIdentity(second)
++	if err != nil || recalculated != calculated || secondField != field {
++		t.Fatalf("CalculateObjectIdentity(reordered) = %q, %q, %v; want %q, %q", recalculated, secondField, err, calculated, field)
++	}
++	verified, verifiedField, err := VerifyObjectIdentity(second)
++	if err != nil || verified != calculated || verifiedField != SelfRecordID {
++		t.Fatalf("VerifyObjectIdentity(reordered) = %q, %q, %v", verified, verifiedField, err)
++	}
++	for attempt := 0; attempt < 3; attempt++ {
++		again, _, err := CalculateObjectIdentity(second)
++		if err != nil || again != calculated {
++			t.Fatalf("CalculateObjectIdentity idempotent attempt %d = %q, %v; want %q", attempt, again, err, calculated)
++		}
++	}
++}
++
++func TestObjectIdentityRefusesSelfInclusionAndAmbiguousNamespaces(t *testing.T) {
++	placeholder := []byte(`{"record_id":"` + zeroDigest + `","schema":"urn:ax:schema:session-record","schema_version":"1.0.0","value":1}`)
++	fullCanonical, err := Canonicalize(placeholder)
++	if err != nil {
++		t.Fatalf("Canonicalize(self-inclusion setup) error = %v", err)
++	}
++	selfIncludedClaim := digestHex(string(fullCanonical))
++	selfIncluded := []byte(strings.Replace(string(placeholder), zeroDigest, selfIncludedClaim, 1))
++	if _, _, err := VerifyObjectIdentity(selfIncluded); err == nil || !errors.Is(err, ErrInvalidIdentity) {
++		t.Fatalf("VerifyObjectIdentity(self-included claim) error = %v, want identity refusal", err)
++	}
++
++	cases := []struct {
++		name  string
++		input string
++	}{
++		{"absent schema", `{"schema_version":"1.0.0","record_id":"` + zeroDigest + `"}`},
++		{"absent schema version", `{"schema":"urn:ax:schema:session-record","record_id":"` + zeroDigest + `"}`},
++		{"unsupported schema", `{"schema":"urn:ax:schema:unknown","schema_version":"1.0.0","record_id":"` + zeroDigest + `"}`},
++		{"unsupported schema version", `{"schema":"urn:ax:schema:session-record","schema_version":"999.0.0","record_id":"` + zeroDigest + `"}`},
++		{"absent schema-defined self field", `{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","event_id":"` + zeroDigest + `"}`},
++		{"raw chunk identity", `{"schema":"urn:ax:schema:chunk","schema_version":"1.0.0","chunk_id":"` + zeroDigest + `","size":1}`},
++		{"mutable journal variant", `{"schema":"urn:ax:schema:materialization-journal","schema_version":"2.0.0","document_kind":"journal","marker_id":"` + zeroDigest + `"}`},
++		{"non-digest claim", `{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","record_id":"not-a-digest","value":1}`},
++	}
++	for _, test := range cases {
++		t.Run(test.name, func(t *testing.T) {
++			if _, _, err := CalculateObjectIdentity([]byte(test.input)); err == nil || !errors.Is(err, ErrInvalidIdentity) {
++				t.Fatalf("CalculateObjectIdentity(%s) error = %v, want identity refusal", test.name, err)
++			}
++		})
++	}
++}
++
++func TestProductionEntriesRejectAmbiguousOrInvalidInput(t *testing.T) {
++	canonicalCases := []struct {
++		name  string
++		input []byte
++	}{
++		{"duplicate member", []byte(`{"a":1,"\u0061":2}`)},
++		{"lone high surrogate", []byte(`{"a":"\ud800"}`)},
++		{"lone low surrogate", []byte(`{"a":"\udc00"}`)},
++		{"mismatched surrogate", []byte(`{"a":"\ud800\u0041"}`)},
++		{"invalid UTF-8", []byte{'{', '"', 'a', '"', ':', '"', 0xff, '"', '}'}},
++	}
++	for _, test := range canonicalCases {
++		t.Run(test.name, func(t *testing.T) {
++			if _, err := Canonicalize(test.input); err == nil || !errors.Is(err, ErrInvalidJSON) {
++				t.Fatalf("Canonicalize(%s) error = %v, want invalid JSON refusal", test.name, err)
++			}
++		})
++	}
++
++	identityCases := []struct {
++		name   string
++		number string
++	}{
++		{"unsafe positive boundary", "9007199254740992"},
++		{"unsafe negative boundary", "-9007199254740992"},
++		{"rounded unsafe integer", "9007199254740993"},
++		{"floating point", "1.0"},
++		{"exponent", "1e3"},
++	}
++	for _, test := range identityCases {
++		t.Run(test.name, func(t *testing.T) {
++			input := []byte(`{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","record_id":"` + zeroDigest + `","n":` + test.number + `}`)
++			if _, _, err := CalculateObjectIdentity(input); err == nil || !errors.Is(err, ErrInvalidIdentity) {
++				t.Fatalf("CalculateObjectIdentity(%s) error = %v, want common-model refusal", test.name, err)
++			}
++		})
++	}
++}
++
++func digestHex(value string) string {
++	digest := sha256.Sum256([]byte(value))
++	return "sha256:" + hex.EncodeToString(digest[:])
++}
+diff --git a/internal/canonicaljson/fuzz_test.go b/internal/canonicaljson/fuzz_test.go
+new file mode 100644
+index 0000000..548c1b3
+--- /dev/null
++++ b/internal/canonicaljson/fuzz_test.go
+@@ -0,0 +1,134 @@
++package canonicaljson
++
++import (
++	"bytes"
++	"errors"
++	"fmt"
++	"testing"
++)
++
++func TestCanonicalizeRejectsMalformedRecursiveObjectShapes(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name  string
++		input string
++	}{
++		{"nested duplicate member", `{"outer":{"a":1,"\u0061":2}}`},
++		{"array nested duplicate member", `{"outer":[{"a":1,"a":2}]}`},
++		{"nested non-string member name", `{"outer":{1:"value"}}`},
++		{"nested lone surrogate member name", `{"outer":{"\ud800":1}}`},
++		{"nested lone surrogate value", `{"outer":[{"value":"\udc00"}]}`},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			if _, err := Canonicalize([]byte(test.input)); err == nil || !errors.Is(err, ErrInvalidJSON) {
++				t.Fatalf("Canonicalize(%s) error = %v, want recursive JSON-shape refusal", test.name, err)
++			}
++		})
++	}
++}
++
++// FuzzCanonicalizeRoundTrip proves that the Canonicalize production entry is
++// stable under read-back and insignificant outer whitespace. Invalid inputs
++// are refusals, never panics or partially accepted values.
++func FuzzCanonicalizeRoundTrip(f *testing.F) {
++	for _, seed := range [][]byte{
++		[]byte(`{"b":2,"a":{"δ":4,"c":3}}`),
++		[]byte(`{"\uE000":1,"\uD800\uDC00":2}`),
++		[]byte(`{"outer":{"a":1,"\u0061":2}}`),
++		[]byte(`{"outer":{1:"value"}}`),
++		[]byte(`{"value":"\ud800"}`),
++		[]byte{'{', '"', 'v', '"', ':', '"', 0xff, '"', '}'},
++	} {
++		f.Add(seed)
++	}
++
++	f.Fuzz(func(t *testing.T, input []byte) {
++		if len(input) > 64*1024 {
++			return
++		}
++		canonical, err := Canonicalize(input)
++		if err != nil {
++			return
++		}
++		again, err := Canonicalize(canonical)
++		if err != nil {
++			t.Fatalf("Canonicalize accepted %q but refused canonical read-back %q: %v", input, canonical, err)
++		}
++		if !bytes.Equal(again, canonical) {
++			t.Fatalf("canonicalization is not idempotent: first %q, second %q", canonical, again)
++		}
++		padded := append([]byte(" \r\n\t"), canonical...)
++		padded = append(padded, '\n', ' ')
++		withWhitespace, err := Canonicalize(padded)
++		if err != nil || !bytes.Equal(withWhitespace, canonical) {
++			t.Fatalf("insignificant whitespace changed canonical value: got %q, %v; want %q", withWhitespace, err, canonical)
++		}
++	})
++}
++
++// FuzzObjectIdentityRepresentationInvariant drives CalculateObjectIdentity and
++// VerifyObjectIdentity with the same nested logical value in raw and canonical
++// representations. Key order and whitespace must not alter the identity.
++func FuzzObjectIdentityRepresentationInvariant(f *testing.F) {
++	for _, seed := range [][]byte{
++		[]byte(`{"b":2,"a":1}`),
++		[]byte(" { \n \"z\" : [ { \"b\" : 2, \"a\" : 1 } ] } \r\n"),
++		[]byte(`{"\uE000":1,"\uD800\uDC00":2}`),
++		[]byte(`[null,true,false,"данные",9007199254740991]`),
++	} {
++		f.Add(seed)
++	}
++
++	f.Fuzz(func(t *testing.T, nested []byte) {
++		if len(nested) > 32*1024 {
++			return
++		}
++		canonicalNested, err := Canonicalize(nested)
++		if err != nil {
++			return
++		}
++
++		first, second := identityFuzzRepresentations(nested, canonicalNested, zeroDigest)
++
++		firstDigest, firstField, err := CalculateObjectIdentity(first)
++		if err != nil {
++			return // The nested value can be valid JCS but outside AX's integer-only model.
++		}
++		secondDigest, secondField, err := CalculateObjectIdentity(second)
++		if err != nil {
++			t.Fatalf("canonical/reordered representation refused after equivalent input was accepted: %v", err)
++		}
++		if firstDigest != secondDigest || firstField != secondField || firstField != SelfRecordID {
++			t.Fatalf("identity changed across representation: first %q/%q, second %q/%q", firstDigest, firstField, secondDigest, secondField)
++		}
++
++		claimedFirst, claimedSecond := identityFuzzRepresentations(nested, canonicalNested, firstDigest.String())
++		for name, claimed := range map[string][]byte{"raw": claimedFirst, "canonical": claimedSecond} {
++			verified, field, err := VerifyObjectIdentity(claimed)
++			if err != nil || verified != firstDigest || field != SelfRecordID {
++				t.Fatalf("VerifyObjectIdentity(%s representation) = %q/%q, %v; want %q/%q", name, verified, field, err, firstDigest, SelfRecordID)
++			}
++			recalculated, _, err := CalculateObjectIdentity(claimed)
++			if err != nil || recalculated != firstDigest {
++				t.Fatalf("accepted %s identity later refused or changed: %q, %v", name, recalculated, err)
++			}
++		}
++	})
++}
++
++func identityFuzzRepresentations(nested, canonicalNested []byte, claim string) ([]byte, []byte) {
++	first := []byte(fmt.Sprintf(
++		`{"record_id":"%s","value":%s,"schema":"urn:ax:schema:session-record","schema_version":"1.0.0"}`,
++		claim,
++		nested,
++	))
++	second := []byte(fmt.Sprintf(
++		" {\r\n  \"schema_version\" : \"1.0.0\",\r\n  \"schema\" : \"urn:ax:schema:session-record\",\r\n  \"value\" : %s,\r\n  \"record_id\" : \"%s\"\r\n}\r\n",
++		canonicalNested,
++		claim,
++	))
++	return first, second
++}
+diff --git a/internal/canonicaljson/golden_test.go b/internal/canonicaljson/golden_test.go
+new file mode 100644
+index 0000000..9d260e1
+--- /dev/null
++++ b/internal/canonicaljson/golden_test.go
+@@ -0,0 +1,39 @@
++package canonicaljson
++
++import (
++	"encoding/json"
++	"os"
++	"strings"
++	"testing"
++)
++
++func TestObjectIdentityMatchesCrossPlatformGoldenRepresentations(t *testing.T) {
++	t.Parallel()
++
++	data, err := os.ReadFile("testdata/cross-platform-identity.golden.json")
++	if err != nil {
++		t.Fatal(err)
++	}
++	var fixture struct {
++		Digest          string   `json:"digest"`
++		Representations []string `json:"representations"`
++	}
++	if err := json.Unmarshal(data, &fixture); err != nil {
++		t.Fatal(err)
++	}
++	if len(fixture.Representations) < 2 {
++		t.Fatal("cross-platform golden requires at least two representations")
++	}
++
++	for index, representation := range fixture.Representations {
++		calculated, field, err := CalculateObjectIdentity([]byte(representation))
++		if err != nil || calculated.String() != fixture.Digest || field != SelfRecordID {
++			t.Fatalf("representation %d identity = %q/%q, %v; want %q/%q", index, calculated, field, err, fixture.Digest, SelfRecordID)
++		}
++		claimed := strings.Replace(representation, zeroDigest, fixture.Digest, 1)
++		verified, verifiedField, err := VerifyObjectIdentity([]byte(claimed))
++		if err != nil || verified.String() != fixture.Digest || verifiedField != SelfRecordID {
++			t.Fatalf("representation %d verification = %q/%q, %v", index, verified, verifiedField, err)
++		}
++	}
++}
+diff --git a/internal/canonicaljson/testdata/cross-platform-identity.golden.json b/internal/canonicaljson/testdata/cross-platform-identity.golden.json
+new file mode 100644
+index 0000000..8eacf0d
+--- /dev/null
++++ b/internal/canonicaljson/testdata/cross-platform-identity.golden.json
+@@ -0,0 +1,7 @@
++{
++  "digest": "sha256:4d3846f37f91f760a4596411ef5f067daa6cd3e3d232a826ba159d962c5f4907",
++  "representations": [
++    "{\n  \"record_id\": \"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\n  \"schema\": \"urn:ax:schema:session-record\",\n  \"schema_version\": \"1.0.0\",\n  \"path\": \"workspace/данные/😀.json\",\n  \"nested\": {\"β\": 2, \"a\": 1},\n  \"\": 1,\n  \"𐀀\": 2\n}\n",
++    "{\r\n  \"𐀀\" : 2,\r\n  \"nested\" : { \"a\" : 1, \"β\" : 2 },\r\n  \"schema_version\" : \"1.0.0\",\r\n  \"\" : 1,\r\n  \"record_id\" : \"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\r\n  \"path\" : \"workspace/данные/😀.json\",\r\n  \"schema\" : \"urn:ax:schema:session-record\"\r\n}\r\n"
++  ]
++}
+diff --git a/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/duplicate-map-key b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/duplicate-map-key
+new file mode 100644
+index 0000000..8a5d115
+--- /dev/null
++++ b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/duplicate-map-key
+@@ -0,0 +1,2 @@
++go test fuzz v1
++[]byte("{\"outer\":{\"a\":1,\"\\u0061\":2}}")
+diff --git a/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/non-string-map-key b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/non-string-map-key
+new file mode 100644
+index 0000000..337971a
+--- /dev/null
++++ b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/non-string-map-key
+@@ -0,0 +1,2 @@
++go test fuzz v1
++[]byte("{\"outer\":{1:\"value\"}}")
+diff --git a/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/unicode-utf16-order b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/unicode-utf16-order
+new file mode 100644
+index 0000000..5d28407
+--- /dev/null
++++ b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/unicode-utf16-order
+@@ -0,0 +1,2 @@
++go test fuzz v1
++[]byte("{\"\\uE000\":1,\"\\uD800\\uDC00\":2}")
+diff --git a/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/unpaired-surrogate b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/unpaired-surrogate
+new file mode 100644
+index 0000000..c15b178
+--- /dev/null
++++ b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/unpaired-surrogate
+@@ -0,0 +1,2 @@
++go test fuzz v1
++[]byte("{\"value\":\"\\ud800\"}")
+diff --git a/internal/canonicaljson/testdata/fuzz/FuzzObjectIdentityRepresentationInvariant/nested-reordered-object b/internal/canonicaljson/testdata/fuzz/FuzzObjectIdentityRepresentationInvariant/nested-reordered-object
+new file mode 100644
+index 0000000..6ce2d46
+--- /dev/null
++++ b/internal/canonicaljson/testdata/fuzz/FuzzObjectIdentityRepresentationInvariant/nested-reordered-object
+@@ -0,0 +1,2 @@
++go test fuzz v1
++[]byte("{\"z\":[{\"b\":2,\"a\":1}],\"a\":0}")
+diff --git a/internal/canonicaljson/testdata/fuzz/FuzzObjectIdentityRepresentationInvariant/unicode-utf16-order b/internal/canonicaljson/testdata/fuzz/FuzzObjectIdentityRepresentationInvariant/unicode-utf16-order
+new file mode 100644
+index 0000000..5d28407
+--- /dev/null
++++ b/internal/canonicaljson/testdata/fuzz/FuzzObjectIdentityRepresentationInvariant/unicode-utf16-order
+@@ -0,0 +1,2 @@
++go test fuzz v1
++[]byte("{\"\\uE000\":1,\"\\uD800\\uDC00\":2}")
+diff --git a/internal/catalog/catalog.go b/internal/catalog/catalog.go
+index 6b0efdd..c03de60 100644
+--- a/internal/catalog/catalog.go
++++ b/internal/catalog/catalog.go
+@@ -59,6 +59,19 @@ type Contract struct {
+ 	Versions []string
+ }
+ 
++// SelfIdentityContract defines the schema-directed JCS omit-self rule for an
++// immutable logical object. Membership is reviewed metadata from the pinned
++// specification; it does not imply that any wider schema behavior is
++// implemented.
++type SelfIdentityContract struct {
++	ContractID         ContractID
++	ContractVersions   []string
++	SelfField          string
++	DiscriminatorName  string
++	DiscriminatorValue string
++	NormativeSection   string
++}
++
+ // OperationEffect classifies whether an operation mutates authoritative
+ // durable state. Isolated output is restricted to caller-created sinks and is
+ // not an authoritative state transition.
+@@ -124,6 +137,7 @@ type Catalog struct {
+ 	Release        Release
+ 	MetadataSHA256 string
+ 	Contracts      []Contract
++	SelfIdentities []SelfIdentityContract
+ 	Operations     []Operation
+ 	Capabilities   []Capability
+ 	Events         []Event
+@@ -134,12 +148,18 @@ type catalogDefinition struct {
+ 	Source         Source
+ 	MetadataSHA256 string
+ 	Contracts      map[Release][]Contract
++	SelfIdentities []scopedSelfIdentityContract
+ 	Operations     []scopedOperation
+ 	Capabilities   []scopedCapability
+ 	Events         []scopedEvent
+ 	Errors         []scopedError
+ }
+ 
++type scopedSelfIdentityContract struct {
++	Definition SelfIdentityContract
++	Releases   []Release
++}
++
+ type scopedOperation struct {
+ 	Definition Operation
+ 	Releases   []Release
+@@ -181,11 +201,14 @@ func ForRelease(release Release) (Catalog, error) {
+ 
+ 	allowedVersions := make(map[ContractID]map[string]struct{}, len(contracts))
+ 	for _, contract := range contracts {
+-		versions := make(map[string]struct{}, len(contract.Versions))
++		versions := allowedVersions[contract.ID]
++		if versions == nil {
++			versions = make(map[string]struct{}, len(contract.Versions))
++			allowedVersions[contract.ID] = versions
++		}
+ 		for _, version := range contract.Versions {
+ 			versions[version] = struct{}{}
+ 		}
+-		allowedVersions[contract.ID] = versions
+ 	}
+ 
+ 	result := Catalog{
+@@ -194,6 +217,16 @@ func ForRelease(release Release) (Catalog, error) {
+ 		MetadataSHA256: generatedDefinition.MetadataSHA256,
+ 		Contracts:      cloneContracts(contracts),
+ 	}
++	for _, scoped := range generatedDefinition.SelfIdentities {
++		if !containsRelease(scoped.Releases, release) {
++			continue
++		}
++		definition := cloneSelfIdentityContract(scoped.Definition)
++		definition.ContractVersions = filterVersions(definition.ContractVersions, allowedVersions[definition.ContractID])
++		if len(definition.ContractVersions) != 0 {
++			result.SelfIdentities = append(result.SelfIdentities, definition)
++		}
++	}
+ 	for _, scoped := range generatedDefinition.Operations {
+ 		if !containsRelease(scoped.Releases, release) {
+ 			continue
+@@ -270,6 +303,11 @@ func cloneContracts(contracts []Contract) []Contract {
+ 	return result
+ }
+ 
++func cloneSelfIdentityContract(contract SelfIdentityContract) SelfIdentityContract {
++	contract.ContractVersions = append([]string(nil), contract.ContractVersions...)
++	return contract
++}
++
+ func cloneOperation(operation Operation) Operation {
+ 	operation.ContractVersions = append([]string(nil), operation.ContractVersions...)
+ 	operation.RecoveryEvidence = append([]string(nil), operation.RecoveryEvidence...)
+diff --git a/internal/catalog/catalog.v0.5.0.json b/internal/catalog/catalog.v0.5.0.json
+index 939e5d6..25d5fb0 100644
+--- a/internal/catalog/catalog.v0.5.0.json
++++ b/internal/catalog/catalog.v0.5.0.json
+@@ -13,6 +13,48 @@
+     "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+     "appendix-a", "appendix-b", "appendix-c", "appendix-d"
+   ],
++  "self_identity_contracts": [
++    {"contract_id": "urn:ax:schema:session-record", "contract_versions": ["1.0.0", "2.0.0", "3.0.0"], "self_field": "record_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:lease", "contract_versions": ["1.0.0"], "self_field": "record_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:workspace-group", "contract_versions": ["1.0.0"], "self_field": "record_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:provider-identity", "contract_versions": ["1.0.0"], "self_field": "record_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-event", "contract_versions": ["1.0.0", "2.0.0", "3.0.0", "4.0.0"], "self_field": "event_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:canonical-event", "contract_versions": ["1.0.0"], "self_field": "event_id", "releases": ["v0.5.0"], "normative_section": "13.14.1"},
++    {"contract_id": "urn:ax:schema:checkpoint", "contract_versions": ["1.0.0"], "self_field": "checkpoint_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:blob", "contract_versions": ["1.0.0"], "self_field": "descriptor_id", "releases": ["v0.5.0"], "normative_section": "10.3"},
++    {"contract_id": "urn:ax:schema:terminal-backend-manifest", "contract_versions": ["1.0.0"], "self_field": "manifest_id", "releases": ["v0.5.0"], "normative_section": "4.B"},
++    {"contract_id": "urn:ax:schema:transfer-manifest", "contract_versions": ["1.0.0"], "self_field": "manifest_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-clone-bundle", "contract_versions": ["1.0.0"], "self_field": "manifest_id", "releases": ["v0.5.0"], "normative_section": "13.14.3"},
++    {"contract_id": "urn:ax:schema:materialization-plan", "contract_versions": ["1.0.0", "2.0.0"], "self_field": "plan_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-continuation-plan", "contract_versions": ["1.0.0"], "self_field": "plan_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:tombstone", "contract_versions": ["1.0.0"], "self_field": "tombstone_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:tombstone-ack", "contract_versions": ["1.0.0"], "self_field": "ack_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:task-board-bundle", "contract_versions": ["1.0.0"], "self_field": "bundle_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:materialization-journal", "contract_versions": ["2.0.0"], "self_field": "marker_id", "releases": ["v0.5.0"], "discriminator_name": "document_kind", "discriminator_value": "managed_replica_marker", "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:environment-observation", "contract_versions": ["1.0.0"], "self_field": "observation_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:native-session-observation", "contract_versions": ["1.0.0"], "self_field": "observation_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-inventory-batch", "contract_versions": ["1.0.0"], "self_field": "batch_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:conversation-lineage-link", "contract_versions": ["1.0.0"], "self_field": "lineage_link_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-annotation", "contract_versions": ["1.0.0"], "self_field": "annotation_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-enrichment-profile", "contract_versions": ["1.0.0"], "self_field": "profile_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-enrichment-job-request", "contract_versions": ["1.0.0"], "self_field": "job_request_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-enrichment-job-receipt", "contract_versions": ["1.0.0"], "self_field": "job_receipt_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-directory-operation-receipt", "contract_versions": ["1.0.0"], "self_field": "directory_receipt_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:terminal-backend-probe", "contract_versions": ["1.0.0"], "self_field": "probe_id", "releases": ["v0.5.0"], "normative_section": "4.B"},
++    {"contract_id": "urn:ax:schema:terminal-instance-binding", "contract_versions": ["1.0.0"], "self_field": "binding_id", "releases": ["v0.5.0"], "normative_section": "4.B"},
++    {"contract_id": "urn:ax:schema:terminal-capability-evidence", "contract_versions": ["1.0.0"], "self_field": "evidence_id", "releases": ["v0.5.0"], "normative_section": "4.B"},
++    {"contract_id": "urn:ax:schema:clone-raw-object-manifest", "contract_versions": ["1.0.0"], "self_field": "raw_object_manifest_id", "releases": ["v0.5.0"], "normative_section": "13.14.1"},
++    {"contract_id": "urn:ax:schema:clone-capture-manifest", "contract_versions": ["1.0.0"], "self_field": "capture_manifest_id", "releases": ["v0.5.0"], "normative_section": "13.14.1"},
++    {"contract_id": "urn:ax:schema:canonical-session", "contract_versions": ["1.0.0"], "self_field": "canonical_session_id", "releases": ["v0.5.0"], "normative_section": "13.14.1"},
++    {"contract_id": "urn:ax:schema:fidelity-report", "contract_versions": ["1.0.0"], "self_field": "fidelity_report_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:projection-plan", "contract_versions": ["1.0.0"], "self_field": "projection_plan_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:clone-projected-object-manifest", "contract_versions": ["1.0.0"], "self_field": "projected_object_manifest_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:clone-read-back-evidence-manifest", "contract_versions": ["1.0.0"], "self_field": "read_back_evidence_manifest_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:clone-validation-report", "contract_versions": ["1.0.0"], "self_field": "validation_report_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:migration-checkpoint", "contract_versions": ["1.0.0"], "self_field": "migration_checkpoint_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:clone-lineage-receipt", "contract_versions": ["1.0.0"], "self_field": "lineage_receipt_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:supported-environment-tuples", "contract_versions": ["1.0.0"], "self_field": "registry_digest", "releases": ["v0.5.0"], "normative_section": "13.14.4"}
++  ],
+   "operation_families": [
+     {
+       "family": "terminal_backend",
+diff --git a/internal/catalog/catalog_gen.go b/internal/catalog/catalog_gen.go
+index fef20f5..e421980 100644
+--- a/internal/catalog/catalog_gen.go
++++ b/internal/catalog/catalog_gen.go
+@@ -1,5 +1,5 @@
+ // Code generated by go generate ./internal/catalog; DO NOT EDIT.
+-// Metadata SHA-256: 40023bc194ab63d9f29f90746c2c71fe1ef561bd1a38f766dd7753c150f21bfd
++// Metadata SHA-256: 93d614b1f68f28fc99be1292f40c6e0464d2da9481985a70095b13c0d6d723e9
+ 
+ package catalog
+ 
+@@ -12,7 +12,7 @@ var generatedDefinition = catalogDefinition{
+ 		DocumentSHA256: "562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a",
+ 		NormativeScope: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "appendix-a", "appendix-b", "appendix-c", "appendix-d"},
+ 	},
+-	MetadataSHA256: "40023bc194ab63d9f29f90746c2c71fe1ef561bd1a38f766dd7753c150f21bfd",
++	MetadataSHA256: "93d614b1f68f28fc99be1292f40c6e0464d2da9481985a70095b13c0d6d723e9",
+ 	Contracts: map[Release][]Contract{
+ 		Release("v0.4.3"): {
+ 			{Name: "Configuration", ID: "urn:ax:schema:config", Versions: []string{"1.0.0", "2.0.0"}},
+@@ -134,6 +134,48 @@ var generatedDefinition = catalogDefinition{
+ 			{Name: "Session Directory Query", ID: "urn:ax:schema:session-directory-query", Versions: []string{"1.0.0"}},
+ 		},
+ 	},
++	SelfIdentities: []scopedSelfIdentityContract{
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-record", ContractVersions: []string{"1.0.0", "2.0.0", "3.0.0"}, SelfField: "record_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:lease", ContractVersions: []string{"1.0.0"}, SelfField: "record_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:workspace-group", ContractVersions: []string{"1.0.0"}, SelfField: "record_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:provider-identity", ContractVersions: []string{"1.0.0"}, SelfField: "record_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-event", ContractVersions: []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0"}, SelfField: "event_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:canonical-event", ContractVersions: []string{"1.0.0"}, SelfField: "event_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.1"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:checkpoint", ContractVersions: []string{"1.0.0"}, SelfField: "checkpoint_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:blob", ContractVersions: []string{"1.0.0"}, SelfField: "descriptor_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "10.3"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:terminal-backend-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "4.B"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:transfer-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-clone-bundle", ContractVersions: []string{"1.0.0"}, SelfField: "manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.3"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:materialization-plan", ContractVersions: []string{"1.0.0", "2.0.0"}, SelfField: "plan_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-continuation-plan", ContractVersions: []string{"1.0.0"}, SelfField: "plan_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:tombstone", ContractVersions: []string{"1.0.0"}, SelfField: "tombstone_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:tombstone-ack", ContractVersions: []string{"1.0.0"}, SelfField: "ack_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:task-board-bundle", ContractVersions: []string{"1.0.0"}, SelfField: "bundle_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:materialization-journal", ContractVersions: []string{"2.0.0"}, SelfField: "marker_id", DiscriminatorName: "document_kind", DiscriminatorValue: "managed_replica_marker", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:environment-observation", ContractVersions: []string{"1.0.0"}, SelfField: "observation_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:native-session-observation", ContractVersions: []string{"1.0.0"}, SelfField: "observation_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-inventory-batch", ContractVersions: []string{"1.0.0"}, SelfField: "batch_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:conversation-lineage-link", ContractVersions: []string{"1.0.0"}, SelfField: "lineage_link_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-annotation", ContractVersions: []string{"1.0.0"}, SelfField: "annotation_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-enrichment-profile", ContractVersions: []string{"1.0.0"}, SelfField: "profile_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-enrichment-job-request", ContractVersions: []string{"1.0.0"}, SelfField: "job_request_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-enrichment-job-receipt", ContractVersions: []string{"1.0.0"}, SelfField: "job_receipt_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-directory-operation-receipt", ContractVersions: []string{"1.0.0"}, SelfField: "directory_receipt_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:terminal-backend-probe", ContractVersions: []string{"1.0.0"}, SelfField: "probe_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "4.B"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:terminal-instance-binding", ContractVersions: []string{"1.0.0"}, SelfField: "binding_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "4.B"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:terminal-capability-evidence", ContractVersions: []string{"1.0.0"}, SelfField: "evidence_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "4.B"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-raw-object-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "raw_object_manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.1"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-capture-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "capture_manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.1"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:canonical-session", ContractVersions: []string{"1.0.0"}, SelfField: "canonical_session_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.1"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:fidelity-report", ContractVersions: []string{"1.0.0"}, SelfField: "fidelity_report_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:projection-plan", ContractVersions: []string{"1.0.0"}, SelfField: "projection_plan_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-projected-object-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "projected_object_manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-read-back-evidence-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "read_back_evidence_manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-validation-report", ContractVersions: []string{"1.0.0"}, SelfField: "validation_report_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:migration-checkpoint", ContractVersions: []string{"1.0.0"}, SelfField: "migration_checkpoint_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-lineage-receipt", ContractVersions: []string{"1.0.0"}, SelfField: "lineage_receipt_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:supported-environment-tuples", ContractVersions: []string{"1.0.0"}, SelfField: "registry_digest", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.4"}, Releases: []Release{Release("v0.5.0")}},
++	},
+ 	Operations: []scopedOperation{
+ 		{Definition: Operation{Family: "terminal_backend", Name: "manifest", ContractID: "urn:ax:protocol:terminal-backend", ContractVersions: []string{"1.0.0"}, Effect: EffectNoDurableMutation, IdempotencyKey: "", RecoveryEvidence: nil, NormativeSection: "4.B-4.C", FixtureFamilies: []string{"Appendix D: Terminal Backend protocol"}}, Releases: []Release{Release("v0.5.0")}},
+ 		{Definition: Operation{Family: "terminal_backend", Name: "probe", ContractID: "urn:ax:protocol:terminal-backend", ContractVersions: []string{"1.0.0"}, Effect: EffectNoDurableMutation, IdempotencyKey: "", RecoveryEvidence: nil, NormativeSection: "4.B-4.C", FixtureFamilies: []string{"Appendix D: Terminal Backend protocol"}}, Releases: []Release{Release("v0.5.0")}},
+diff --git a/internal/catalog/catalog_test.go b/internal/catalog/catalog_test.go
+index ff96320..120923c 100644
+--- a/internal/catalog/catalog_test.go
++++ b/internal/catalog/catalog_test.go
+@@ -56,6 +56,56 @@ func TestCurrentMatchesReviewedV050Catalog(t *testing.T) {
+ 	if len(got.Errors) != 109 {
+ 		t.Errorf("errors = %d, want 109", len(got.Errors))
+ 	}
++	if len(got.SelfIdentities) != 40 {
++		t.Errorf("self identity contracts = %d, want 40", len(got.SelfIdentities))
++	}
++	identityRows := 0
++	for _, identity := range got.SelfIdentities {
++		identityRows += len(identity.ContractVersions)
++	}
++	if identityRows != 46 {
++		t.Errorf("self identity schema/version rows = %d, want 46", identityRows)
++	}
++	var foundManagedReplicaMarker bool
++	for _, identity := range got.SelfIdentities {
++		if identity.ContractID == "urn:ax:schema:materialization-journal" {
++			foundManagedReplicaMarker = reflect.DeepEqual(identity.ContractVersions, []string{"2.0.0"}) &&
++				identity.SelfField == "marker_id" &&
++				identity.DiscriminatorName == "document_kind" &&
++				identity.DiscriminatorValue == "managed_replica_marker"
++		}
++	}
++	if !foundManagedReplicaMarker {
++		t.Error("v0.5.0 catalog lost the materialization-journal 2.0.0 managed-replica marker identity while merging duplicate contract IDs")
++	}
++
++	wantAdditionalIdentities := map[catalog.ContractID]string{
++		"urn:ax:schema:terminal-backend-probe":            "probe_id",
++		"urn:ax:schema:terminal-instance-binding":         "binding_id",
++		"urn:ax:schema:terminal-capability-evidence":      "evidence_id",
++		"urn:ax:schema:clone-raw-object-manifest":         "raw_object_manifest_id",
++		"urn:ax:schema:clone-capture-manifest":            "capture_manifest_id",
++		"urn:ax:schema:canonical-session":                 "canonical_session_id",
++		"urn:ax:schema:fidelity-report":                   "fidelity_report_id",
++		"urn:ax:schema:projection-plan":                   "projection_plan_id",
++		"urn:ax:schema:clone-projected-object-manifest":   "projected_object_manifest_id",
++		"urn:ax:schema:clone-read-back-evidence-manifest": "read_back_evidence_manifest_id",
++		"urn:ax:schema:clone-validation-report":           "validation_report_id",
++		"urn:ax:schema:migration-checkpoint":              "migration_checkpoint_id",
++		"urn:ax:schema:clone-lineage-receipt":             "lineage_receipt_id",
++		"urn:ax:schema:supported-environment-tuples":      "registry_digest",
++	}
++	for _, identity := range got.SelfIdentities {
++		if want, ok := wantAdditionalIdentities[identity.ContractID]; ok {
++			if identity.SelfField != want || !reflect.DeepEqual(identity.ContractVersions, []string{"1.0.0"}) {
++				t.Errorf("self identity %s = (%q, %v), want (%q, [1.0.0])", identity.ContractID, identity.SelfField, identity.ContractVersions, want)
++			}
++			delete(wantAdditionalIdentities, identity.ContractID)
++		}
++	}
++	if len(wantAdditionalIdentities) != 0 {
++		t.Errorf("generated self identity catalog omitted reviewed contracts: %v", wantAdditionalIdentities)
++	}
+ 
+ 	assertFamilyNames(t, operationNames(got), map[string][]string{
+ 		"terminal_backend": {
+@@ -621,13 +671,16 @@ func TestCurrentIsIdempotentAndReturnsIsolatedData(t *testing.T) {
+ 	}
+ 
+ 	first.Contracts[0].Versions[0] = "9.9.9"
++	first.SelfIdentities[0].ContractVersions[0] = "9.9.9"
+ 	first.Operations[0].RecoveryEvidence = append(first.Operations[0].RecoveryEvidence, "forged")
+ 	first.Events[0].ContractVersions[0] = "9.9.9"
+ 	third := catalog.Current()
+ 	if reflect.DeepEqual(first, third) {
+ 		t.Fatal("caller mutation leaked into the generated catalog")
+ 	}
+-	if third.Contracts[0].Versions[0] == "9.9.9" || third.Events[0].ContractVersions[0] == "9.9.9" {
++	if third.Contracts[0].Versions[0] == "9.9.9" ||
++		third.SelfIdentities[0].ContractVersions[0] == "9.9.9" ||
++		third.Events[0].ContractVersions[0] == "9.9.9" {
+ 		t.Fatal("nested caller mutation leaked into the generated catalog")
+ 	}
+ }
+diff --git a/internal/catalog/cmd/cataloggen/main.go b/internal/catalog/cmd/cataloggen/main.go
+index dce939a..cb4f2c7 100644
+--- a/internal/catalog/cmd/cataloggen/main.go
++++ b/internal/catalog/cmd/cataloggen/main.go
+@@ -24,6 +24,7 @@ func run(arguments []string) error {
+ 	metadataPath := flags.String("metadata", "", "reviewed catalog metadata JSON")
+ 	contractsPath := flags.String("contracts", "", "verified normative contract lock")
+ 	outputPath := flags.String("output", "", "generated Go output")
++	check := flags.Bool("check", false, "verify generated Go output without rewriting it")
+ 	if err := flags.Parse(arguments); err != nil {
+ 		return err
+ 	}
+@@ -43,12 +44,29 @@ func run(arguments []string) error {
+ 	if err != nil {
+ 		return fmt.Errorf("generate catalog: %w", err)
+ 	}
++	if *check {
++		if err := checkUnchanged(*outputPath, generated); err != nil {
++			return fmt.Errorf("check catalog: %w", err)
++		}
++		return nil
++	}
+ 	if err := writeIfChanged(*outputPath, generated); err != nil {
+ 		return fmt.Errorf("write catalog: %w", err)
+ 	}
+ 	return nil
+ }
+ 
++func checkUnchanged(path string, content []byte) error {
++	existing, err := os.ReadFile(path)
++	if err != nil {
++		return err
++	}
++	if !bytes.Equal(existing, content) {
++		return fmt.Errorf("generated catalog is stale; run go generate ./internal/catalog")
++	}
++	return nil
++}
++
+ func writeIfChanged(path string, content []byte) error {
+ 	existing, err := os.ReadFile(path)
+ 	if err == nil && bytes.Equal(existing, content) {
+diff --git a/internal/catalog/cmd/cataloggen/main_test.go b/internal/catalog/cmd/cataloggen/main_test.go
+index 626882a..a26f44b 100644
+--- a/internal/catalog/cmd/cataloggen/main_test.go
++++ b/internal/catalog/cmd/cataloggen/main_test.go
+@@ -32,6 +32,9 @@ func TestRunGeneratesCommittedCatalogAndSupportsIdenticalRetry(t *testing.T) {
+ 	if !bytes.Equal(got, want) {
+ 		t.Fatal("run output differs from committed generated catalog")
+ 	}
++	if err := run(append(append([]string(nil), arguments...), "-check")); err != nil {
++		t.Fatalf("check run() error = %v", err)
++	}
+ 
+ 	stableTime := time.Unix(1_700_000_000, 0)
+ 	if err := os.Chtimes(output, stableTime, stableTime); err != nil {
+@@ -49,6 +52,33 @@ func TestRunGeneratesCommittedCatalogAndSupportsIdenticalRetry(t *testing.T) {
+ 	}
+ }
+ 
++func TestRunCheckRefusesStaleOutputWithoutRewritingIt(t *testing.T) {
++	t.Parallel()
++
++	output := filepath.Join(t.TempDir(), "catalog_gen.go")
++	stale := []byte("package catalog\n\n// stale\n")
++	if err := os.WriteFile(output, stale, 0o600); err != nil {
++		t.Fatalf("write stale output: %v", err)
++	}
++	arguments := []string{
++		"-metadata", filepath.Join("..", "..", "catalog.v0.5.0.json"),
++		"-contracts", filepath.Join("..", "..", "..", "specpin", "v0.5.0.lock.json"),
++		"-output", output,
++		"-check",
++	}
++	err := run(arguments)
++	if err == nil || !strings.Contains(err.Error(), "generated catalog is stale") {
++		t.Fatalf("check run() error = %v, want stale-output refusal", err)
++	}
++	got, readErr := os.ReadFile(output)
++	if readErr != nil {
++		t.Fatalf("read stale output after refusal: %v", readErr)
++	}
++	if !bytes.Equal(got, stale) {
++		t.Fatal("check run rewrote stale output")
++	}
++}
++
+ func TestRunRefusesInvalidArgumentsInputsAndOutput(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/internal/cataloggen/generate.go b/internal/cataloggen/generate.go
+index aa1910e..9770410 100644
+--- a/internal/cataloggen/generate.go
++++ b/internal/cataloggen/generate.go
+@@ -21,20 +21,31 @@ import (
+ const (
+ 	metadataFormat                  = "ax-implementation-catalog"
+ 	metadataFormatVersion           = 1
+-	reviewedMetadataCanonicalSHA256 = "4ddf049a7bc1abf29030283eaf7ad397555a4be2b4b4fce34d458a3ca2b089e8"
++	reviewedMetadataCanonicalSHA256 = "7bbc5172fbd77216ef4888126787a91a2aabea63b8aa308a9a8ac2ccbc1e5bab"
+ )
+ 
+ var ErrInvalidMetadata = errors.New("invalid implementation catalog metadata")
+ 
+ type metadata struct {
+-	Format             string             `json:"format"`
+-	FormatVersion      int                `json:"format_version"`
+-	Source             sourceMetadata     `json:"source"`
+-	NormativeScope     []string           `json:"normative_scope"`
+-	OperationFamilies  []operationFamily  `json:"operation_families"`
+-	CapabilityFamilies []capabilityFamily `json:"capability_families"`
+-	EventFamilies      []eventFamily      `json:"event_families"`
+-	ErrorCatalog       errorCatalog       `json:"error_catalog"`
++	Format             string                 `json:"format"`
++	FormatVersion      int                    `json:"format_version"`
++	Source             sourceMetadata         `json:"source"`
++	NormativeScope     []string               `json:"normative_scope"`
++	SelfIdentities     []selfIdentityContract `json:"self_identity_contracts"`
++	OperationFamilies  []operationFamily      `json:"operation_families"`
++	CapabilityFamilies []capabilityFamily     `json:"capability_families"`
++	EventFamilies      []eventFamily          `json:"event_families"`
++	ErrorCatalog       errorCatalog           `json:"error_catalog"`
++}
++
++type selfIdentityContract struct {
++	ContractID         string   `json:"contract_id"`
++	ContractVersions   []string `json:"contract_versions"`
++	SelfField          string   `json:"self_field"`
++	Releases           []string `json:"releases"`
++	DiscriminatorName  string   `json:"discriminator_name,omitempty"`
++	DiscriminatorValue string   `json:"discriminator_value,omitempty"`
++	NormativeSection   string   `json:"normative_section"`
+ }
+ 
+ type sourceMetadata struct {
+@@ -184,6 +195,7 @@ func Generate(metadataBytes, contractLock []byte) ([]byte, error) {
+ 	writeSource(&output, decoded)
+ 	fmt.Fprintf(&output, "\tMetadataSHA256: %q,\n", hex.EncodeToString(digest[:]))
+ 	writeContracts(&output, manifest)
++	writeSelfIdentities(&output, decoded.SelfIdentities)
+ 	writeOperations(&output, operations)
+ 	writeCapabilities(&output, capabilities)
+ 	writeEvents(&output, events)
+@@ -247,6 +259,35 @@ func validateMetadata(value metadata, manifest specpin.Manifest) error {
+ 	if err != nil {
+ 		return invalid("build release contract projections: %v", err)
+ 	}
++	if len(value.SelfIdentities) == 0 {
++		return invalid("self-identity contract catalog must be present")
++	}
++	seenSelfIdentities := make(map[string]struct{})
++	for index, identity := range value.SelfIdentities {
++		if err := validateContractBinding(identity.ContractID, identity.ContractVersions, contracts); err != nil {
++			return invalid("self-identity contract %d: %v", index, err)
++		}
++		if err := validateReleases(identity.Releases); err != nil {
++			return invalid("self-identity contract %d: %v", index, err)
++		}
++		if err := validateReleaseBinding(identity.ContractID, identity.ContractVersions, identity.Releases, releaseContracts); err != nil {
++			return invalid("self-identity contract %d: %v", index, err)
++		}
++		if !capabilityPattern.MatchString(identity.SelfField) || identity.NormativeSection == "" {
++			return invalid("self-identity contract %d has invalid self field or normative section", index)
++		}
++		if (identity.DiscriminatorName == "") != (identity.DiscriminatorValue == "") ||
++			(identity.DiscriminatorName != "" && !capabilityPattern.MatchString(identity.DiscriminatorName)) {
++			return invalid("self-identity contract %d has incomplete or invalid discriminator", index)
++		}
++		for _, version := range identity.ContractVersions {
++			key := identity.ContractID + "\x00" + version
++			if _, duplicate := seenSelfIdentities[key]; duplicate {
++				return invalid("self-identity catalog repeats contract %q version %q", identity.ContractID, version)
++			}
++			seenSelfIdentities[key] = struct{}{}
++		}
++	}
+ 
+ 	seenFamilies := make(map[string]struct{})
+ 	for index, family := range value.OperationFamilies {
+@@ -633,6 +674,17 @@ func writeContracts(output *bytes.Buffer, manifest specpin.Manifest) {
+ 	output.WriteString("\t},\n")
+ }
+ 
++func writeSelfIdentities(output *bytes.Buffer, values []selfIdentityContract) {
++	output.WriteString("\tSelfIdentities: []scopedSelfIdentityContract{\n")
++	for _, value := range values {
++		fmt.Fprintf(output, "\t\t{Definition: SelfIdentityContract{ContractID: %q, ContractVersions: %s, SelfField: %q, DiscriminatorName: %q, DiscriminatorValue: %q, NormativeSection: %q}, Releases: %s},\n",
++			value.ContractID, stringSliceLiteral(value.ContractVersions), value.SelfField,
++			value.DiscriminatorName, value.DiscriminatorValue, value.NormativeSection,
++			releaseSliceLiteral(value.Releases))
++	}
++	output.WriteString("\t},\n")
++}
++
+ func writeOperations(output *bytes.Buffer, values []expandedOperation) {
+ 	output.WriteString("\tOperations: []scopedOperation{\n")
+ 	for _, value := range values {
+diff --git a/internal/cataloggen/generate_test.go b/internal/cataloggen/generate_test.go
+index ca795ca..7c1790e 100644
+--- a/internal/cataloggen/generate_test.go
++++ b/internal/cataloggen/generate_test.go
+@@ -124,6 +124,57 @@ func TestGenerateRejectsDuplicateAndUnboundOperations(t *testing.T) {
+ 	}
+ }
+ 
++func TestGenerateRejectsInvalidOrNarrowedSelfIdentityContracts(t *testing.T) {
++	t.Parallel()
++
++	metadata, lock := sourceInputs(t)
++	tests := []struct {
++		name   string
++		mutate func(map[string]any)
++	}{
++		{
++			name: "deleted reviewed contract",
++			mutate: func(document map[string]any) {
++				identities := document["self_identity_contracts"].([]any)
++				document["self_identity_contracts"] = identities[1:]
++			},
++		},
++		{
++			name: "unknown contract",
++			mutate: func(document map[string]any) {
++				document["self_identity_contracts"].([]any)[0].(map[string]any)["contract_id"] = "urn:ax:schema:forged"
++			},
++		},
++		{
++			name: "unsupported version",
++			mutate: func(document map[string]any) {
++				document["self_identity_contracts"].([]any)[0].(map[string]any)["contract_versions"] = []any{"9.9.9"}
++			},
++		},
++		{
++			name: "invalid self field",
++			mutate: func(document map[string]any) {
++				document["self_identity_contracts"].([]any)[0].(map[string]any)["self_field"] = "RecordID"
++			},
++		},
++		{
++			name: "incomplete discriminator",
++			mutate: func(document map[string]any) {
++				document["self_identity_contracts"].([]any)[0].(map[string]any)["discriminator_name"] = "document_kind"
++			},
++		},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			candidate := mutateMetadata(t, metadata, test.mutate)
++			if _, err := cataloggen.Generate(candidate, lock); !errors.Is(err, cataloggen.ErrInvalidMetadata) {
++				t.Fatalf("Generate() error = %v, want ErrInvalidMetadata", err)
++			}
++		})
++	}
++}
++
+ func TestGenerateRejectsNonEmptyNarrowedDurableMutationEvidence(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/internal/scalar/fuzz_test.go b/internal/scalar/fuzz_test.go
+new file mode 100644
+index 0000000..4726156
+--- /dev/null
++++ b/internal/scalar/fuzz_test.go
+@@ -0,0 +1,179 @@
++package scalar
++
++import (
++	"encoding/json"
++	"testing"
++)
++
++// FuzzScalarProductionEntries drives the public scalar constructors and their
++// wire decoders. Every accepted value must survive the corresponding publish
++// and read boundary without being widened, normalized, or later refused.
++func FuzzScalarProductionEntries(f *testing.F) {
++	seeds := []struct {
++		kind  string
++		value []byte
++	}{
++		{"timestamp", []byte("1990-12-31T23:59:60.000Z")},
++		{"timestamp", []byte("2026-08-31t14:05:06.123z")},
++		{"timestamp", []byte("2023-02-29T12:00:00.000Z")},
++		{"uuidv7", []byte("0198f4c8-8e50-7f66-8f70-1234567890ab")},
++		{"uuidv4", []byte("550e8400-e29b-41d4-a716-446655440000")},
++		{"platform", []byte("windows")},
++		{"provider", []byte("codex")},
++		{"relative-path", []byte("workspace/данные/😀.json")},
++		{"windows-path", []byte(`C:\Developer\ReluxWorks`)},
++		{"windows-path", []byte(`C:\unsafe\CON.txt`)},
++		{"windows-path", []byte(`C:\unsafe\*.json`)},
++		{"digest", []byte("sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")},
++		{"safe-integer-json", []byte("9007199254740991")},
++		{"uint53-json", []byte("9007199254740992")},
++		{"bounded-integer-json", []byte("10")},
++		{"decimal-uint64", []byte("18446744073709551615")},
++		{"closed-enum", []byte("workspace_tree")},
++	}
++	for _, seed := range seeds {
++		f.Add(seed.kind, seed.value)
++	}
++
++	f.Fuzz(func(t *testing.T, kind string, data []byte) {
++		if len(data) > 64*1024 {
++			return
++		}
++		text := string(data)
++
++		switch kind {
++		case "timestamp":
++			value, err := ParseTimestamp(text)
++			if err != nil {
++				return
++			}
++			if _, err := value.Time(); err != nil {
++				t.Fatalf("ParseTimestamp accepted %q but Timestamp.Time refused it: %v", text, err)
++			}
++			assertScalarJSONRoundTrip(t, value, &Timestamp{}, text)
++		case "uuidv7":
++			value, err := ParseUUIDv7(text)
++			if err != nil {
++				return
++			}
++			assertScalarJSONRoundTrip(t, value, &UUIDv7{}, text)
++		case "uuidv4":
++			value, err := ParseUUIDv4(text)
++			if err != nil {
++				return
++			}
++			assertScalarJSONRoundTrip(t, value, &UUIDv4{}, text)
++		case "platform":
++			value, err := ParsePlatform(text)
++			if err != nil {
++				return
++			}
++			assertScalarJSONRoundTrip(t, value, new(Platform), text)
++		case "provider":
++			value, err := ParseProviderID(text)
++			if err != nil {
++				return
++			}
++			assertScalarJSONRoundTrip(t, value, &ProviderID{}, text)
++		case "relative-path":
++			value, err := ParseRelativePath(text)
++			if err != nil {
++				return
++			}
++			assertScalarJSONRoundTrip(t, value, &RelativePath{}, text)
++		case "windows-path":
++			value, err := ParseAbsolutePath(PlatformWindows, text)
++			if err != nil {
++				return
++			}
++			encoded, err := json.Marshal(value)
++			if err != nil {
++				t.Fatalf("ParseAbsolutePath accepted %q but MarshalJSON refused it: %v", text, err)
++			}
++			decoded, err := DecodeAbsolutePathJSON(PlatformWindows, encoded)
++			if err != nil || decoded.String() != text || decoded.Platform() != PlatformWindows {
++				t.Fatalf("Windows absolute path round trip = %#v, %v; want %q", decoded, err, text)
++			}
++		case "digest":
++			value, err := ParseDigest(text)
++			if err != nil {
++				return
++			}
++			assertScalarJSONRoundTrip(t, value, &Digest{}, text)
++		case "safe-integer-json":
++			var value SafeInteger
++			if err := json.Unmarshal(data, &value); err != nil {
++				return
++			}
++			encoded, err := json.Marshal(value)
++			if err != nil {
++				t.Fatalf("SafeInteger accepted %q but refused publication: %v", text, err)
++			}
++			var decoded SafeInteger
++			if err := json.Unmarshal(encoded, &decoded); err != nil || decoded.Int64() != value.Int64() {
++				t.Fatalf("SafeInteger round trip = %d, %v; want %d", decoded.Int64(), err, value.Int64())
++			}
++		case "uint53-json":
++			var value Uint53
++			if err := json.Unmarshal(data, &value); err != nil {
++				return
++			}
++			encoded, err := json.Marshal(value)
++			if err != nil {
++				t.Fatalf("Uint53 accepted %q but refused publication: %v", text, err)
++			}
++			var decoded Uint53
++			if err := json.Unmarshal(encoded, &decoded); err != nil || decoded.Uint64() != value.Uint64() {
++				t.Fatalf("Uint53 round trip = %d, %v; want %d", decoded.Uint64(), err, value.Uint64())
++			}
++		case "bounded-integer-json":
++			value, err := DecodeBoundedIntegerJSON(data, -10, 10)
++			if err != nil {
++				return
++			}
++			encoded, err := json.Marshal(value)
++			if err != nil {
++				t.Fatalf("BoundedInteger accepted %q but refused publication: %v", text, err)
++			}
++			decoded, err := DecodeBoundedIntegerJSON(encoded, -10, 10)
++			if err != nil || decoded.Int64() != value.Int64() || decoded.Min() != -10 || decoded.Max() != 10 {
++				t.Fatalf("BoundedInteger round trip = %#v, %v; want %#v", decoded, err, value)
++			}
++		case "decimal-uint64":
++			value, err := ParseDecimalUint64(text)
++			if err != nil {
++				return
++			}
++			assertScalarJSONRoundTrip(t, value, &DecimalUint64{}, text)
++		case "closed-enum":
++			allowed := []string{"workspace_group", "workspace_tree", "provider", "task_board", "composite"}
++			value, err := ParseClosedEnum(text, allowed...)
++			if err != nil {
++				return
++			}
++			encoded, err := json.Marshal(value)
++			if err != nil {
++				t.Fatalf("ParseClosedEnum accepted %q but MarshalJSON refused it: %v", text, err)
++			}
++			decoded, err := DecodeClosedEnumJSON(encoded, allowed...)
++			if err != nil || decoded.String() != text {
++				t.Fatalf("closed enum round trip = %q, %v; want %q", decoded, err, text)
++			}
++		}
++	})
++}
++
++func assertScalarJSONRoundTrip(t *testing.T, value any, target any, want string) {
++	t.Helper()
++	encoded, err := json.Marshal(value)
++	if err != nil {
++		t.Fatalf("accepted scalar %q refused publication: %v", want, err)
++	}
++	if err := json.Unmarshal(encoded, target); err != nil {
++		t.Fatalf("published scalar %q refused read-back from %s: %v", want, encoded, err)
++	}
++	got, ok := target.(interface{ String() string })
++	if !ok || got.String() != want {
++		t.Fatalf("scalar read-back = %v, want byte-identical %q", target, want)
++	}
++}
+diff --git a/internal/scalar/integer.go b/internal/scalar/integer.go
+new file mode 100644
+index 0000000..a5f2231
+--- /dev/null
++++ b/internal/scalar/integer.go
+@@ -0,0 +1,173 @@
++package scalar
++
++import (
++	"encoding/json"
++	"regexp"
++	"strconv"
++	"strings"
++)
++
++const (
++	MaxSafeInteger int64  = 9_007_199_254_740_991
++	MaxUint53      uint64 = 9_007_199_254_740_991
++)
++
++var (
++	jsonIntegerPattern   = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
++	jsonUnsignedPattern  = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
++	decimalUint64Pattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,19})$`)
++)
++
++type SafeInteger struct{ value int64 }
++
++func NewSafeInteger(value int64) (SafeInteger, error) {
++	if value < -MaxSafeInteger || value > MaxSafeInteger {
++		return SafeInteger{}, invalid("safe integer", "must lie in [-9007199254740991, 9007199254740991]")
++	}
++	return SafeInteger{value: value}, nil
++}
++
++func (value SafeInteger) Int64() int64 { return value.value }
++
++func (value SafeInteger) MarshalJSON() ([]byte, error) {
++	if _, err := NewSafeInteger(value.value); err != nil {
++		return nil, err
++	}
++	return []byte(strconv.FormatInt(value.value, 10)), nil
++}
++
++func (value *SafeInteger) UnmarshalJSON(data []byte) error {
++	candidate := strings.TrimSpace(string(data))
++	if !jsonIntegerPattern.MatchString(candidate) {
++		return invalid("safe integer", "must be an integral JSON number")
++	}
++	parsed, err := strconv.ParseInt(candidate, 10, 64)
++	if err != nil {
++		return invalid("safe integer", "must fit the interoperable safe interval")
++	}
++	validated, err := NewSafeInteger(parsed)
++	if err != nil {
++		return err
++	}
++	*value = validated
++	return nil
++}
++
++type Uint53 struct{ value uint64 }
++
++func NewUint53(value uint64) (Uint53, error) {
++	if value > MaxUint53 {
++		return Uint53{}, invalid("uint53", "must lie in [0, 9007199254740991]")
++	}
++	return Uint53{value: value}, nil
++}
++
++func (value Uint53) Uint64() uint64 { return value.value }
++
++func (value Uint53) MarshalJSON() ([]byte, error) {
++	if _, err := NewUint53(value.value); err != nil {
++		return nil, err
++	}
++	return []byte(strconv.FormatUint(value.value, 10)), nil
++}
++
++func (value *Uint53) UnmarshalJSON(data []byte) error {
++	candidate := strings.TrimSpace(string(data))
++	if !jsonUnsignedPattern.MatchString(candidate) {
++		return invalid("uint53", "must be an unsigned integral JSON number")
++	}
++	parsed, err := strconv.ParseUint(candidate, 10, 64)
++	if err != nil {
++		return invalid("uint53", "must fit the interoperable unsigned interval")
++	}
++	validated, err := NewUint53(parsed)
++	if err != nil {
++		return err
++	}
++	*value = validated
++	return nil
++}
++
++type BoundedInteger struct {
++	value       int64
++	min         int64
++	max         int64
++	initialized bool
++}
++
++func NewBoundedInteger(value, min, max int64) (BoundedInteger, error) {
++	if min < -MaxSafeInteger || max > MaxSafeInteger || min > max {
++		return BoundedInteger{}, invalid("bounded integer", "bounds must form a safe-integer interval")
++	}
++	if value < min || value > max {
++		return BoundedInteger{}, invalid("bounded integer", "value lies outside the schema interval")
++	}
++	return BoundedInteger{value: value, min: min, max: max, initialized: true}, nil
++}
++
++func DecodeBoundedIntegerJSON(data []byte, min, max int64) (BoundedInteger, error) {
++	var value SafeInteger
++	if err := json.Unmarshal(data, &value); err != nil {
++		return BoundedInteger{}, err
++	}
++	return NewBoundedInteger(value.Int64(), min, max)
++}
++
++func (value BoundedInteger) Int64() int64 { return value.value }
++func (value BoundedInteger) Min() int64   { return value.min }
++func (value BoundedInteger) Max() int64   { return value.max }
++
++func (value BoundedInteger) MarshalJSON() ([]byte, error) {
++	if !value.initialized {
++		return nil, invalid("bounded integer", "requires an explicit schema interval")
++	}
++	if _, err := NewBoundedInteger(value.value, value.min, value.max); err != nil {
++		return nil, err
++	}
++	return []byte(strconv.FormatInt(value.value, 10)), nil
++}
++
++type DecimalUint64 struct{ value uint64 }
++
++func NewDecimalUint64(value uint64) DecimalUint64 {
++	return DecimalUint64{value: value}
++}
++
++func ParseDecimalUint64(value string) (DecimalUint64, error) {
++	if !decimalUint64Pattern.MatchString(value) {
++		return DecimalUint64{}, invalid("decimal_uint64", "must use canonical unsigned decimal string syntax")
++	}
++	parsed, err := strconv.ParseUint(value, 10, 64)
++	if err != nil {
++		return DecimalUint64{}, invalid("decimal_uint64", "must not exceed 18446744073709551615")
++	}
++	return DecimalUint64{value: parsed}, nil
++}
++
++func (value DecimalUint64) Uint64() uint64 { return value.value }
++func (value DecimalUint64) String() string { return strconv.FormatUint(value.value, 10) }
++
++func (value DecimalUint64) MarshalJSON() ([]byte, error) {
++	return json.Marshal(value.String())
++}
++
++func (value *DecimalUint64) UnmarshalJSON(data []byte) error {
++	candidate, err := decodeJSONString(data, "decimal_uint64")
++	if err != nil {
++		return err
++	}
++	parsed, err := ParseDecimalUint64(candidate)
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++var _ json.Marshaler = SafeInteger{}
++var _ json.Unmarshaler = (*SafeInteger)(nil)
++var _ json.Marshaler = Uint53{}
++var _ json.Unmarshaler = (*Uint53)(nil)
++var _ json.Marshaler = BoundedInteger{}
++var _ json.Marshaler = DecimalUint64{}
++var _ json.Unmarshaler = (*DecimalUint64)(nil)
+diff --git a/internal/scalar/names.go b/internal/scalar/names.go
+new file mode 100644
+index 0000000..d6455de
+--- /dev/null
++++ b/internal/scalar/names.go
+@@ -0,0 +1,158 @@
++package scalar
++
++import (
++	"encoding/json"
++	"regexp"
++)
++
++type Platform string
++
++const (
++	PlatformMacOS   Platform = "macos"
++	PlatformLinux   Platform = "linux"
++	PlatformWSL2    Platform = "wsl2"
++	PlatformWindows Platform = "windows"
++)
++
++func ParsePlatform(value string) (Platform, error) {
++	platform := Platform(value)
++	switch platform {
++	case PlatformMacOS, PlatformLinux, PlatformWSL2, PlatformWindows:
++		return platform, nil
++	default:
++		return "", invalid("platform", "is not a member of the negotiated AX vocabulary")
++	}
++}
++
++func (value Platform) String() string { return string(value) }
++
++func (value Platform) MarshalText() ([]byte, error) {
++	return marshalValidatedText(string(value), func(candidate string) error {
++		_, err := ParsePlatform(candidate)
++		return err
++	})
++}
++
++func (value *Platform) UnmarshalText(data []byte) error {
++	parsed, err := ParsePlatform(string(data))
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++func (value Platform) MarshalJSON() ([]byte, error) {
++	return marshalValidatedString(string(value), "platform", func(candidate string) error {
++		_, err := ParsePlatform(candidate)
++		return err
++	})
++}
++
++func (value *Platform) UnmarshalJSON(data []byte) error {
++	candidate, err := decodeJSONString(data, "platform")
++	if err != nil {
++		return err
++	}
++	parsed, err := ParsePlatform(candidate)
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++var providerIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
++var enumMemberPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
++
++type ProviderID struct{ value string }
++
++func ParseProviderID(value string) (ProviderID, error) {
++	if !providerIDPattern.MatchString(value) {
++		return ProviderID{}, invalid("provider-id", "must match [a-z][a-z0-9-]{0,31}")
++	}
++	return ProviderID{value: value}, nil
++}
++
++func (value ProviderID) String() string { return value.value }
++
++func (value ProviderID) MarshalText() ([]byte, error) {
++	return marshalValidatedText(value.value, func(candidate string) error {
++		_, err := ParseProviderID(candidate)
++		return err
++	})
++}
++
++func (value *ProviderID) UnmarshalText(data []byte) error {
++	parsed, err := ParseProviderID(string(data))
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++func (value ProviderID) MarshalJSON() ([]byte, error) {
++	return marshalValidatedString(value.value, "provider-id", func(candidate string) error {
++		_, err := ParseProviderID(candidate)
++		return err
++	})
++}
++
++func (value *ProviderID) UnmarshalJSON(data []byte) error {
++	candidate, err := decodeJSONString(data, "provider-id")
++	if err != nil {
++		return err
++	}
++	parsed, err := ParseProviderID(candidate)
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++type ClosedEnum struct{ value string }
++
++func ParseClosedEnum(value string, allowed ...string) (ClosedEnum, error) {
++	seen := make(map[string]struct{}, len(allowed))
++	for _, candidate := range allowed {
++		if !enumMemberPattern.MatchString(candidate) {
++			return ClosedEnum{}, invalid("closed-enum vocabulary", "members must use lower snake case")
++		}
++		if _, duplicate := seen[candidate]; duplicate {
++			return ClosedEnum{}, invalid("closed-enum vocabulary", "must not contain duplicate members")
++		}
++		seen[candidate] = struct{}{}
++	}
++	if len(seen) == 0 {
++		return ClosedEnum{}, invalid("closed-enum vocabulary", "must contain at least one member")
++	}
++	if _, ok := seen[value]; !ok {
++		return ClosedEnum{}, invalid("closed-enum", "is not a member of the negotiated vocabulary")
++	}
++	return ClosedEnum{value: value}, nil
++}
++
++func DecodeClosedEnumJSON(data []byte, allowed ...string) (ClosedEnum, error) {
++	value, err := decodeJSONString(data, "closed-enum")
++	if err != nil {
++		return ClosedEnum{}, err
++	}
++	return ParseClosedEnum(value, allowed...)
++}
++
++func (value ClosedEnum) String() string { return value.value }
++
++func (value ClosedEnum) MarshalJSON() ([]byte, error) {
++	if value.value == "" {
++		return nil, invalid("closed-enum", "must be created from a non-empty negotiated vocabulary")
++	}
++	return json.Marshal(value.value)
++}
++
++var _ json.Marshaler = Platform("")
++var _ json.Unmarshaler = (*Platform)(nil)
++var _ json.Marshaler = ProviderID{}
++var _ json.Unmarshaler = (*ProviderID)(nil)
++var _ json.Marshaler = ClosedEnum{}
+diff --git a/internal/scalar/path.go b/internal/scalar/path.go
+new file mode 100644
+index 0000000..dc6041b
+--- /dev/null
++++ b/internal/scalar/path.go
+@@ -0,0 +1,205 @@
++package scalar
++
++import (
++	"encoding/json"
++	"path"
++	"strings"
++	"unicode/utf8"
++)
++
++type RelativePath struct{ value string }
++
++func ParseRelativePath(value string) (RelativePath, error) {
++	if value == "" || !utf8.ValidString(value) {
++		return RelativePath{}, invalid("path", "must be non-empty valid UTF-8")
++	}
++	if strings.HasPrefix(value, "/") || hasDrivePrefix(value) {
++		return RelativePath{}, invalid("path", "must be platform-neutral and relative")
++	}
++	if strings.ContainsRune(value, 0) || strings.Contains(value, `\`) {
++		return RelativePath{}, invalid("path", "must use forward slashes and contain no NUL")
++	}
++	if containsEncodedSeparator(value) {
++		return RelativePath{}, invalid("path", "must not contain an encoded separator")
++	}
++	segments := strings.Split(value, "/")
++	for _, segment := range segments {
++		if segment == "" || segment == "." || segment == ".." {
++			return RelativePath{}, invalid("path", "must not contain empty, dot, or parent segments")
++		}
++	}
++	return RelativePath{value: value}, nil
++}
++
++func containsEncodedSeparator(value string) bool {
++	candidate := strings.ToLower(value)
++	for {
++		if strings.Contains(candidate, "%2f") || strings.Contains(candidate, "%5c") {
++			return true
++		}
++		next := strings.ReplaceAll(candidate, "%25", "%")
++		if next == candidate {
++			return false
++		}
++		candidate = next
++	}
++}
++
++func hasDrivePrefix(value string) bool {
++	return len(value) >= 2 && ((value[0] >= 'a' && value[0] <= 'z') || (value[0] >= 'A' && value[0] <= 'Z')) && value[1] == ':'
++}
++
++func (value RelativePath) String() string { return value.value }
++
++func (value RelativePath) MarshalText() ([]byte, error) {
++	return marshalValidatedText(value.value, func(candidate string) error {
++		_, err := ParseRelativePath(candidate)
++		return err
++	})
++}
++
++func (value *RelativePath) UnmarshalText(data []byte) error {
++	parsed, err := ParseRelativePath(string(data))
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++func (value RelativePath) MarshalJSON() ([]byte, error) {
++	return marshalValidatedString(value.value, "path", func(candidate string) error {
++		_, err := ParseRelativePath(candidate)
++		return err
++	})
++}
++
++func (value *RelativePath) UnmarshalJSON(data []byte) error {
++	candidate, err := decodeJSONString(data, "path")
++	if err != nil {
++		return err
++	}
++	parsed, err := ParseRelativePath(candidate)
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++type AbsolutePath struct {
++	platform Platform
++	value    string
++}
++
++func ParseAbsolutePath(platform Platform, value string) (AbsolutePath, error) {
++	if _, err := ParsePlatform(platform.String()); err != nil {
++		return AbsolutePath{}, err
++	}
++	if value == "" || !utf8.ValidString(value) || utf8.RuneCountInString(value) > 32767 || strings.ContainsRune(value, 0) {
++		return AbsolutePath{}, invalid("absolute-path", "must be 1 to 32767 valid UTF-8 characters with no NUL")
++	}
++
++	var err error
++	switch platform {
++	case PlatformMacOS, PlatformLinux, PlatformWSL2:
++		err = validatePOSIXAbsolutePath(value)
++	case PlatformWindows:
++		err = validateWindowsAbsolutePath(value)
++	}
++	if err != nil {
++		return AbsolutePath{}, err
++	}
++	return AbsolutePath{platform: platform, value: value}, nil
++}
++
++func validatePOSIXAbsolutePath(value string) error {
++	if !strings.HasPrefix(value, "/") || path.Clean(value) != value {
++		return invalid("absolute-path", "must be a lexically normalized POSIX absolute path")
++	}
++	return nil
++}
++
++func validateWindowsAbsolutePath(value string) error {
++	if strings.Contains(value, "/") {
++		return invalid("absolute-path", "must use native Windows separators")
++	}
++	if hasDrivePrefix(value) {
++		if len(value) < 3 || value[2] != '\\' {
++			return invalid("absolute-path", "must be drive-qualified or UNC")
++		}
++		return validateWindowsSegments(value[3:], true)
++	}
++	if !strings.HasPrefix(value, `\\`) {
++		return invalid("absolute-path", "must be drive-qualified or UNC")
++	}
++	parts := strings.Split(value[2:], `\`)
++	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
++		return invalid("absolute-path", "UNC paths require server and share names")
++	}
++	for _, segment := range parts {
++		if invalidWindowsSegment(segment) {
++			return invalid("absolute-path", "must be lexically normalized without device or alternate-stream syntax")
++		}
++	}
++	return nil
++}
++
++func validateWindowsSegments(value string, allowEmptyRoot bool) error {
++	if value == "" && allowEmptyRoot {
++		return nil
++	}
++	for _, segment := range strings.Split(value, `\`) {
++		if invalidWindowsSegment(segment) {
++			return invalid("absolute-path", "must be lexically normalized without device or alternate-stream syntax")
++		}
++	}
++	return nil
++}
++
++func invalidWindowsSegment(segment string) bool {
++	if segment == "" || segment == "." || segment == ".." || strings.HasSuffix(segment, ".") || strings.HasSuffix(segment, " ") {
++		return true
++	}
++	if strings.ContainsAny(segment, `<>:"|?*`) {
++		return true
++	}
++	for _, character := range segment {
++		if character >= 1 && character <= 31 {
++			return true
++		}
++	}
++	return reservedWindowsDeviceName(segment)
++}
++
++func reservedWindowsDeviceName(segment string) bool {
++	base, _, _ := strings.Cut(segment, ".")
++	base = strings.ToUpper(base)
++	switch base {
++	case "CON", "PRN", "AUX", "NUL":
++		return true
++	}
++	return len(base) == 4 && base[3] >= '1' && base[3] <= '9' && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT"))
++}
++
++func (value AbsolutePath) String() string     { return value.value }
++func (value AbsolutePath) Platform() Platform { return value.platform }
++
++func (value AbsolutePath) MarshalJSON() ([]byte, error) {
++	if _, err := ParseAbsolutePath(value.platform, value.value); err != nil {
++		return nil, err
++	}
++	return json.Marshal(value.value)
++}
++
++func DecodeAbsolutePathJSON(platform Platform, data []byte) (AbsolutePath, error) {
++	value, err := decodeJSONString(data, "absolute-path")
++	if err != nil {
++		return AbsolutePath{}, err
++	}
++	return ParseAbsolutePath(platform, value)
++}
++
++var _ json.Marshaler = RelativePath{}
++var _ json.Unmarshaler = (*RelativePath)(nil)
++var _ json.Marshaler = AbsolutePath{}
+diff --git a/internal/scalar/scalar.go b/internal/scalar/scalar.go
+new file mode 100644
+index 0000000..2b9d34d
+--- /dev/null
++++ b/internal/scalar/scalar.go
+@@ -0,0 +1,127 @@
++// Package scalar implements the common AX wire value types from Specification
++// 1.6. Types whose validity depends on a containing contract require that
++// context at their decode entry point instead of guessing it.
++package scalar
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"strings"
++	"unicode/utf8"
++)
++
++// ErrInvalidScalar identifies malformed or out-of-contract scalar values.
++var ErrInvalidScalar = errors.New("invalid AX scalar")
++
++// ValidationError reports the value kind and failed rule without echoing the
++// input, which may be a machine-local path.
++type ValidationError struct {
++	Kind   string
++	Reason string
++}
++
++func (err *ValidationError) Error() string {
++	return fmt.Sprintf("%s: %s: %v", err.Kind, err.Reason, ErrInvalidScalar)
++}
++
++func (err *ValidationError) Unwrap() error {
++	return ErrInvalidScalar
++}
++
++func invalid(kind, reason string) error {
++	return &ValidationError{Kind: kind, Reason: reason}
++}
++
++func decodeJSONString(data []byte, kind string) (string, error) {
++	if !utf8.Valid(data) {
++		return "", invalid(kind, "JSON text must be valid UTF-8")
++	}
++	decoder := json.NewDecoder(bytes.NewReader(data))
++	var value *string
++	if err := decoder.Decode(&value); err != nil {
++		return "", invalid(kind, "must be a JSON string")
++	}
++	if value == nil {
++		return "", invalid(kind, "must not be null")
++	}
++	var trailing any
++	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
++		return "", invalid(kind, "must contain one JSON value")
++	}
++	if hasLoneJSONSurrogate(strings.TrimSpace(string(data))) {
++		return "", invalid(kind, "must not contain a lone Unicode surrogate")
++	}
++	return *value, nil
++}
++
++func hasLoneJSONSurrogate(value string) bool {
++	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
++		return false
++	}
++	for index := 1; index < len(value)-1; index++ {
++		if value[index] != '\\' || index+1 >= len(value)-1 {
++			continue
++		}
++		if value[index+1] != 'u' {
++			index++
++			continue
++		}
++		code, ok := parseHex16(value[index+2:])
++		if !ok {
++			return false // json.Decoder already rejects malformed escapes.
++		}
++		index += 5
++		switch {
++		case code >= 0xdc00 && code <= 0xdfff:
++			return true
++		case code >= 0xd800 && code <= 0xdbff:
++			if index+6 >= len(value) || value[index+1:index+3] != `\u` {
++				return true
++			}
++			low, ok := parseHex16(value[index+3:])
++			if !ok || low < 0xdc00 || low > 0xdfff {
++				return true
++			}
++			index += 6
++		}
++	}
++	return false
++}
++
++func parseHex16(value string) (uint16, bool) {
++	if len(value) < 4 {
++		return 0, false
++	}
++	var result uint16
++	for index := 0; index < 4; index++ {
++		result <<= 4
++		switch digit := value[index]; {
++		case digit >= '0' && digit <= '9':
++			result += uint16(digit - '0')
++		case digit >= 'a' && digit <= 'f':
++			result += uint16(digit-'a') + 10
++		case digit >= 'A' && digit <= 'F':
++			result += uint16(digit-'A') + 10
++		default:
++			return 0, false
++		}
++	}
++	return result, true
++}
++
++func marshalValidatedString(value, kind string, validate func(string) error) ([]byte, error) {
++	if err := validate(value); err != nil {
++		return nil, err
++	}
++	return json.Marshal(value)
++}
++
++func marshalValidatedText(value string, validate func(string) error) ([]byte, error) {
++	if err := validate(value); err != nil {
++		return nil, err
++	}
++	return []byte(value), nil
++}
+diff --git a/internal/scalar/scalar_test.go b/internal/scalar/scalar_test.go
+new file mode 100644
+index 0000000..c27647e
+--- /dev/null
++++ b/internal/scalar/scalar_test.go
+@@ -0,0 +1,694 @@
++package scalar
++
++import (
++	"encoding"
++	"encoding/json"
++	"errors"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestUUIDValuesAcceptCanonicalVersionsAndRefuseMalformedInput(t *testing.T) {
++	t.Parallel()
++
++	uuid7Text := "0198f4c8-8e50-7f66-8f70-1234567890ab"
++	uuid7, err := ParseUUIDv7(uuid7Text)
++	if err != nil || uuid7.String() != uuid7Text {
++		t.Fatalf("ParseUUIDv7(%q) = %q, %v", uuid7Text, uuid7, err)
++	}
++	uuid4Text := "550e8400-e29b-41d4-a716-446655440000"
++	uuid4, err := ParseUUIDv4(uuid4Text)
++	if err != nil || uuid4.String() != uuid4Text {
++		t.Fatalf("ParseUUIDv4(%q) = %q, %v", uuid4Text, uuid4, err)
++	}
++
++	if _, err := ParseUUIDv7(uuid4Text); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("ParseUUIDv7(UUIDv4) error = %v, want ErrInvalidScalar", err)
++	}
++	if _, err := ParseUUIDv4(uuid7Text); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("ParseUUIDv4(UUIDv7) error = %v, want ErrInvalidScalar", err)
++	}
++
++	invalid := []string{
++		"0198F4c8-8e50-7f66-8f70-1234567890ab",
++		"0198f4c8-8e50-7f66-7f70-1234567890ab",
++		"0198f4c8-8e50-7f66-cf70-1234567890ab",
++		"0198f4c88e507f668f701234567890ab",
++		"0198f4c8-8e50-7f66-8f70-1234567890ag",
++	}
++	for _, value := range invalid {
++		if _, err := ParseUUIDv7(value); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("ParseUUIDv7(%q) error = %v, want ErrInvalidScalar", value, err)
++		}
++	}
++
++	encoded, err := json.Marshal(uuid7)
++	if err != nil || string(encoded) != `"0198f4c8-8e50-7f66-8f70-1234567890ab"` {
++		t.Fatalf("Marshal(UUIDv7) = %s, %v", encoded, err)
++	}
++	var decoded UUIDv7
++	if err := json.Unmarshal(encoded, &decoded); err != nil || decoded != uuid7 {
++		t.Fatalf("Unmarshal(UUIDv7) = %q, %v", decoded, err)
++	}
++	if err := json.Unmarshal([]byte("null"), &decoded); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("Unmarshal(null) error = %v, want ErrInvalidScalar", err)
++	}
++}
++
++func TestTimestampAcceptsRealUTCRFC3339WithMillisecondPrecision(t *testing.T) {
++	t.Parallel()
++
++	for _, value := range []string{
++		"2024-02-29T23:59:59.000Z",
++		"2026-08-31T14:05:06.123456789Z",
++		"2026-08-31T14:05:06.1234567890Z",
++		"2026-08-31T14:05:06." + strings.Repeat("1234567890", 10) + "Z",
++		"2026-08-31t14:05:06.123z",
++		"2026-08-31T14:05:06.123+00:00",
++	} {
++		got, err := ParseTimestamp(value)
++		if err != nil || got.String() != value {
++			t.Errorf("ParseTimestamp(%q) = %q, %v", value, got, err)
++			continue
++		}
++		instant, err := got.Time()
++		if err != nil || instant.Location() != time.UTC {
++			t.Errorf("Timestamp(%q).Time() = %v, %v", value, instant, err)
++		}
++		var jsonDecoded Timestamp
++		if err := json.Unmarshal([]byte(`"`+value+`"`), &jsonDecoded); err != nil || jsonDecoded.String() != value {
++			t.Errorf("Unmarshal Timestamp(%q) = %q, %v", value, jsonDecoded, err)
++		}
++		var textDecoded Timestamp
++		if err := textDecoded.UnmarshalText([]byte(value)); err != nil || textDecoded.String() != value {
++			t.Errorf("UnmarshalText Timestamp(%q) = %q, %v", value, textDecoded, err)
++		}
++	}
++
++	for _, value := range []string{
++		"2023-02-29T12:00:00.000Z",
++		"2026-08-31T14:05:06Z",
++		"2026-08-31T14:05:06.12Z",
++		"2026-08-31T14:05:06.123+03:00",
++		"2026-08-31T14:05:06.123-00:00",
++		"2026-08-31T24:00:00.000Z",
++	} {
++		if _, err := ParseTimestamp(value); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("ParseTimestamp(%q) error = %v, want ErrInvalidScalar", value, err)
++		}
++	}
++}
++
++// TestTimestampAcceptsPublishedLeapSecondsAndRefusesFabricatedOnes drives the
++// ParseTimestamp production entry directly and through both wire decoders.
++func TestTimestampAcceptsPublishedLeapSecondsAndRefusesFabricatedOnes(t *testing.T) {
++	t.Parallel()
++
++	const published = "1990-12-31T23:59:60.000Z"
++	parsed, err := ParseTimestamp(published)
++	if err != nil || parsed.String() != published {
++		t.Fatalf("ParseTimestamp(%q) = %q, %v", published, parsed, err)
++	}
++	instant, err := parsed.Time()
++	wantInstant := time.Date(1991, time.January, 1, 0, 0, 0, 0, time.UTC)
++	if err != nil || !instant.Equal(wantInstant) {
++		t.Fatalf("Timestamp(%q).Time() = %v, %v, want %v", published, instant, err, wantInstant)
++	}
++
++	var fromJSON Timestamp
++	if err := json.Unmarshal([]byte(`"1990-12-31T23:59:60.000Z"`), &fromJSON); err != nil || fromJSON != parsed {
++		t.Fatalf("Unmarshal leap-second timestamp = %q, %v", fromJSON, err)
++	}
++	var fromText Timestamp
++	if err := fromText.UnmarshalText([]byte(published)); err != nil || fromText != parsed {
++		t.Fatalf("UnmarshalText leap-second timestamp = %q, %v", fromText, err)
++	}
++
++	for _, fabricated := range []string{
++		"1990-12-31T23:58:60.000Z", // an ordinary minute on a real leap-second date
++		"1990-12-30T23:59:60.000Z", // no leap second was published for this date
++		"2026-12-31T23:59:60.000Z", // no leap second is published for this date
++	} {
++		if _, err := ParseTimestamp(fabricated); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("ParseTimestamp(%q) error = %v, want ErrInvalidScalar", fabricated, err)
++		}
++		if err := json.Unmarshal([]byte(`"`+fabricated+`"`), &fromJSON); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("Unmarshal leap-second timestamp %q error = %v, want ErrInvalidScalar", fabricated, err)
++		}
++		if err := fromText.UnmarshalText([]byte(fabricated)); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("UnmarshalText leap-second timestamp %q error = %v, want ErrInvalidScalar", fabricated, err)
++		}
++	}
++}
++
++func TestDigestAcceptsExactSHA256AndHashesRawBytes(t *testing.T) {
++	t.Parallel()
++
++	want := "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
++	digest := SHA256Digest(nil)
++	if digest.String() != want || digest.Hex() != strings.TrimPrefix(want, "sha256:") {
++		t.Fatalf("SHA256Digest(nil) = %q (%q), want %q", digest, digest.Hex(), want)
++	}
++	parsed, err := ParseDigest(want)
++	if err != nil || parsed != digest {
++		t.Fatalf("ParseDigest(%q) = %q, %v", want, parsed, err)
++	}
++
++	for _, value := range []string{
++		strings.TrimPrefix(want, "sha256:"),
++		"sha512:" + strings.TrimPrefix(want, "sha256:"),
++		"sha256:" + strings.ToUpper(strings.TrimPrefix(want, "sha256:")),
++		want[:len(want)-1],
++		want + "0",
++	} {
++		if _, err := ParseDigest(value); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("ParseDigest(%q) error = %v, want ErrInvalidScalar", value, err)
++		}
++	}
++}
++
++func TestPlatformAndProviderIDAreClosedAndBounded(t *testing.T) {
++	t.Parallel()
++
++	for _, value := range []string{"macos", "linux", "wsl2", "windows"} {
++		platform, err := ParsePlatform(value)
++		if err != nil || platform.String() != value {
++			t.Errorf("ParsePlatform(%q) = %q, %v", value, platform, err)
++		}
++	}
++	for _, value := range []string{"darwin", "MacOS", "freebsd", ""} {
++		if _, err := ParsePlatform(value); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("ParsePlatform(%q) error = %v, want ErrInvalidScalar", value, err)
++		}
++	}
++
++	for _, value := range []string{"codex", "a", "a-b", "a" + strings.Repeat("1", 31)} {
++		provider, err := ParseProviderID(value)
++		if err != nil || provider.String() != value {
++			t.Errorf("ParseProviderID(%q) = %q, %v", value, provider, err)
++		}
++	}
++	for _, value := range []string{"", "Codex", "1codex", "co_dex", "a" + strings.Repeat("1", 32)} {
++		if _, err := ParseProviderID(value); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("ParseProviderID(%q) error = %v, want ErrInvalidScalar", value, err)
++		}
++	}
++}
++
++func TestRelativePathRefusesTraversalAndEncodedSeparators(t *testing.T) {
++	t.Parallel()
++
++	for _, value := range []string{"AGENTS.md", "a/b/c", "данные/файл.txt", "percent%20name"} {
++		path, err := ParseRelativePath(value)
++		if err != nil || path.String() != value {
++			t.Errorf("ParseRelativePath(%q) = %q, %v", value, path, err)
++		}
++	}
++	invalid := []string{
++		"", ".", "..", "/absolute", "C:/drive", "a//b", "a/./b", "a/../b",
++		"a/", `a\b`, "a%2fb", "a%2Fb", "a%5cb", "a%5Cb", "a%252fb", "a\x00b", string([]byte{0xff}),
++	}
++	for _, value := range invalid {
++		if _, err := ParseRelativePath(value); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("ParseRelativePath(%q) error = %v, want ErrInvalidScalar", value, err)
++		}
++	}
++}
++
++func TestAbsolutePathUsesContainingPlatformGrammar(t *testing.T) {
++	t.Parallel()
++
++	accepted := []struct {
++		platform Platform
++		value    string
++	}{
++		{PlatformMacOS, "/"},
++		{PlatformLinux, "/srv/relux"},
++		{PlatformWSL2, "/mnt/c/Developer/ReluxWorks"},
++		{PlatformWindows, `C:\Developer\ReluxWorks`},
++		{PlatformWindows, `\\server\share\ReluxWorks`},
++	}
++	for _, test := range accepted {
++		got, err := ParseAbsolutePath(test.platform, test.value)
++		if err != nil || got.String() != test.value || got.Platform() != test.platform {
++			t.Errorf("ParseAbsolutePath(%q, %q) = %#v, %v", test.platform, test.value, got, err)
++		}
++	}
++
++	rejected := []struct {
++		platform Platform
++		value    string
++	}{
++		{PlatformLinux, "relative/path"},
++		{PlatformLinux, "/srv/../etc"},
++		{PlatformLinux, "/srv//data"},
++		{PlatformLinux, "/srv/data/"},
++		{PlatformWindows, `C:relative`},
++		{PlatformWindows, `C:/mixed/separators`},
++		{PlatformWindows, `C:\dir\..\target`},
++		{PlatformWindows, `\\server`},
++		{PlatformWindows, `\\?\C:\device`},
++	}
++	for _, test := range rejected {
++		if _, err := ParseAbsolutePath(test.platform, test.value); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("ParseAbsolutePath(%q, %q) error = %v, want ErrInvalidScalar", test.platform, test.value, err)
++		}
++	}
++}
++
++// TestWindowsAbsolutePathRefusesWin32InvalidComponentsAtEveryBoundary drives
++// ParseAbsolutePath, DecodeAbsolutePathJSON, and AbsolutePath.MarshalJSON. The
++// cases come from measured Win32 behavior and cover both drive and UNC paths.
++func TestWindowsAbsolutePathRefusesWin32InvalidComponentsAtEveryBoundary(t *testing.T) {
++	t.Parallel()
++
++	rejected := []string{
++		`C:\unsafe\CON`,
++		`C:\unsafe\con.txt`,
++		`C:\unsafe\PRN.json`,
++		`C:\unsafe\AUX.log`,
++		`C:\unsafe\NUL.txt`,
++		`C:\unsafe\COM1`,
++		`C:\unsafe\com9.any`,
++		`C:\unsafe\LPT1`,
++		`C:\unsafe\lpt9.any`,
++		`C:\unsafe\star*.json`,
++		`C:\unsafe\q?b`,
++		`C:\unsafe\less<than`,
++		`C:\unsafe\greater>than`,
++		`C:\unsafe\stream:name`,
++		`C:\unsafe\double"quote`,
++		`C:\unsafe\pipe|name`,
++		`\\server\share\COM1`,
++		`\\server\share\NUL.txt`,
++		`\\server\share\q?b`,
++	}
++	for _, value := range rejected {
++		assertWindowsAbsolutePathRejectedAtEveryBoundary(t, value)
++	}
++
++	for control := byte(1); control <= 31; control++ {
++		assertWindowsAbsolutePathRejectedAtEveryBoundary(t, `C:\unsafe\a`+string(control)+`b`)
++		assertWindowsAbsolutePathRejectedAtEveryBoundary(t, `\\server\share\a`+string(control)+`b`)
++	}
++}
++
++func assertWindowsAbsolutePathRejectedAtEveryBoundary(t *testing.T, value string) {
++	t.Helper()
++
++	if _, err := ParseAbsolutePath(PlatformWindows, value); !errors.Is(err, ErrInvalidScalar) {
++		t.Errorf("ParseAbsolutePath(PlatformWindows, %q) error = %v, want ErrInvalidScalar", value, err)
++	}
++	encoded, err := json.Marshal(value)
++	if err != nil {
++		t.Fatalf("json.Marshal(%q) error = %v", value, err)
++	}
++	if _, err := DecodeAbsolutePathJSON(PlatformWindows, encoded); !errors.Is(err, ErrInvalidScalar) {
++		t.Errorf("DecodeAbsolutePathJSON(PlatformWindows, %q) error = %v, want ErrInvalidScalar", value, err)
++	}
++	forged := AbsolutePath{platform: PlatformWindows, value: value}
++	if _, err := json.Marshal(forged); !errors.Is(err, ErrInvalidScalar) {
++		t.Errorf("json.Marshal(AbsolutePath{%q}) error = %v, want ErrInvalidScalar", value, err)
++	}
++}
++
++func TestAbsolutePathComponentRulesRemainPlatformSpecific(t *testing.T) {
++	t.Parallel()
++
++	for _, value := range []string{
++		`C:\safe\CONSOLE`,
++		`C:\safe\con-file.txt`,
++		`C:\safe\COM0`,
++		`C:\safe\COM10`,
++		`C:\safe\LPT0`,
++		`C:\safe\LPT10`,
++		`\\server\share\normal.txt`,
++	} {
++		if _, err := ParseAbsolutePath(PlatformWindows, value); err != nil {
++			t.Errorf("ParseAbsolutePath(PlatformWindows, %q) error = %v", value, err)
++		}
++	}
++
++	const posixValue = `/srv/CON/star*.json/q?b/a:b/less<than/greater>than/double"quote/pipe|name`
++	if got, err := ParseAbsolutePath(PlatformLinux, posixValue); err != nil || got.String() != posixValue {
++		t.Errorf("ParseAbsolutePath(PlatformLinux, %q) = %q, %v", posixValue, got, err)
++	}
++}
++
++func TestSafeAndBoundedIntegersRefuseNarrowedAndUnsafeValues(t *testing.T) {
++	t.Parallel()
++
++	for _, value := range []int64{-MaxSafeInteger, 0, MaxSafeInteger} {
++		got, err := NewSafeInteger(value)
++		if err != nil || got.Int64() != value {
++			t.Errorf("NewSafeInteger(%d) = %d, %v", value, got.Int64(), err)
++		}
++	}
++	for _, value := range []int64{-MaxSafeInteger - 1, MaxSafeInteger + 1} {
++		if _, err := NewSafeInteger(value); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("NewSafeInteger(%d) error = %v, want ErrInvalidScalar", value, err)
++		}
++	}
++
++	for _, data := range []string{"9007199254740992", "9007199254740993", "1.0", "1e0", `"1"`, "null"} {
++		var value SafeInteger
++		if err := json.Unmarshal([]byte(data), &value); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("Unmarshal SafeInteger %s error = %v, want ErrInvalidScalar", data, err)
++		}
++	}
++
++	bounded, err := NewBoundedInteger(4_194_304, 1, 4_194_304)
++	if err != nil || bounded.Int64() != 4_194_304 {
++		t.Fatalf("NewBoundedInteger(max) = %d, %v", bounded.Int64(), err)
++	}
++	for _, value := range []int64{0, 4_194_305} {
++		if _, err := NewBoundedInteger(value, 1, 4_194_304); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("NewBoundedInteger(%d, narrowed bound) error = %v, want ErrInvalidScalar", value, err)
++		}
++	}
++	if _, err := NewBoundedInteger(1, 2, 1); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("invalid bounds error = %v, want ErrInvalidScalar", err)
++	}
++	explicitZero, err := NewBoundedInteger(0, 0, 0)
++	if err != nil {
++		t.Fatalf("NewBoundedInteger(0, 0, 0) error = %v", err)
++	}
++	if encoded, err := json.Marshal(explicitZero); err != nil || string(encoded) != "0" {
++		t.Fatalf("Marshal(explicit [0,0] bounded integer) = %s, %v", encoded, err)
++	}
++
++	var uint53 Uint53
++	if err := json.Unmarshal([]byte("9007199254740991"), &uint53); err != nil || uint53.Uint64() != MaxUint53 {
++		t.Fatalf("Unmarshal Uint53(max) = %d, %v", uint53.Uint64(), err)
++	}
++	for _, data := range []string{"-1", "9007199254740992", "1.0"} {
++		if err := json.Unmarshal([]byte(data), &uint53); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("Unmarshal Uint53 %s error = %v, want ErrInvalidScalar", data, err)
++		}
++	}
++
++	for name, value := range map[string]any{
++		"safe":    mustSafeInteger(t, -42),
++		"uint53":  uint53,
++		"bounded": bounded,
++	} {
++		encoded, err := json.Marshal(value)
++		if err != nil {
++			t.Errorf("Marshal(%s) error = %v", name, err)
++		}
++		if len(encoded) == 0 || encoded[0] == '"' {
++			t.Errorf("Marshal(%s) = %s, want JSON number", name, encoded)
++		}
++	}
++	decoded, err := DecodeBoundedIntegerJSON([]byte("1"), 1, 4_194_304)
++	if err != nil || decoded.Int64() != 1 || decoded.Min() != 1 || decoded.Max() != 4_194_304 {
++		t.Fatalf("DecodeBoundedIntegerJSON() = %#v, %v", decoded, err)
++	}
++	if _, err := DecodeBoundedIntegerJSON([]byte("0"), 1, 4_194_304); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("DecodeBoundedIntegerJSON(underflow) error = %v, want ErrInvalidScalar", err)
++	}
++}
++
++func mustSafeInteger(t *testing.T, value int64) SafeInteger {
++	t.Helper()
++	result, err := NewSafeInteger(value)
++	if err != nil {
++		t.Fatalf("NewSafeInteger(%d) error = %v", value, err)
++	}
++	return result
++}
++
++func TestDecimalUint64UsesCanonicalStringEncoding(t *testing.T) {
++	t.Parallel()
++
++	value, err := ParseDecimalUint64("18446744073709551615")
++	if err != nil || value.Uint64() != ^uint64(0) {
++		t.Fatalf("ParseDecimalUint64(max) = %d, %v", value.Uint64(), err)
++	}
++	encoded, err := json.Marshal(value)
++	if err != nil || string(encoded) != `"18446744073709551615"` {
++		t.Fatalf("Marshal DecimalUint64 = %s, %v", encoded, err)
++	}
++	for _, input := range []string{"01", "+1", "18446744073709551616", "-1", ""} {
++		if _, err := ParseDecimalUint64(input); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("ParseDecimalUint64(%q) error = %v, want ErrInvalidScalar", input, err)
++		}
++	}
++	if err := json.Unmarshal([]byte("1"), &value); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("numeric DecimalUint64 error = %v, want ErrInvalidScalar", err)
++	}
++	zero := NewDecimalUint64(0)
++	if zero.String() != "0" {
++		t.Fatalf("NewDecimalUint64(0) = %q", zero)
++	}
++}
++
++func TestClosedEnumRequiresExactVersionedVocabulary(t *testing.T) {
++	t.Parallel()
++
++	allowed := []string{"workspace_group", "workspace_tree", "provider", "task_board", "composite"}
++	value, err := ParseClosedEnum("provider", allowed...)
++	if err != nil || value.String() != "provider" {
++		t.Fatalf("ParseClosedEnum(provider) = %q, %v", value, err)
++	}
++	for _, input := range []string{"Provider", "unknown", ""} {
++		if _, err := ParseClosedEnum(input, allowed...); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("ParseClosedEnum(%q) error = %v, want ErrInvalidScalar", input, err)
++		}
++	}
++	if _, err := ParseClosedEnum("provider", "provider", "provider"); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("duplicate vocabulary error = %v, want ErrInvalidScalar", err)
++	}
++	if _, err := ParseClosedEnum("provider", "provider", "not-kebab"); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("non-snake vocabulary error = %v, want ErrInvalidScalar", err)
++	}
++	decoded, err := DecodeClosedEnumJSON([]byte(`"task_board"`), allowed...)
++	if err != nil || decoded.String() != "task_board" {
++		t.Fatalf("DecodeClosedEnumJSON() = %q, %v", decoded, err)
++	}
++	if _, err := DecodeClosedEnumJSON([]byte("null"), allowed...); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("DecodeClosedEnumJSON(null) error = %v, want ErrInvalidScalar", err)
++	}
++	encoded, err := json.Marshal(decoded)
++	if err != nil || string(encoded) != `"task_board"` {
++		t.Fatalf("Marshal(ClosedEnum) = %s, %v", encoded, err)
++	}
++}
++
++func TestValidatedScalarJSONRoundTrips(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name   string
++		value  any
++		target any
++	}{
++		{"uuidv4", mustUUIDv4(t, "550e8400-e29b-41d4-a716-446655440000"), &UUIDv4{}},
++		{"timestamp", mustTimestamp(t, "2026-08-31T14:05:06.123Z"), &Timestamp{}},
++		{"digest", SHA256Digest([]byte("ax")), &Digest{}},
++		{"platform", PlatformLinux, new(Platform)},
++		{"provider", mustProviderID(t, "codex"), &ProviderID{}},
++		{"relative path", mustRelativePath(t, "dir/file"), &RelativePath{}},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			encoded, err := json.Marshal(test.value)
++			if err != nil {
++				t.Fatalf("json.Marshal() error = %v", err)
++			}
++			if err := json.Unmarshal(encoded, test.target); err != nil {
++				t.Fatalf("json.Unmarshal(%s) error = %v", encoded, err)
++			}
++		})
++	}
++
++	absolute, err := ParseAbsolutePath(PlatformWindows, `C:\Developer\ReluxWorks`)
++	if err != nil {
++		t.Fatalf("ParseAbsolutePath() error = %v", err)
++	}
++	encoded, err := json.Marshal(absolute)
++	if err != nil {
++		t.Fatalf("Marshal(AbsolutePath) error = %v", err)
++	}
++	decoded, err := DecodeAbsolutePathJSON(PlatformWindows, encoded)
++	if err != nil || decoded.String() != absolute.String() {
++		t.Fatalf("DecodeAbsolutePathJSON(%s) = %#v, %v", encoded, decoded, err)
++	}
++}
++
++func TestIdentifierTypesRoundTripAsJSONMapKeys(t *testing.T) {
++	t.Parallel()
++
++	uuid := mustUUIDv4(t, "550e8400-e29b-41d4-a716-446655440000")
++	encoded, err := json.Marshal(map[UUIDv4]string{uuid: "lease"})
++	if err != nil {
++		t.Fatalf("Marshal(map[UUIDv4]string) error = %v", err)
++	}
++	var decoded map[UUIDv4]string
++	if err := json.Unmarshal(encoded, &decoded); err != nil {
++		t.Fatalf("Unmarshal(map[UUIDv4]string) error = %v", err)
++	}
++	if decoded[uuid] != "lease" {
++		t.Fatalf("decoded map = %#v, want UUID key", decoded)
++	}
++
++	provider := mustProviderID(t, "codex")
++	encoded, err = json.Marshal(map[ProviderID]int{provider: 1})
++	if err != nil {
++		t.Fatalf("Marshal(map[ProviderID]int) error = %v", err)
++	}
++	var providers map[ProviderID]int
++	if err := json.Unmarshal(encoded, &providers); err != nil || providers[provider] != 1 {
++		t.Fatalf("Unmarshal(map[ProviderID]int) = %#v, %v", providers, err)
++	}
++	if err := json.Unmarshal([]byte(`{"Codex":1}`), &providers); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("Unmarshal(invalid provider map key) error = %v, want ErrInvalidScalar", err)
++	}
++}
++
++func TestValidatedStringTypesSupportTextBoundaries(t *testing.T) {
++	t.Parallel()
++
++	uuid7, err := ParseUUIDv7("0198f4c8-8e50-7f66-8f70-1234567890ab")
++	if err != nil {
++		t.Fatal(err)
++	}
++	timestamp := mustTimestamp(t, "2026-08-31T14:05:06.123Z")
++	digest := SHA256Digest([]byte("ax"))
++	provider := mustProviderID(t, "codex")
++	relative := mustRelativePath(t, "dir/file")
++	tests := []struct {
++		name   string
++		value  encoding.TextMarshaler
++		target encoding.TextUnmarshaler
++		want   string
++	}{
++		{"uuidv7", uuid7, &UUIDv7{}, uuid7.String()},
++		{"timestamp", timestamp, &Timestamp{}, timestamp.String()},
++		{"digest", digest, &Digest{}, digest.String()},
++		{"platform", PlatformLinux, new(Platform), PlatformLinux.String()},
++		{"provider", provider, &ProviderID{}, provider.String()},
++		{"relative path", relative, &RelativePath{}, relative.String()},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			encoded, err := test.value.MarshalText()
++			if err != nil || string(encoded) != test.want {
++				t.Fatalf("MarshalText() = %q, %v", encoded, err)
++			}
++			if err := test.target.UnmarshalText(encoded); err != nil {
++				t.Fatalf("UnmarshalText(%q) error = %v", encoded, err)
++			}
++			got := test.target.(interface{ String() string }).String()
++			if got != test.want {
++				t.Fatalf("text round trip = %q, want %q", got, test.want)
++			}
++		})
++	}
++}
++
++func mustUUIDv4(t *testing.T, value string) UUIDv4 {
++	t.Helper()
++	result, err := ParseUUIDv4(value)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return result
++}
++
++func mustTimestamp(t *testing.T, value string) Timestamp {
++	t.Helper()
++	result, err := ParseTimestamp(value)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return result
++}
++
++func mustProviderID(t *testing.T, value string) ProviderID {
++	t.Helper()
++	result, err := ParseProviderID(value)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return result
++}
++
++func mustRelativePath(t *testing.T, value string) RelativePath {
++	t.Helper()
++	result, err := ParseRelativePath(value)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return result
++}
++
++func TestJSONDecodersCannotBypassScalarValidation(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name   string
++		target any
++		data   string
++	}{
++		{"uuidv7", &UUIDv7{}, `"0198F4c8-8e50-7f66-8f70-1234567890ab"`},
++		{"uuidv4", &UUIDv4{}, `"0198f4c8-8e50-7f66-8f70-1234567890ab"`},
++		{"timestamp", &Timestamp{}, `"2023-02-29T12:00:00.000Z"`},
++		{"digest", &Digest{}, `"sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"`},
++		{"platform", new(Platform), `"darwin"`},
++		{"provider", &ProviderID{}, `"Codex"`},
++		{"relative path", &RelativePath{}, `"a/../b"`},
++		{"safe integer", &SafeInteger{}, `9007199254740992`},
++		{"uint53", &Uint53{}, `9007199254740992`},
++		{"decimal uint64", &DecimalUint64{}, `1`},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			if err := json.Unmarshal([]byte(test.data), test.target); !errors.Is(err, ErrInvalidScalar) {
++				t.Fatalf("json.Unmarshal(%s) error = %v, want ErrInvalidScalar", test.data, err)
++			}
++		})
++	}
++
++	if _, err := DecodeAbsolutePathJSON(PlatformWindows, []byte(`"/posix"`)); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("DecodeAbsolutePathJSON() error = %v, want ErrInvalidScalar", err)
++	}
++	if _, err := DecodeClosedEnumJSON([]byte(`"unknown"`), "known"); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("DecodeClosedEnumJSON() error = %v, want ErrInvalidScalar", err)
++	}
++	if _, err := DecodeClosedEnumJSON([]byte(`"\ud800"`), "known"); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("DecodeClosedEnumJSON(lone surrogate) error = %v, want ErrInvalidScalar", err)
++	}
++	if _, err := DecodeClosedEnumJSON([]byte{'"', 0xff, '"'}, "known"); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("DecodeClosedEnumJSON(invalid UTF-8) error = %v, want ErrInvalidScalar", err)
++	}
++	var unicodePath RelativePath
++	if err := json.Unmarshal([]byte(`"\ud83d\ude00/file"`), &unicodePath); err != nil || unicodePath.String() != "😀/file" {
++		t.Fatalf("Unmarshal(valid surrogate pair) = %q, %v", unicodePath, err)
++	}
++	if err := json.Unmarshal([]byte(`"\udc00/file"`), &unicodePath); !errors.Is(err, ErrInvalidScalar) {
++		t.Fatalf("Unmarshal(lone low surrogate) error = %v, want ErrInvalidScalar", err)
++	}
++}
++
++func TestZeroValuesCannotBePublishedAsValidatedScalars(t *testing.T) {
++	t.Parallel()
++
++	for name, value := range map[string]any{
++		"uuidv7":          UUIDv7{},
++		"uuidv4":          UUIDv4{},
++		"timestamp":       Timestamp{},
++		"digest":          Digest{},
++		"platform":        Platform(""),
++		"forged platform": Platform("darwin"),
++		"provider id":     ProviderID{},
++		"relative path":   RelativePath{},
++		"bounded integer": BoundedInteger{},
++	} {
++		if _, err := json.Marshal(value); !errors.Is(err, ErrInvalidScalar) {
++			t.Errorf("Marshal(%s zero) error = %v, want ErrInvalidScalar", name, err)
++		}
++	}
++}
+diff --git a/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/identifier-malformed-uuid b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/identifier-malformed-uuid
+new file mode 100644
+index 0000000..57eaf73
+--- /dev/null
++++ b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/identifier-malformed-uuid
+@@ -0,0 +1,3 @@
++go test fuzz v1
++string("uuidv7")
++[]byte("0198F4c8-8e50-7f66-8f70-1234567890ab")
+diff --git a/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/integer-unsafe-boundary b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/integer-unsafe-boundary
+new file mode 100644
+index 0000000..cf86eda
+--- /dev/null
++++ b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/integer-unsafe-boundary
+@@ -0,0 +1,3 @@
++go test fuzz v1
++string("safe-integer-json")
++[]byte("9007199254740992")
+diff --git a/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-invalid-date b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-invalid-date
+new file mode 100644
+index 0000000..ef5f853
+--- /dev/null
++++ b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-invalid-date
+@@ -0,0 +1,3 @@
++go test fuzz v1
++string("timestamp")
++[]byte("2023-02-29T12:00:00.000Z")
+diff --git a/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-leap-second b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-leap-second
+new file mode 100644
+index 0000000..0d6ee4c
+--- /dev/null
++++ b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-leap-second
+@@ -0,0 +1,3 @@
++go test fuzz v1
++string("timestamp")
++[]byte("1990-12-31T23:59:60.000Z")
+diff --git a/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-lowercase-rfc3339 b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-lowercase-rfc3339
+new file mode 100644
+index 0000000..e8c0c41
+--- /dev/null
++++ b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-lowercase-rfc3339
+@@ -0,0 +1,3 @@
++go test fuzz v1
++string("timestamp")
++[]byte("2026-08-31t14:05:06.123z")
+diff --git a/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/windows-reserved-device b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/windows-reserved-device
+new file mode 100644
+index 0000000..aadb53f
+--- /dev/null
++++ b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/windows-reserved-device
+@@ -0,0 +1,3 @@
++go test fuzz v1
++string("windows-path")
++[]byte("C:\\unsafe\\CON.txt")
+diff --git a/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/windows-wildcard b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/windows-wildcard
+new file mode 100644
+index 0000000..dd61d45
+--- /dev/null
++++ b/internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/windows-wildcard
+@@ -0,0 +1,3 @@
++go test fuzz v1
++string("windows-path")
++[]byte("C:\\unsafe\\*.json")
+diff --git a/internal/scalar/time_digest.go b/internal/scalar/time_digest.go
+new file mode 100644
+index 0000000..31cac81
+--- /dev/null
++++ b/internal/scalar/time_digest.go
+@@ -0,0 +1,191 @@
++package scalar
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"regexp"
++	"strings"
++	"time"
++)
++
++var timestampPattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3,}([Zz]|\+00:00)$`)
++
++type Timestamp struct{ value string }
++
++func ParseTimestamp(value string) (Timestamp, error) {
++	if !timestampPattern.MatchString(value) {
++		return Timestamp{}, invalid("timestamp", "must be UTC RFC3339 with at least 3 fractional digits")
++	}
++	instant, err := parseTimestampInstant(value)
++	if err != nil {
++		return Timestamp{}, invalid("timestamp", "must identify a real calendar instant")
++	}
++	_, offset := instant.Zone()
++	if offset != 0 {
++		return Timestamp{}, invalid("timestamp", "must use UTC")
++	}
++	return Timestamp{value: value}, nil
++}
++
++func (value Timestamp) String() string { return value.value }
++
++func (value Timestamp) MarshalText() ([]byte, error) {
++	return marshalValidatedText(value.value, func(candidate string) error {
++		_, err := ParseTimestamp(candidate)
++		return err
++	})
++}
++
++func (value *Timestamp) UnmarshalText(data []byte) error {
++	parsed, err := ParseTimestamp(string(data))
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++func (value Timestamp) Time() (time.Time, error) {
++	parsed, err := ParseTimestamp(value.value)
++	if err != nil {
++		return time.Time{}, err
++	}
++	instant, err := parseTimestampInstant(parsed.value)
++	if err != nil {
++		return time.Time{}, invalid("timestamp", "must identify a real calendar instant")
++	}
++	return instant.UTC(), nil
++}
++
++func parseTimestampInstant(value string) (time.Time, error) {
++	normalized := value
++	if value[10] == 't' {
++		normalized = value[:10] + "T" + value[11:]
++	}
++	if strings.HasSuffix(normalized, "z") {
++		normalized = normalized[:len(normalized)-1] + "Z"
++	}
++
++	leapSecond := normalized[17:19] == "60"
++	if leapSecond {
++		if normalized[11:16] != "23:59" || !isPublishedUTCLeapSecond(normalized[:10]) {
++			return time.Time{}, invalid("timestamp", "second 60 is valid only at a published UTC leap second")
++		}
++		// time.Time has no leap-second representation. Parse the preceding
++		// representable second, then advance by one second; Timestamp retains the
++		// original RFC3339 text for lossless wire round trips.
++		normalized = normalized[:17] + "59" + normalized[19:]
++	}
++
++	instant, err := time.Parse(time.RFC3339Nano, normalized)
++	if err != nil {
++		return time.Time{}, err
++	}
++	if leapSecond {
++		instant = instant.Add(time.Second)
++	}
++	return instant, nil
++}
++
++// isPublishedUTCLeapSecond is the immutable positive-leap-second history in
++// effect for the pinned AX v0.5.0 source. Future announced leap seconds require
++// an explicit implementation and conformance-fixture update; an arbitrary
++// 23:59:60 must never become valid merely because it is lexically RFC3339.
++func isPublishedUTCLeapSecond(date string) bool {
++	switch date {
++	case "1972-06-30", "1972-12-31", "1973-12-31", "1974-12-31",
++		"1975-12-31", "1976-12-31", "1977-12-31", "1978-12-31",
++		"1979-12-31", "1981-06-30", "1982-06-30", "1983-06-30",
++		"1985-06-30", "1987-12-31", "1989-12-31", "1990-12-31",
++		"1992-06-30", "1993-06-30", "1994-06-30", "1995-12-31",
++		"1997-06-30", "1998-12-31", "2005-12-31", "2008-12-31",
++		"2012-06-30", "2015-06-30", "2016-12-31":
++		return true
++	default:
++		return false
++	}
++}
++
++func (value Timestamp) MarshalJSON() ([]byte, error) {
++	return marshalValidatedString(value.value, "timestamp", func(candidate string) error {
++		_, err := ParseTimestamp(candidate)
++		return err
++	})
++}
++
++func (value *Timestamp) UnmarshalJSON(data []byte) error {
++	candidate, err := decodeJSONString(data, "timestamp")
++	if err != nil {
++		return err
++	}
++	parsed, err := ParseTimestamp(candidate)
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++type Digest struct{ value string }
++
++func ParseDigest(value string) (Digest, error) {
++	if len(value) != len("sha256:")+sha256.Size*2 || !strings.HasPrefix(value, "sha256:") {
++		return Digest{}, invalid("digest", "must use the sha256 prefix and exactly 64 digits")
++	}
++	for index := len("sha256:"); index < len(value); index++ {
++		if !isLowerHex(value[index]) {
++			return Digest{}, invalid("digest", "must contain lowercase hexadecimal digits")
++		}
++	}
++	return Digest{value: value}, nil
++}
++
++func SHA256Digest(value []byte) Digest {
++	sum := sha256.Sum256(value)
++	return Digest{value: "sha256:" + hex.EncodeToString(sum[:])}
++}
++
++func (value Digest) String() string { return value.value }
++func (value Digest) Hex() string    { return strings.TrimPrefix(value.value, "sha256:") }
++
++func (value Digest) MarshalText() ([]byte, error) {
++	return marshalValidatedText(value.value, func(candidate string) error {
++		_, err := ParseDigest(candidate)
++		return err
++	})
++}
++
++func (value *Digest) UnmarshalText(data []byte) error {
++	parsed, err := ParseDigest(string(data))
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++func (value Digest) MarshalJSON() ([]byte, error) {
++	return marshalValidatedString(value.value, "digest", func(candidate string) error {
++		_, err := ParseDigest(candidate)
++		return err
++	})
++}
++
++func (value *Digest) UnmarshalJSON(data []byte) error {
++	candidate, err := decodeJSONString(data, "digest")
++	if err != nil {
++		return err
++	}
++	parsed, err := ParseDigest(candidate)
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++var _ json.Marshaler = Timestamp{}
++var _ json.Unmarshaler = (*Timestamp)(nil)
++var _ json.Marshaler = Digest{}
++var _ json.Unmarshaler = (*Digest)(nil)
+diff --git a/internal/scalar/uuid.go b/internal/scalar/uuid.go
+new file mode 100644
+index 0000000..3a6d2b6
+--- /dev/null
++++ b/internal/scalar/uuid.go
+@@ -0,0 +1,117 @@
++package scalar
++
++import "encoding/json"
++
++type UUIDv7 struct{ value string }
++type UUIDv4 struct{ value string }
++
++func ParseUUIDv7(value string) (UUIDv7, error) {
++	if err := validateUUID(value, '7'); err != nil {
++		return UUIDv7{}, err
++	}
++	return UUIDv7{value: value}, nil
++}
++
++func ParseUUIDv4(value string) (UUIDv4, error) {
++	if err := validateUUID(value, '4'); err != nil {
++		return UUIDv4{}, err
++	}
++	return UUIDv4{value: value}, nil
++}
++
++func validateUUID(value string, version byte) error {
++	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
++		return invalid("UUIDv"+string(version), "must use canonical 8-4-4-4-12 form")
++	}
++	for index := range value {
++		if index == 8 || index == 13 || index == 18 || index == 23 {
++			continue
++		}
++		if !isLowerHex(value[index]) {
++			return invalid("UUIDv"+string(version), "must contain lowercase hexadecimal digits")
++		}
++	}
++	if value[14] != version {
++		return invalid("UUIDv"+string(version), "version nibble does not match the field type")
++	}
++	if value[19] != '8' && value[19] != '9' && value[19] != 'a' && value[19] != 'b' {
++		return invalid("UUIDv"+string(version), "must use the RFC 4122 variant")
++	}
++	return nil
++}
++
++func isLowerHex(value byte) bool {
++	return value >= '0' && value <= '9' || value >= 'a' && value <= 'f'
++}
++
++func (value UUIDv7) String() string { return value.value }
++func (value UUIDv4) String() string { return value.value }
++
++func (value UUIDv7) MarshalText() ([]byte, error) {
++	return marshalValidatedText(value.value, func(candidate string) error { return validateUUID(candidate, '7') })
++}
++
++func (value *UUIDv7) UnmarshalText(data []byte) error {
++	parsed, err := ParseUUIDv7(string(data))
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++func (value UUIDv4) MarshalText() ([]byte, error) {
++	return marshalValidatedText(value.value, func(candidate string) error { return validateUUID(candidate, '4') })
++}
++
++func (value *UUIDv4) UnmarshalText(data []byte) error {
++	parsed, err := ParseUUIDv4(string(data))
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++func (value UUIDv7) MarshalJSON() ([]byte, error) {
++	return marshalValidatedString(value.value, "UUIDv7", func(candidate string) error {
++		return validateUUID(candidate, '7')
++	})
++}
++
++func (value *UUIDv7) UnmarshalJSON(data []byte) error {
++	candidate, err := decodeJSONString(data, "UUIDv7")
++	if err != nil {
++		return err
++	}
++	parsed, err := ParseUUIDv7(candidate)
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++func (value UUIDv4) MarshalJSON() ([]byte, error) {
++	return marshalValidatedString(value.value, "UUIDv4", func(candidate string) error {
++		return validateUUID(candidate, '4')
++	})
++}
++
++func (value *UUIDv4) UnmarshalJSON(data []byte) error {
++	candidate, err := decodeJSONString(data, "UUIDv4")
++	if err != nil {
++		return err
++	}
++	parsed, err := ParseUUIDv4(candidate)
++	if err != nil {
++		return err
++	}
++	*value = parsed
++	return nil
++}
++
++var _ json.Marshaler = UUIDv7{}
++var _ json.Unmarshaler = (*UUIDv7)(nil)
++var _ json.Marshaler = UUIDv4{}
++var _ json.Unmarshaler = (*UUIDv4)(nil)
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index e44b3ba..4ac407e 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=16 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
++	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+ 	}
+@@ -54,28 +54,85 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=16 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
++	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+ 	}
+ }
+ 
+-func TestRunDefaultStaysGreenForPinnedButUnownedSections(t *testing.T) {
++func TestRunAssignedScalarSectionsUseScopedImplementationOwners(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	repositoryRoot := filepath.Join("..", "..", "..", "..")
+-	var output bytes.Buffer
+-	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+-		t.Fatalf("default run() error = %v, want global inventory verification to ignore unassigned Section 10.1", err)
++	for _, section := range []string{"1.6", "10.1", "10.2", "10.3", "10.4"} {
++		var output bytes.Buffer
++		if err := run([]string{"-root", repositoryRoot, "-section", section}, &output); err != nil {
++			t.Errorf("run(-section %s) error = %v", section, err)
++			continue
++		}
++		if !strings.Contains(output.String(), "assigned_scopes=1") {
++			t.Errorf("run(-section %s) output = %q, want assigned_scopes=1", section, output.String())
++		}
+ 	}
+-	if !strings.Contains(output.String(), "assigned_scopes=0") {
+-		t.Fatalf("default run() output = %q, want assigned_scopes=0", output.String())
++}
++
++// TestMainRejectsRenamedScalarSectionOwnerDeclarations attacks each assigned
++// scalar binding through main -> run -> VerifyAssignedSections. Each mutant
++// renames the real Go declaration while leaving the reviewed registry intact.
++func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
++	if testing.Short() {
++		t.Skip("builds isolated tracecheck binaries")
++	}
++
++	tests := []struct {
++		section     string
++		path        string
++		declaration string
++		from        string
++		to          string
++	}{
++		{"1.6", "internal/scalar/scalar.go", "ErrInvalidScalar", "var ErrInvalidScalar", "var RenamedErrInvalidScalar"},
++		{"10.1", "internal/scalar/time_digest.go", "Timestamp", "type Timestamp struct", "type RenamedTimestamp struct"},
++		{"10.2", "internal/scalar/time_digest.go", "Digest", "type Digest struct", "type RenamedDigest struct"},
++		{"10.3", "internal/scalar/integer.go", "BoundedInteger", "type BoundedInteger struct", "type RenamedBoundedInteger struct"},
++		{"10.4", "internal/scalar/names.go", "ClosedEnum", "type ClosedEnum struct", "type RenamedClosedEnum struct"},
++	}
++
++	for _, test := range tests {
++		t.Run(test.section, func(t *testing.T) {
++			fixtureRoot := isolatedTracecheckFixture(t)
++			renameGoDeclaration(t, filepath.Join(fixtureRoot, test.path), test.from, test.to)
++
++			output, err := runTracecheck(t, fixtureRoot, "-section", test.section)
++			want := `section binding "section:` + test.section + `" production owner: declaration "` + test.declaration + `" is absent`
++			if err == nil || !strings.Contains(output, want) || strings.Contains(output, "traceability ok:") {
++				t.Fatalf("tracecheck -section %s error = %v output = %q, want refusal %q", test.section, err, output, want)
++			}
++		})
+ 	}
++}
+ 
+-	output.Reset()
+-	err := run([]string{"-root", repositoryRoot, "-section", "10.1"}, &output)
+-	if err == nil || !strings.Contains(err.Error(), `assigned section "10.1" binding "section:10.1" has no scoped implementation owner`) {
+-		t.Fatalf("assigned run(10.1) error = %v output = %q, want scoped-owner refusal", err, output.String())
++// TestMainRejectsRenamedCanonicalIdentityEntryPoint proves that the assigned
++// Section 1.6 gate reaches the production omit-self verifier through its
++// executable acceptance case. A registry link without the call site must not
++// satisfy traceability.
++func TestMainRejectsRenamedCanonicalIdentityEntryPoint(t *testing.T) {
++	if testing.Short() {
++		t.Skip("builds an isolated tracecheck binary")
++	}
++
++	fixtureRoot := isolatedTracecheckFixture(t)
++	renameGoDeclaration(
++		t,
++		filepath.Join(fixtureRoot, "internal/canonicaljson/canonical.go"),
++		"func VerifyObjectIdentity",
++		"func RenamedVerifyObjectIdentity",
++	)
++
++	output, err := runTracecheck(t, fixtureRoot, "-section", "1.6")
++	want := `acceptance case "canonical-identity-refusal" production owner: declaration "VerifyObjectIdentity" is absent`
++	if err == nil || !strings.Contains(output, want) || strings.Contains(output, "traceability ok:") {
++		t.Fatalf("tracecheck -section 1.6 error = %v output = %q, want refusal %q", err, output, want)
+ 	}
+ }
+ 
+@@ -183,7 +240,8 @@ func TestMainRejectsMissingScopeSpecificProductionDeclaration(t *testing.T) {
+ // TestMainRejectsSyntacticallyValidNonexistentV050Section drives the production
+ // main -> run -> traceability.VerifyAssignedSections call chain. A plausible
+ // subsection must not inherit the top-level owner unless that exact identifier
+-// exists in the immutable v0.5.0 inventory.
++// exists in the immutable v0.5.0 inventory. A real but still unowned section
++// remains a separate refusal shape.
+ func TestMainRejectsSyntacticallyValidNonexistentV050Section(t *testing.T) {
+ 	if testing.Short() {
+ 		t.Skip("launches the production tracecheck entry point")
+@@ -196,10 +254,10 @@ func TestMainRejectsSyntacticallyValidNonexistentV050Section(t *testing.T) {
+ 		t.Fatalf("tracecheck -section 10.999 error = %v output = %q, want refusal %q and no success output", err, output, want)
+ 	}
+ 
+-	output, err = runTracecheck(t, repositoryRoot, "-section", "10.1")
+-	want = `assigned section "10.1" binding "section:10.1" has no scoped implementation owner`
++	output, err = runTracecheck(t, repositoryRoot, "-section", "10.5")
++	want = `assigned section "10.5" binding "section:10.5" has no scoped implementation owner`
+ 	if err == nil || !strings.Contains(output, want) || strings.Contains(output, "traceability ok:") {
+-		t.Fatalf("tracecheck -section 10.1 error = %v output = %q, want refusal %q and no success output", err, output, want)
++		t.Fatalf("tracecheck -section 10.5 error = %v output = %q, want refusal %q and no success output", err, output, want)
+ 	}
+ }
+ 
+@@ -255,6 +313,21 @@ func copyFile(t *testing.T, source, destination string) {
+ 	}
+ }
+ 
++func renameGoDeclaration(t *testing.T, filename, from, to string) {
++	t.Helper()
++	value, err := os.ReadFile(filename)
++	if err != nil {
++		t.Fatalf("read %q: %v", filename, err)
++	}
++	if count := bytes.Count(value, []byte(from)); count != 1 {
++		t.Fatalf("%q contains declaration marker %q %d times, want exactly once", filename, from, count)
++	}
++	value = bytes.Replace(value, []byte(from), []byte(to), 1)
++	if err := os.WriteFile(filename, value, 0o644); err != nil {
++		t.Fatalf("write %q: %v", filename, err)
++	}
++}
++
+ func isolatedTracecheckFixture(t *testing.T) string {
+ 	t.Helper()
+ 	repositoryRoot := filepath.Join("..", "..", "..", "..")
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 8ff22e9..5afa699 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -248,10 +248,127 @@
+         },
+         {
+           "path": "internal/traceability/cmd/tracecheck/main_test.go",
+-          "declaration": "TestRunDefaultStaysGreenForPinnedButUnownedSections"
++          "declaration": "TestRunAssignedScalarSectionsUseScopedImplementationOwners"
++        },
++        {
++          "path": "internal/traceability/cmd/tracecheck/main_test.go",
++          "declaration": "TestMainRejectsRenamedScalarSectionOwnerDeclarations"
+         }
+       ]
+     },
++    {
++      "id": "canonical-jcs-rfc8785",
++      "production": {"path": "internal/canonicaljson/canonical.go", "declaration": "Canonicalize"},
++      "tests": [
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCanonicalizeMatchesPublishedRFC8785PrimitiveAndStringVector"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCanonicalizeUsesRFC8785UTF16PropertyOrdering"},
++        {"path": "internal/canonicaljson/fuzz_test.go", "declaration": "TestCanonicalizeRejectsMalformedRecursiveObjectShapes"},
++        {"path": "internal/canonicaljson/fuzz_test.go", "declaration": "FuzzCanonicalizeRoundTrip"}
++      ]
++    },
++    {
++      "id": "canonical-object-identity",
++      "production": {"path": "internal/canonicaljson/canonical.go", "declaration": "CalculateObjectIdentity"},
++      "tests": [
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCalculateObjectIdentityOmitsEveryGeneratedV050SelfIdentityContract"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCalculateObjectIdentityUsesSchemaDefinedSelfFieldWithRegisteredReferences"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCalculateObjectIdentityMatchesAXPublishedFixtures"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestObjectIdentityIsStableAcrossRepresentationAndClaimChanges"},
++        {"path": "internal/canonicaljson/golden_test.go", "declaration": "TestObjectIdentityMatchesCrossPlatformGoldenRepresentations"},
++        {"path": "internal/canonicaljson/fuzz_test.go", "declaration": "FuzzObjectIdentityRepresentationInvariant"}
++      ]
++    },
++    {
++      "id": "canonical-identity-refusal",
++      "production": {"path": "internal/canonicaljson/canonical.go", "declaration": "VerifyObjectIdentity"},
++      "tests": [
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestObjectIdentityRefusesSelfInclusionAndAmbiguousNamespaces"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestProductionEntriesRejectAmbiguousOrInvalidInput"}
++      ]
++    },
++    {
++      "id": "scalar-uuid-validation",
++      "production": {"path": "internal/scalar/uuid.go", "declaration": "ParseUUIDv7"},
++      "tests": [
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestUUIDValuesAcceptCanonicalVersionsAndRefuseMalformedInput"},
++        {"path": "internal/scalar/fuzz_test.go", "declaration": "FuzzScalarProductionEntries"}
++      ]
++    },
++    {
++      "id": "scalar-timestamp-validation",
++      "production": {"path": "internal/scalar/time_digest.go", "declaration": "ParseTimestamp"},
++      "tests": [
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestTimestampAcceptsRealUTCRFC3339WithMillisecondPrecision"},
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestTimestampAcceptsPublishedLeapSecondsAndRefusesFabricatedOnes"},
++        {"path": "internal/scalar/fuzz_test.go", "declaration": "FuzzScalarProductionEntries"}
++      ]
++    },
++    {
++      "id": "scalar-digest-validation",
++      "production": {"path": "internal/scalar/time_digest.go", "declaration": "ParseDigest"},
++      "tests": [
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestDigestAcceptsExactSHA256AndHashesRawBytes"},
++        {"path": "internal/scalar/fuzz_test.go", "declaration": "FuzzScalarProductionEntries"}
++      ]
++    },
++    {
++      "id": "scalar-platform-provider-validation",
++      "production": {"path": "internal/scalar/names.go", "declaration": "ParsePlatform"},
++      "tests": [
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestPlatformAndProviderIDAreClosedAndBounded"},
++        {"path": "internal/scalar/fuzz_test.go", "declaration": "FuzzScalarProductionEntries"}
++      ]
++    },
++    {
++      "id": "scalar-provider-id-validation",
++      "production": {"path": "internal/scalar/names.go", "declaration": "ParseProviderID"},
++      "tests": [
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestPlatformAndProviderIDAreClosedAndBounded"},
++        {"path": "internal/scalar/fuzz_test.go", "declaration": "FuzzScalarProductionEntries"}
++      ]
++    },
++    {
++      "id": "scalar-relative-path-validation",
++      "production": {"path": "internal/scalar/path.go", "declaration": "ParseRelativePath"},
++      "tests": [
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestRelativePathRefusesTraversalAndEncodedSeparators"},
++        {"path": "internal/scalar/fuzz_test.go", "declaration": "FuzzScalarProductionEntries"}
++      ]
++    },
++    {
++      "id": "scalar-absolute-path-validation",
++      "production": {"path": "internal/scalar/path.go", "declaration": "ParseAbsolutePath"},
++      "tests": [
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestAbsolutePathUsesContainingPlatformGrammar"},
++        {"path": "internal/scalar/fuzz_test.go", "declaration": "FuzzScalarProductionEntries"}
++      ]
++    },
++    {
++      "id": "scalar-bounded-integer-validation",
++      "production": {"path": "internal/scalar/integer.go", "declaration": "NewBoundedInteger"},
++      "tests": [
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestSafeAndBoundedIntegersRefuseNarrowedAndUnsafeValues"},
++        {"path": "internal/scalar/fuzz_test.go", "declaration": "FuzzScalarProductionEntries"}
++      ]
++    },
++    {
++      "id": "scalar-decimal-uint64-validation",
++      "production": {"path": "internal/scalar/integer.go", "declaration": "ParseDecimalUint64"},
++      "tests": [
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestDecimalUint64UsesCanonicalStringEncoding"},
++        {"path": "internal/scalar/fuzz_test.go", "declaration": "FuzzScalarProductionEntries"}
++      ]
++    },
++    {
++      "id": "scalar-closed-enum-validation",
++      "production": {"path": "internal/scalar/names.go", "declaration": "ParseClosedEnum"},
++      "tests": [
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestClosedEnumRequiresExactVersionedVocabulary"},
++        {"path": "internal/scalar/scalar_test.go", "declaration": "TestJSONDecodersCannotBypassScalarValidation"},
++        {"path": "internal/scalar/fuzz_test.go", "declaration": "FuzzScalarProductionEntries"}
++      ]
++    },
+     {
+       "id": "ci-entrypoint",
+       "production": {
+@@ -266,6 +383,10 @@
+         {
+           "path": "internal/traceability/traceability_test.go",
+           "declaration": "TestCIWorkflowInvokesTraceabilityGate"
++        },
++        {
++          "path": "internal/traceability/traceability_test.go",
++          "declaration": "TestSourceCheckerAcceptsNativeFuzzAndRejectsNonExecutableHelpers"
+         }
+       ]
+     }
+@@ -414,6 +535,26 @@
+       "production": {"path": "internal/catalog/catalog.go", "declaration": "ForRelease"},
+       "acceptance_cases": ["catalog-v050-exact"]
+     },
++    {
++      "kind": "section_binding",
++      "keys": ["section:1.6"],
++      "production": {"path": "internal/scalar/scalar.go", "declaration": "ErrInvalidScalar"},
++      "acceptance_cases": [
++        "scalar-uuid-validation",
++        "scalar-timestamp-validation",
++        "scalar-digest-validation",
++        "scalar-platform-provider-validation",
++        "scalar-provider-id-validation",
++        "scalar-relative-path-validation",
++        "scalar-absolute-path-validation",
++        "scalar-bounded-integer-validation",
++        "scalar-decimal-uint64-validation",
++        "scalar-closed-enum-validation",
++        "canonical-jcs-rfc8785",
++        "canonical-object-identity",
++        "canonical-identity-refusal"
++      ]
++    },
+     {
+       "kind": "section_binding",
+       "keys": ["section:4.C"],
+@@ -486,6 +627,30 @@
+       "production": {"path": "internal/catalog/catalog.go", "declaration": "ForRelease"},
+       "acceptance_cases": ["catalog-v050-exact"]
+     },
++    {
++      "kind": "section_binding",
++      "keys": ["section:10.1"],
++      "production": {"path": "internal/scalar/time_digest.go", "declaration": "Timestamp"},
++      "acceptance_cases": ["scalar-digest-validation", "scalar-timestamp-validation", "scalar-uuid-validation", "canonical-object-identity", "canonical-identity-refusal"]
++    },
++    {
++      "kind": "section_binding",
++      "keys": ["section:10.2"],
++      "production": {"path": "internal/scalar/time_digest.go", "declaration": "Digest"},
++      "acceptance_cases": ["scalar-digest-validation", "scalar-bounded-integer-validation", "canonical-jcs-rfc8785", "canonical-object-identity"]
++    },
++    {
++      "kind": "section_binding",
++      "keys": ["section:10.3"],
++      "production": {"path": "internal/scalar/integer.go", "declaration": "BoundedInteger"},
++      "acceptance_cases": ["scalar-bounded-integer-validation", "scalar-digest-validation", "canonical-identity-refusal"]
++    },
++    {
++      "kind": "section_binding",
++      "keys": ["section:10.4"],
++      "production": {"path": "internal/scalar/names.go", "declaration": "ClosedEnum"},
++      "acceptance_cases": ["scalar-closed-enum-validation", "scalar-uuid-validation", "scalar-digest-validation", "canonical-object-identity", "canonical-identity-refusal"]
++    },
+     {
+       "kind": "section_binding",
+       "keys": ["section:11.2"],
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 2e6f08b..ed6a0de 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -19,6 +19,8 @@ import (
+ 	"path"
+ 	"regexp"
+ 	"strings"
++	"unicode"
++	"unicode/utf8"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/catalog"
+ 	"github.com/relux-works/agent-session-manager/internal/cataloggen"
+@@ -37,7 +39,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "947212c330b5d2413528483433a4d89aeb8b41db5813fc55e371649f2880e66f"
++	reviewedOwnershipCanonicalSHA256 = "ad927d408d9635e94789f24f3790499ff006aa31b1504aaaf580494de61e192a"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+@@ -685,7 +687,7 @@ func (checker *sourceChecker) verify(reference codeReference, test bool) error {
+ 		return fmt.Errorf("code reference %q is not a Go source file", clean)
+ 	}
+ 	if test {
+-		if !strings.HasSuffix(clean, "_test.go") || !strings.HasPrefix(reference.Declaration, "Test") {
++		if !strings.HasSuffix(clean, "_test.go") || !isExecutableTestName(reference.Declaration) {
+ 			return fmt.Errorf("test owner %s:%s is not an executable Go test reference", clean, reference.Declaration)
+ 		}
+ 	} else if strings.HasSuffix(clean, "_test.go") {
+@@ -710,6 +712,21 @@ func (checker *sourceChecker) verify(reference codeReference, test bool) error {
+ 	return nil
+ }
+ 
++func isExecutableTestName(name string) bool {
++	for _, prefix := range []string{"Test", "Fuzz"} {
++		if !strings.HasPrefix(name, prefix) {
++			continue
++		}
++		suffix := name[len(prefix):]
++		if suffix == "" {
++			return true
++		}
++		first, _ := utf8.DecodeRuneInString(suffix)
++		return !unicode.IsLower(first)
++	}
++	return false
++}
++
+ func hasDeclaration(file *ast.File, name string, test bool) bool {
+ 	for _, declaration := range file.Decls {
+ 		switch value := declaration.(type) {
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 3f4d5be..fb8a85d 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -27,7 +27,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              60,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        16,
++		AcceptanceCases:        29,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 	}
+@@ -62,10 +62,10 @@ func TestVerifyAssignedSectionsBindsGranularScopeToOwnersAndExecutableCases(t *t
+ func TestVerifyAssignedSectionsRejectsPinnedSectionWithoutScopedImplementation(t *testing.T) {
+ 	t.Parallel()
+ 
+-	_, err := VerifyAssignedSections(repositorySnapshot(t), []string{"10.1"})
+-	want := `assigned section "10.1" binding "section:10.1" has no scoped implementation owner`
++	_, err := VerifyAssignedSections(repositorySnapshot(t), []string{"10.5"})
++	want := `assigned section "10.5" binding "section:10.5" has no scoped implementation owner`
+ 	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), want) {
+-		t.Fatalf("VerifyAssignedSections(10.1) error = %v, want ErrTraceability containing %q", err, want)
++		t.Fatalf("VerifyAssignedSections(10.5) error = %v, want ErrTraceability containing %q", err, want)
+ 	}
+ }
+ 
+@@ -214,6 +214,31 @@ func TestVerifyRepositoryRejectsAbsentAcceptanceTestDeclaration(t *testing.T) {
+ 	}
+ }
+ 
++func TestSourceCheckerAcceptsNativeFuzzAndRejectsNonExecutableHelpers(t *testing.T) {
++	t.Parallel()
++
++	repository := fstest.MapFS{
++		"boundary_test.go": &fstest.MapFile{Data: []byte(`package boundary
++
++import "testing"
++
++func FuzzBoundary(f *testing.F) {}
++func Fuzzhelper(f *testing.F) {}
++func BenchmarkBoundary(b *testing.B) {}
++`)},
++	}
++	checker := newSourceChecker(repository)
++	if err := checker.verify(codeReference{Path: "boundary_test.go", Declaration: "FuzzBoundary"}, true); err != nil {
++		t.Fatalf("native fuzz reference refused: %v", err)
++	}
++	for _, declaration := range []string{"Fuzzhelper", "BenchmarkBoundary"} {
++		err := checker.verify(codeReference{Path: "boundary_test.go", Declaration: declaration}, true)
++		if err == nil || !strings.Contains(err.Error(), "not an executable Go test reference") {
++			t.Errorf("sourceChecker.verify(%s) error = %v, want executable-test refusal", declaration, err)
++		}
++	}
++}
++
+ func TestVerifyRepositoryRejectsAbsentAcceptanceProductionDeclaration(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/task-board.config.json b/task-board.config.json
+index a8d18a7..038de82 100644
+--- a/task-board.config.json
++++ b/task-board.config.json
+@@ -116,8 +116,11 @@
+           "go test ./... -count=1 -v",
+           "go test ./... -race -count=1",
+           "go test ./... -cover -count=1",
++          "go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1",
++          "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1",
++          "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1",
+           "go run ./internal/traceability/cmd/tracecheck",
+-          "go generate ./internal/catalog && git diff --exit-code -- internal/catalog/catalog_gen.go",
++          "go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check",
+           "GOOS=linux GOARCH=amd64 go build ./...",
+           "GOOS=windows GOARCH=amd64 go build ./...",
+           "git ls-files -z '*.json' | xargs -0 -n1 python3 -c 'import json,sys;json.load(open(sys.argv[1]))'",

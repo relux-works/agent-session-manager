@@ -1,0 +1,1761 @@
+diff --git a/.gitignore b/.gitignore
+index 9103d3a..f2b8d2b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -6,6 +6,9 @@
+ .gemini/skills/
+ Skillfile.dev.json
+ 
++# macOS Finder metadata
++.DS_Store
++
+ # Project-local temporary artifacts
+ .temp/
+ .task-board/.board-write-ledger.json
+diff --git a/README.md b/README.md
+index 80b212b..fe912fa 100644
+--- a/README.md
++++ b/README.md
+@@ -122,6 +122,42 @@ go run ./internal/traceability/cmd/tracecheck \
+   -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4
+ ```
+ 
++## Canonical JSON and Immutable Object Identities
++
++[`internal/canonicaljson`](internal/canonicaljson) exposes the production RFC
++8785 JCS entry point and the AX immutable-object identity calculation. The JCS
++path validates I-JSON input before canonicalization, including duplicate-name,
++UTF-8, surrogate-pair, ECMAScript number-formatting, string-escaping, and
++UTF-16 property-ordering rules. Its number behavior is checked against every
++finite RFC 8785 Appendix B sample through the production entry point.
++
++The AX identity path additionally enforces the Section 1.6 common model: JSON
++numbers are integral safe integers, and the exact `schema`/`schema_version`
++pair selects the schema-defined self field from the generated catalog bound to
++the pinned v0.5.0 source. The catalog contains the complete reviewed terminal,
++clone, registry, and common-object omit-self set; production does not maintain
++a second hand-copied schema list. Other registered ID names may remain as
++ordinary references; only the selected schema's own field is removed before
++JCS and SHA-256. Callers cannot choose an omit field. Verification recomputes
++that identity and refuses unsupported or malformed schema contracts, a missing
++or malformed selected self field, raw-byte `chunk_id` objects, mutable journal
++variants, self-included digests, duplicate keys, unsafe integers, and
++floating-point literals.
++
++This package is read-only and deterministic; it does not mutate durable state.
++It supplies identity calculation for a new schema-versioned object under
++Section 17.3, but does not claim to implement migration publication, atomic
++reference advancement, rollback retention, `ax migrate`, `ax doctor`, or any
++runtime capability. Those surfaces remain unavailable until their owning
++implementation tasks land.
++
++Run its focused tests with:
++
++```bash
++go test ./internal/canonicaljson -count=1
++go test ./internal/canonicaljson -cover -count=1
++```
++
+ ## Generated Contract Catalogs
+ 
+ [`internal/catalog`](internal/catalog) exposes typed records through
+@@ -154,6 +190,7 @@ Regenerate and verify the committed output with:
+ 
+ ```bash
+ go generate ./internal/catalog
++go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check
+ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/cataloggen -count=1
+ ```
+ 
+@@ -163,9 +200,13 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
+ registry independently enumerates implementation owners for all 60 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 26
++contract rows, 36 pinned or catalog-referenced normative section keys, 29
+ executable acceptance cases, and 30 exact fixture identities or Appendix D
+ anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
++The generated v0.5.0 catalog also carries the reviewed schema/version/self-field
++contracts used by canonical object identity calculation; generator validation
++binds each row to a pinned contract and rejects duplicate, unsupported,
++malformed, or digest-drifted metadata.
+ 
+ The production validator re-verifies the exact source lock and reviewed catalog
+ metadata, refuses stale generated output, requires every production and test
+@@ -213,7 +254,8 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
+ | --- | --- | --- | --- |
+ | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
+ | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
+-| Go toolchain | Verify global and assigned-scope specification ownership, validate common wire scalars, generate the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4`; `go test ./internal/scalar -cover -count=1`; `go generate ./internal/catalog`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
++| Go toolchain | Verify global and assigned-scope specification ownership, validate common wire scalars and canonical identities, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/canonicaljson -cover -count=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
++| `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
+ | GitHub Actions | Enforce traceability, generated-output, test, vet, and build gates on pull requests and `main` | `.github/workflows/ci.yml` | GitHub-hosted CI check results |
+ | Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
+ | GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |
+diff --git a/go.mod b/go.mod
+index 3a417b9..050e6d0 100644
+--- a/go.mod
++++ b/go.mod
+@@ -1,3 +1,5 @@
+ module github.com/relux-works/agent-session-manager
+ 
+ go 1.25.0
++
++require github.com/gowebpki/jcs v1.0.1
+diff --git a/go.sum b/go.sum
+new file mode 100644
+index 0000000..44bfad4
+--- /dev/null
++++ b/go.sum
+@@ -0,0 +1,12 @@
++github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
++github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/gowebpki/jcs v1.0.1 h1:Qjzg8EOkrOTuWP7DqQ1FbYtcpEbeTzUoTN9bptp8FOU=
++github.com/gowebpki/jcs v1.0.1/go.mod h1:CID1cNZ+sHp1CCpAR8mPf6QRtagFBgPJE0FCUQ6+BrI=
++github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
++github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
++github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
++github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5CcY=
++github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
++gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
++gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c h1:dUUwHk2QECo/6vqA44rthZ8ie2QXMNeKRTHCNY2nXvo=
++gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+diff --git a/internal/canonicaljson/canonical.go b/internal/canonicaljson/canonical.go
+new file mode 100644
+index 0000000..8581b98
+--- /dev/null
++++ b/internal/canonicaljson/canonical.go
+@@ -0,0 +1,465 @@
++// Package canonicaljson implements the RFC 8785 JSON Canonicalization Scheme
++// and the AX omit-self-field identity boundary for immutable logical objects.
++package canonicaljson
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"strconv"
++	"strings"
++	"unicode/utf8"
++
++	"github.com/gowebpki/jcs"
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const maxSafeInteger int64 = 9007199254740991
++
++var (
++	// ErrInvalidJSON reports input outside the RFC 8785 I-JSON surface.
++	ErrInvalidJSON = errors.New("invalid canonical JSON input")
++	// ErrInvalidIdentity reports input outside the AX omit-self identity contract.
++	ErrInvalidIdentity = errors.New("invalid canonical object identity")
++)
++
++// SelfField is one of the pinned AX immutable-object self-identity namespaces.
++// Chunk IDs are intentionally absent: Section 10.3 defines chunk_id as a
++// digest of raw bytes, not of a JSON object.
++type SelfField string
++
++const (
++	SelfRecordID                   SelfField = "record_id"
++	SelfEventID                    SelfField = "event_id"
++	SelfCheckpointID               SelfField = "checkpoint_id"
++	SelfDescriptorID               SelfField = "descriptor_id"
++	SelfManifestID                 SelfField = "manifest_id"
++	SelfPlanID                     SelfField = "plan_id"
++	SelfTombstoneID                SelfField = "tombstone_id"
++	SelfAckID                      SelfField = "ack_id"
++	SelfBundleID                   SelfField = "bundle_id"
++	SelfMarkerID                   SelfField = "marker_id"
++	SelfObservationID              SelfField = "observation_id"
++	SelfBatchID                    SelfField = "batch_id"
++	SelfLineageLinkID              SelfField = "lineage_link_id"
++	SelfAnnotationID               SelfField = "annotation_id"
++	SelfProfileID                  SelfField = "profile_id"
++	SelfJobRequestID               SelfField = "job_request_id"
++	SelfJobReceiptID               SelfField = "job_receipt_id"
++	SelfDirectoryReceiptID         SelfField = "directory_receipt_id"
++	SelfProbeID                    SelfField = "probe_id"
++	SelfBindingID                  SelfField = "binding_id"
++	SelfEvidenceID                 SelfField = "evidence_id"
++	SelfRawObjectManifestID        SelfField = "raw_object_manifest_id"
++	SelfCaptureManifestID          SelfField = "capture_manifest_id"
++	SelfCanonicalSessionID         SelfField = "canonical_session_id"
++	SelfFidelityReportID           SelfField = "fidelity_report_id"
++	SelfProjectionPlanID           SelfField = "projection_plan_id"
++	SelfProjectedObjectManifestID  SelfField = "projected_object_manifest_id"
++	SelfReadBackEvidenceManifestID SelfField = "read_back_evidence_manifest_id"
++	SelfValidationReportID         SelfField = "validation_report_id"
++	SelfMigrationCheckpointID      SelfField = "migration_checkpoint_id"
++	SelfLineageReceiptID           SelfField = "lineage_receipt_id"
++	SelfRegistryDigest             SelfField = "registry_digest"
++)
++
++type schemaIdentityKey struct {
++	schema  string
++	version string
++}
++
++type schemaIdentityContract struct {
++	selfField          SelfField
++	discriminatorName  string
++	discriminatorValue string
++}
++
++// schemaIdentityContracts is derived from the generated catalog whose source
++// is bound to the pinned v0.5.0 document. A schema may legitimately carry a
++// differently named ID as a reference, so field-name counting is not an
++// identity contract.
++var schemaIdentityContracts = mustBuildSchemaIdentityContracts(catalog.Current().SelfIdentities)
++
++func mustBuildSchemaIdentityContracts(definitions []catalog.SelfIdentityContract) map[schemaIdentityKey]schemaIdentityContract {
++	contracts, err := buildSchemaIdentityContracts(definitions)
++	if err != nil {
++		panic(fmt.Sprintf("generated self-identity catalog is invalid: %v", err))
++	}
++	return contracts
++}
++
++func buildSchemaIdentityContracts(definitions []catalog.SelfIdentityContract) (map[schemaIdentityKey]schemaIdentityContract, error) {
++	contracts := make(map[schemaIdentityKey]schemaIdentityContract)
++	for _, definition := range definitions {
++		contract := schemaIdentityContract{
++			selfField:          SelfField(definition.SelfField),
++			discriminatorName:  definition.DiscriminatorName,
++			discriminatorValue: definition.DiscriminatorValue,
++		}
++		for _, version := range definition.ContractVersions {
++			key := schemaIdentityKey{schema: string(definition.ContractID), version: version}
++			if _, duplicate := contracts[key]; duplicate {
++				return nil, fmt.Errorf("duplicate self-identity contract for %s@%s", key.schema, key.version)
++			}
++			contracts[key] = contract
++		}
++	}
++	if err := validateSchemaIdentityContracts(contracts, definitions); err != nil {
++		return nil, err
++	}
++	return contracts, nil
++}
++
++func validateSchemaIdentityContracts(contracts map[schemaIdentityKey]schemaIdentityContract, definitions []catalog.SelfIdentityContract) error {
++	expected := 0
++	for _, definition := range definitions {
++		for _, version := range definition.ContractVersions {
++			expected++
++			key := schemaIdentityKey{schema: string(definition.ContractID), version: version}
++			contract, ok := contracts[key]
++			if !ok {
++				return fmt.Errorf("missing self-identity contract for %s@%s", key.schema, key.version)
++			}
++			if contract.selfField != SelfField(definition.SelfField) ||
++				contract.discriminatorName != definition.DiscriminatorName ||
++				contract.discriminatorValue != definition.DiscriminatorValue {
++				return fmt.Errorf("self-identity contract for %s@%s differs from generated catalog", key.schema, key.version)
++			}
++		}
++	}
++	if len(contracts) != expected {
++		return fmt.Errorf("self-identity contract table has %d rows, generated catalog has %d", len(contracts), expected)
++	}
++	return nil
++}
++
++// Canonicalize is the production RFC 8785 entry point. It rejects malformed
++// UTF-8, invalid surrogate escapes, duplicate object names, and non-I-JSON
++// input before producing the canonical UTF-8 byte sequence.
++func Canonicalize(input []byte) ([]byte, error) {
++	value, err := decodeStrict(input)
++	if err != nil {
++		return nil, err
++	}
++	// Re-encode the parsed logical value before the JCS transform. This removes
++	// leading/trailing whitespace around primitive top-level values without
++	// changing json.Number tokens or string data.
++	normalized, err := json.Marshal(value)
++	if err != nil {
++		return nil, invalidJSON("serialize logical JSON value: %v", err)
++	}
++	canonical, err := jcs.Transform(normalized)
++	if err != nil {
++		return nil, invalidJSON("canonicalize RFC 8785 value: %v", err)
++	}
++	return canonical, nil
++}
++
++// CalculateObjectIdentity validates the AX common logical number model,
++// resolves the one self field from the object's trusted schema/version
++// contract, omits that field, applies RFC 8785 JCS, and returns the SHA-256
++// identity. Callers cannot select an arbitrary field to omit, which prevents
++// self inclusion and digest cycles.
++func CalculateObjectIdentity(input []byte) (scalar.Digest, SelfField, error) {
++	value, err := decodeStrict(input)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	if err := validateAXNumbers(value); err != nil {
++		return scalar.Digest{}, "", err
++	}
++	object, ok := value.(map[string]any)
++	if !ok {
++		return scalar.Digest{}, "", invalidIdentity("identity input must be a JSON object")
++	}
++
++	selfField, _, err := resolveSelfField(object)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	omitted := make(map[string]any, len(object)-1)
++	for name, member := range object {
++		if name != string(selfField) {
++			omitted[name] = member
++		}
++	}
++	serialized, err := json.Marshal(omitted)
++	if err != nil {
++		return scalar.Digest{}, "", invalidIdentity("serialize omit-self object: %v", err)
++	}
++	canonical, err := jcs.Transform(serialized)
++	if err != nil {
++		return scalar.Digest{}, "", invalidIdentity("canonicalize omit-self object: %v", err)
++	}
++	return scalar.SHA256Digest(canonical), selfField, nil
++}
++
++// VerifyObjectIdentity drives the same production calculation and refuses a
++// malformed, self-included, or otherwise mismatched claimed identity.
++func VerifyObjectIdentity(input []byte) (scalar.Digest, SelfField, error) {
++	value, err := decodeStrict(input)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	object, ok := value.(map[string]any)
++	if !ok {
++		return scalar.Digest{}, "", invalidIdentity("identity input must be a JSON object")
++	}
++	selfField, claimed, err := resolveSelfField(object)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	calculated, calculatedField, err := CalculateObjectIdentity(input)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	if calculatedField != selfField || claimed != calculated {
++		return scalar.Digest{}, "", invalidIdentity(
++			"%s claim %q does not match omit-self digest %q",
++			selfField,
++			claimed,
++			calculated,
++		)
++	}
++	return calculated, selfField, nil
++}
++
++func resolveSelfField(object map[string]any) (SelfField, scalar.Digest, error) {
++	schema, err := requiredStringMember(object, "schema")
++	if err != nil {
++		return "", scalar.Digest{}, err
++	}
++	version, err := requiredStringMember(object, "schema_version")
++	if err != nil {
++		return "", scalar.Digest{}, err
++	}
++	contract, ok := schemaIdentityContracts[schemaIdentityKey{schema: schema, version: version}]
++	if !ok {
++		return "", scalar.Digest{}, invalidIdentity(
++			"schema %q version %q has no supported immutable self-identity contract",
++			schema,
++			version,
++		)
++	}
++	if contract.discriminatorName != "" {
++		discriminator, err := requiredStringMember(object, contract.discriminatorName)
++		if err != nil {
++			return "", scalar.Digest{}, err
++		}
++		if discriminator != contract.discriminatorValue {
++			return "", scalar.Digest{}, invalidIdentity(
++				"schema %q version %q variant %s=%q is not an immutable self-identity contract",
++				schema,
++				version,
++				contract.discriminatorName,
++				discriminator,
++			)
++		}
++	}
++
++	value, ok := object[string(contract.selfField)]
++	if !ok {
++		return "", scalar.Digest{}, invalidIdentity(
++			"schema %q version %q requires self field %s",
++			schema,
++			version,
++			contract.selfField,
++		)
++	}
++	text, ok := value.(string)
++	if !ok {
++		return "", scalar.Digest{}, invalidIdentity("self field %s must contain a digest string", contract.selfField)
++	}
++	claim, err := scalar.ParseDigest(text)
++	if err != nil {
++		return "", scalar.Digest{}, invalidIdentity("self field %s: %v", contract.selfField, err)
++	}
++	return contract.selfField, claim, nil
++}
++
++func requiredStringMember(object map[string]any, name string) (string, error) {
++	value, ok := object[name]
++	if !ok {
++		return "", invalidIdentity("identity input requires string member %s", name)
++	}
++	text, ok := value.(string)
++	if !ok || text == "" {
++		return "", invalidIdentity("identity input member %s must be a non-empty string", name)
++	}
++	return text, nil
++}
++
++func decodeStrict(input []byte) (any, error) {
++	if len(input) == 0 {
++		return nil, invalidJSON("input is empty")
++	}
++	if !utf8.Valid(input) {
++		return nil, invalidJSON("input is not valid UTF-8")
++	}
++	if err := validateSurrogateEscapes(input); err != nil {
++		return nil, err
++	}
++
++	decoder := json.NewDecoder(bytes.NewReader(input))
++	decoder.UseNumber()
++	value, err := decodeValue(decoder)
++	if err != nil {
++		return nil, err
++	}
++	if token, err := decoder.Token(); !errors.Is(err, io.EOF) {
++		if err != nil {
++			return nil, invalidJSON("read trailing JSON data: %v", err)
++		}
++		return nil, invalidJSON("unexpected trailing JSON token %v", token)
++	}
++	return value, nil
++}
++
++func decodeValue(decoder *json.Decoder) (any, error) {
++	token, err := decoder.Token()
++	if err != nil {
++		return nil, invalidJSON("decode JSON token: %v", err)
++	}
++	delimiter, ok := token.(json.Delim)
++	if !ok {
++		return token, nil
++	}
++
++	switch delimiter {
++	case '{':
++		object := make(map[string]any)
++		for decoder.More() {
++			nameToken, err := decoder.Token()
++			if err != nil {
++				return nil, invalidJSON("decode object name: %v", err)
++			}
++			name, ok := nameToken.(string)
++			if !ok {
++				return nil, invalidJSON("object name is not a string")
++			}
++			if _, duplicate := object[name]; duplicate {
++				return nil, invalidJSON("duplicate object member %q", name)
++			}
++			value, err := decodeValue(decoder)
++			if err != nil {
++				return nil, err
++			}
++			object[name] = value
++		}
++		end, err := decoder.Token()
++		if err != nil || end != json.Delim('}') {
++			return nil, invalidJSON("decode object terminator: %v", err)
++		}
++		return object, nil
++	case '[':
++		array := make([]any, 0)
++		for decoder.More() {
++			value, err := decodeValue(decoder)
++			if err != nil {
++				return nil, err
++			}
++			array = append(array, value)
++		}
++		end, err := decoder.Token()
++		if err != nil || end != json.Delim(']') {
++			return nil, invalidJSON("decode array terminator: %v", err)
++		}
++		return array, nil
++	default:
++		return nil, invalidJSON("unexpected delimiter %q", delimiter)
++	}
++}
++
++func validateAXNumbers(value any) error {
++	switch typed := value.(type) {
++	case json.Number:
++		literal := typed.String()
++		if strings.ContainsAny(literal, ".eE") {
++			return invalidIdentity("floating-point number %q is forbidden by the AX common model", literal)
++		}
++		integer, err := strconv.ParseInt(literal, 10, 64)
++		if err != nil || integer < -maxSafeInteger || integer > maxSafeInteger {
++			return invalidIdentity("integer %q is outside the AX safe-integer interval", literal)
++		}
++	case []any:
++		for _, element := range typed {
++			if err := validateAXNumbers(element); err != nil {
++				return err
++			}
++		}
++	case map[string]any:
++		for _, member := range typed {
++			if err := validateAXNumbers(member); err != nil {
++				return err
++			}
++		}
++	}
++	return nil
++}
++
++func validateSurrogateEscapes(input []byte) error {
++	for index := 0; index < len(input); index++ {
++		if input[index] != '"' {
++			continue
++		}
++		for index++; index < len(input); index++ {
++			switch input[index] {
++			case '"':
++				goto stringComplete
++			case '\\':
++				index++
++				if index >= len(input) {
++					return invalidJSON("unterminated string escape")
++				}
++				if input[index] != 'u' {
++					continue
++				}
++				codeUnit, end, err := readUTF16Escape(input, index-1)
++				if err != nil {
++					return err
++				}
++				index = end - 1
++				switch {
++				case codeUnit >= 0xd800 && codeUnit <= 0xdbff:
++					second, secondEnd, err := readUTF16Escape(input, end)
++					if err != nil || second < 0xdc00 || second > 0xdfff {
++						return invalidJSON("high surrogate escape must be followed by a low surrogate escape")
++					}
++					index = secondEnd - 1
++				case codeUnit >= 0xdc00 && codeUnit <= 0xdfff:
++					return invalidJSON("lone low surrogate escape is forbidden")
++				}
++			case 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
++				0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
++				0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
++				0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f:
++				return invalidJSON("unescaped control character in string")
++			}
++		}
++		return invalidJSON("unterminated JSON string")
++	stringComplete:
++	}
++	return nil
++}
++
++func readUTF16Escape(input []byte, start int) (uint16, int, error) {
++	if start < 0 || start+6 > len(input) || input[start] != '\\' || input[start+1] != 'u' {
++		return 0, start, invalidJSON("expected UTF-16 escape")
++	}
++	value, err := strconv.ParseUint(string(input[start+2:start+6]), 16, 16)
++	if err != nil {
++		return 0, start, invalidJSON("malformed UTF-16 escape")
++	}
++	return uint16(value), start + 6, nil
++}
++
++func invalidJSON(format string, arguments ...any) error {
++	return fmt.Errorf("%w: %s", ErrInvalidJSON, fmt.Sprintf(format, arguments...))
++}
++
++func invalidIdentity(format string, arguments ...any) error {
++	return fmt.Errorf("%w: %s", ErrInvalidIdentity, fmt.Sprintf(format, arguments...))
++}
+diff --git a/internal/canonicaljson/canonical_test.go b/internal/canonicaljson/canonical_test.go
+new file mode 100644
+index 0000000..479f12f
+--- /dev/null
++++ b/internal/canonicaljson/canonical_test.go
+@@ -0,0 +1,433 @@
++package canonicaljson
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"fmt"
++	"math"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++)
++
++const zeroDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
++
++func TestCanonicalizeMatchesPublishedRFC8785PrimitiveAndStringVector(t *testing.T) {
++	input := []byte(`{
++  "numbers": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001],
++  "string": "\u20ac$\u000F\u000aA'\u0042\u0022\u005c\\\"\/",
++  "literals": [null, true, false]
++}`)
++	want := `{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],"string":"€$\u000f\nA'B\"\\\\\"/"}`
++
++	got, err := Canonicalize(input)
++	if err != nil {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.2 vector) error = %v", err)
++	}
++	if string(got) != want {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.2 vector) = %q, want %q", got, want)
++	}
++
++	again, err := Canonicalize(got)
++	if err != nil || string(again) != want {
++		t.Fatalf("Canonicalize(canonical vector) = %q, %v; want identical %q", again, err, want)
++	}
++
++	primitive, err := Canonicalize([]byte(" \n -0 \t"))
++	if err != nil || string(primitive) != "0" {
++		t.Fatalf("Canonicalize(whitespace-wrapped minus zero) = %q, %v; want RFC value 0", primitive, err)
++	}
++}
++
++func TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample(t *testing.T) {
++	vectors := []struct {
++		bits uint64
++		want string
++	}{
++		{0x0000000000000000, "0"},
++		{0x8000000000000000, "0"},
++		{0x0000000000000001, "5e-324"},
++		{0x8000000000000001, "-5e-324"},
++		{0x7fefffffffffffff, "1.7976931348623157e+308"},
++		{0xffefffffffffffff, "-1.7976931348623157e+308"},
++		{0x4340000000000000, "9007199254740992"},
++		{0xc340000000000000, "-9007199254740992"},
++		{0x4430000000000000, "295147905179352830000"},
++		{0x44b52d02c7e14af5, "9.999999999999997e+22"},
++		{0x44b52d02c7e14af6, "1e+23"},
++		{0x44b52d02c7e14af7, "1.0000000000000001e+23"},
++		{0x444b1ae4d6e2ef4e, "999999999999999700000"},
++		{0x444b1ae4d6e2ef4f, "999999999999999900000"},
++		{0x444b1ae4d6e2ef50, "1e+21"},
++		{0x3eb0c6f7a0b5ed8c, "9.999999999999997e-7"},
++		{0x3eb0c6f7a0b5ed8d, "0.000001"},
++		{0x41b3de4355555553, "333333333.3333332"},
++		{0x41b3de4355555554, "333333333.33333325"},
++		{0x41b3de4355555555, "333333333.3333333"},
++		{0x41b3de4355555556, "333333333.3333334"},
++		{0x41b3de4355555557, "333333333.33333343"},
++		{0xbecbf647612f3696, "-0.0000033333333333333333"},
++		{0x43143ff3c1cb0959, "1424953923781206.2"},
++	}
++
++	for _, vector := range vectors {
++		name := fmt.Sprintf("%016x", vector.bits)
++		t.Run(name, func(t *testing.T) {
++			value := math.Float64frombits(vector.bits)
++			input := strconv.FormatFloat(value, 'g', -1, 64)
++			got, err := Canonicalize([]byte(input))
++			if err != nil {
++				t.Fatalf("Canonicalize(%q) error = %v", input, err)
++			}
++			if string(got) != vector.want {
++				t.Fatalf("Canonicalize(%q) = %q, want RFC Appendix B %q", input, got, vector.want)
++			}
++		})
++	}
++
++	if _, err := Canonicalize([]byte("1e999")); err == nil {
++		t.Fatal("Canonicalize(out-of-range number) error = nil, want I-JSON refusal")
++	}
++}
++
++func TestCanonicalizeUsesRFC8785UTF16PropertyOrdering(t *testing.T) {
++	input := []byte(`{
++  "\u20ac": "Euro Sign",
++  "\r": "Carriage Return",
++  "\ufb33": "Hebrew Letter Dalet With Dagesh",
++  "1": "One",
++  "\ud83d\ude00": "Emoji: Grinning Face",
++  "\u0080": "Control",
++  "\u00f6": "Latin Small Letter O With Diaeresis"
++}`)
++	want := `{"\r":"Carriage Return","1":"One","":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}`
++
++	got, err := Canonicalize(input)
++	if err != nil {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.3 vector) error = %v", err)
++	}
++	if string(got) != want {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.3 vector) = %q, want %q", got, want)
++	}
++}
++
++func TestCalculateObjectIdentityOmitsEveryGeneratedV050SelfIdentityContract(t *testing.T) {
++	definitions := catalog.Current().SelfIdentities
++	if len(definitions) == 0 {
++		t.Fatal("generated v0.5.0 self-identity catalog is empty")
++	}
++	rows := 0
++	for _, definition := range definitions {
++		for _, version := range definition.ContractVersions {
++			rows++
++			testName := string(definition.ContractID) + "@" + version
++			t.Run(testName, func(t *testing.T) {
++				extra := ""
++				if definition.DiscriminatorName != "" {
++					extra = fmt.Sprintf("%q:%q,", definition.DiscriminatorName, definition.DiscriminatorValue)
++				}
++				selfField := SelfField(definition.SelfField)
++				input := []byte(fmt.Sprintf(
++					`{"schema":%q,"schema_version":%q,%s"%s":"%s","a":1}`,
++					definition.ContractID,
++					version,
++					extra,
++					selfField,
++					zeroDigest,
++				))
++				got, gotField, err := CalculateObjectIdentity(input)
++				if err != nil {
++					t.Fatalf("CalculateObjectIdentity(%s) error = %v", testName, err)
++				}
++				omitted := fmt.Sprintf(`{"a":1,%s"schema":%q,"schema_version":%q}`, extra, definition.ContractID, version)
++				want := digestHex(omitted)
++				if gotField != selfField || got.String() != want {
++					t.Fatalf("CalculateObjectIdentity(%s) = %q, %q; want %q, %q", testName, got, gotField, want, selfField)
++				}
++			})
++		}
++	}
++	if rows != len(schemaIdentityContracts) {
++		t.Fatalf("production self-identity table has %d rows, generated catalog defines %d", len(schemaIdentityContracts), rows)
++	}
++}
++
++func TestCalculateObjectIdentitySupportsAdditionalTerminalCloneAndRegistryContracts(t *testing.T) {
++	tests := []struct {
++		schema    string
++		selfField SelfField
++	}{
++		{"urn:ax:schema:terminal-backend-probe", SelfProbeID},
++		{"urn:ax:schema:terminal-instance-binding", SelfBindingID},
++		{"urn:ax:schema:terminal-capability-evidence", SelfEvidenceID},
++		{"urn:ax:schema:clone-raw-object-manifest", SelfRawObjectManifestID},
++		{"urn:ax:schema:clone-capture-manifest", SelfCaptureManifestID},
++		{"urn:ax:schema:canonical-session", SelfCanonicalSessionID},
++		{"urn:ax:schema:fidelity-report", SelfFidelityReportID},
++		{"urn:ax:schema:projection-plan", SelfProjectionPlanID},
++		{"urn:ax:schema:clone-projected-object-manifest", SelfProjectedObjectManifestID},
++		{"urn:ax:schema:clone-read-back-evidence-manifest", SelfReadBackEvidenceManifestID},
++		{"urn:ax:schema:clone-validation-report", SelfValidationReportID},
++		{"urn:ax:schema:migration-checkpoint", SelfMigrationCheckpointID},
++		{"urn:ax:schema:clone-lineage-receipt", SelfLineageReceiptID},
++		{"urn:ax:schema:supported-environment-tuples", SelfRegistryDigest},
++	}
++	for _, test := range tests {
++		t.Run(test.schema, func(t *testing.T) {
++			input := []byte(fmt.Sprintf(
++				`{"schema":%q,"schema_version":"1.0.0","%s":"%s","referenced_id":"%s"}`,
++				test.schema,
++				test.selfField,
++				zeroDigest,
++				"sha256:1111111111111111111111111111111111111111111111111111111111111111",
++			))
++			if _, gotField, err := CalculateObjectIdentity(input); err != nil || gotField != test.selfField {
++				t.Fatalf("CalculateObjectIdentity(%s) field = %q, error = %v; want %q", test.schema, gotField, err, test.selfField)
++			}
++		})
++	}
++}
++
++func TestSelfIdentityCompletenessRejectsDeletedImplementationContract(t *testing.T) {
++	definitions := catalog.Current().SelfIdentities
++	narrowed := make(map[schemaIdentityKey]schemaIdentityContract, len(schemaIdentityContracts))
++	for key, contract := range schemaIdentityContracts {
++		narrowed[key] = contract
++	}
++	deleted := schemaIdentityKey{schema: "urn:ax:schema:canonical-session", version: "1.0.0"}
++	delete(narrowed, deleted)
++
++	err := validateSchemaIdentityContracts(narrowed, definitions)
++	if err == nil || !strings.Contains(err.Error(), "missing self-identity contract for urn:ax:schema:canonical-session@1.0.0") {
++		t.Fatalf("validateSchemaIdentityContracts(deleted canonical-session row) error = %v, want exact missing-row refusal", err)
++	}
++}
++
++func TestCalculateObjectIdentityAcceptsEveryRegisteredVersionForMultiVersionSchemas(t *testing.T) {
++	tests := []struct {
++		schema    string
++		versions  []string
++		selfField SelfField
++	}{
++		{"urn:ax:schema:session-record", []string{"1.0.0", "2.0.0", "3.0.0"}, SelfRecordID},
++		{"urn:ax:schema:session-event", []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0"}, SelfEventID},
++		{"urn:ax:schema:materialization-plan", []string{"1.0.0", "2.0.0"}, SelfPlanID},
++	}
++	for _, test := range tests {
++		for _, version := range test.versions {
++			name := test.schema + "@" + version
++			t.Run(name, func(t *testing.T) {
++				input := []byte(fmt.Sprintf(
++					`{"schema":%q,"schema_version":%q,"%s":"%s"}`,
++					test.schema,
++					version,
++					test.selfField,
++					zeroDigest,
++				))
++				if _, gotField, err := CalculateObjectIdentity(input); err != nil || gotField != test.selfField {
++					t.Fatalf("CalculateObjectIdentity(%s) field = %q, error = %v; want %q", name, gotField, err, test.selfField)
++				}
++			})
++		}
++	}
++}
++
++func TestCalculateObjectIdentityUsesSchemaDefinedSelfFieldWithRegisteredReferences(t *testing.T) {
++	referenceA := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
++	referenceB := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
++	tests := []struct {
++		name      string
++		selfField SelfField
++		input     string
++		omitted   string
++	}{
++		{
++			"Session Annotation",
++			SelfAnnotationID,
++			`{"schema":"urn:ax:schema:session-annotation","schema_version":"1.0.0","annotation_id":"` + zeroDigest + `","profile_id":"` + referenceA + `"}`,
++			`{"profile_id":"` + referenceA + `","schema":"urn:ax:schema:session-annotation","schema_version":"1.0.0"}`,
++		},
++		{
++			"Enrichment Job Request",
++			SelfJobRequestID,
++			`{"schema":"urn:ax:schema:session-enrichment-job-request","schema_version":"1.0.0","job_request_id":"` + zeroDigest + `","profile_id":"` + referenceA + `"}`,
++			`{"profile_id":"` + referenceA + `","schema":"urn:ax:schema:session-enrichment-job-request","schema_version":"1.0.0"}`,
++		},
++		{
++			"Enrichment Job Receipt",
++			SelfJobReceiptID,
++			`{"schema":"urn:ax:schema:session-enrichment-job-receipt","schema_version":"1.0.0","job_receipt_id":"` + zeroDigest + `","job_request_id":"` + referenceA + `","profile_id":"` + referenceB + `"}`,
++			`{"job_request_id":"` + referenceA + `","profile_id":"` + referenceB + `","schema":"urn:ax:schema:session-enrichment-job-receipt","schema_version":"1.0.0"}`,
++		},
++		{
++			"Directory Operation Receipt",
++			SelfDirectoryReceiptID,
++			`{"schema":"urn:ax:schema:session-directory-operation-receipt","schema_version":"1.0.0","directory_receipt_id":"` + zeroDigest + `","plan_id":"` + referenceA + `"}`,
++			`{"plan_id":"` + referenceA + `","schema":"urn:ax:schema:session-directory-operation-receipt","schema_version":"1.0.0"}`,
++		},
++	}
++
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			calculated, gotField, err := CalculateObjectIdentity([]byte(test.input))
++			if err != nil {
++				t.Fatalf("CalculateObjectIdentity(%s with registered references) error = %v", test.name, err)
++			}
++			want := digestHex(test.omitted)
++			if gotField != test.selfField || calculated.String() != want {
++				t.Fatalf("CalculateObjectIdentity(%s) = %q, %q; want schema self field %q and %q", test.name, calculated, gotField, test.selfField, want)
++			}
++
++			claimed := strings.Replace(test.input, zeroDigest, calculated.String(), 1)
++			verified, verifiedField, err := VerifyObjectIdentity([]byte(claimed))
++			if err != nil || verified != calculated || verifiedField != test.selfField {
++				t.Fatalf("VerifyObjectIdentity(%s with registered references) = %q, %q, %v", test.name, verified, verifiedField, err)
++			}
++		})
++	}
++}
++
++func TestCalculateObjectIdentityMatchesAXPublishedFixtures(t *testing.T) {
++	t.Run("safe integer maximum", func(t *testing.T) {
++		input := []byte(`{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","record_id":"` + zeroDigest + `","n":9007199254740991}`)
++		got, _, err := CalculateObjectIdentity(input)
++		want := digestHex(`{"n":9007199254740991,"schema":"urn:ax:schema:session-record","schema_version":"1.0.0"}`)
++		if err != nil || got.String() != want {
++			t.Fatalf("CalculateObjectIdentity(NUM-SAFE-MAX) = %q, %v", got, err)
++		}
++	})
++
++	t.Run("UTF-16 order", func(t *testing.T) {
++		input := []byte(`{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","record_id":"` + zeroDigest + `","\uE000":1,"\uD800\uDC00":2}`)
++		got, _, err := CalculateObjectIdentity(input)
++		want := digestHex(`{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","𐀀":2,"":1}`)
++		if err != nil || got.String() != want {
++			t.Fatalf("CalculateObjectIdentity(JCS-UTF16-ORDER) = %q, %v", got, err)
++		}
++	})
++
++	t.Run("Blob Descriptor", func(t *testing.T) {
++		input := []byte(`{
++  "schema": "urn:ax:schema:blob",
++  "schema_version": "1.0.0",
++  "descriptor_id": "sha256:390c8f21900483a010c1cbc3f9be01afebcf6e4da87263ba09fc5776dd6503ee",
++  "blob_id": "sha256:9c21bad65c1b3d0403ac85d7d5bd134bb8d894432702a396a77b0477b8eb3b50",
++  "size": 11,
++  "media_type": "application/octet-stream",
++  "chunks": [{
++    "index": 0,
++    "offset": 0,
++    "size": 11,
++    "chunk_id": "sha256:9c21bad65c1b3d0403ac85d7d5bd134bb8d894432702a396a77b0477b8eb3b50"
++  }]
++}`)
++		got, field, err := VerifyObjectIdentity(input)
++		if err != nil || field != SelfDescriptorID || got.Hex() != "390c8f21900483a010c1cbc3f9be01afebcf6e4da87263ba09fc5776dd6503ee" {
++			t.Fatalf("VerifyObjectIdentity(Blob Descriptor) = %q, %q, %v", got, field, err)
++		}
++	})
++}
++
++func TestObjectIdentityIsStableAcrossRepresentationAndClaimChanges(t *testing.T) {
++	first := []byte(`{"z":[{"b":2,"a":1}],"record_id":"` + zeroDigest + `","schema":"urn:ax:schema:session-record","schema_version":"1.0.0"}`)
++	calculated, field, err := CalculateObjectIdentity(first)
++	if err != nil {
++		t.Fatalf("CalculateObjectIdentity(first) error = %v", err)
++	}
++	second := []byte(" { \n  \"schema_version\" : \"1.0.0\", \"schema\" : \"urn:ax:schema:session-record\", \"record_id\" : \"" + calculated.String() + "\", \"z\" : [ { \"a\" : 1, \"b\" : 2 } ] } \n")
++	recalculated, secondField, err := CalculateObjectIdentity(second)
++	if err != nil || recalculated != calculated || secondField != field {
++		t.Fatalf("CalculateObjectIdentity(reordered) = %q, %q, %v; want %q, %q", recalculated, secondField, err, calculated, field)
++	}
++	verified, verifiedField, err := VerifyObjectIdentity(second)
++	if err != nil || verified != calculated || verifiedField != SelfRecordID {
++		t.Fatalf("VerifyObjectIdentity(reordered) = %q, %q, %v", verified, verifiedField, err)
++	}
++	for attempt := 0; attempt < 3; attempt++ {
++		again, _, err := CalculateObjectIdentity(second)
++		if err != nil || again != calculated {
++			t.Fatalf("CalculateObjectIdentity idempotent attempt %d = %q, %v; want %q", attempt, again, err, calculated)
++		}
++	}
++}
++
++func TestObjectIdentityRefusesSelfInclusionAndAmbiguousNamespaces(t *testing.T) {
++	placeholder := []byte(`{"record_id":"` + zeroDigest + `","schema":"urn:ax:schema:session-record","schema_version":"1.0.0","value":1}`)
++	fullCanonical, err := Canonicalize(placeholder)
++	if err != nil {
++		t.Fatalf("Canonicalize(self-inclusion setup) error = %v", err)
++	}
++	selfIncludedClaim := digestHex(string(fullCanonical))
++	selfIncluded := []byte(strings.Replace(string(placeholder), zeroDigest, selfIncludedClaim, 1))
++	if _, _, err := VerifyObjectIdentity(selfIncluded); err == nil || !errors.Is(err, ErrInvalidIdentity) {
++		t.Fatalf("VerifyObjectIdentity(self-included claim) error = %v, want identity refusal", err)
++	}
++
++	cases := []struct {
++		name  string
++		input string
++	}{
++		{"absent schema", `{"schema_version":"1.0.0","record_id":"` + zeroDigest + `"}`},
++		{"absent schema version", `{"schema":"urn:ax:schema:session-record","record_id":"` + zeroDigest + `"}`},
++		{"unsupported schema", `{"schema":"urn:ax:schema:unknown","schema_version":"1.0.0","record_id":"` + zeroDigest + `"}`},
++		{"unsupported schema version", `{"schema":"urn:ax:schema:session-record","schema_version":"999.0.0","record_id":"` + zeroDigest + `"}`},
++		{"absent schema-defined self field", `{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","event_id":"` + zeroDigest + `"}`},
++		{"raw chunk identity", `{"schema":"urn:ax:schema:chunk","schema_version":"1.0.0","chunk_id":"` + zeroDigest + `","size":1}`},
++		{"mutable journal variant", `{"schema":"urn:ax:schema:materialization-journal","schema_version":"2.0.0","document_kind":"journal","marker_id":"` + zeroDigest + `"}`},
++		{"non-digest claim", `{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","record_id":"not-a-digest","value":1}`},
++	}
++	for _, test := range cases {
++		t.Run(test.name, func(t *testing.T) {
++			if _, _, err := CalculateObjectIdentity([]byte(test.input)); err == nil || !errors.Is(err, ErrInvalidIdentity) {
++				t.Fatalf("CalculateObjectIdentity(%s) error = %v, want identity refusal", test.name, err)
++			}
++		})
++	}
++}
++
++func TestProductionEntriesRejectAmbiguousOrInvalidInput(t *testing.T) {
++	canonicalCases := []struct {
++		name  string
++		input []byte
++	}{
++		{"duplicate member", []byte(`{"a":1,"\u0061":2}`)},
++		{"lone high surrogate", []byte(`{"a":"\ud800"}`)},
++		{"lone low surrogate", []byte(`{"a":"\udc00"}`)},
++		{"mismatched surrogate", []byte(`{"a":"\ud800\u0041"}`)},
++		{"invalid UTF-8", []byte{'{', '"', 'a', '"', ':', '"', 0xff, '"', '}'}},
++	}
++	for _, test := range canonicalCases {
++		t.Run(test.name, func(t *testing.T) {
++			if _, err := Canonicalize(test.input); err == nil || !errors.Is(err, ErrInvalidJSON) {
++				t.Fatalf("Canonicalize(%s) error = %v, want invalid JSON refusal", test.name, err)
++			}
++		})
++	}
++
++	identityCases := []struct {
++		name   string
++		number string
++	}{
++		{"unsafe positive boundary", "9007199254740992"},
++		{"unsafe negative boundary", "-9007199254740992"},
++		{"rounded unsafe integer", "9007199254740993"},
++		{"floating point", "1.0"},
++		{"exponent", "1e3"},
++	}
++	for _, test := range identityCases {
++		t.Run(test.name, func(t *testing.T) {
++			input := []byte(`{"schema":"urn:ax:schema:session-record","schema_version":"1.0.0","record_id":"` + zeroDigest + `","n":` + test.number + `}`)
++			if _, _, err := CalculateObjectIdentity(input); err == nil || !errors.Is(err, ErrInvalidIdentity) {
++				t.Fatalf("CalculateObjectIdentity(%s) error = %v, want common-model refusal", test.name, err)
++			}
++		})
++	}
++}
++
++func digestHex(value string) string {
++	digest := sha256.Sum256([]byte(value))
++	return "sha256:" + hex.EncodeToString(digest[:])
++}
+diff --git a/internal/catalog/catalog.go b/internal/catalog/catalog.go
+index 6b0efdd..c03de60 100644
+--- a/internal/catalog/catalog.go
++++ b/internal/catalog/catalog.go
+@@ -59,6 +59,19 @@ type Contract struct {
+ 	Versions []string
+ }
+ 
++// SelfIdentityContract defines the schema-directed JCS omit-self rule for an
++// immutable logical object. Membership is reviewed metadata from the pinned
++// specification; it does not imply that any wider schema behavior is
++// implemented.
++type SelfIdentityContract struct {
++	ContractID         ContractID
++	ContractVersions   []string
++	SelfField          string
++	DiscriminatorName  string
++	DiscriminatorValue string
++	NormativeSection   string
++}
++
+ // OperationEffect classifies whether an operation mutates authoritative
+ // durable state. Isolated output is restricted to caller-created sinks and is
+ // not an authoritative state transition.
+@@ -124,6 +137,7 @@ type Catalog struct {
+ 	Release        Release
+ 	MetadataSHA256 string
+ 	Contracts      []Contract
++	SelfIdentities []SelfIdentityContract
+ 	Operations     []Operation
+ 	Capabilities   []Capability
+ 	Events         []Event
+@@ -134,12 +148,18 @@ type catalogDefinition struct {
+ 	Source         Source
+ 	MetadataSHA256 string
+ 	Contracts      map[Release][]Contract
++	SelfIdentities []scopedSelfIdentityContract
+ 	Operations     []scopedOperation
+ 	Capabilities   []scopedCapability
+ 	Events         []scopedEvent
+ 	Errors         []scopedError
+ }
+ 
++type scopedSelfIdentityContract struct {
++	Definition SelfIdentityContract
++	Releases   []Release
++}
++
+ type scopedOperation struct {
+ 	Definition Operation
+ 	Releases   []Release
+@@ -181,11 +201,14 @@ func ForRelease(release Release) (Catalog, error) {
+ 
+ 	allowedVersions := make(map[ContractID]map[string]struct{}, len(contracts))
+ 	for _, contract := range contracts {
+-		versions := make(map[string]struct{}, len(contract.Versions))
++		versions := allowedVersions[contract.ID]
++		if versions == nil {
++			versions = make(map[string]struct{}, len(contract.Versions))
++			allowedVersions[contract.ID] = versions
++		}
+ 		for _, version := range contract.Versions {
+ 			versions[version] = struct{}{}
+ 		}
+-		allowedVersions[contract.ID] = versions
+ 	}
+ 
+ 	result := Catalog{
+@@ -194,6 +217,16 @@ func ForRelease(release Release) (Catalog, error) {
+ 		MetadataSHA256: generatedDefinition.MetadataSHA256,
+ 		Contracts:      cloneContracts(contracts),
+ 	}
++	for _, scoped := range generatedDefinition.SelfIdentities {
++		if !containsRelease(scoped.Releases, release) {
++			continue
++		}
++		definition := cloneSelfIdentityContract(scoped.Definition)
++		definition.ContractVersions = filterVersions(definition.ContractVersions, allowedVersions[definition.ContractID])
++		if len(definition.ContractVersions) != 0 {
++			result.SelfIdentities = append(result.SelfIdentities, definition)
++		}
++	}
+ 	for _, scoped := range generatedDefinition.Operations {
+ 		if !containsRelease(scoped.Releases, release) {
+ 			continue
+@@ -270,6 +303,11 @@ func cloneContracts(contracts []Contract) []Contract {
+ 	return result
+ }
+ 
++func cloneSelfIdentityContract(contract SelfIdentityContract) SelfIdentityContract {
++	contract.ContractVersions = append([]string(nil), contract.ContractVersions...)
++	return contract
++}
++
+ func cloneOperation(operation Operation) Operation {
+ 	operation.ContractVersions = append([]string(nil), operation.ContractVersions...)
+ 	operation.RecoveryEvidence = append([]string(nil), operation.RecoveryEvidence...)
+diff --git a/internal/catalog/catalog.v0.5.0.json b/internal/catalog/catalog.v0.5.0.json
+index 939e5d6..25d5fb0 100644
+--- a/internal/catalog/catalog.v0.5.0.json
++++ b/internal/catalog/catalog.v0.5.0.json
+@@ -13,6 +13,48 @@
+     "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+     "appendix-a", "appendix-b", "appendix-c", "appendix-d"
+   ],
++  "self_identity_contracts": [
++    {"contract_id": "urn:ax:schema:session-record", "contract_versions": ["1.0.0", "2.0.0", "3.0.0"], "self_field": "record_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:lease", "contract_versions": ["1.0.0"], "self_field": "record_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:workspace-group", "contract_versions": ["1.0.0"], "self_field": "record_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:provider-identity", "contract_versions": ["1.0.0"], "self_field": "record_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-event", "contract_versions": ["1.0.0", "2.0.0", "3.0.0", "4.0.0"], "self_field": "event_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:canonical-event", "contract_versions": ["1.0.0"], "self_field": "event_id", "releases": ["v0.5.0"], "normative_section": "13.14.1"},
++    {"contract_id": "urn:ax:schema:checkpoint", "contract_versions": ["1.0.0"], "self_field": "checkpoint_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:blob", "contract_versions": ["1.0.0"], "self_field": "descriptor_id", "releases": ["v0.5.0"], "normative_section": "10.3"},
++    {"contract_id": "urn:ax:schema:terminal-backend-manifest", "contract_versions": ["1.0.0"], "self_field": "manifest_id", "releases": ["v0.5.0"], "normative_section": "4.B"},
++    {"contract_id": "urn:ax:schema:transfer-manifest", "contract_versions": ["1.0.0"], "self_field": "manifest_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-clone-bundle", "contract_versions": ["1.0.0"], "self_field": "manifest_id", "releases": ["v0.5.0"], "normative_section": "13.14.3"},
++    {"contract_id": "urn:ax:schema:materialization-plan", "contract_versions": ["1.0.0", "2.0.0"], "self_field": "plan_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-continuation-plan", "contract_versions": ["1.0.0"], "self_field": "plan_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:tombstone", "contract_versions": ["1.0.0"], "self_field": "tombstone_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:tombstone-ack", "contract_versions": ["1.0.0"], "self_field": "ack_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:task-board-bundle", "contract_versions": ["1.0.0"], "self_field": "bundle_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:materialization-journal", "contract_versions": ["2.0.0"], "self_field": "marker_id", "releases": ["v0.5.0"], "discriminator_name": "document_kind", "discriminator_value": "managed_replica_marker", "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:environment-observation", "contract_versions": ["1.0.0"], "self_field": "observation_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:native-session-observation", "contract_versions": ["1.0.0"], "self_field": "observation_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-inventory-batch", "contract_versions": ["1.0.0"], "self_field": "batch_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:conversation-lineage-link", "contract_versions": ["1.0.0"], "self_field": "lineage_link_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-annotation", "contract_versions": ["1.0.0"], "self_field": "annotation_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-enrichment-profile", "contract_versions": ["1.0.0"], "self_field": "profile_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-enrichment-job-request", "contract_versions": ["1.0.0"], "self_field": "job_request_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-enrichment-job-receipt", "contract_versions": ["1.0.0"], "self_field": "job_receipt_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:session-directory-operation-receipt", "contract_versions": ["1.0.0"], "self_field": "directory_receipt_id", "releases": ["v0.5.0"], "normative_section": "1.6"},
++    {"contract_id": "urn:ax:schema:terminal-backend-probe", "contract_versions": ["1.0.0"], "self_field": "probe_id", "releases": ["v0.5.0"], "normative_section": "4.B"},
++    {"contract_id": "urn:ax:schema:terminal-instance-binding", "contract_versions": ["1.0.0"], "self_field": "binding_id", "releases": ["v0.5.0"], "normative_section": "4.B"},
++    {"contract_id": "urn:ax:schema:terminal-capability-evidence", "contract_versions": ["1.0.0"], "self_field": "evidence_id", "releases": ["v0.5.0"], "normative_section": "4.B"},
++    {"contract_id": "urn:ax:schema:clone-raw-object-manifest", "contract_versions": ["1.0.0"], "self_field": "raw_object_manifest_id", "releases": ["v0.5.0"], "normative_section": "13.14.1"},
++    {"contract_id": "urn:ax:schema:clone-capture-manifest", "contract_versions": ["1.0.0"], "self_field": "capture_manifest_id", "releases": ["v0.5.0"], "normative_section": "13.14.1"},
++    {"contract_id": "urn:ax:schema:canonical-session", "contract_versions": ["1.0.0"], "self_field": "canonical_session_id", "releases": ["v0.5.0"], "normative_section": "13.14.1"},
++    {"contract_id": "urn:ax:schema:fidelity-report", "contract_versions": ["1.0.0"], "self_field": "fidelity_report_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:projection-plan", "contract_versions": ["1.0.0"], "self_field": "projection_plan_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:clone-projected-object-manifest", "contract_versions": ["1.0.0"], "self_field": "projected_object_manifest_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:clone-read-back-evidence-manifest", "contract_versions": ["1.0.0"], "self_field": "read_back_evidence_manifest_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:clone-validation-report", "contract_versions": ["1.0.0"], "self_field": "validation_report_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:migration-checkpoint", "contract_versions": ["1.0.0"], "self_field": "migration_checkpoint_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:clone-lineage-receipt", "contract_versions": ["1.0.0"], "self_field": "lineage_receipt_id", "releases": ["v0.5.0"], "normative_section": "13.14.2"},
++    {"contract_id": "urn:ax:schema:supported-environment-tuples", "contract_versions": ["1.0.0"], "self_field": "registry_digest", "releases": ["v0.5.0"], "normative_section": "13.14.4"}
++  ],
+   "operation_families": [
+     {
+       "family": "terminal_backend",
+diff --git a/internal/catalog/catalog_gen.go b/internal/catalog/catalog_gen.go
+index fef20f5..e421980 100644
+--- a/internal/catalog/catalog_gen.go
++++ b/internal/catalog/catalog_gen.go
+@@ -1,5 +1,5 @@
+ // Code generated by go generate ./internal/catalog; DO NOT EDIT.
+-// Metadata SHA-256: 40023bc194ab63d9f29f90746c2c71fe1ef561bd1a38f766dd7753c150f21bfd
++// Metadata SHA-256: 93d614b1f68f28fc99be1292f40c6e0464d2da9481985a70095b13c0d6d723e9
+ 
+ package catalog
+ 
+@@ -12,7 +12,7 @@ var generatedDefinition = catalogDefinition{
+ 		DocumentSHA256: "562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a",
+ 		NormativeScope: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "appendix-a", "appendix-b", "appendix-c", "appendix-d"},
+ 	},
+-	MetadataSHA256: "40023bc194ab63d9f29f90746c2c71fe1ef561bd1a38f766dd7753c150f21bfd",
++	MetadataSHA256: "93d614b1f68f28fc99be1292f40c6e0464d2da9481985a70095b13c0d6d723e9",
+ 	Contracts: map[Release][]Contract{
+ 		Release("v0.4.3"): {
+ 			{Name: "Configuration", ID: "urn:ax:schema:config", Versions: []string{"1.0.0", "2.0.0"}},
+@@ -134,6 +134,48 @@ var generatedDefinition = catalogDefinition{
+ 			{Name: "Session Directory Query", ID: "urn:ax:schema:session-directory-query", Versions: []string{"1.0.0"}},
+ 		},
+ 	},
++	SelfIdentities: []scopedSelfIdentityContract{
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-record", ContractVersions: []string{"1.0.0", "2.0.0", "3.0.0"}, SelfField: "record_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:lease", ContractVersions: []string{"1.0.0"}, SelfField: "record_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:workspace-group", ContractVersions: []string{"1.0.0"}, SelfField: "record_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:provider-identity", ContractVersions: []string{"1.0.0"}, SelfField: "record_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-event", ContractVersions: []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0"}, SelfField: "event_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:canonical-event", ContractVersions: []string{"1.0.0"}, SelfField: "event_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.1"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:checkpoint", ContractVersions: []string{"1.0.0"}, SelfField: "checkpoint_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:blob", ContractVersions: []string{"1.0.0"}, SelfField: "descriptor_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "10.3"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:terminal-backend-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "4.B"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:transfer-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-clone-bundle", ContractVersions: []string{"1.0.0"}, SelfField: "manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.3"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:materialization-plan", ContractVersions: []string{"1.0.0", "2.0.0"}, SelfField: "plan_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-continuation-plan", ContractVersions: []string{"1.0.0"}, SelfField: "plan_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:tombstone", ContractVersions: []string{"1.0.0"}, SelfField: "tombstone_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:tombstone-ack", ContractVersions: []string{"1.0.0"}, SelfField: "ack_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:task-board-bundle", ContractVersions: []string{"1.0.0"}, SelfField: "bundle_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:materialization-journal", ContractVersions: []string{"2.0.0"}, SelfField: "marker_id", DiscriminatorName: "document_kind", DiscriminatorValue: "managed_replica_marker", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:environment-observation", ContractVersions: []string{"1.0.0"}, SelfField: "observation_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:native-session-observation", ContractVersions: []string{"1.0.0"}, SelfField: "observation_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-inventory-batch", ContractVersions: []string{"1.0.0"}, SelfField: "batch_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:conversation-lineage-link", ContractVersions: []string{"1.0.0"}, SelfField: "lineage_link_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-annotation", ContractVersions: []string{"1.0.0"}, SelfField: "annotation_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-enrichment-profile", ContractVersions: []string{"1.0.0"}, SelfField: "profile_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-enrichment-job-request", ContractVersions: []string{"1.0.0"}, SelfField: "job_request_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-enrichment-job-receipt", ContractVersions: []string{"1.0.0"}, SelfField: "job_receipt_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:session-directory-operation-receipt", ContractVersions: []string{"1.0.0"}, SelfField: "directory_receipt_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "1.6"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:terminal-backend-probe", ContractVersions: []string{"1.0.0"}, SelfField: "probe_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "4.B"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:terminal-instance-binding", ContractVersions: []string{"1.0.0"}, SelfField: "binding_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "4.B"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:terminal-capability-evidence", ContractVersions: []string{"1.0.0"}, SelfField: "evidence_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "4.B"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-raw-object-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "raw_object_manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.1"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-capture-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "capture_manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.1"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:canonical-session", ContractVersions: []string{"1.0.0"}, SelfField: "canonical_session_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.1"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:fidelity-report", ContractVersions: []string{"1.0.0"}, SelfField: "fidelity_report_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:projection-plan", ContractVersions: []string{"1.0.0"}, SelfField: "projection_plan_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-projected-object-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "projected_object_manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-read-back-evidence-manifest", ContractVersions: []string{"1.0.0"}, SelfField: "read_back_evidence_manifest_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-validation-report", ContractVersions: []string{"1.0.0"}, SelfField: "validation_report_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:migration-checkpoint", ContractVersions: []string{"1.0.0"}, SelfField: "migration_checkpoint_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:clone-lineage-receipt", ContractVersions: []string{"1.0.0"}, SelfField: "lineage_receipt_id", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.2"}, Releases: []Release{Release("v0.5.0")}},
++		{Definition: SelfIdentityContract{ContractID: "urn:ax:schema:supported-environment-tuples", ContractVersions: []string{"1.0.0"}, SelfField: "registry_digest", DiscriminatorName: "", DiscriminatorValue: "", NormativeSection: "13.14.4"}, Releases: []Release{Release("v0.5.0")}},
++	},
+ 	Operations: []scopedOperation{
+ 		{Definition: Operation{Family: "terminal_backend", Name: "manifest", ContractID: "urn:ax:protocol:terminal-backend", ContractVersions: []string{"1.0.0"}, Effect: EffectNoDurableMutation, IdempotencyKey: "", RecoveryEvidence: nil, NormativeSection: "4.B-4.C", FixtureFamilies: []string{"Appendix D: Terminal Backend protocol"}}, Releases: []Release{Release("v0.5.0")}},
+ 		{Definition: Operation{Family: "terminal_backend", Name: "probe", ContractID: "urn:ax:protocol:terminal-backend", ContractVersions: []string{"1.0.0"}, Effect: EffectNoDurableMutation, IdempotencyKey: "", RecoveryEvidence: nil, NormativeSection: "4.B-4.C", FixtureFamilies: []string{"Appendix D: Terminal Backend protocol"}}, Releases: []Release{Release("v0.5.0")}},
+diff --git a/internal/catalog/catalog_test.go b/internal/catalog/catalog_test.go
+index ff96320..120923c 100644
+--- a/internal/catalog/catalog_test.go
++++ b/internal/catalog/catalog_test.go
+@@ -56,6 +56,56 @@ func TestCurrentMatchesReviewedV050Catalog(t *testing.T) {
+ 	if len(got.Errors) != 109 {
+ 		t.Errorf("errors = %d, want 109", len(got.Errors))
+ 	}
++	if len(got.SelfIdentities) != 40 {
++		t.Errorf("self identity contracts = %d, want 40", len(got.SelfIdentities))
++	}
++	identityRows := 0
++	for _, identity := range got.SelfIdentities {
++		identityRows += len(identity.ContractVersions)
++	}
++	if identityRows != 46 {
++		t.Errorf("self identity schema/version rows = %d, want 46", identityRows)
++	}
++	var foundManagedReplicaMarker bool
++	for _, identity := range got.SelfIdentities {
++		if identity.ContractID == "urn:ax:schema:materialization-journal" {
++			foundManagedReplicaMarker = reflect.DeepEqual(identity.ContractVersions, []string{"2.0.0"}) &&
++				identity.SelfField == "marker_id" &&
++				identity.DiscriminatorName == "document_kind" &&
++				identity.DiscriminatorValue == "managed_replica_marker"
++		}
++	}
++	if !foundManagedReplicaMarker {
++		t.Error("v0.5.0 catalog lost the materialization-journal 2.0.0 managed-replica marker identity while merging duplicate contract IDs")
++	}
++
++	wantAdditionalIdentities := map[catalog.ContractID]string{
++		"urn:ax:schema:terminal-backend-probe":            "probe_id",
++		"urn:ax:schema:terminal-instance-binding":         "binding_id",
++		"urn:ax:schema:terminal-capability-evidence":      "evidence_id",
++		"urn:ax:schema:clone-raw-object-manifest":         "raw_object_manifest_id",
++		"urn:ax:schema:clone-capture-manifest":            "capture_manifest_id",
++		"urn:ax:schema:canonical-session":                 "canonical_session_id",
++		"urn:ax:schema:fidelity-report":                   "fidelity_report_id",
++		"urn:ax:schema:projection-plan":                   "projection_plan_id",
++		"urn:ax:schema:clone-projected-object-manifest":   "projected_object_manifest_id",
++		"urn:ax:schema:clone-read-back-evidence-manifest": "read_back_evidence_manifest_id",
++		"urn:ax:schema:clone-validation-report":           "validation_report_id",
++		"urn:ax:schema:migration-checkpoint":              "migration_checkpoint_id",
++		"urn:ax:schema:clone-lineage-receipt":             "lineage_receipt_id",
++		"urn:ax:schema:supported-environment-tuples":      "registry_digest",
++	}
++	for _, identity := range got.SelfIdentities {
++		if want, ok := wantAdditionalIdentities[identity.ContractID]; ok {
++			if identity.SelfField != want || !reflect.DeepEqual(identity.ContractVersions, []string{"1.0.0"}) {
++				t.Errorf("self identity %s = (%q, %v), want (%q, [1.0.0])", identity.ContractID, identity.SelfField, identity.ContractVersions, want)
++			}
++			delete(wantAdditionalIdentities, identity.ContractID)
++		}
++	}
++	if len(wantAdditionalIdentities) != 0 {
++		t.Errorf("generated self identity catalog omitted reviewed contracts: %v", wantAdditionalIdentities)
++	}
+ 
+ 	assertFamilyNames(t, operationNames(got), map[string][]string{
+ 		"terminal_backend": {
+@@ -621,13 +671,16 @@ func TestCurrentIsIdempotentAndReturnsIsolatedData(t *testing.T) {
+ 	}
+ 
+ 	first.Contracts[0].Versions[0] = "9.9.9"
++	first.SelfIdentities[0].ContractVersions[0] = "9.9.9"
+ 	first.Operations[0].RecoveryEvidence = append(first.Operations[0].RecoveryEvidence, "forged")
+ 	first.Events[0].ContractVersions[0] = "9.9.9"
+ 	third := catalog.Current()
+ 	if reflect.DeepEqual(first, third) {
+ 		t.Fatal("caller mutation leaked into the generated catalog")
+ 	}
+-	if third.Contracts[0].Versions[0] == "9.9.9" || third.Events[0].ContractVersions[0] == "9.9.9" {
++	if third.Contracts[0].Versions[0] == "9.9.9" ||
++		third.SelfIdentities[0].ContractVersions[0] == "9.9.9" ||
++		third.Events[0].ContractVersions[0] == "9.9.9" {
+ 		t.Fatal("nested caller mutation leaked into the generated catalog")
+ 	}
+ }
+diff --git a/internal/catalog/cmd/cataloggen/main.go b/internal/catalog/cmd/cataloggen/main.go
+index dce939a..cb4f2c7 100644
+--- a/internal/catalog/cmd/cataloggen/main.go
++++ b/internal/catalog/cmd/cataloggen/main.go
+@@ -24,6 +24,7 @@ func run(arguments []string) error {
+ 	metadataPath := flags.String("metadata", "", "reviewed catalog metadata JSON")
+ 	contractsPath := flags.String("contracts", "", "verified normative contract lock")
+ 	outputPath := flags.String("output", "", "generated Go output")
++	check := flags.Bool("check", false, "verify generated Go output without rewriting it")
+ 	if err := flags.Parse(arguments); err != nil {
+ 		return err
+ 	}
+@@ -43,12 +44,29 @@ func run(arguments []string) error {
+ 	if err != nil {
+ 		return fmt.Errorf("generate catalog: %w", err)
+ 	}
++	if *check {
++		if err := checkUnchanged(*outputPath, generated); err != nil {
++			return fmt.Errorf("check catalog: %w", err)
++		}
++		return nil
++	}
+ 	if err := writeIfChanged(*outputPath, generated); err != nil {
+ 		return fmt.Errorf("write catalog: %w", err)
+ 	}
+ 	return nil
+ }
+ 
++func checkUnchanged(path string, content []byte) error {
++	existing, err := os.ReadFile(path)
++	if err != nil {
++		return err
++	}
++	if !bytes.Equal(existing, content) {
++		return fmt.Errorf("generated catalog is stale; run go generate ./internal/catalog")
++	}
++	return nil
++}
++
+ func writeIfChanged(path string, content []byte) error {
+ 	existing, err := os.ReadFile(path)
+ 	if err == nil && bytes.Equal(existing, content) {
+diff --git a/internal/catalog/cmd/cataloggen/main_test.go b/internal/catalog/cmd/cataloggen/main_test.go
+index 626882a..a26f44b 100644
+--- a/internal/catalog/cmd/cataloggen/main_test.go
++++ b/internal/catalog/cmd/cataloggen/main_test.go
+@@ -32,6 +32,9 @@ func TestRunGeneratesCommittedCatalogAndSupportsIdenticalRetry(t *testing.T) {
+ 	if !bytes.Equal(got, want) {
+ 		t.Fatal("run output differs from committed generated catalog")
+ 	}
++	if err := run(append(append([]string(nil), arguments...), "-check")); err != nil {
++		t.Fatalf("check run() error = %v", err)
++	}
+ 
+ 	stableTime := time.Unix(1_700_000_000, 0)
+ 	if err := os.Chtimes(output, stableTime, stableTime); err != nil {
+@@ -49,6 +52,33 @@ func TestRunGeneratesCommittedCatalogAndSupportsIdenticalRetry(t *testing.T) {
+ 	}
+ }
+ 
++func TestRunCheckRefusesStaleOutputWithoutRewritingIt(t *testing.T) {
++	t.Parallel()
++
++	output := filepath.Join(t.TempDir(), "catalog_gen.go")
++	stale := []byte("package catalog\n\n// stale\n")
++	if err := os.WriteFile(output, stale, 0o600); err != nil {
++		t.Fatalf("write stale output: %v", err)
++	}
++	arguments := []string{
++		"-metadata", filepath.Join("..", "..", "catalog.v0.5.0.json"),
++		"-contracts", filepath.Join("..", "..", "..", "specpin", "v0.5.0.lock.json"),
++		"-output", output,
++		"-check",
++	}
++	err := run(arguments)
++	if err == nil || !strings.Contains(err.Error(), "generated catalog is stale") {
++		t.Fatalf("check run() error = %v, want stale-output refusal", err)
++	}
++	got, readErr := os.ReadFile(output)
++	if readErr != nil {
++		t.Fatalf("read stale output after refusal: %v", readErr)
++	}
++	if !bytes.Equal(got, stale) {
++		t.Fatal("check run rewrote stale output")
++	}
++}
++
+ func TestRunRefusesInvalidArgumentsInputsAndOutput(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/internal/cataloggen/generate.go b/internal/cataloggen/generate.go
+index aa1910e..9770410 100644
+--- a/internal/cataloggen/generate.go
++++ b/internal/cataloggen/generate.go
+@@ -21,20 +21,31 @@ import (
+ const (
+ 	metadataFormat                  = "ax-implementation-catalog"
+ 	metadataFormatVersion           = 1
+-	reviewedMetadataCanonicalSHA256 = "4ddf049a7bc1abf29030283eaf7ad397555a4be2b4b4fce34d458a3ca2b089e8"
++	reviewedMetadataCanonicalSHA256 = "7bbc5172fbd77216ef4888126787a91a2aabea63b8aa308a9a8ac2ccbc1e5bab"
+ )
+ 
+ var ErrInvalidMetadata = errors.New("invalid implementation catalog metadata")
+ 
+ type metadata struct {
+-	Format             string             `json:"format"`
+-	FormatVersion      int                `json:"format_version"`
+-	Source             sourceMetadata     `json:"source"`
+-	NormativeScope     []string           `json:"normative_scope"`
+-	OperationFamilies  []operationFamily  `json:"operation_families"`
+-	CapabilityFamilies []capabilityFamily `json:"capability_families"`
+-	EventFamilies      []eventFamily      `json:"event_families"`
+-	ErrorCatalog       errorCatalog       `json:"error_catalog"`
++	Format             string                 `json:"format"`
++	FormatVersion      int                    `json:"format_version"`
++	Source             sourceMetadata         `json:"source"`
++	NormativeScope     []string               `json:"normative_scope"`
++	SelfIdentities     []selfIdentityContract `json:"self_identity_contracts"`
++	OperationFamilies  []operationFamily      `json:"operation_families"`
++	CapabilityFamilies []capabilityFamily     `json:"capability_families"`
++	EventFamilies      []eventFamily          `json:"event_families"`
++	ErrorCatalog       errorCatalog           `json:"error_catalog"`
++}
++
++type selfIdentityContract struct {
++	ContractID         string   `json:"contract_id"`
++	ContractVersions   []string `json:"contract_versions"`
++	SelfField          string   `json:"self_field"`
++	Releases           []string `json:"releases"`
++	DiscriminatorName  string   `json:"discriminator_name,omitempty"`
++	DiscriminatorValue string   `json:"discriminator_value,omitempty"`
++	NormativeSection   string   `json:"normative_section"`
+ }
+ 
+ type sourceMetadata struct {
+@@ -184,6 +195,7 @@ func Generate(metadataBytes, contractLock []byte) ([]byte, error) {
+ 	writeSource(&output, decoded)
+ 	fmt.Fprintf(&output, "\tMetadataSHA256: %q,\n", hex.EncodeToString(digest[:]))
+ 	writeContracts(&output, manifest)
++	writeSelfIdentities(&output, decoded.SelfIdentities)
+ 	writeOperations(&output, operations)
+ 	writeCapabilities(&output, capabilities)
+ 	writeEvents(&output, events)
+@@ -247,6 +259,35 @@ func validateMetadata(value metadata, manifest specpin.Manifest) error {
+ 	if err != nil {
+ 		return invalid("build release contract projections: %v", err)
+ 	}
++	if len(value.SelfIdentities) == 0 {
++		return invalid("self-identity contract catalog must be present")
++	}
++	seenSelfIdentities := make(map[string]struct{})
++	for index, identity := range value.SelfIdentities {
++		if err := validateContractBinding(identity.ContractID, identity.ContractVersions, contracts); err != nil {
++			return invalid("self-identity contract %d: %v", index, err)
++		}
++		if err := validateReleases(identity.Releases); err != nil {
++			return invalid("self-identity contract %d: %v", index, err)
++		}
++		if err := validateReleaseBinding(identity.ContractID, identity.ContractVersions, identity.Releases, releaseContracts); err != nil {
++			return invalid("self-identity contract %d: %v", index, err)
++		}
++		if !capabilityPattern.MatchString(identity.SelfField) || identity.NormativeSection == "" {
++			return invalid("self-identity contract %d has invalid self field or normative section", index)
++		}
++		if (identity.DiscriminatorName == "") != (identity.DiscriminatorValue == "") ||
++			(identity.DiscriminatorName != "" && !capabilityPattern.MatchString(identity.DiscriminatorName)) {
++			return invalid("self-identity contract %d has incomplete or invalid discriminator", index)
++		}
++		for _, version := range identity.ContractVersions {
++			key := identity.ContractID + "\x00" + version
++			if _, duplicate := seenSelfIdentities[key]; duplicate {
++				return invalid("self-identity catalog repeats contract %q version %q", identity.ContractID, version)
++			}
++			seenSelfIdentities[key] = struct{}{}
++		}
++	}
+ 
+ 	seenFamilies := make(map[string]struct{})
+ 	for index, family := range value.OperationFamilies {
+@@ -633,6 +674,17 @@ func writeContracts(output *bytes.Buffer, manifest specpin.Manifest) {
+ 	output.WriteString("\t},\n")
+ }
+ 
++func writeSelfIdentities(output *bytes.Buffer, values []selfIdentityContract) {
++	output.WriteString("\tSelfIdentities: []scopedSelfIdentityContract{\n")
++	for _, value := range values {
++		fmt.Fprintf(output, "\t\t{Definition: SelfIdentityContract{ContractID: %q, ContractVersions: %s, SelfField: %q, DiscriminatorName: %q, DiscriminatorValue: %q, NormativeSection: %q}, Releases: %s},\n",
++			value.ContractID, stringSliceLiteral(value.ContractVersions), value.SelfField,
++			value.DiscriminatorName, value.DiscriminatorValue, value.NormativeSection,
++			releaseSliceLiteral(value.Releases))
++	}
++	output.WriteString("\t},\n")
++}
++
+ func writeOperations(output *bytes.Buffer, values []expandedOperation) {
+ 	output.WriteString("\tOperations: []scopedOperation{\n")
+ 	for _, value := range values {
+diff --git a/internal/cataloggen/generate_test.go b/internal/cataloggen/generate_test.go
+index ca795ca..7c1790e 100644
+--- a/internal/cataloggen/generate_test.go
++++ b/internal/cataloggen/generate_test.go
+@@ -124,6 +124,57 @@ func TestGenerateRejectsDuplicateAndUnboundOperations(t *testing.T) {
+ 	}
+ }
+ 
++func TestGenerateRejectsInvalidOrNarrowedSelfIdentityContracts(t *testing.T) {
++	t.Parallel()
++
++	metadata, lock := sourceInputs(t)
++	tests := []struct {
++		name   string
++		mutate func(map[string]any)
++	}{
++		{
++			name: "deleted reviewed contract",
++			mutate: func(document map[string]any) {
++				identities := document["self_identity_contracts"].([]any)
++				document["self_identity_contracts"] = identities[1:]
++			},
++		},
++		{
++			name: "unknown contract",
++			mutate: func(document map[string]any) {
++				document["self_identity_contracts"].([]any)[0].(map[string]any)["contract_id"] = "urn:ax:schema:forged"
++			},
++		},
++		{
++			name: "unsupported version",
++			mutate: func(document map[string]any) {
++				document["self_identity_contracts"].([]any)[0].(map[string]any)["contract_versions"] = []any{"9.9.9"}
++			},
++		},
++		{
++			name: "invalid self field",
++			mutate: func(document map[string]any) {
++				document["self_identity_contracts"].([]any)[0].(map[string]any)["self_field"] = "RecordID"
++			},
++		},
++		{
++			name: "incomplete discriminator",
++			mutate: func(document map[string]any) {
++				document["self_identity_contracts"].([]any)[0].(map[string]any)["discriminator_name"] = "document_kind"
++			},
++		},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			candidate := mutateMetadata(t, metadata, test.mutate)
++			if _, err := cataloggen.Generate(candidate, lock); !errors.Is(err, cataloggen.ErrInvalidMetadata) {
++				t.Fatalf("Generate() error = %v, want ErrInvalidMetadata", err)
++			}
++		})
++	}
++}
++
+ func TestGenerateRejectsNonEmptyNarrowedDurableMutationEvidence(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index 34420c7..4ac407e 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=26 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
++	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+ 	}
+@@ -54,7 +54,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=26 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
++	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+ 	}
+@@ -112,6 +112,30 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
+ 	}
+ }
+ 
++// TestMainRejectsRenamedCanonicalIdentityEntryPoint proves that the assigned
++// Section 1.6 gate reaches the production omit-self verifier through its
++// executable acceptance case. A registry link without the call site must not
++// satisfy traceability.
++func TestMainRejectsRenamedCanonicalIdentityEntryPoint(t *testing.T) {
++	if testing.Short() {
++		t.Skip("builds an isolated tracecheck binary")
++	}
++
++	fixtureRoot := isolatedTracecheckFixture(t)
++	renameGoDeclaration(
++		t,
++		filepath.Join(fixtureRoot, "internal/canonicaljson/canonical.go"),
++		"func VerifyObjectIdentity",
++		"func RenamedVerifyObjectIdentity",
++	)
++
++	output, err := runTracecheck(t, fixtureRoot, "-section", "1.6")
++	want := `acceptance case "canonical-identity-refusal" production owner: declaration "VerifyObjectIdentity" is absent`
++	if err == nil || !strings.Contains(output, want) || strings.Contains(output, "traceability ok:") {
++		t.Fatalf("tracecheck -section 1.6 error = %v output = %q, want refusal %q", err, output, want)
++	}
++}
++
+ // TestMainRejectsOneNarrowedAssignedSectionBinding drives the production
+ // main -> run -> traceability.VerifyAssignedSections call chain in an isolated
+ // module. It re-pins the intentionally narrowed registry so the section:9.2
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 9c3f5af..b8a6d0c 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -256,6 +256,33 @@
+         }
+       ]
+     },
++    {
++      "id": "canonical-jcs-rfc8785",
++      "production": {"path": "internal/canonicaljson/canonical.go", "declaration": "Canonicalize"},
++      "tests": [
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCanonicalizeMatchesPublishedRFC8785PrimitiveAndStringVector"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCanonicalizeUsesRFC8785UTF16PropertyOrdering"}
++      ]
++    },
++    {
++      "id": "canonical-object-identity",
++      "production": {"path": "internal/canonicaljson/canonical.go", "declaration": "CalculateObjectIdentity"},
++      "tests": [
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCalculateObjectIdentityOmitsEveryGeneratedV050SelfIdentityContract"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCalculateObjectIdentityUsesSchemaDefinedSelfFieldWithRegisteredReferences"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCalculateObjectIdentityMatchesAXPublishedFixtures"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestObjectIdentityIsStableAcrossRepresentationAndClaimChanges"}
++      ]
++    },
++    {
++      "id": "canonical-identity-refusal",
++      "production": {"path": "internal/canonicaljson/canonical.go", "declaration": "VerifyObjectIdentity"},
++      "tests": [
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestObjectIdentityRefusesSelfInclusionAndAmbiguousNamespaces"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestProductionEntriesRejectAmbiguousOrInvalidInput"}
++      ]
++    },
+     {
+       "id": "scalar-uuid-validation",
+       "production": {"path": "internal/scalar/uuid.go", "declaration": "ParseUUIDv7"},
+@@ -504,7 +531,10 @@
+         "scalar-absolute-path-validation",
+         "scalar-bounded-integer-validation",
+         "scalar-decimal-uint64-validation",
+-        "scalar-closed-enum-validation"
++        "scalar-closed-enum-validation",
++        "canonical-jcs-rfc8785",
++        "canonical-object-identity",
++        "canonical-identity-refusal"
+       ]
+     },
+     {
+@@ -583,25 +613,25 @@
+       "kind": "section_binding",
+       "keys": ["section:10.1"],
+       "production": {"path": "internal/scalar/time_digest.go", "declaration": "Timestamp"},
+-      "acceptance_cases": ["scalar-digest-validation", "scalar-timestamp-validation", "scalar-uuid-validation"]
++      "acceptance_cases": ["scalar-digest-validation", "scalar-timestamp-validation", "scalar-uuid-validation", "canonical-object-identity", "canonical-identity-refusal"]
+     },
+     {
+       "kind": "section_binding",
+       "keys": ["section:10.2"],
+       "production": {"path": "internal/scalar/time_digest.go", "declaration": "Digest"},
+-      "acceptance_cases": ["scalar-digest-validation", "scalar-bounded-integer-validation"]
++      "acceptance_cases": ["scalar-digest-validation", "scalar-bounded-integer-validation", "canonical-jcs-rfc8785", "canonical-object-identity"]
+     },
+     {
+       "kind": "section_binding",
+       "keys": ["section:10.3"],
+       "production": {"path": "internal/scalar/integer.go", "declaration": "BoundedInteger"},
+-      "acceptance_cases": ["scalar-bounded-integer-validation", "scalar-digest-validation"]
++      "acceptance_cases": ["scalar-bounded-integer-validation", "scalar-digest-validation", "canonical-identity-refusal"]
+     },
+     {
+       "kind": "section_binding",
+       "keys": ["section:10.4"],
+       "production": {"path": "internal/scalar/names.go", "declaration": "ClosedEnum"},
+-      "acceptance_cases": ["scalar-closed-enum-validation", "scalar-uuid-validation", "scalar-digest-validation"]
++      "acceptance_cases": ["scalar-closed-enum-validation", "scalar-uuid-validation", "scalar-digest-validation", "canonical-object-identity", "canonical-identity-refusal"]
+     },
+     {
+       "kind": "section_binding",
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index a2e4c54..e7ef4fd 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -37,7 +37,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "40c170e056ee5b32437ea9235d3826c0490499818446fb2158ffb36eda8f43f9"
++	reviewedOwnershipCanonicalSHA256 = "503670f924aaa855f690d1fd2a9a0aee8078f1645fe1caad6a0986fe46359a76"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 776d661..a0f76e8 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -27,7 +27,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              60,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        26,
++		AcceptanceCases:        29,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 	}
+diff --git a/task-board.config.json b/task-board.config.json
+index a8d18a7..611a8a7 100644
+--- a/task-board.config.json
++++ b/task-board.config.json
+@@ -117,7 +117,7 @@
+           "go test ./... -race -count=1",
+           "go test ./... -cover -count=1",
+           "go run ./internal/traceability/cmd/tracecheck",
+-          "go generate ./internal/catalog && git diff --exit-code -- internal/catalog/catalog_gen.go",
++          "go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check",
+           "GOOS=linux GOARCH=amd64 go build ./...",
+           "GOOS=windows GOARCH=amd64 go build ./...",
+           "git ls-files -z '*.json' | xargs -0 -n1 python3 -c 'import json,sys;json.load(open(sys.argv[1]))'",

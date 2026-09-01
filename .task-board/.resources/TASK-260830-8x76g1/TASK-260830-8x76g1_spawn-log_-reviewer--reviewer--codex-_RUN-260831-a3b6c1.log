@@ -1,0 +1,392 @@
+OpenAI Codex v0.151.0
+--------
+workdir: /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260830-2wdm5e/worktree
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: none
+session id: 01a05a2e-e721-7151-a32b-6f3acbad2769
+--------
+user
+# Agent Task Assignment
+
+## FIRST — Run Immediately
+
+```bash
+task-board m 'set_status(TASK-260830-8x76g1, status=reviewing)'
+```
+
+## Operational Constraints (Headless Run)
+
+Read this before you run any gate or attach any outcome. A spawned run is
+usually headless: the session ends when your turn ends.
+
+- **Never background a long command and end your turn.** The session terminates
+  with the turn and the process dies with it, while the run is still recorded as
+  completed — a successful-looking run with no evidence attached.
+- **A single shell call is time-bounded (~10 minutes).** Waiting out a longer
+  check inside one call fails too. Split long verification into bounded
+  sequential calls (package subsets, `-run` masks) and state explicitly what you
+  reran yourself versus accepted from already-attached evidence.
+- **Attach evidence before you end the lifecycle, not after.** "I will attach it
+  when the run finishes" is unfulfillable by construction: once your turn ends
+  there is no session left to attach anything.
+
+## Your Role
+# reviewer
+
+## Description
+
+Reviews how a task was implemented and how the solution fits into the project. Does not modify code; records one of the explicit verdict branches below.
+
+When the run is goal-bound, query `task-board spawn goal "$TASK_BOARD_RUN_ID"` before recording the verdict. The reviewer goal is role-derived as `reviewer_verdict/reviewer_verdict`, carries its immutable parent goal ID/revision, and is satisfied only by exactly one verdict branch with evidence. A provider exit or `reviewing` status is not a verdict.
+The runner persists the branch from the accepted board status plus a new or updated task-scoped verdict artifact. Only persisted `accepted` can satisfy the parent delivery goal; `changes_requested` and `stop_the_line` finish the reviewer goal without accepting delivery.
+
+## Deliverable
+
+Verdict branches are explicit:
+
+- accepted → `done`, or `accept_cr` when the run was launched against a Change Request (see below)
+- changes requested → `to-dev` for implementation rework or `analysis` for research/decision work, with verdict evidence for the next producer and another reviewer cycle
+- genuine stop-the-line boundary → `blocked` only for a concrete external blocker or an unresolved human-only platform/product/architecture/tradeoff/approval decision, with evidence, failed assumptions/attempts, viable alternatives and tradeoffs, a recommendation, and the exact human decision or external input needed
+
+Do not leave the task in `reviewing`, and do not use `blocked` for ordinary rework or a recoverable child/runtime failure.
+
+### Accepting a Change Request
+
+The full Change Request contract — how the candidate is snapshotted, what `repository_delta` means, what a `stale` revision is, and every typed refusal you can hit — is `references/tracked-background-spawn.md` of the `project-management` skill, section `Change Requests, review, rework, and checkpoint`. Read it when a refusal surprises you rather than guessing at a retry.
+
+When your prompt carries a `Change Request Under Review` section, record acceptance with the named mutation rather than a status change:
+
+```bash
+task-board m 'accept_cr(<ELEMENT-ID>, revision=<N>, evidence=<ELEMENT-ID>_review-verdict.md)'
+```
+
+The signature is exactly `accept_cr(ID, revision=N, evidence=NAME)`. Do not try to recover it with `task-board q 'schema(mutation=accept_cr)'` — this mutation is registered on the `m` path only, so schema discovery answers `unknown mutation` for it.
+
+Only the run that was handed the revision may accept it. `accept_cr` checks that the calling run is a reviewer-archetype tracked run bound to this element and this revision, and refuses anything else with `change_request_acceptance_unauthorized`. If you see that refusal, do not retry it from a different shell or run id — it means the acceptance would have named a reviewer that never read the candidate.
+
+`accept_cr` sets the Change Request to `accepted`, stamps your run as the reviewer, and parks the element at `to-review`. That is the accepted handoff: `to-review` here means "accepted, waiting for the orchestrator to checkpoint or integrate", and the orchestrator then makes the `done` transition with `commit_ack=scope_committed`. Accepted work does **not** stay in `reviewing`, and `accept_cr` never takes a `commit_ack` argument.
+
+A Change Request with `repository_delta=empty` means the producer changed no repository file. That is neither automatically a failure nor automatically acceptable. All three verdicts are available and mean exactly what they always mean, and your verdict evidence must address the emptiness explicitly: accepting one means stating why no repository change was the right outcome for this leaf.
+
+For an enforced Bug/Story `done` transition, a reviewer-archetype run must not supply `commit_ack`. Record acceptance evidence and hand it to the commit-owning mover (typically the Orchestrator) — never to the human, and never escalate the commit-or-acknowledge decision to the human yourself; after committing its scope, that mover makes the final `done` transition with `commit_ack=scope_committed`.
+
+For board reads, use compact task-specific projections. A concrete review does not need routine `summary()`, `plan()`, `schema()`, or `{ full }`; request scoped schema only after an unknown call.
+
+## Licence To Defeat A Gate
+
+You are explicitly licensed to attempt to DEFEAT any gate, refusal, validation, authorization, or attestation in the change under review, and to reject a change whose only evidence is positive-path. Reading the code is not review; attacking it is.
+
+- Try to make the gate admit what it must reject. Mint the evidence the way a caller could, remove it entirely, narrow the gate instead of deleting it, and reach the protected state through retry, renewal, resume, and recovery paths.
+- Assert against the composed production artifact, not the pieces it is built from, and check every surface that must carry the rule — a clause present in one context profile and absent from the other is a bypass path.
+- Grep for callers before believing a guard is in force. A guard that no production path invokes has never run, and tests that call it directly prove only that it compiles and returns what it is told to.
+- Positive-path-only evidence, a delete-only mutant, or a green suite around a fake is grounds for `changes_requested` with the failing shape named in the verdict.
+- Apply the same standard to reported facts: a failed or partial read presented as an absence, and a property inferred from a proxy signal instead of reported as unknown, are review findings.
+
+The negative shapes vocabulary and the incidents behind each rule are in `references/negative-evidence.md` of the project-management skill; the operative rules reach producers through the spawn template's `Evidence That Counts`. Name the shape rather than restating the rule.
+
+## Status Transitions
+
+- **start_status:** `reviewing`
+- **end_status:** no unconditional default; the reviewer must set exactly one verdict status: `done`, `to-dev`, `analysis`, or evidence-backed `blocked`. For a Change Request run, acceptance is recorded by `accept_cr`, which parks the element at `to-review` on your behalf; the other three branches are unchanged.
+
+## Constraints
+
+Does NOT modify code. Read-only access.
+- Reviewer-archetype runs must not supply `commit_ack`; record acceptance evidence for the commit-owning mover, which commits then makes the final `done` transition with `commit_ack=scope_committed`.
+- When your prompt carries a `Change Request Under Review` section, record acceptance with `task-board m 'accept_cr(ID, revision=N, evidence=ID_review-verdict.md)'`. It parks the element at `to-review` as the accepted handoff — accepted work never stays in `reviewing` — and the orchestrator then makes the `done` transition with `commit_ack=scope_committed`. `accept_cr` takes no `commit_ack`, and only the reviewer run that was handed the revision may call it.
+
+## Skills
+
+These role skill references are a lazy catalog, not a mandate to bulk-read every
+body. Before technical work, identify the skills relevant to this task's concrete
+scope and read those full skill bodies. Always read any skill explicitly required
+by the task, user, or project instructions.
+
+- **project-management**: `/Users/iv/.claude/skills/project-management/SKILL.md`
+- **architecture-diagrams**: `/Users/iv/.claude/skills/architecture-diagrams/SKILL.md`
+
+## Definition of Done
+
+- [ ] Production entry points implement the scoped deliverable: Prove recursive closed shapes, Unicode ordering, invalid dates, malformed identifiers, and cross-platform golden identities
+- [ ] Relevant positive, negative, compatibility, and recovery tests pass with logs attached
+- [ ] README/doctor/capability evidence and specification traceability are updated without unsupported claims
+- [ ] Go native fuzz targets cover scalar parsing and JCS canonicalization at production entry points, with a committed seed corpus derived from the shapes prior reviews found: leap seconds, lowercase RFC3339, Windows reserved device names and wildcards, unpaired surrogates, and duplicate or non-string map keys
+- [ ] Canonicalization is proven round-trip stable and order-independent under fuzz: the identity digest of an object is invariant under key reordering and insignificant whitespace, and no input causes a panic or an accepted value that later refuses
+- [ ] Fuzz runs are bounded and deterministic in the validation suite: a fixed -fuzztime with a seed corpus, so the configured gate stays reproducible rather than time-dependent
+- [ ] Code written per task description and AC
+- [ ] Relevant tests written for new or changed behavior and passing
+- [ ] Gating, refusing, validating, authorizing, or attesting behavior covered by negative tests that fail when the gate admits what it must reject, with the production call site named
+- [ ] Lint clean
+- [ ] Relevant build/validation commands run after changes and build not broken
+- [ ] New outcome artifact attached on the board with a task-scoped name when the work produces notes, logs, screenshots, or other deliverables
+- [ ] Important findings, decisions, anomalies, or regressions recorded in logbook when relevant
+- [ ] Scoped closed-shape validation exists for Sections 10.1-10.4 and is invoked on the composed production path before identity is calculated or verified: exact top-level and nested member sets, and BlobChunk index/offset/size order, bounds and coverage invariants, with the composed call site named in evidence
+- [ ] Negative tests and fuzz corpus cover an unknown top-level member, an unknown nested member, invalid chunk bounds/order/coverage, and closed Transfer Manifest nested shapes; each must make identity calculation and verification refuse rather than attest
+- [ ] tracecheck -section 17.3 passes for the implemented identity contribution without claiming migration publication or atomic-reference behavior that README correctly reports unavailable
+- [ ] AUDIT, not spot-fix: every open or extension point in closed_shapes.go validates its full key grammar per Section 1.6, and every string[n..m] bound counts Unicode characters rather than UTF-8 bytes; both directions are proven, an invalid key of any namespace is refused and a valid multibyte value at the character bound is accepted
+- [ ] Every fuzz target the candidate defines is invoked by the configured validation suite with a fixed -fuzztime, including the closed-shape target; a newly added target that is not wired into the suite is a gate gap
+- [ ] Constraints are DERIVED from the pinned SPEC.md Sections 10.1-10.4 by systematic enumeration of every declared member type, character bound, nullability, tagged-union, ordering, uniqueness and cross-field rule reachable at this gate, and the enumeration itself is recorded as evidence; a hand-picked subset is not acceptable
+- [ ] Nested value rules reuse the production scalar validators rather than looser local grammars, and the normative TM-GIT-N2 stage-4 refusal plus valid multibyte values at each character limit are proven through both CalculateObjectIdentity and VerifyObjectIdentity
+- [ ] README states only what reproduces through both public identity entries; no completed-audit or coverage claim is made that a reader cannot reproduce
+- [ ] The closed-shape validator is TOTAL over the registered self-identity schema set: every registered schema resolves to a schema-specific shape validator, and a non-circular completeness test derived from the registry fails when any registered schema has no validator, so a newly registered schema cannot silently fall through to extension-only checking
+- [ ] Implementation matches AC
+- [ ] Solution fits project architecture
+- [ ] Tests green
+- [ ] Gate, refusal, validation, authorization, and attestation behavior attacked, not read — positive-path-only evidence is not accepted
+- [ ] If review does not accept the work — verdict evidence added and status routed by the explicit verdict branches
+## Your Task
+
+- **ID**: TASK-260830-8x76g1
+- **Title**: TASK-260830-8x76g1: fuzz-common-types-and-canonicalization
+- **Parent**: STORY-260830-2wdm5e
+### Description
+
+Prove recursive closed shapes, Unicode ordering, invalid dates, malformed identifiers, and cross-platform golden identities. This is an implementation deliverable, not a specification rewrite.
+### Scope
+
+relux-works/agent-session-manager-spec@v0.5.0 (commit 28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c); Sections 1.6, 10.1-10.4, 17.3. This task grew beyond fuzz coverage by review: because identity must never attest a structurally invalid object, it now also owns the scoped closed-shape conformance gate for Sections 10.1-10.4 and the fuzz targets that keep that gate honest. Work only inside the common-types-and-canonical-identities story boundary.
+### Acceptance Criteria
+
+Production behavior demonstrates: Prove recursive closed shapes, Unicode ordering, invalid dates, malformed identifiers, and cross-platform golden identities. Exact contract fixtures and negative/refusal cases pass; crash/idempotency evidence is included when the operation mutates durable state; no unsupported capability is advertised.
+
+## Instructions
+
+The following instructions have been attached to this task:
+
+### TASK-260830-8x76g1_accepted-leaves-tree.tar.gz
+> Exact content of the two already-accepted leaves, extracted from signed checkpoint 828d633 whose tree is 6b400c3c6b0718d4d08dc905ac46673bd4a87aa6. TASK-260830-1pbx0c CR rev 6 and TASK-260830-236x9n CR rev 5 were both accepted and checkpointed on this content. Restore it verbatim; do not re-derive it.
+
+Attached file materialized at: `/Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/resources/TASK-260830-8x76g1/TASK-260830-8x76g1_accepted-leaves-tree.tar.gz`
+
+- Byte count: `86245`
+- Content digest: `sha256:9ae5e624addc7d954c391d96cab7c9f7aac3e6bcee58c76dd0cc95533d0eac9c`
+- Access: read-only
+
+
+Use this local file directly when you need to inspect the attachment.
+
+
+### TASK-260830-8x76g1_audit-rework-carryforward.tar.gz
+> This leafs own in-flight audit rework: the closed-shape validator with extension key grammar, character-counted string bounds and the wired fuzz targets, as it stood before the workspace had to be re-provisioned
+
+Attached file materialized at: `/Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/resources/TASK-260830-8x76g1/TASK-260830-8x76g1_audit-rework-carryforward.tar.gz`
+
+- Byte count: `115616`
+- Content digest: `sha256:df8d8fa712e0ce85bde4776dc1f83cef9d373593e76fd1145ce9d85b593ce4ee`
+- Access: read-only
+
+
+Use this local file directly when you need to inspect the attachment.
+
+
+
+
+## Board CLI Reference
+
+You have access to `task-board` CLI for managing your work. All writes use the `m` (mutation DSL) subcommand:
+
+```bash
+# FIRST/LAST lifecycle commands:
+# Use explicit status changes when the task flow requires it.
+task-board m 'set_status(TASK-260830-8x76g1, status=analysis)'       # analyst-style work
+task-board m 'set_status(TASK-260830-8x76g1, status=development)'    # implementation / testing work
+task-board m 'set_status(TASK-260830-8x76g1, status=reviewing)'      # reviewer handoff
+task-board m 'set_status(TASK-260830-8x76g1, status=blocked)'        # when blocked
+task-board m 'set_status(TASK-260830-8x76g1, status=to-review)'      # when your work is ready for review
+
+# Track progress with checklist
+task-board m 'check_item(TASK-260830-8x76g1, item=1)'                        # check item N
+task-board m 'add_checklist_item(TASK-260830-8x76g1, text="Write tests")'    # add checklist item
+
+# Add notes about your progress, decisions, blockers, or review findings
+task-board m 'set_notes(TASK-260830-8x76g1, text="your note here")'
+
+# Save short text directly as outcome resources
+task-board m 'add_resource(TASK-260830-8x76g1, name=TASK-260830-8x76g1_results.md, content="...", type=outcome, description="Description")'
+
+# Attach an existing local file (screenshots, PDFs, logs, archives, research docs)
+task-board resource add TASK-260830-8x76g1 ./path/to/file --type outcome --name TASK-260830-8x76g1_artifact.bin -d "Description"
+```
+
+## Spawn Run Control
+
+Tracked background spawn runs expose `TASK_BOARD_RUN_ID` in the child environment.
+If your work is long-running, check for operator directives at safe checkpoints:
+
+```bash
+task-board spawn status "$TASK_BOARD_RUN_ID"
+task-board spawn directives "$TASK_BOARD_RUN_ID"
+```
+
+Current runtimes do not support direct inbound push into your active session.
+Treat directives as cooperative checkpoint signals:
+- persist your current notes/artifacts before acting on `cancel`-style requests
+- only honor pause/reroute intent at a safe checkpoint
+- if no directive is present, continue normally
+
+## IMPORTANT: Saving Results
+
+When you produce work products (research documents, design docs, screenshots, logs, archives, implementation notes), you MUST save them as outcome resources with names that include the task ID:
+
+```bash
+task-board m 'add_resource(TASK-260830-8x76g1, name=TASK-260830-8x76g1_results.md, content="...", type=outcome, description="Description")'
+task-board resource add TASK-260830-8x76g1 ./path/to/file --type outcome --name TASK-260830-8x76g1_artifact.bin -d "Description"
+```
+
+If you revise the same artifact later, use `task-board m 'update_resource(...)'` or `task-board resource update ...` instead of creating a silent overwrite.
+
+If you discover important findings, decisions, anomalies, regressions, or non-obvious constraints while working, record them in `logbook` as well as on the board.
+
+This ensures your results persist on the board and are accessible to other agents and the coordinator. Spawn completion is expected to produce at least one new task-scoped outcome artifact before the task can cleanly remain in `to-review`.
+
+## Evidence That Counts
+
+A passing suite means nothing unless something in it would have failed.
+
+- Any behavior that GATES, REFUSES, VALIDATES, AUTHORIZES, or ATTESTS ships with negative tests that fail when the gate admits what it must reject. A positive test proves the gate is reachable, not that it works.
+- Prove a bound by NARROWING the gate, not only by deleting it. A delete-only mutant proves the gate exists and says nothing about the class it covers.
+- Prove behavior by driving the real entry point — launch, materialize, resolve, publish — and name the production call site. A helper that is unit-tested but called from nowhere promises nothing.
+- Standard negative shapes to test and to look for: forged or self-minted evidence; absent evidence treated as satisfied; the check present but uncalled from production; a bypass path around the check; a capability claim that does not reproduce.
+- An absence and a failure to read are different facts. A failed, partial, or malformed read is never a legitimate absence, and a fallback defined for absence must not fire on a read failure.
+- Prove, or report nothing. Where a property cannot be established, report unknown instead of inferring it from a proxy signal; callers act on a plausible guess.
+
+Shapes vocabulary and the incident record behind each rule: `references/negative-evidence.md` in the project-management skill.
+
+## Stop-The-Line: No Forced Fits
+
+Do not keep implementing when autonomous work starts requiring a forced fit. A forced fit is any path where the task conflicts with a platform/API constraint, product decision, UX state model, ownership boundary, or architecture, and the remaining "solution" is mostly compensating hacks.
+
+Warning signs:
+- each fix needs another flag, stub, priority rule, mock-only behavior, or special-case test
+- the tests can pass only because the test harness avoids the real platform behavior
+- the implementation depends on an assumption you can no longer defend
+- the user-facing behavior cannot be described cleanly without contradicting the product model
+
+When this happens, stop product-code changes before adding another workaround layer. Attach or note:
+- the constraint and evidence
+- the failed assumptions/attempts
+- the viable options and tradeoffs
+- the recommended option
+- the exact human/product/architecture decision needed
+
+Then set the board item to `blocked` and ask only for that exact decision or external input. This stop applies only to a concrete external blocker or an unresolved human-only platform/product/architecture/tradeoff/approval decision; recoverable failures and ordinary rework stay autonomous. Tests and stubs are not proof that a forced-fit design is correct; use them only after the state model and platform assumptions are valid.
+
+## Working Directory
+Board directory: `/Users/iv/Developer/ReluxWorks/agent-session-manager/.task-board`
+
+Work in the project root. Do not modify board files directly — always use the `task-board` CLI.
+
+## Story Workspace
+
+You are running in an isolated Git worktree for STORY-260830-2wdm5e.
+
+- Workspace path: `.temp/STORY-260830-2wdm5e/worktree` (this is your working directory)
+- Branch: `task-board/story/STORY-260830-2wdm5e`, forked from `main`
+- Authoritative board: `/Users/iv/Developer/ReluxWorks/agent-session-manager/.task-board` (already exported as `TASK_BOARD_DIR`)
+
+Make every repository change here. Do not switch, rebase, merge, or delete this branch, and do not run `task-board` against the `.task-board` copy inside this worktree — it is a checkout artifact, not the board. Integration into trunk is the orchestrator's step, not yours.
+
+## Change Request Under Review
+
+- Change Request: `CR-TASK-260830-8x76g1-7` revision `7` (state `ready`)
+- Element: `TASK-260830-8x76g1`, integration scope: `STORY-260830-2wdm5e`
+- Branch: `task-board/story/STORY-260830-2wdm5e`
+- Base OID: `ad7275181ca82fc3fa29544e3893923a92d7b9d5`
+- Candidate tree OID: `2101a33011a27c98903679163545a7a778027b07`
+- Repository delta: `present`
+- Patch resource: `TASK-260830-8x76g1_change-request_rev7.patch` (sha256 `248d03098908baff9f7858195f2abd6673149c2c64e18f328bd37349706ad371`)
+
+```bash
+git -C . diff ad7275181ca82fc3fa29544e3893923a92d7b9d5 2101a33011a27c98903679163545a7a778027b07          # the exact reviewable delta
+git -C . diff --stat ad7275181ca82fc3fa29544e3893923a92d7b9d5 2101a33011a27c98903679163545a7a778027b07   # its shape
+```
+
+Changed paths (65):
+
+- `.gitignore`
+- `README.md`
+- `go.mod`
+- `go.sum`
+- `internal/canonicaljson/canonical.go`
+- `internal/canonicaljson/canonical_test.go`
+- `internal/canonicaljson/closed_shapes.go`
+- `internal/canonicaljson/fuzz_test.go`
+- `internal/canonicaljson/golden_test.go`
+- `internal/canonicaljson/testdata/cross-platform-identity.golden.json`
+- `internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/duplicate-map-key`
+- `internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/non-string-map-key`
+- `internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/unicode-utf16-order`
+- `internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/unpaired-surrogate`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/blob-coverage`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/blob-index-order`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/blob-offset-gap`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/blob-size-bound`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/blob-unknown-nested`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/blob-unknown-top-level`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/manifest-entry-unknown-nested`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/manifest-invalid-extension-key`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/manifest-member-unknown-nested`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/manifest-snapshot-unknown-nested`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/manifest-unknown-top-level`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/migration-provenance-unknown-nested`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/record-impossible-created-at`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/record-invalid-extension-key`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/record-launch-plan-unknown-nested`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/record-malformed-subject`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/record-missing-created-by-host`
+- `internal/canonicaljson/testdata/fuzz/FuzzClosedIdentityShapeRefusal/record-unknown-top-level`
+- `internal/canonicaljson/testdata/fuzz/FuzzObjectIdentityRepresentationInvariant/nested-reordered-object`
+- `internal/canonicaljson/testdata/fuzz/FuzzObjectIdentityRepresentationInvariant/unicode-utf16-order`
+- `internal/canonicaljson/validation_config_test.go`
+- `internal/catalog/catalog.go`
+- `internal/catalog/catalog.v0.5.0.json`
+- `internal/catalog/catalog_gen.go`
+- `internal/catalog/catalog_test.go`
+- `internal/catalog/cmd/cataloggen/main.go`
+- `internal/catalog/cmd/cataloggen/main_test.go`
+- `internal/cataloggen/generate.go`
+- `internal/cataloggen/generate_test.go`
+- `internal/scalar/fuzz_test.go`
+- `internal/scalar/git.go`
+- `internal/scalar/git_test.go`
+- `internal/scalar/integer.go`
+- `internal/scalar/names.go`
+- `internal/scalar/path.go`
+- `internal/scalar/scalar.go`
+- `internal/scalar/scalar_test.go`
+- `internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/identifier-malformed-uuid`
+- `internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/integer-unsafe-boundary`
+- `internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-invalid-date`
+- `internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-leap-second`
+- `internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/timestamp-lowercase-rfc3339`
+- `internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/windows-reserved-device`
+- `internal/scalar/testdata/fuzz/FuzzScalarProductionEntries/windows-wildcard`
+- `internal/scalar/time_digest.go`
+- `internal/scalar/uuid.go`
+- `internal/traceability/cmd/tracecheck/main_test.go`
+- `internal/traceability/ownership.v0.5.0.json`
+- `internal/traceability/traceability.go`
+- `internal/traceability/traceability_test.go`
+- `task-board.config.json`
+
+### Recording the verdict
+
+Acceptance is a named mutation, not a status change:
+
+```bash
+task-board m 'accept_cr(TASK-260830-8x76g1, revision=7, evidence=TASK-260830-8x76g1_review-verdict.md)'
+```
+
+`accept_cr` sets the Change Request to `accepted`, stamps this run as the reviewer, and parks the element at `to-review` (TASK-260830-8x76g1) — which is the accepted handoff, not `done`. The orchestrator checkpoints or integrates the accepted revision and makes the `done` transition with `commit_ack`. Never supply `commit_ack` yourself.
+
+Changes requested and Stop-The-Line are unchanged: route to `to-dev`/`analysis` or evidence-backed `blocked`. Leaving the element in `reviewing` is still not a verdict and still gets this run cancelled and respawned.
+
+exec
+/bin/zsh -lc "task-board m 'set_status(TASK-260830-8x76g1, status=reviewing)'" in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260830-2wdm5e/worktree
+ succeeded in 217ms:
+{"ok":true,"result":{"primary":{"action":"status_changed","element_id":"TASK-260830-8x76g1","field":"status","new_value":"reviewing","old_value":"reviewing"}}}
+

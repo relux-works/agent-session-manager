@@ -1,0 +1,904 @@
+diff --git a/README.md b/README.md
+index 80b212b..77ef63c 100644
+--- a/README.md
++++ b/README.md
+@@ -122,6 +122,38 @@ go run ./internal/traceability/cmd/tracecheck \
+   -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4
+ ```
+ 
++## Canonical JSON and Immutable Object Identities
++
++[`internal/canonicaljson`](internal/canonicaljson) exposes the production RFC
++8785 JCS entry point and the AX immutable-object identity calculation. The JCS
++path validates I-JSON input before canonicalization, including duplicate-name,
++UTF-8, surrogate-pair, ECMAScript number-formatting, string-escaping, and
++UTF-16 property-ordering rules. Its number behavior is checked against every
++finite RFC 8785 Appendix B sample through the production entry point.
++
++The AX identity path additionally enforces the Section 1.6 common model: JSON
++numbers are integral safe integers, and exactly one known top-level self field
++is present. It discovers that field from the closed normative set, removes it,
++canonicalizes the remaining logical object, and hashes those bytes with
++SHA-256. Callers cannot choose an omit field. Verification recomputes that
++identity and refuses malformed claims, multiple or absent self namespaces,
++raw-byte `chunk_id` objects, self-included digests, duplicate keys, unsafe
++integers, and floating-point literals.
++
++This package is read-only and deterministic; it does not mutate durable state.
++It supplies identity calculation for a new schema-versioned object under
++Section 17.3, but does not claim to implement migration publication, atomic
++reference advancement, rollback retention, `ax migrate`, `ax doctor`, or any
++runtime capability. Those surfaces remain unavailable until their owning
++implementation tasks land.
++
++Run its focused tests with:
++
++```bash
++go test ./internal/canonicaljson -count=1
++go test ./internal/canonicaljson -cover -count=1
++```
++
+ ## Generated Contract Catalogs
+ 
+ [`internal/catalog`](internal/catalog) exposes typed records through
+@@ -213,7 +245,8 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
+ | --- | --- | --- | --- |
+ | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
+ | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
+-| Go toolchain | Verify global and assigned-scope specification ownership, validate common wire scalars, generate the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4`; `go test ./internal/scalar -cover -count=1`; `go generate ./internal/catalog`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
++| Go toolchain | Verify global and assigned-scope specification ownership, validate common wire scalars and canonical identities, generate the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/canonicaljson -cover -count=1`; `go generate ./internal/catalog`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build cache; test output captured under `.temp/<TASK-ID>/` when needed |
++| `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
+ | GitHub Actions | Enforce traceability, generated-output, test, vet, and build gates on pull requests and `main` | `.github/workflows/ci.yml` | GitHub-hosted CI check results |
+ | Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
+ | GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |
+diff --git a/go.mod b/go.mod
+index 3a417b9..050e6d0 100644
+--- a/go.mod
++++ b/go.mod
+@@ -1,3 +1,5 @@
+ module github.com/relux-works/agent-session-manager
+ 
+ go 1.25.0
++
++require github.com/gowebpki/jcs v1.0.1
+diff --git a/go.sum b/go.sum
+new file mode 100644
+index 0000000..44bfad4
+--- /dev/null
++++ b/go.sum
+@@ -0,0 +1,12 @@
++github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
++github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/gowebpki/jcs v1.0.1 h1:Qjzg8EOkrOTuWP7DqQ1FbYtcpEbeTzUoTN9bptp8FOU=
++github.com/gowebpki/jcs v1.0.1/go.mod h1:CID1cNZ+sHp1CCpAR8mPf6QRtagFBgPJE0FCUQ6+BrI=
++github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
++github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
++github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
++github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5CcY=
++github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
++gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
++gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c h1:dUUwHk2QECo/6vqA44rthZ8ie2QXMNeKRTHCNY2nXvo=
++gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+diff --git a/internal/canonicaljson/canonical.go b/internal/canonicaljson/canonical.go
+new file mode 100644
+index 0000000..4b34d02
+--- /dev/null
++++ b/internal/canonicaljson/canonical.go
+@@ -0,0 +1,365 @@
++// Package canonicaljson implements the RFC 8785 JSON Canonicalization Scheme
++// and the AX omit-self-field identity boundary for immutable logical objects.
++package canonicaljson
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"strconv"
++	"strings"
++	"unicode/utf8"
++
++	"github.com/gowebpki/jcs"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const maxSafeInteger int64 = 9007199254740991
++
++var (
++	// ErrInvalidJSON reports input outside the RFC 8785 I-JSON surface.
++	ErrInvalidJSON = errors.New("invalid canonical JSON input")
++	// ErrInvalidIdentity reports input outside the AX omit-self identity contract.
++	ErrInvalidIdentity = errors.New("invalid canonical object identity")
++)
++
++// SelfField is one of the total, closed AX immutable-object self-identity
++// namespaces from Section 1.6. Chunk IDs are intentionally absent: Section
++// 10.3 defines chunk_id as a digest of raw bytes, not of a JSON object.
++type SelfField string
++
++const (
++	SelfRecordID           SelfField = "record_id"
++	SelfEventID            SelfField = "event_id"
++	SelfCheckpointID       SelfField = "checkpoint_id"
++	SelfDescriptorID       SelfField = "descriptor_id"
++	SelfManifestID         SelfField = "manifest_id"
++	SelfPlanID             SelfField = "plan_id"
++	SelfTombstoneID        SelfField = "tombstone_id"
++	SelfAckID              SelfField = "ack_id"
++	SelfBundleID           SelfField = "bundle_id"
++	SelfMarkerID           SelfField = "marker_id"
++	SelfObservationID      SelfField = "observation_id"
++	SelfBatchID            SelfField = "batch_id"
++	SelfLineageLinkID      SelfField = "lineage_link_id"
++	SelfAnnotationID       SelfField = "annotation_id"
++	SelfProfileID          SelfField = "profile_id"
++	SelfJobRequestID       SelfField = "job_request_id"
++	SelfJobReceiptID       SelfField = "job_receipt_id"
++	SelfDirectoryReceiptID SelfField = "directory_receipt_id"
++)
++
++var selfFields = [...]SelfField{
++	SelfRecordID,
++	SelfEventID,
++	SelfCheckpointID,
++	SelfDescriptorID,
++	SelfManifestID,
++	SelfPlanID,
++	SelfTombstoneID,
++	SelfAckID,
++	SelfBundleID,
++	SelfMarkerID,
++	SelfObservationID,
++	SelfBatchID,
++	SelfLineageLinkID,
++	SelfAnnotationID,
++	SelfProfileID,
++	SelfJobRequestID,
++	SelfJobReceiptID,
++	SelfDirectoryReceiptID,
++}
++
++// Canonicalize is the production RFC 8785 entry point. It rejects malformed
++// UTF-8, invalid surrogate escapes, duplicate object names, and non-I-JSON
++// input before producing the canonical UTF-8 byte sequence.
++func Canonicalize(input []byte) ([]byte, error) {
++	value, err := decodeStrict(input)
++	if err != nil {
++		return nil, err
++	}
++	// Re-encode the parsed logical value before the JCS transform. This removes
++	// leading/trailing whitespace around primitive top-level values without
++	// changing json.Number tokens or string data.
++	normalized, err := json.Marshal(value)
++	if err != nil {
++		return nil, invalidJSON("serialize logical JSON value: %v", err)
++	}
++	canonical, err := jcs.Transform(normalized)
++	if err != nil {
++		return nil, invalidJSON("canonicalize RFC 8785 value: %v", err)
++	}
++	return canonical, nil
++}
++
++// CalculateObjectIdentity validates the AX common logical number model,
++// discovers exactly one known top-level self field, omits that field, applies
++// RFC 8785 JCS, and returns the SHA-256 identity. Callers cannot select an
++// arbitrary field to omit, which prevents self inclusion and digest cycles.
++func CalculateObjectIdentity(input []byte) (scalar.Digest, SelfField, error) {
++	value, err := decodeStrict(input)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	if err := validateAXNumbers(value); err != nil {
++		return scalar.Digest{}, "", err
++	}
++	object, ok := value.(map[string]any)
++	if !ok {
++		return scalar.Digest{}, "", invalidIdentity("identity input must be a JSON object")
++	}
++
++	selfField, _, err := discoverSelfField(object)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	omitted := make(map[string]any, len(object)-1)
++	for name, member := range object {
++		if name != string(selfField) {
++			omitted[name] = member
++		}
++	}
++	serialized, err := json.Marshal(omitted)
++	if err != nil {
++		return scalar.Digest{}, "", invalidIdentity("serialize omit-self object: %v", err)
++	}
++	canonical, err := jcs.Transform(serialized)
++	if err != nil {
++		return scalar.Digest{}, "", invalidIdentity("canonicalize omit-self object: %v", err)
++	}
++	return scalar.SHA256Digest(canonical), selfField, nil
++}
++
++// VerifyObjectIdentity drives the same production calculation and refuses a
++// malformed, self-included, or otherwise mismatched claimed identity.
++func VerifyObjectIdentity(input []byte) (scalar.Digest, SelfField, error) {
++	value, err := decodeStrict(input)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	object, ok := value.(map[string]any)
++	if !ok {
++		return scalar.Digest{}, "", invalidIdentity("identity input must be a JSON object")
++	}
++	selfField, claimed, err := discoverSelfField(object)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	calculated, calculatedField, err := CalculateObjectIdentity(input)
++	if err != nil {
++		return scalar.Digest{}, "", err
++	}
++	if calculatedField != selfField || claimed != calculated {
++		return scalar.Digest{}, "", invalidIdentity(
++			"%s claim %q does not match omit-self digest %q",
++			selfField,
++			claimed,
++			calculated,
++		)
++	}
++	return calculated, selfField, nil
++}
++
++func discoverSelfField(object map[string]any) (SelfField, scalar.Digest, error) {
++	var found SelfField
++	var claim scalar.Digest
++	count := 0
++	for _, candidate := range selfFields {
++		value, ok := object[string(candidate)]
++		if !ok {
++			continue
++		}
++		count++
++		found = candidate
++		text, ok := value.(string)
++		if !ok {
++			return "", scalar.Digest{}, invalidIdentity("self field %s must contain a digest string", candidate)
++		}
++		parsed, err := scalar.ParseDigest(text)
++		if err != nil {
++			return "", scalar.Digest{}, invalidIdentity("self field %s: %v", candidate, err)
++		}
++		claim = parsed
++	}
++	if count == 0 {
++		return "", scalar.Digest{}, invalidIdentity("object contains no known self-identity field")
++	}
++	if count != 1 {
++		return "", scalar.Digest{}, invalidIdentity("object contains %d self-identity fields; exactly one is required", count)
++	}
++	return found, claim, nil
++}
++
++func decodeStrict(input []byte) (any, error) {
++	if len(input) == 0 {
++		return nil, invalidJSON("input is empty")
++	}
++	if !utf8.Valid(input) {
++		return nil, invalidJSON("input is not valid UTF-8")
++	}
++	if err := validateSurrogateEscapes(input); err != nil {
++		return nil, err
++	}
++
++	decoder := json.NewDecoder(bytes.NewReader(input))
++	decoder.UseNumber()
++	value, err := decodeValue(decoder)
++	if err != nil {
++		return nil, err
++	}
++	if token, err := decoder.Token(); !errors.Is(err, io.EOF) {
++		if err != nil {
++			return nil, invalidJSON("read trailing JSON data: %v", err)
++		}
++		return nil, invalidJSON("unexpected trailing JSON token %v", token)
++	}
++	return value, nil
++}
++
++func decodeValue(decoder *json.Decoder) (any, error) {
++	token, err := decoder.Token()
++	if err != nil {
++		return nil, invalidJSON("decode JSON token: %v", err)
++	}
++	delimiter, ok := token.(json.Delim)
++	if !ok {
++		return token, nil
++	}
++
++	switch delimiter {
++	case '{':
++		object := make(map[string]any)
++		for decoder.More() {
++			nameToken, err := decoder.Token()
++			if err != nil {
++				return nil, invalidJSON("decode object name: %v", err)
++			}
++			name, ok := nameToken.(string)
++			if !ok {
++				return nil, invalidJSON("object name is not a string")
++			}
++			if _, duplicate := object[name]; duplicate {
++				return nil, invalidJSON("duplicate object member %q", name)
++			}
++			value, err := decodeValue(decoder)
++			if err != nil {
++				return nil, err
++			}
++			object[name] = value
++		}
++		end, err := decoder.Token()
++		if err != nil || end != json.Delim('}') {
++			return nil, invalidJSON("decode object terminator: %v", err)
++		}
++		return object, nil
++	case '[':
++		array := make([]any, 0)
++		for decoder.More() {
++			value, err := decodeValue(decoder)
++			if err != nil {
++				return nil, err
++			}
++			array = append(array, value)
++		}
++		end, err := decoder.Token()
++		if err != nil || end != json.Delim(']') {
++			return nil, invalidJSON("decode array terminator: %v", err)
++		}
++		return array, nil
++	default:
++		return nil, invalidJSON("unexpected delimiter %q", delimiter)
++	}
++}
++
++func validateAXNumbers(value any) error {
++	switch typed := value.(type) {
++	case json.Number:
++		literal := typed.String()
++		if strings.ContainsAny(literal, ".eE") {
++			return invalidIdentity("floating-point number %q is forbidden by the AX common model", literal)
++		}
++		integer, err := strconv.ParseInt(literal, 10, 64)
++		if err != nil || integer < -maxSafeInteger || integer > maxSafeInteger {
++			return invalidIdentity("integer %q is outside the AX safe-integer interval", literal)
++		}
++	case []any:
++		for _, element := range typed {
++			if err := validateAXNumbers(element); err != nil {
++				return err
++			}
++		}
++	case map[string]any:
++		for _, member := range typed {
++			if err := validateAXNumbers(member); err != nil {
++				return err
++			}
++		}
++	}
++	return nil
++}
++
++func validateSurrogateEscapes(input []byte) error {
++	for index := 0; index < len(input); index++ {
++		if input[index] != '"' {
++			continue
++		}
++		for index++; index < len(input); index++ {
++			switch input[index] {
++			case '"':
++				goto stringComplete
++			case '\\':
++				index++
++				if index >= len(input) {
++					return invalidJSON("unterminated string escape")
++				}
++				if input[index] != 'u' {
++					continue
++				}
++				codeUnit, end, err := readUTF16Escape(input, index-1)
++				if err != nil {
++					return err
++				}
++				index = end - 1
++				switch {
++				case codeUnit >= 0xd800 && codeUnit <= 0xdbff:
++					second, secondEnd, err := readUTF16Escape(input, end)
++					if err != nil || second < 0xdc00 || second > 0xdfff {
++						return invalidJSON("high surrogate escape must be followed by a low surrogate escape")
++					}
++					index = secondEnd - 1
++				case codeUnit >= 0xdc00 && codeUnit <= 0xdfff:
++					return invalidJSON("lone low surrogate escape is forbidden")
++				}
++			case 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
++				0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
++				0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
++				0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f:
++				return invalidJSON("unescaped control character in string")
++			}
++		}
++		return invalidJSON("unterminated JSON string")
++	stringComplete:
++	}
++	return nil
++}
++
++func readUTF16Escape(input []byte, start int) (uint16, int, error) {
++	if start < 0 || start+6 > len(input) || input[start] != '\\' || input[start+1] != 'u' {
++		return 0, start, invalidJSON("expected UTF-16 escape")
++	}
++	value, err := strconv.ParseUint(string(input[start+2:start+6]), 16, 16)
++	if err != nil {
++		return 0, start, invalidJSON("malformed UTF-16 escape")
++	}
++	return uint16(value), start + 6, nil
++}
++
++func invalidJSON(format string, arguments ...any) error {
++	return fmt.Errorf("%w: %s", ErrInvalidJSON, fmt.Sprintf(format, arguments...))
++}
++
++func invalidIdentity(format string, arguments ...any) error {
++	return fmt.Errorf("%w: %s", ErrInvalidIdentity, fmt.Sprintf(format, arguments...))
++}
+diff --git a/internal/canonicaljson/canonical_test.go b/internal/canonicaljson/canonical_test.go
+new file mode 100644
+index 0000000..9de91bd
+--- /dev/null
++++ b/internal/canonicaljson/canonical_test.go
+@@ -0,0 +1,288 @@
++package canonicaljson
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"fmt"
++	"math"
++	"strconv"
++	"strings"
++	"testing"
++)
++
++const zeroDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
++
++func TestCanonicalizeMatchesPublishedRFC8785PrimitiveAndStringVector(t *testing.T) {
++	input := []byte(`{
++  "numbers": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001],
++  "string": "\u20ac$\u000F\u000aA'\u0042\u0022\u005c\\\"\/",
++  "literals": [null, true, false]
++}`)
++	want := `{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],"string":"€$\u000f\nA'B\"\\\\\"/"}`
++
++	got, err := Canonicalize(input)
++	if err != nil {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.2 vector) error = %v", err)
++	}
++	if string(got) != want {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.2 vector) = %q, want %q", got, want)
++	}
++
++	again, err := Canonicalize(got)
++	if err != nil || string(again) != want {
++		t.Fatalf("Canonicalize(canonical vector) = %q, %v; want identical %q", again, err, want)
++	}
++
++	primitive, err := Canonicalize([]byte(" \n -0 \t"))
++	if err != nil || string(primitive) != "0" {
++		t.Fatalf("Canonicalize(whitespace-wrapped minus zero) = %q, %v; want RFC value 0", primitive, err)
++	}
++}
++
++func TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample(t *testing.T) {
++	vectors := []struct {
++		bits uint64
++		want string
++	}{
++		{0x0000000000000000, "0"},
++		{0x8000000000000000, "0"},
++		{0x0000000000000001, "5e-324"},
++		{0x8000000000000001, "-5e-324"},
++		{0x7fefffffffffffff, "1.7976931348623157e+308"},
++		{0xffefffffffffffff, "-1.7976931348623157e+308"},
++		{0x4340000000000000, "9007199254740992"},
++		{0xc340000000000000, "-9007199254740992"},
++		{0x4430000000000000, "295147905179352830000"},
++		{0x44b52d02c7e14af5, "9.999999999999997e+22"},
++		{0x44b52d02c7e14af6, "1e+23"},
++		{0x44b52d02c7e14af7, "1.0000000000000001e+23"},
++		{0x444b1ae4d6e2ef4e, "999999999999999700000"},
++		{0x444b1ae4d6e2ef4f, "999999999999999900000"},
++		{0x444b1ae4d6e2ef50, "1e+21"},
++		{0x3eb0c6f7a0b5ed8c, "9.999999999999997e-7"},
++		{0x3eb0c6f7a0b5ed8d, "0.000001"},
++		{0x41b3de4355555553, "333333333.3333332"},
++		{0x41b3de4355555554, "333333333.33333325"},
++		{0x41b3de4355555555, "333333333.3333333"},
++		{0x41b3de4355555556, "333333333.3333334"},
++		{0x41b3de4355555557, "333333333.33333343"},
++		{0xbecbf647612f3696, "-0.0000033333333333333333"},
++		{0x43143ff3c1cb0959, "1424953923781206.2"},
++	}
++
++	for _, vector := range vectors {
++		name := fmt.Sprintf("%016x", vector.bits)
++		t.Run(name, func(t *testing.T) {
++			value := math.Float64frombits(vector.bits)
++			input := strconv.FormatFloat(value, 'g', -1, 64)
++			got, err := Canonicalize([]byte(input))
++			if err != nil {
++				t.Fatalf("Canonicalize(%q) error = %v", input, err)
++			}
++			if string(got) != vector.want {
++				t.Fatalf("Canonicalize(%q) = %q, want RFC Appendix B %q", input, got, vector.want)
++			}
++		})
++	}
++
++	if _, err := Canonicalize([]byte("1e999")); err == nil {
++		t.Fatal("Canonicalize(out-of-range number) error = nil, want I-JSON refusal")
++	}
++}
++
++func TestCanonicalizeUsesRFC8785UTF16PropertyOrdering(t *testing.T) {
++	input := []byte(`{
++  "\u20ac": "Euro Sign",
++  "\r": "Carriage Return",
++  "\ufb33": "Hebrew Letter Dalet With Dagesh",
++  "1": "One",
++  "\ud83d\ude00": "Emoji: Grinning Face",
++  "\u0080": "Control",
++  "\u00f6": "Latin Small Letter O With Diaeresis"
++}`)
++	want := `{"\r":"Carriage Return","1":"One","":"Control","ö":"Latin Small Letter O With Diaeresis","€":"Euro Sign","😀":"Emoji: Grinning Face","דּ":"Hebrew Letter Dalet With Dagesh"}`
++
++	got, err := Canonicalize(input)
++	if err != nil {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.3 vector) error = %v", err)
++	}
++	if string(got) != want {
++		t.Fatalf("Canonicalize(RFC 8785 Section 3.2.3 vector) = %q, want %q", got, want)
++	}
++}
++
++func TestCalculateObjectIdentityOmitsEveryNormativeSelfField(t *testing.T) {
++	want := digestHex(`{"a":1,"schema":"urn:ax:test"}`)
++	expectedSelfFields := []SelfField{
++		SelfRecordID,
++		SelfEventID,
++		SelfCheckpointID,
++		SelfDescriptorID,
++		SelfManifestID,
++		SelfPlanID,
++		SelfTombstoneID,
++		SelfAckID,
++		SelfBundleID,
++		SelfMarkerID,
++		SelfObservationID,
++		SelfBatchID,
++		SelfLineageLinkID,
++		SelfAnnotationID,
++		SelfProfileID,
++		SelfJobRequestID,
++		SelfJobReceiptID,
++		SelfDirectoryReceiptID,
++	}
++	if len(selfFields) != len(expectedSelfFields) {
++		t.Fatalf("production self-field registry has %d entries, want exact normative %d", len(selfFields), len(expectedSelfFields))
++	}
++	for _, selfField := range expectedSelfFields {
++		t.Run(string(selfField), func(t *testing.T) {
++			input := []byte(fmt.Sprintf(`{"schema":"urn:ax:test","%s":"%s","a":1}`, selfField, zeroDigest))
++			got, gotField, err := CalculateObjectIdentity(input)
++			if err != nil {
++				t.Fatalf("CalculateObjectIdentity(%s) error = %v", selfField, err)
++			}
++			if gotField != selfField || got.String() != want {
++				t.Fatalf("CalculateObjectIdentity(%s) = %q, %q; want %q, %q", selfField, got, gotField, want, selfField)
++			}
++		})
++	}
++}
++
++func TestCalculateObjectIdentityMatchesAXPublishedFixtures(t *testing.T) {
++	t.Run("safe integer maximum", func(t *testing.T) {
++		input := []byte(`{"record_id":"` + zeroDigest + `","n":9007199254740991}`)
++		got, _, err := CalculateObjectIdentity(input)
++		if err != nil || got.Hex() != "e1da48c6a6089f06ecb4e0a2259e658e3786b2420f52baccdf929ec6460d7b41" {
++			t.Fatalf("CalculateObjectIdentity(NUM-SAFE-MAX) = %q, %v", got, err)
++		}
++	})
++
++	t.Run("UTF-16 order", func(t *testing.T) {
++		input := []byte(`{"record_id":"` + zeroDigest + `","\uE000":1,"\uD800\uDC00":2}`)
++		got, _, err := CalculateObjectIdentity(input)
++		if err != nil || got.Hex() != "9d4cdc71dda603c42f9b21d88d0c2ffc31a76cd1bd461d7359406cf169845f1e" {
++			t.Fatalf("CalculateObjectIdentity(JCS-UTF16-ORDER) = %q, %v", got, err)
++		}
++	})
++
++	t.Run("Blob Descriptor", func(t *testing.T) {
++		input := []byte(`{
++  "schema": "urn:ax:schema:blob",
++  "schema_version": "1.0.0",
++  "descriptor_id": "sha256:390c8f21900483a010c1cbc3f9be01afebcf6e4da87263ba09fc5776dd6503ee",
++  "blob_id": "sha256:9c21bad65c1b3d0403ac85d7d5bd134bb8d894432702a396a77b0477b8eb3b50",
++  "size": 11,
++  "media_type": "application/octet-stream",
++  "chunks": [{
++    "index": 0,
++    "offset": 0,
++    "size": 11,
++    "chunk_id": "sha256:9c21bad65c1b3d0403ac85d7d5bd134bb8d894432702a396a77b0477b8eb3b50"
++  }]
++}`)
++		got, field, err := VerifyObjectIdentity(input)
++		if err != nil || field != SelfDescriptorID || got.Hex() != "390c8f21900483a010c1cbc3f9be01afebcf6e4da87263ba09fc5776dd6503ee" {
++			t.Fatalf("VerifyObjectIdentity(Blob Descriptor) = %q, %q, %v", got, field, err)
++		}
++	})
++}
++
++func TestObjectIdentityIsStableAcrossRepresentationAndClaimChanges(t *testing.T) {
++	first := []byte(`{"z":[{"b":2,"a":1}],"record_id":"` + zeroDigest + `","schema":"urn:ax:test"}`)
++	calculated, field, err := CalculateObjectIdentity(first)
++	if err != nil {
++		t.Fatalf("CalculateObjectIdentity(first) error = %v", err)
++	}
++	second := []byte(" { \n  \"schema\" : \"urn:ax:test\", \"record_id\" : \"" + calculated.String() + "\", \"z\" : [ { \"a\" : 1, \"b\" : 2 } ] } \n")
++	recalculated, secondField, err := CalculateObjectIdentity(second)
++	if err != nil || recalculated != calculated || secondField != field {
++		t.Fatalf("CalculateObjectIdentity(reordered) = %q, %q, %v; want %q, %q", recalculated, secondField, err, calculated, field)
++	}
++	verified, verifiedField, err := VerifyObjectIdentity(second)
++	if err != nil || verified != calculated || verifiedField != SelfRecordID {
++		t.Fatalf("VerifyObjectIdentity(reordered) = %q, %q, %v", verified, verifiedField, err)
++	}
++	for attempt := 0; attempt < 3; attempt++ {
++		again, _, err := CalculateObjectIdentity(second)
++		if err != nil || again != calculated {
++			t.Fatalf("CalculateObjectIdentity idempotent attempt %d = %q, %v; want %q", attempt, again, err, calculated)
++		}
++	}
++}
++
++func TestObjectIdentityRefusesSelfInclusionAndAmbiguousNamespaces(t *testing.T) {
++	placeholder := []byte(`{"record_id":"` + zeroDigest + `","schema":"urn:ax:test","value":1}`)
++	fullCanonical, err := Canonicalize(placeholder)
++	if err != nil {
++		t.Fatalf("Canonicalize(self-inclusion setup) error = %v", err)
++	}
++	selfIncludedClaim := digestHex(string(fullCanonical))
++	selfIncluded := []byte(strings.Replace(string(placeholder), zeroDigest, selfIncludedClaim, 1))
++	if _, _, err := VerifyObjectIdentity(selfIncluded); err == nil || !errors.Is(err, ErrInvalidIdentity) {
++		t.Fatalf("VerifyObjectIdentity(self-included claim) error = %v, want identity refusal", err)
++	}
++
++	cases := []struct {
++		name  string
++		input string
++	}{
++		{"absent self field", `{"schema":"urn:ax:test"}`},
++		{"multiple self fields", `{"record_id":"` + zeroDigest + `","event_id":"` + zeroDigest + `"}`},
++		{"raw chunk identity", `{"chunk_id":"` + zeroDigest + `","size":1}`},
++		{"non-digest claim", `{"record_id":"not-a-digest","value":1}`},
++	}
++	for _, test := range cases {
++		t.Run(test.name, func(t *testing.T) {
++			if _, _, err := CalculateObjectIdentity([]byte(test.input)); err == nil || !errors.Is(err, ErrInvalidIdentity) {
++				t.Fatalf("CalculateObjectIdentity(%s) error = %v, want identity refusal", test.name, err)
++			}
++		})
++	}
++}
++
++func TestProductionEntriesRejectAmbiguousOrInvalidInput(t *testing.T) {
++	canonicalCases := []struct {
++		name  string
++		input []byte
++	}{
++		{"duplicate member", []byte(`{"a":1,"\u0061":2}`)},
++		{"lone high surrogate", []byte(`{"a":"\ud800"}`)},
++		{"lone low surrogate", []byte(`{"a":"\udc00"}`)},
++		{"mismatched surrogate", []byte(`{"a":"\ud800\u0041"}`)},
++		{"invalid UTF-8", []byte{'{', '"', 'a', '"', ':', '"', 0xff, '"', '}'}},
++	}
++	for _, test := range canonicalCases {
++		t.Run(test.name, func(t *testing.T) {
++			if _, err := Canonicalize(test.input); err == nil || !errors.Is(err, ErrInvalidJSON) {
++				t.Fatalf("Canonicalize(%s) error = %v, want invalid JSON refusal", test.name, err)
++			}
++		})
++	}
++
++	identityCases := []struct {
++		name   string
++		number string
++	}{
++		{"unsafe positive boundary", "9007199254740992"},
++		{"unsafe negative boundary", "-9007199254740992"},
++		{"rounded unsafe integer", "9007199254740993"},
++		{"floating point", "1.0"},
++		{"exponent", "1e3"},
++	}
++	for _, test := range identityCases {
++		t.Run(test.name, func(t *testing.T) {
++			input := []byte(`{"record_id":"` + zeroDigest + `","n":` + test.number + `}`)
++			if _, _, err := CalculateObjectIdentity(input); err == nil || !errors.Is(err, ErrInvalidIdentity) {
++				t.Fatalf("CalculateObjectIdentity(%s) error = %v, want common-model refusal", test.name, err)
++			}
++		})
++	}
++}
++
++func digestHex(value string) string {
++	digest := sha256.Sum256([]byte(value))
++	return "sha256:" + hex.EncodeToString(digest[:])
++}
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index 34420c7..4ac407e 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=26 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
++	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+ 	}
+@@ -54,7 +54,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=26 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
++	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+ 	}
+@@ -112,6 +112,30 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
+ 	}
+ }
+ 
++// TestMainRejectsRenamedCanonicalIdentityEntryPoint proves that the assigned
++// Section 1.6 gate reaches the production omit-self verifier through its
++// executable acceptance case. A registry link without the call site must not
++// satisfy traceability.
++func TestMainRejectsRenamedCanonicalIdentityEntryPoint(t *testing.T) {
++	if testing.Short() {
++		t.Skip("builds an isolated tracecheck binary")
++	}
++
++	fixtureRoot := isolatedTracecheckFixture(t)
++	renameGoDeclaration(
++		t,
++		filepath.Join(fixtureRoot, "internal/canonicaljson/canonical.go"),
++		"func VerifyObjectIdentity",
++		"func RenamedVerifyObjectIdentity",
++	)
++
++	output, err := runTracecheck(t, fixtureRoot, "-section", "1.6")
++	want := `acceptance case "canonical-identity-refusal" production owner: declaration "VerifyObjectIdentity" is absent`
++	if err == nil || !strings.Contains(output, want) || strings.Contains(output, "traceability ok:") {
++		t.Fatalf("tracecheck -section 1.6 error = %v output = %q, want refusal %q", err, output, want)
++	}
++}
++
+ // TestMainRejectsOneNarrowedAssignedSectionBinding drives the production
+ // main -> run -> traceability.VerifyAssignedSections call chain in an isolated
+ // module. It re-pins the intentionally narrowed registry so the section:9.2
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 9c3f5af..b7ca966 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -256,6 +256,32 @@
+         }
+       ]
+     },
++    {
++      "id": "canonical-jcs-rfc8785",
++      "production": {"path": "internal/canonicaljson/canonical.go", "declaration": "Canonicalize"},
++      "tests": [
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCanonicalizeMatchesPublishedRFC8785PrimitiveAndStringVector"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCanonicalizeUsesRFC8785UTF16PropertyOrdering"}
++      ]
++    },
++    {
++      "id": "canonical-object-identity",
++      "production": {"path": "internal/canonicaljson/canonical.go", "declaration": "CalculateObjectIdentity"},
++      "tests": [
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCalculateObjectIdentityOmitsEveryNormativeSelfField"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCalculateObjectIdentityMatchesAXPublishedFixtures"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestObjectIdentityIsStableAcrossRepresentationAndClaimChanges"}
++      ]
++    },
++    {
++      "id": "canonical-identity-refusal",
++      "production": {"path": "internal/canonicaljson/canonical.go", "declaration": "VerifyObjectIdentity"},
++      "tests": [
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestObjectIdentityRefusesSelfInclusionAndAmbiguousNamespaces"},
++        {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestProductionEntriesRejectAmbiguousOrInvalidInput"}
++      ]
++    },
+     {
+       "id": "scalar-uuid-validation",
+       "production": {"path": "internal/scalar/uuid.go", "declaration": "ParseUUIDv7"},
+@@ -504,7 +530,10 @@
+         "scalar-absolute-path-validation",
+         "scalar-bounded-integer-validation",
+         "scalar-decimal-uint64-validation",
+-        "scalar-closed-enum-validation"
++        "scalar-closed-enum-validation",
++        "canonical-jcs-rfc8785",
++        "canonical-object-identity",
++        "canonical-identity-refusal"
+       ]
+     },
+     {
+@@ -583,25 +612,25 @@
+       "kind": "section_binding",
+       "keys": ["section:10.1"],
+       "production": {"path": "internal/scalar/time_digest.go", "declaration": "Timestamp"},
+-      "acceptance_cases": ["scalar-digest-validation", "scalar-timestamp-validation", "scalar-uuid-validation"]
++      "acceptance_cases": ["scalar-digest-validation", "scalar-timestamp-validation", "scalar-uuid-validation", "canonical-object-identity", "canonical-identity-refusal"]
+     },
+     {
+       "kind": "section_binding",
+       "keys": ["section:10.2"],
+       "production": {"path": "internal/scalar/time_digest.go", "declaration": "Digest"},
+-      "acceptance_cases": ["scalar-digest-validation", "scalar-bounded-integer-validation"]
++      "acceptance_cases": ["scalar-digest-validation", "scalar-bounded-integer-validation", "canonical-jcs-rfc8785", "canonical-object-identity"]
+     },
+     {
+       "kind": "section_binding",
+       "keys": ["section:10.3"],
+       "production": {"path": "internal/scalar/integer.go", "declaration": "BoundedInteger"},
+-      "acceptance_cases": ["scalar-bounded-integer-validation", "scalar-digest-validation"]
++      "acceptance_cases": ["scalar-bounded-integer-validation", "scalar-digest-validation", "canonical-identity-refusal"]
+     },
+     {
+       "kind": "section_binding",
+       "keys": ["section:10.4"],
+       "production": {"path": "internal/scalar/names.go", "declaration": "ClosedEnum"},
+-      "acceptance_cases": ["scalar-closed-enum-validation", "scalar-uuid-validation", "scalar-digest-validation"]
++      "acceptance_cases": ["scalar-closed-enum-validation", "scalar-uuid-validation", "scalar-digest-validation", "canonical-object-identity", "canonical-identity-refusal"]
+     },
+     {
+       "kind": "section_binding",
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index a2e4c54..439a7d0 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -37,7 +37,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "40c170e056ee5b32437ea9235d3826c0490499818446fb2158ffb36eda8f43f9"
++	reviewedOwnershipCanonicalSHA256 = "72a763e3046c59a64147d1cf524c27e5263742c8633abe7e7b2db51288b70219"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 776d661..a0f76e8 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -27,7 +27,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              60,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        26,
++		AcceptanceCases:        29,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 	}
