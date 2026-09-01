@@ -5,7 +5,10 @@ to-dev
 required
 
 ## Task Class
-code
+metadata
+
+## Estimate
+notEstimated
 
 ## Blocked By
 - (none)
@@ -25,10 +28,10 @@ code
 (none)
 
 ## Created
-2026-08-28T22:46:24Z
+2026-09-01T06:57:41Z
 
 ## Last Update
 2026-09-01T06:57:52Z
 
 ## Assigned To
-codex-orchestrator
+claude-orchestrator
