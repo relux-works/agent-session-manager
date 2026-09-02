@@ -1,0 +1,107 @@
+##### BASELINE: unmutated tree
+ok  	github.com/relux-works/agent-session-manager/internal/localstore	10.304s
+exit=0
+
+##### MUTANT A: collapse the blobUnreadable branch back into the quarantine path
+--- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing (0.95s)
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/open_fails (0.21s)
+        blob_inspection_test.go:124: PutBlob(incomplete existing read) error = AX immutable object conflict: existing digest path failed verification: open blob: injected blob read failure, want AX durable object installation failed
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/read_fails_mid_copy (0.26s)
+        blob_inspection_test.go:124: PutBlob(incomplete existing read) error = AX immutable object conflict: existing digest path failed verification: read blob: injected blob read failure, want AX durable object installation failed
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/close_fails_after_read (0.37s)
+        blob_inspection_test.go:124: PutBlob(incomplete existing read) error = AX immutable object conflict: existing digest path failed verification: close blob: injected blob read failure, want AX durable object installation failed
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/raced_entry_appears_then_open_fails (0.11s)
+        blob_inspection_test.go:124: PutBlob(incomplete existing read) error = AX immutable object conflict: raced existing digest path failed verification: open blob: injected blob read failure, want AX durable object installation failed
+--- FAIL: TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch (0.54s)
+    --- FAIL: TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch/read_does_not_complete (0.15s)
+        blob_inspection_test.go:182: object store proven-mismatch = true, projection proven-mismatch = false, want the two paths to agree
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore	10.420s
+FAIL
+exit=1
+
+##### MUTANT B: widen quarantineWarranted to any verdict that is not a match or an absence
+--- FAIL: TestBlobVerdictAuthorizesQuarantineOnlyForACompletedDisagreeingRead (0.00s)
+    blob_inspection_test.go:298: blobVerdict(0).quarantineWarranted() = true, want false
+--- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach (0.35s)
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/group_readable_mode (0.04s)
+        blob_inspection_test.go:460: inspectExisting(group readable mode) authorized a move on verdict 5
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/directory_in_the_digest_path (0.04s)
+        blob_inspection_test.go:460: inspectExisting(directory in the digest path) authorized a move on verdict 5
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/symlink_in_the_digest_path (0.04s)
+        blob_inspection_test.go:460: inspectExisting(symlink in the digest path) authorized a move on verdict 5
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/lstat_fails_for_a_reason_other_than_absence (0.04s)
+        blob_inspection_test.go:460: inspectExisting(lstat fails for a reason other than absence) authorized a move on verdict 4
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/open_fails (0.05s)
+        blob_inspection_test.go:460: inspectExisting(open fails) authorized a move on verdict 4
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/read_stops_part_way_through (0.04s)
+        blob_inspection_test.go:460: inspectExisting(read stops part way through) authorized a move on verdict 4
+--- FAIL: TestPutBlobRefusesCorrectBytesAtUnsafeExistingMode (0.14s)
+    --- FAIL: TestPutBlobRefusesCorrectBytesAtUnsafeExistingMode/-rw-rw-rw- (0.07s)
+        object_store_test.go:282: unsafe existing object moved into quarantine at "/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesCorrectBytesAtUnsafeExistingMode-rw-rw-rw-3938547789/001/data/quarantine/sha256/3e/58bada6a180c0d7f817bdae51fba96a461575b309bfbc17a6918d20c6617c7/01a062f9-4eda-773c-abea-28702cb5e6ca"
+    --- FAIL: TestPutBlobRefusesCorrectBytesAtUnsafeExistingMode/-rw-r----- (0.07s)
+        object_store_test.go:282: unsafe existing object moved into quarantine at "/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesCorrectBytesAtUnsafeExistingMode-rw-r-----3526915626/001/data/quarantine/sha256/3e/58bada6a180c0d7f817bdae51fba96a461575b309bfbc17a6918d20c6617c7/01a062f9-4f20-718d-9c00-72cea470656d"
+--- FAIL: TestPutBlobRefusesUnsafeDigestPathWithoutFollowingOrQuarantiningSymlink (0.07s)
+    object_store_test.go:510: unsafe symlink moved into quarantine at "/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesUnsafeDigestPathWithoutFollowingOrQuarantining2925813069/001/data/quarantine/sha256/dd/a18a0e21ae47c53b4309434cbc02ae8bf764fa83a6defbb719431242722aa7/01a062f9-5053-7d08-a8f2-e28048428aa1"
+--- FAIL: TestPutBlobRefusesOwnerModeNonRegularDigestEntryBeforeReadingOrMovingIt (0.08s)
+    object_store_test.go:546: non-regular digest entry moved into quarantine at "/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesOwnerModeNonRegularDigestEntryBeforeReadingOrM3084320912/001/data/quarantine/sha256/dd/a18a0e21ae47c53b4309434cbc02ae8bf764fa83a6defbb719431242722aa7/01a062f9-509c-7316-a9be-022c37df3bd8"
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore	9.558s
+FAIL
+exit=1
+
+##### MUTANT C: narrow quarantineWarranted so nothing is ever quarantined
+--- FAIL: TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch (0.20s)
+    --- FAIL: TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch/completed_read_disagrees (0.11s)
+        blob_inspection_test.go:192: object store moved the existing object = false, want true; only a proven mismatch may quarantine
+--- FAIL: TestBlobVerdictAuthorizesQuarantineOnlyForACompletedDisagreeingRead (0.00s)
+    blob_inspection_test.go:298: blobVerdict(3).quarantineWarranted() = false, want true
+--- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach (0.33s)
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/different_bytes_at_the_same_size (0.03s)
+        blob_inspection_test.go:460: inspectExisting(different bytes at the same size) authorized a move on verdict 3
+--- FAIL: TestPutBlobQuarantinesBothInputsWhenExistingDigestPathIsCorrupt (0.10s)
+    --- FAIL: TestPutBlobQuarantinesBothInputsWhenExistingDigestPathIsCorrupt/different_size_and_digest (0.05s)
+        object_store_test.go:241: PutBlob(corrupt existing) result = {Digest:sha256:ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3 Size:5 Path:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobQuarantinesBothInputsWhenExistingDigestPathIsCorrupt1105932027/001/data/objects/sha256/ec/654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3 Installed:false QuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobQuarantinesBothInputsWhenExistingDigestPathIsCorrupt1105932027/001/data/quarantine/sha256/ec/654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3/01a062f9-7f60-7906-bb05-a47b0ab3a341 ExistingQuarantinePath:}, want both quarantine paths
+    --- FAIL: TestPutBlobQuarantinesBothInputsWhenExistingDigestPathIsCorrupt/same_size_but_different_digest (0.05s)
+        object_store_test.go:241: PutBlob(corrupt existing) result = {Digest:sha256:ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3 Size:5 Path:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobQuarantinesBothInputsWhenExistingDigestPathIsCorrupt2997819245/001/data/objects/sha256/ec/654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3 Installed:false QuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobQuarantinesBothInputsWhenExistingDigestPathIsCorrupt2997819245/001/data/quarantine/sha256/ec/654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3/01a062f9-7f91-7f45-b5ca-35ab6c09a97b ExistingQuarantinePath:}, want both quarantine paths
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore	9.469s
+FAIL
+exit=1
+
+##### MUTANT D: narrow the mismatch comparison in verifyBlobContent to size only
+--- FAIL: TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch (0.15s)
+    --- FAIL: TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch/completed_read_disagrees (0.05s)
+        blob_inspection_test.go:178: PutBlob(TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch/completed_read_disagrees) succeeded; the fixture must not verify
+--- FAIL: TestVerifyBlobContentSeparatesAnIncompleteReadFromADisagreeingOne (0.00s)
+    blob_inspection_test.go:340: verifyBlobContent(same size, different digest) verdict = 2, want blobMismatch
+--- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach (0.34s)
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/different_bytes_at_the_same_size (0.05s)
+        blob_inspection_test.go:456: inspectExisting(different bytes at the same size) verdict = 2, want 3 (error = <nil>)
+--- FAIL: TestPutBlobQuarantinesBothInputsWhenExistingDigestPathIsCorrupt (0.10s)
+    --- FAIL: TestPutBlobQuarantinesBothInputsWhenExistingDigestPathIsCorrupt/same_size_but_different_digest (0.04s)
+        object_store_test.go:238: PutBlob(corrupt existing) error = <nil>, want AX immutable object conflict
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore	8.703s
+FAIL
+exit=1
+
+##### MUTANT E: ignore the projection read seam so the two paths stop sharing the injected failure
+--- FAIL: TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch (0.25s)
+    --- FAIL: TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch/read_does_not_complete (0.12s)
+        blob_inspection_test.go:179: openProjection(TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch/read_does_not_complete) succeeded; the fixture must not verify
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore	8.986s
+FAIL
+exit=1
+
+##### RESTORED: unmutated tree
+# github.com/relux-works/agent-session-manager/internal/localstore [github.com/relux-works/agent-session-manager/internal/localstore.test]
+internal/localstore/blob_inspection_test.go:259:9: hooks.openBlob undefined (type projectionHooks has no field or method openBlob)
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore [build failed]
+FAIL
+exit=1
+
+##### RESTORED (rerun after repairing the mutant-E revert): unmutated tree
+ok  	github.com/relux-works/agent-session-manager/internal/localstore	9.312s
+exit=0

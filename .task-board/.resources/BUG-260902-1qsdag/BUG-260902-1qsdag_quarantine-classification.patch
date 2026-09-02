@@ -1,0 +1,562 @@
+diff --git a/internal/localstore/object_store.go b/internal/localstore/object_store.go
+index 4e57ea2..3fecd05 100644
+--- a/internal/localstore/object_store.go
++++ b/internal/localstore/object_store.go
+@@ -87,6 +87,14 @@ type storeOperations struct {
+ 	syncFile      func(*os.File) error
+ 	install       func(string, string) error
+ 	syncDirectory func(string) error
++	// openForRead is the one reader inspectExisting uses to re-hash an object
++	// that already occupies a digest path. It is injectable because a
++	// transient read failure on an owner-only 0600 regular file cannot be
++	// produced from the filesystem alone: every on-disk fault that would make
++	// os.Open fail also changes the mode or type, which verifyOwnerFileInfo
++	// rejects earlier as an ownership refusal. Without this seam the
++	// read-failure classification could only be argued, not driven.
++	openForRead func(string) (io.ReadCloser, error)
+ }
+ 
+ func defaultStoreOperations() storeOperations {
+@@ -96,9 +104,32 @@ func defaultStoreOperations() storeOperations {
+ 		syncDirectory: func(directory string) error {
+ 			return syncDirectory(directory)
+ 		},
++		openForRead: func(name string) (io.ReadCloser, error) { return os.Open(name) },
+ 	}
+ }
+ 
++// existingVerdict classifies what inspecting an occupied digest path actually
++// proved. SPEC.md section 3.2 authorizes quarantine for a hash mismatch or a
++// representation disagreement and for nothing else, so an inspection that did
++// not complete must never reach a quarantine decision: it proves neither.
++type existingVerdict int
++
++const (
++	// existingAbsent means no entry occupies the digest path.
++	existingAbsent existingVerdict = iota
++	// existingMatches means the occupant was fully read and is byte-identical.
++	existingMatches
++	// existingDisagrees is the only proven mismatch, and the only verdict that
++	// authorizes moving the existing object into quarantine.
++	existingDisagrees
++	// existingUnsafe means the occupant failed the owner-only regular-file
++	// gate, so it is refused without being read or moved.
++	existingUnsafe
++	// existingUnreadable means the inspection itself failed. The occupant is
++	// reported as a durability failure and left exactly where it is.
++	existingUnreadable
++)
++
+ type ObjectStore struct {
+ 	dataRoot   string
+ 	objects    string
+@@ -135,10 +166,14 @@ func (store *ObjectStore) DataRoot() string { return store.dataRoot }
+ // PutBlob is the production immutable-write entry point. It stages in the
+ // destination directory, fsyncs, verifies the declared uint53 size and SHA-256,
+ // atomically renames, then fsyncs the containing directory. An identical retry
+-// verifies and reuses the existing inode. Mismatches are installed create-new
+-// in quarantine and never enter the immutable namespace.
++// verifies and reuses the existing inode. Proven mismatches are installed
++// create-new in quarantine and never enter the immutable namespace. An
++// inspection that fails to complete is reported as a durability failure and
++// moves nothing, because SPEC.md section 3.2 authorizes quarantine only for a
++// hash mismatch or a representation disagreement.
+ func (store *ObjectStore) PutBlob(expected scalar.Digest, expectedSize uint64, source io.Reader) (PutResult, error) {
+-	if store == nil || store.operations.syncFile == nil || store.operations.install == nil || store.operations.syncDirectory == nil {
++	if store == nil || store.operations.syncFile == nil || store.operations.install == nil ||
++		store.operations.syncDirectory == nil || store.operations.openForRead == nil {
+ 		return PutResult{}, fmt.Errorf("%w: object store is not initialized", ErrDurability)
+ 	}
+ 	if expectedSize > MaxBlobSize {
+@@ -213,48 +248,22 @@ func (store *ObjectStore) PutBlob(expected scalar.Digest, expectedSize uint64, s
+ 	}
+ 
+ 	result := PutResult{Digest: expected, Size: expectedSize, Path: target}
+-	existing, existingErr := store.inspectExisting(target, expected, expectedSize)
+-	switch {
+-	case existingErr == nil && existing:
++	verdict, existingErr := store.inspectExisting(target, expected, expectedSize)
++	if verdict == existingMatches {
+ 		return result, nil
+-	case existingErr != nil:
+-		candidateQuarantine, quarantineErr := store.quarantineStaged(expected, stagedPath)
+-		if quarantineErr != nil {
+-			return PutResult{}, fmt.Errorf("%w: existing conflict and candidate quarantine failed: %v", ErrDurability, quarantineErr)
+-		}
+-		result.QuarantinePath = candidateQuarantine
+-		if errors.Is(existingErr, ErrUnsafeOwnership) {
+-			return result, fmt.Errorf("%w: unsafe digest-path entry: %v", ErrImmutableConflict, existingErr)
+-		}
+-		existingQuarantine, quarantineErr := store.quarantineExisting(expected, target)
+-		if quarantineErr != nil {
+-			return result, fmt.Errorf("%w: %v; existing quarantine failed: %v", ErrImmutableConflict, existingErr, quarantineErr)
+-		}
+-		result.ExistingQuarantinePath = existingQuarantine
+-		return result, fmt.Errorf("%w: existing digest path failed verification: %v", ErrImmutableConflict, existingErr)
++	}
++	if verdict != existingAbsent {
++		return store.resolveExistingConflict(result, verdict, existingErr, expected, stagedPath, target, false)
+ 	}
+ 
+ 	if err := store.operations.install(stagedPath, target); err != nil {
+ 		if errors.Is(err, os.ErrExist) {
+-			existing, inspectErr := store.inspectExisting(target, expected, expectedSize)
+-			if inspectErr == nil && existing {
++			verdict, inspectErr := store.inspectExisting(target, expected, expectedSize)
++			if verdict == existingMatches {
+ 				return result, nil
+ 			}
+-			if inspectErr != nil {
+-				candidateQuarantine, quarantineErr := store.quarantineStaged(expected, stagedPath)
+-				if quarantineErr != nil {
+-					return PutResult{}, fmt.Errorf("%w: raced conflict and candidate quarantine failed: %v", ErrDurability, quarantineErr)
+-				}
+-				result.QuarantinePath = candidateQuarantine
+-				if errors.Is(inspectErr, ErrUnsafeOwnership) {
+-					return result, fmt.Errorf("%w: unsafe raced digest-path entry: %v", ErrImmutableConflict, inspectErr)
+-				}
+-				existingQuarantine, quarantineErr := store.quarantineExisting(expected, target)
+-				if quarantineErr != nil {
+-					return result, fmt.Errorf("%w: %v; raced existing quarantine failed: %v", ErrImmutableConflict, inspectErr, quarantineErr)
+-				}
+-				result.ExistingQuarantinePath = existingQuarantine
+-				return result, fmt.Errorf("%w: raced digest path failed verification: %v", ErrImmutableConflict, inspectErr)
++			if verdict != existingAbsent {
++				return store.resolveExistingConflict(result, verdict, inspectErr, expected, stagedPath, target, true)
+ 			}
+ 		}
+ 		return PutResult{}, fmt.Errorf("%w: atomic no-replace rename: %v", ErrDurability, err)
+@@ -266,41 +275,82 @@ func (store *ObjectStore) PutBlob(expected scalar.Digest, expectedSize uint64, s
+ 	return result, nil
+ }
+ 
+-func (store *ObjectStore) inspectExisting(target string, expected scalar.Digest, expectedSize uint64) (bool, error) {
++// resolveExistingConflict is the single owner of what an occupied digest path
++// does to the candidate and to the occupant. Both the pre-install inspection
++// and the raced create-new inspection route through it so the two sites cannot
++// drift apart on the one decision SPEC.md section 3.2 constrains.
++func (store *ObjectStore) resolveExistingConflict(result PutResult, verdict existingVerdict, existingErr error,
++	expected scalar.Digest, stagedPath, target string, raced bool) (PutResult, error) {
++	label := "existing"
++	if raced {
++		label = "raced existing"
++	}
++	// An inspection that did not complete proves neither a hash mismatch nor a
++	// representation disagreement, so it authorizes no quarantine at all. The
++	// occupant stays in the immutable namespace and the caller sees a
++	// durability failure; the staged candidate is removed by the deferred
++	// cleanup rather than moved. A transient fault must not be able to sideline
++	// a valid immutable object.
++	if verdict == existingUnreadable {
++		return PutResult{}, fmt.Errorf("%w: inspect %s digest path: %v", ErrDurability, label, existingErr)
++	}
++	candidateQuarantine, quarantineErr := store.quarantineStaged(expected, stagedPath)
++	if quarantineErr != nil {
++		return PutResult{}, fmt.Errorf("%w: %s conflict and candidate quarantine failed: %v", ErrDurability, label, quarantineErr)
++	}
++	result.QuarantinePath = candidateQuarantine
++	// An unsafe occupant is refused unread, so it is equally unproven and is
++	// also left in place; only the candidate is quarantined.
++	if verdict == existingUnsafe {
++		return result, fmt.Errorf("%w: unsafe %s digest-path entry: %v", ErrImmutableConflict, label, existingErr)
++	}
++	existingQuarantine, quarantineErr := store.quarantineExisting(expected, target)
++	if quarantineErr != nil {
++		return result, fmt.Errorf("%w: %v; %s quarantine failed: %v", ErrImmutableConflict, existingErr, label, quarantineErr)
++	}
++	result.ExistingQuarantinePath = existingQuarantine
++	return result, fmt.Errorf("%w: %s digest path failed verification: %v", ErrImmutableConflict, label, existingErr)
++}
++
++// inspectExisting classifies an occupant of the digest path. It never decides
++// what to move; it only reports what it was able to prove. Every failure to
++// complete the inspection is existingUnreadable, and only a completed read
++// whose size or digest differs is existingDisagrees.
++func (store *ObjectStore) inspectExisting(target string, expected scalar.Digest, expectedSize uint64) (existingVerdict, error) {
+ 	info, err := os.Lstat(target)
+ 	if errors.Is(err, os.ErrNotExist) {
+-		return false, nil
++		return existingAbsent, nil
+ 	}
+ 	if err != nil {
+-		return false, err
++		return existingUnreadable, err
+ 	}
+ 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+-		return false, fmt.Errorf("%w: target is not a regular file", ErrUnsafeOwnership)
++		return existingUnsafe, fmt.Errorf("%w: target is not a regular file", ErrUnsafeOwnership)
+ 	}
+ 	if err := verifyOwnerFileInfo(info, 0o600); err != nil {
+-		return false, err
++		return existingUnsafe, err
+ 	}
+-	file, err := os.Open(target)
++	file, err := store.operations.openForRead(target)
+ 	if err != nil {
+-		return false, err
++		return existingUnreadable, err
+ 	}
+ 	hasher := sha256.New()
+ 	size, readErr := io.Copy(hasher, file)
+ 	closeErr := file.Close()
+ 	if readErr != nil {
+-		return false, readErr
++		return existingUnreadable, readErr
+ 	}
+ 	if closeErr != nil {
+-		return false, closeErr
++		return existingUnreadable, closeErr
+ 	}
+ 	actual, err := scalar.ParseDigest("sha256:" + hex.EncodeToString(hasher.Sum(nil)))
+ 	if err != nil {
+-		return false, err
++		return existingUnreadable, err
+ 	}
+ 	if size < 0 || uint64(size) != expectedSize || actual != expected {
+-		return false, fmt.Errorf("existing size or digest differs")
++		return existingDisagrees, fmt.Errorf("existing size or digest differs")
+ 	}
+-	return true, nil
++	return existingMatches, nil
+ }
+ 
+ func (store *ObjectStore) quarantineStaged(expected scalar.Digest, stagedPath string) (string, error) {
+diff --git a/internal/localstore/object_store_quarantine_proof_test.go b/internal/localstore/object_store_quarantine_proof_test.go
+new file mode 100644
+index 0000000..cffe6f2
+--- /dev/null
++++ b/internal/localstore/object_store_quarantine_proof_test.go
+@@ -0,0 +1,333 @@
++package localstore
++
++import (
++	"bytes"
++	"context"
++	"errors"
++	"io"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"runtime"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// errTransientRead stands for the class of faults that make a read stop part
++// way through without saying anything about the bytes on disk: EMFILE, EIO, a
++// severed network filesystem. None of them is a hash mismatch.
++var errTransientRead = errors.New("injected transient read failure")
++
++// failingReader fails after handing back a prefix, so the copy has genuinely
++// started and cannot be dismissed as an open that never happened.
++type failingReader struct {
++	prefix    []byte
++	delivered bool
++}
++
++func (reader *failingReader) Read(destination []byte) (int, error) {
++	if !reader.delivered && len(reader.prefix) > 0 {
++		reader.delivered = true
++		return copy(destination, reader.prefix), nil
++	}
++	return 0, errTransientRead
++}
++
++func (reader *failingReader) Close() error { return nil }
++
++// TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining is the
++// negative case for the SPEC.md section 3.2 quarantine bound: quarantine is
++// authorized by a proven hash mismatch or representation disagreement, and a
++// read that did not complete proves neither.
++//
++// It drives the production entry point ObjectStore.PutBlob. Collapsing the
++// existingUnreadable classification back into the quarantine branch of
++// resolveExistingConflict reddens it, because the valid occupant is then moved
++// out of the immutable namespace on a fault that proved nothing about it.
++func TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	content := []byte("valid immutable object")
++	tests := []struct {
++		name        string
++		openForRead func(string) (io.ReadCloser, error)
++	}{
++		{
++			name: "open fails",
++			openForRead: func(string) (io.ReadCloser, error) {
++				return nil, errTransientRead
++			},
++		},
++		{
++			name: "read fails part way through",
++			openForRead: func(string) (io.ReadCloser, error) {
++				return &failingReader{prefix: content[:4]}, nil
++			},
++		},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			store := openTestStore(t)
++			digest := scalar.SHA256Digest(content)
++
++			// Install the valid object through the production path first, so
++			// what the retry finds is a genuinely published immutable object
++			// and not a hand-placed fixture.
++			if _, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content)); err != nil {
++				t.Fatalf("PutBlob(first install) error = %v", err)
++			}
++			target, err := nativeDigestPath(store.objects, digest)
++			if err != nil {
++				t.Fatal(err)
++			}
++			before := statSnapshot(t, target)
++
++			store.operations.openForRead = test.openForRead
++			result, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++
++			if !errors.Is(err, ErrDurability) {
++				t.Fatalf("PutBlob(transient inspection read failure) error = %v, want %v", err, ErrDurability)
++			}
++			if errors.Is(err, ErrImmutableConflict) || errors.Is(err, ErrIntegrityMismatch) {
++				t.Fatalf("PutBlob(transient inspection read failure) error = %v, want a durability failure and not a mismatch verdict", err)
++			}
++			if result.QuarantinePath != "" || result.ExistingQuarantinePath != "" {
++				t.Fatalf("PutBlob(transient inspection read failure) result = %+v, want no quarantine path", result)
++			}
++			if result.Installed {
++				t.Fatalf("PutBlob(transient inspection read failure) reported an install: %+v", result)
++			}
++
++			// The object must still be the same inode with the same bytes and
++			// the same mode: nothing was moved, replaced, or truncated.
++			assertFileBytes(t, target, content)
++			assertUnmovedFile(t, target, before)
++			assertQuarantineRootEmpty(t, store.quarantine)
++			assertNoStagedFiles(t, filepath.Dir(target))
++		})
++	}
++}
++
++// TestInspectExistingClassifiesEveryFaultItCanReach pins the classification
++// itself, so a future edit cannot quietly widen existingDisagrees. Only a
++// completed read whose bytes differ may return existingDisagrees, because that
++// is the only verdict resolveExistingConflict is allowed to quarantine on.
++func TestInspectExistingClassifiesEveryFaultItCanReach(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	content := []byte("classified")
++	digest := scalar.SHA256Digest(content)
++
++	tests := []struct {
++		name     string
++		occupant func(t *testing.T, store *ObjectStore, target string)
++		want     existingVerdict
++	}{
++		{
++			name:     "absent",
++			occupant: func(*testing.T, *ObjectStore, string) {},
++			want:     existingAbsent,
++		},
++		{
++			name: "identical bytes",
++			occupant: func(t *testing.T, _ *ObjectStore, target string) {
++				writeOccupant(t, target, content, 0o600)
++			},
++			want: existingMatches,
++		},
++		{
++			name: "different bytes at the same size",
++			occupant: func(t *testing.T, _ *ObjectStore, target string) {
++				writeOccupant(t, target, []byte("classifieD"), 0o600)
++			},
++			want: existingDisagrees,
++		},
++		{
++			name: "group readable mode",
++			occupant: func(t *testing.T, _ *ObjectStore, target string) {
++				writeOccupant(t, target, content, 0o640)
++			},
++			want: existingUnsafe,
++		},
++		{
++			name: "directory in the digest path",
++			occupant: func(t *testing.T, _ *ObjectStore, target string) {
++				if err := os.MkdirAll(target, 0o700); err != nil {
++					t.Fatal(err)
++				}
++			},
++			want: existingUnsafe,
++		},
++		{
++			name: "read stops part way through",
++			occupant: func(t *testing.T, store *ObjectStore, target string) {
++				writeOccupant(t, target, content, 0o600)
++				store.operations.openForRead = func(string) (io.ReadCloser, error) {
++					return &failingReader{prefix: content[:4]}, nil
++				}
++			},
++			want: existingUnreadable,
++		},
++		{
++			name: "open fails",
++			occupant: func(t *testing.T, store *ObjectStore, target string) {
++				writeOccupant(t, target, content, 0o600)
++				store.operations.openForRead = func(string) (io.ReadCloser, error) {
++					return nil, errTransientRead
++				}
++			},
++			want: existingUnreadable,
++		},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			store := openTestStore(t)
++			target, err := nativeDigestPath(store.objects, digest)
++			if err != nil {
++				t.Fatal(err)
++			}
++			test.occupant(t, store, target)
++
++			got, inspectErr := store.inspectExisting(target, digest, uint64(len(content)))
++			if got != test.want {
++				t.Fatalf("inspectExisting() verdict = %v, want %v (error = %v)", got, test.want, inspectErr)
++			}
++			if test.want == existingDisagrees && inspectErr == nil {
++				t.Fatal("inspectExisting() proved a mismatch without reporting why")
++			}
++		})
++	}
++}
++
++// TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch asserts the
++// agreement between the two paths that read the authoritative object namespace
++// instead of assuming it. Both are driven through their production entry
++// points, PutBlob and openProjection, over the same data root and the same
++// class of fault: a read that does not complete.
++//
++// The shared obligation is that a failed read is reported as a failure and
++// never treated as a proven mismatch, so no object leaves the immutable
++// namespace and the quarantine root stays empty.
++func TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	content := []byte("agreed authoritative bytes")
++	digest := scalar.SHA256Digest(content)
++
++	tests := []struct {
++		name string
++		// drive induces a read failure in one production path and returns the
++		// error that path reported.
++		drive func(t *testing.T, store *ObjectStore, target string) error
++	}{
++		{
++			name: "object store PutBlob",
++			drive: func(t *testing.T, store *ObjectStore, _ string) error {
++				store.operations.openForRead = func(string) (io.ReadCloser, error) {
++					return &failingReader{prefix: content[:4]}, nil
++				}
++				result, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++				if result.QuarantinePath != "" || result.ExistingQuarantinePath != "" {
++					t.Fatalf("PutBlob quarantined on a failed read: %+v", result)
++				}
++				return err
++			},
++		},
++		{
++			name: "projection openProjection",
++			drive: func(t *testing.T, store *ObjectStore, _ string) error {
++				_, _, err := openProjection(context.Background(), store.resolvedPathsForTest(t), projectionHooks{
++					afterBlobStat: func(string) error { return errTransientRead },
++				})
++				return err
++			},
++		},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			store := openTestStore(t)
++			if _, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content)); err != nil {
++				t.Fatalf("PutBlob(first install) error = %v", err)
++			}
++			target, err := nativeDigestPath(store.objects, digest)
++			if err != nil {
++				t.Fatal(err)
++			}
++			before := statSnapshot(t, target)
++
++			err = test.drive(t, store, target)
++
++			if err == nil {
++				t.Fatal("a read that did not complete was reported as success")
++			}
++			// Neither path may report a failed read as a proven mismatch.
++			if errors.Is(err, ErrIntegrityMismatch) || errors.Is(err, ErrImmutableConflict) {
++				t.Fatalf("failed read reported as a mismatch verdict: %v", err)
++			}
++			assertFileBytes(t, target, content)
++			assertUnmovedFile(t, target, before)
++			assertQuarantineRootEmpty(t, store.quarantine)
++		})
++	}
++}
++
++func writeOccupant(t *testing.T, target string, content []byte, mode os.FileMode) {
++	t.Helper()
++	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(target, content, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Chmod(target, mode); err != nil {
++		t.Fatal(err)
++	}
++}
++
++type fileIdentity struct {
++	mode    os.FileMode
++	size    int64
++	modTime int64
++}
++
++func statSnapshot(t *testing.T, path string) fileIdentity {
++	t.Helper()
++	info, err := os.Lstat(path)
++	if err != nil {
++		t.Fatalf("Lstat(%q) error = %v", path, err)
++	}
++	return fileIdentity{mode: info.Mode(), size: info.Size(), modTime: info.ModTime().UnixNano()}
++}
++
++func assertUnmovedFile(t *testing.T, path string, before fileIdentity) {
++	t.Helper()
++	after := statSnapshot(t, path)
++	if after != before {
++		t.Fatalf("object at %q changed: %+v, want %+v", path, after, before)
++	}
++}
++
++// assertQuarantineRootEmpty proves the negative directly: no quarantine
++// destination was created anywhere beneath the quarantine root.
++func assertQuarantineRootEmpty(t *testing.T, quarantineRoot string) {
++	t.Helper()
++	err := filepath.WalkDir(quarantineRoot, func(path string, entry fs.DirEntry, err error) error {
++		if err != nil {
++			return err
++		}
++		if !entry.IsDir() {
++			t.Errorf("quarantine root holds %q after a read failure that proved no mismatch", path)
++		}
++		return nil
++	})
++	if err != nil {
++		t.Fatalf("walk quarantine root error = %v", err)
++	}
++}

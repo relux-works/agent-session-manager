@@ -1,0 +1,76 @@
+##### BASELINE (scratch tree copy of candidate)
+ok  	github.com/relux-works/agent-session-manager/internal/localstore	9.380s
+exit=0
+##### REVIEW MUTANT R1: quarantine the staged candidate before the unreadable classification (existing object still stays)
+--- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing (0.30s)
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/open_fails (0.06s)
+        blob_inspection_test.go:134: quarantine namespace contains [/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNoth2111567511/001/data/quarantine/sha256/3e/58bada6a180c0d7f817bdae51fba96a461575b309bfbc17a6918d20c6617c7/01a06304-5186-7ecb-86bb-c43f51f1d567], want nothing moved
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/read_fails_mid_copy (0.05s)
+        blob_inspection_test.go:134: quarantine namespace contains [/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNoth250243391/001/data/quarantine/sha256/3e/58bada6a180c0d7f817bdae51fba96a461575b309bfbc17a6918d20c6617c7/01a06304-51be-792b-a8bc-e6f8bdc6187e], want nothing moved
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/close_fails_after_read (0.11s)
+        blob_inspection_test.go:134: quarantine namespace contains [/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNoth1298678585/001/data/quarantine/sha256/3e/58bada6a180c0d7f817bdae51fba96a461575b309bfbc17a6918d20c6617c7/01a06304-520c-7776-98f1-f09e5b568c29], want nothing moved
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/raced_entry_appears_then_open_fails (0.08s)
+        blob_inspection_test.go:134: quarantine namespace contains [/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNoth3573238203/001/data/quarantine/sha256/3e/58bada6a180c0d7f817bdae51fba96a461575b309bfbc17a6918d20c6617c7/01a06304-5278-7aa0-9355-6e3169a27149], want nothing moved
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore	1.058s
+FAIL
+exit=1
+
+##### REVIEW MUTANT R2: a failed Lstat is reported as an absence (absence-vs-failure conflation)
+--- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach (0.36s)
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/lstat_fails_for_a_reason_other_than_absence (0.06s)
+        blob_inspection_test.go:456: inspectExisting(lstat fails for a reason other than absence) verdict = 1, want 4 (error = <nil>)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore	9.307s
+FAIL
+exit=1
+
+##### REVIEW MUTANT R6: quarantineWarranted widened ONLY to admit blobUnreadable (the exact defect class, not a blanket widening)
+--- FAIL: TestBlobVerdictAuthorizesQuarantineOnlyForACompletedDisagreeingRead (0.00s)
+    blob_inspection_test.go:298: blobVerdict(4).quarantineWarranted() = true, want false
+--- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach (0.33s)
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/lstat_fails_for_a_reason_other_than_absence (0.04s)
+        blob_inspection_test.go:460: inspectExisting(lstat fails for a reason other than absence) authorized a move on verdict 4
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/open_fails (0.04s)
+        blob_inspection_test.go:460: inspectExisting(open fails) authorized a move on verdict 4
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/read_stops_part_way_through (0.04s)
+        blob_inspection_test.go:460: inspectExisting(read stops part way through) authorized a move on verdict 4
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore	9.353s
+FAIL
+exit=1
+
+##### REVIEW MUTANT R7: exact pre-fix behavior restored -- an incomplete read reaches quarantineExisting
+--- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing (0.28s)
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/open_fails (0.07s)
+        blob_inspection_test.go:124: PutBlob(incomplete existing read) error = AX immutable object conflict: existing digest path failed verification: open blob: injected blob read failure, want AX durable object installation failed
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/read_fails_mid_copy (0.07s)
+        blob_inspection_test.go:124: PutBlob(incomplete existing read) error = AX immutable object conflict: existing digest path failed verification: read blob: injected blob read failure, want AX durable object installation failed
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/close_fails_after_read (0.07s)
+        blob_inspection_test.go:124: PutBlob(incomplete existing read) error = AX immutable object conflict: existing digest path failed verification: close blob: injected blob read failure, want AX durable object installation failed
+    --- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing/raced_entry_appears_then_open_fails (0.07s)
+        blob_inspection_test.go:124: PutBlob(incomplete existing read) error = AX immutable object conflict: raced existing digest path failed verification: open blob: injected blob read failure, want AX durable object installation failed
+--- FAIL: TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch (0.25s)
+    --- FAIL: TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch/read_does_not_complete (0.12s)
+        blob_inspection_test.go:182: object store proven-mismatch = true, projection proven-mismatch = false, want the two paths to agree
+--- FAIL: TestBlobVerdictAuthorizesQuarantineOnlyForACompletedDisagreeingRead (0.00s)
+    blob_inspection_test.go:298: blobVerdict(4).quarantineWarranted() = true, want false
+--- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach (0.34s)
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/lstat_fails_for_a_reason_other_than_absence (0.04s)
+        blob_inspection_test.go:460: inspectExisting(lstat fails for a reason other than absence) authorized a move on verdict 4
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/open_fails (0.03s)
+        blob_inspection_test.go:460: inspectExisting(open fails) authorized a move on verdict 4
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/read_stops_part_way_through (0.04s)
+        blob_inspection_test.go:460: inspectExisting(read stops part way through) authorized a move on verdict 4
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore	9.447s
+FAIL
+exit=1
+
+##### RESTORED (scratch tree)
+ok  	github.com/relux-works/agent-session-manager/internal/localstore	9.421s
+exit=0
+
+##### REVIEW MUTANT R8: the projection re-labels an incomplete read as an integrity refusal about the bytes (attacks the substring proxy in classifyThroughProjection)
+ok  	github.com/relux-works/agent-session-manager/internal/localstore	9.094s
+exit=0

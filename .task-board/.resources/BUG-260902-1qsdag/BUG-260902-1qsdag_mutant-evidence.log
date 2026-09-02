@@ -1,0 +1,65 @@
+# BUG-260902-1qsdag mutant evidence
+# base: task-board/story/STORY-260830-2dy8oj @ 81305c8
+# date: 2026-09-02T15:31:34Z
+
+===== FIXED TREE (expected GREEN) =====
+=== RUN   TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining
+=== RUN   TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining/open_fails
+=== RUN   TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining/read_fails_part_way_through
+--- PASS: TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining (0.12s)
+    --- PASS: TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining/open_fails (0.06s)
+    --- PASS: TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining/read_fails_part_way_through (0.06s)
+=== RUN   TestInspectExistingClassifiesEveryFaultItCanReach
+=== RUN   TestInspectExistingClassifiesEveryFaultItCanReach/absent
+=== RUN   TestInspectExistingClassifiesEveryFaultItCanReach/identical_bytes
+=== RUN   TestInspectExistingClassifiesEveryFaultItCanReach/different_bytes_at_the_same_size
+=== RUN   TestInspectExistingClassifiesEveryFaultItCanReach/group_readable_mode
+=== RUN   TestInspectExistingClassifiesEveryFaultItCanReach/directory_in_the_digest_path
+=== RUN   TestInspectExistingClassifiesEveryFaultItCanReach/read_stops_part_way_through
+=== RUN   TestInspectExistingClassifiesEveryFaultItCanReach/open_fails
+--- PASS: TestInspectExistingClassifiesEveryFaultItCanReach (0.30s)
+    --- PASS: TestInspectExistingClassifiesEveryFaultItCanReach/absent (0.04s)
+    --- PASS: TestInspectExistingClassifiesEveryFaultItCanReach/identical_bytes (0.04s)
+    --- PASS: TestInspectExistingClassifiesEveryFaultItCanReach/different_bytes_at_the_same_size (0.04s)
+    --- PASS: TestInspectExistingClassifiesEveryFaultItCanReach/group_readable_mode (0.04s)
+    --- PASS: TestInspectExistingClassifiesEveryFaultItCanReach/directory_in_the_digest_path (0.04s)
+    --- PASS: TestInspectExistingClassifiesEveryFaultItCanReach/read_stops_part_way_through (0.04s)
+    --- PASS: TestInspectExistingClassifiesEveryFaultItCanReach/open_fails (0.04s)
+=== RUN   TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch
+=== RUN   TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch/object_store_PutBlob
+=== RUN   TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch/projection_openProjection
+--- PASS: TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch (0.12s)
+    --- PASS: TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch/object_store_PutBlob (0.06s)
+    --- PASS: TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch/projection_openProjection (0.06s)
+PASS
+ok  	github.com/relux-works/agent-session-manager/internal/localstore	0.850s
+EXIT=0 (expected 0)
+
+===== MUTANT m1: delete the existingUnreadable guard in resolveExistingConflict (pre-fix behavior) — expected RED =====
+--- FAIL: TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining (0.18s)
+    --- FAIL: TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining/open_fails (0.10s)
+        object_store_quarantine_proof_test.go:92: PutBlob(transient inspection read failure) error = AX immutable object conflict: existing digest path failed verification: injected transient read failure, want AX durable object installation failed
+    --- FAIL: TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining/read_fails_part_way_through (0.08s)
+        object_store_quarantine_proof_test.go:92: PutBlob(transient inspection read failure) error = AX immutable object conflict: existing digest path failed verification: injected transient read failure, want AX durable object installation failed
+--- FAIL: TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch (0.12s)
+    --- FAIL: TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch/object_store_PutBlob (0.07s)
+        object_store_quarantine_proof_test.go:238: PutBlob quarantined on a failed read: {Digest:sha256:5d0dc5da5b1b0744001e91ab382b3802e0b730b85a4b9fa2ac3a48d18063699a Size:26 Path:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatcho2915570899/001/data/objects/sha256/5d/0dc5da5b1b0744001e91ab382b3802e0b730b85a4b9fa2ac3a48d18063699a Installed:false QuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatcho2915570899/001/data/quarantine/sha256/5d/0dc5da5b1b0744001e91ab382b3802e0b730b85a4b9fa2ac3a48d18063699a/01a062bf-45e2-7e21-ac6f-1f10e1f36141 ExistingQuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatcho2915570899/001/data/quarantine/sha256/5d/0dc5da5b1b0744001e91ab382b3802e0b730b85a4b9fa2ac3a48d18063699a/01a062bf-45e6-795e-93f1-b35f6132be6e}
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore	0.843s
+FAIL
+EXIT=1 (expected non-zero)
+
+===== MUTANT m2: narrow — inspectExisting returns existingDisagrees on a read failure — expected RED =====
+--- FAIL: TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining (0.14s)
+    --- FAIL: TestPutBlobReportsTransientInspectionReadFailureWithoutQuarantining/read_fails_part_way_through (0.09s)
+        object_store_quarantine_proof_test.go:92: PutBlob(transient inspection read failure) error = AX immutable object conflict: existing digest path failed verification: injected transient read failure, want AX durable object installation failed
+--- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach (0.32s)
+    --- FAIL: TestInspectExistingClassifiesEveryFaultItCanReach/read_stops_part_way_through (0.04s)
+        object_store_quarantine_proof_test.go:198: inspectExisting() verdict = 2, want 4 (error = injected transient read failure)
+--- FAIL: TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch (0.12s)
+    --- FAIL: TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatch/object_store_PutBlob (0.08s)
+        object_store_quarantine_proof_test.go:238: PutBlob quarantined on a failed read: {Digest:sha256:5d0dc5da5b1b0744001e91ab382b3802e0b730b85a4b9fa2ac3a48d18063699a Size:26 Path:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatcho190758535/001/data/objects/sha256/5d/0dc5da5b1b0744001e91ab382b3802e0b730b85a4b9fa2ac3a48d18063699a Installed:false QuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatcho190758535/001/data/quarantine/sha256/5d/0dc5da5b1b0744001e91ab382b3802e0b730b85a4b9fa2ac3a48d18063699a/01a062bf-4b56-7813-b178-ca6507df3321 ExistingQuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestObjectStoreAndProjectionAgreeThatAFailedReadIsNotAMismatcho190758535/001/data/quarantine/sha256/5d/0dc5da5b1b0744001e91ab382b3802e0b730b85a4b9fa2ac3a48d18063699a/01a062bf-4b5a-7f7e-b243-785ed1f3703e}
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/localstore	0.884s
+FAIL
+EXIT=1 (expected non-zero)

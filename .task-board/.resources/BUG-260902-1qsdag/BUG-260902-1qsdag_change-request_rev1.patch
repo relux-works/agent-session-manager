@@ -1,0 +1,946 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 5f7bfe1..c1dc5e2 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,18 @@
+ 
+ ## 2026-09-02
+ 
++### 2030 — A read that did not finish is not a mismatch, and quarantine cannot tell the difference on its own
++
++- FINDING: `PutBlob` routed EVERY non-`ErrUnsafeOwnership` inspection error to `quarantineExisting`. `inspectExisting` returned raw `os.Open`, `io.Copy` and `Close` errors, so at the decision point an EMFILE or a transient I/O error was indistinguishable from a hash mismatch. A flaky read on the existing digest-path entry permanently moved a VALID immutable object out of the namespace. SPEC.md:819-820 authorizes quarantine for "a hash mismatch or representation disagreement" only, and a read that never completed proves neither.
++- FINDING: the projection already got this right — `scanAuthoritativeBlobs` classified a failed read as `sourceFailure` and refused. The two paths disagreed, and the store side is the one that moves data. Nothing in the package made them agree; they were two independent open/copy/hash blocks that happened to be written by different hands.
++- DECISION: extracted `verifyBlobContent` in `internal/localstore/blob_inspection.go` as the single owner of "read this digest-path entry and report what that proved", returning a `blobVerdict` whose zero value `blobUnproven` is deliberately not a proof. Both `inspectExisting` and `scanAuthoritativeBlobs` now consult it; each still maps the verdict onto its own consequence, so the projection's two `projectionRefusal` call sites stay in `projection.go` where the derived refusal inventory can still demand a negative path for them.
++- DECISION: `blobVerdict.quarantineWarranted()` is the one predicate authorizing a move, and only `blobMismatch` satisfies it. `resolveExistingEntry` funnels BOTH the first-attempt and the raced post-rename branches, which previously carried two hand-copied classification blocks that could drift apart independently.
++- DECISION: `storeOperations.openExisting` and `projectionHooks.openBlob` are injected read seams. Without them the transient-failure path needs real descriptor exhaustion or media failure, which is why the original auditor could only argue the defect rather than reproduce it.
++- EVIDENCE: 5 mutants, 5 killed; baseline and restored tree both exit 0. Collapsing the classification back (delete the `blobUnreadable` branch, gate quarantine on `verdict == blobUnsafe`) reddens 3 of 4 injected-failure subtests plus the store/projection agreement assertion. Widening `quarantineWarranted` to "any verdict that is not a match" reddens the three pre-existing unsafe-entry tests — the unsafe entry starts getting moved. Narrowing it to `false` and narrowing the mismatch comparison to size-only both redden `TestPutBlobQuarantinesBothInputsWhenExistingDigestPathIsCorrupt`; the size-only mutant is the one that proves the same-size digest disagreement is a real bound, not a delete-only artifact. Making `scanAuthoritativeBlobs` ignore `hooks.openBlob` reddens the agreement test alone, which is what keeps that test from passing on a seam the projection never consults. Evidence: `BUG-260902-1qsdag_mutant-evidence-final.log`.
++- NOTE: the agreement is asserted, not assumed. `TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch` drives `PutBlob` and `openProjection` over the same two on-disk conditions and fails if their proven-mismatch classification differs, if the projection ever moves a durable object, or if the store moves one without a completed disagreeing read.
++- SCOPE: `README.md`, `LOGBOOK.md`, `internal/localstore/blob_inspection.go`, `internal/localstore/blob_inspection_test.go`, `internal/localstore/object_store.go`, `internal/localstore/projection.go`, `internal/traceability/ownership.v0.5.0.json`, `internal/traceability/traceability.go`
++- STATUS: BUG-260902-1qsdag on `task-board/story/STORY-260902-11l6zj`, one commit past checkpoint `013fa3b`; `internal/localstore` coverage 83.5% (measured at the checkpoint in a throwaway tree) -> 85.6%, every other package unchanged; `go build ./...`, `go vet ./...`, `gofmt -l .`, `go test ./... -count=1`, `go test ./... -cover`, global tracecheck, 30-section scoped tracecheck, and `cataloggen -check` exit 0; handed off to review.
++
+ ### 1950 — Two Stories independently implemented the same normative section, and the registry only has room for one
+ 
+ - FINDING: reapplying the object-store Story onto trunk `010d114` produced eight conflict blocks. Seven were the expected shapes — the README tools row, the README acceptance-case sentence, `AcceptanceCases` in `traceability_test.go`, the two `acceptance_cases=` CLI strings, `reviewedOwnershipCanonicalSHA256`, and an add/add `LOGBOOK.md`. The eighth was not a conflict block at all: git auto-merged BOTH sides' `section:3.2` bindings into `ownership.v0.5.0.json` as two separate array entries, which `verifyOwnershipGroups` refuses at `traceability.go:404` as a `duplicate section_binding implementation owner`. A structural collision that presents as a clean text merge.
+diff --git a/README.md b/README.md
+index 4eef928..76d2745 100644
+--- a/README.md
++++ b/README.md
+@@ -871,6 +871,17 @@ the bounded declared-size-plus-one diagnostic prefix. A corrupt existing digest
+ path causes both candidates to be quarantined and the immutable namespace to
+ refuse the write.
+ 
++Quarantining an entry that already occupies a digest path requires a proof.
++`verifyBlobContent` is the one classifier both `PutBlob` and the projection
++source scan consult, and only a completed read that disagrees with the declared
++size and digest authorizes a move. An inspection whose read did not complete —
++descriptor exhaustion, media failure, a failed close — is reported as a
++durability failure with the existing object left exactly where it is, because a
++read that never finished proves neither a hash mismatch nor a representation
++disagreement. `storeOperations.openExisting` and `projectionHooks.openBlob` are
++the injected read seams that drive that path in tests, and the two paths are
++asserted to reach the same classification rather than assumed to.
++
+ `OpenProjection` scans the immutable raw-blob namespace, re-verifies every byte
+ against its digest path, and rebuilds `<state>/index.sqlite` in deterministic
+ digest order. That order is owned by one comparator and asserted against the
+diff --git a/internal/localstore/blob_inspection.go b/internal/localstore/blob_inspection.go
+new file mode 100644
+index 0000000..4ba7050
+--- /dev/null
++++ b/internal/localstore/blob_inspection.go
+@@ -0,0 +1,105 @@
++package localstore
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"fmt"
++	"io"
++	"os"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// blobOpener is the injectable read seam for an on-disk digest-path entry. The
++// production value is openBlobFile; a test replaces it to drive a read that
++// does not complete, which is otherwise reachable only through descriptor
++// exhaustion or real media failure.
++type blobOpener func(string) (io.ReadCloser, error)
++
++func openBlobFile(path string) (io.ReadCloser, error) { return os.Open(path) }
++
++// blobVerdict is the single Section 3.2 classification of what reading a
++// digest-path entry actually proved. The distinction it owns is normative:
++// SPEC.md requires quarantine for "a hash mismatch or representation
++// disagreement", and a read that did not complete demonstrates neither. An
++// absent, partial, or failed read is therefore never a proven mismatch.
++type blobVerdict int
++
++const (
++	// blobUnproven is the zero value. It is not a proof of anything, so a
++	// caller that forgets to set a verdict cannot accidentally quarantine.
++	blobUnproven blobVerdict = iota
++	// blobAbsent means no entry occupies the digest path.
++	blobAbsent
++	// blobMatches means the complete bytes were read and agree with the
++	// declared size and digest.
++	blobMatches
++	// blobMismatch means the complete bytes were read and disagree. This is
++	// the only verdict that proves the SPEC.md quarantine trigger.
++	blobMismatch
++	// blobUnreadable means the read did not complete. It proves nothing about
++	// the bytes and is a durability failure, not an integrity finding.
++	blobUnreadable
++	// blobUnsafe means the entry failed the owner-only type or ownership
++	// check, so its bytes were never read.
++	blobUnsafe
++)
++
++// quarantineWarranted is the one predicate that authorizes moving a durable
++// object out of the immutable namespace. Only a completed, disagreeing read
++// qualifies. Widening it to any non-matching verdict is exactly the defect
++// this predicate exists to prevent: a transient read failure would then
++// permanently sideline a valid immutable object.
++func (verdict blobVerdict) quarantineWarranted() bool { return verdict == blobMismatch }
++
++// blobInspection is the verdict plus whatever the read established. digest and
++// size are meaningful only for blobMatches and blobMismatch, because those are
++// the verdicts backed by a completed read.
++type blobInspection struct {
++	verdict blobVerdict
++	size    uint64
++	digest  scalar.Digest
++	err     error
++}
++
++// verifyBlobContent is the single owner of "read this digest-path entry and
++// report what that proved". Both the object store's existing-entry inspection
++// and the projection's authoritative source scan route through it, so neither
++// path can independently decide that a failed read is a mismatch. The callers
++// map the verdict onto their own consequence — the store quarantines, the
++// projection refuses — but they do not re-derive the classification.
++func verifyBlobContent(open blobOpener, path string, expected scalar.Digest, expectedSize uint64) blobInspection {
++	if open == nil {
++		return blobInspection{verdict: blobUnreadable, err: errors.New("no blob reader is configured")}
++	}
++	file, err := open(path)
++	if err != nil {
++		return blobInspection{verdict: blobUnreadable, err: fmt.Errorf("open blob: %w", err)}
++	}
++	hasher := sha256.New()
++	size, readErr := io.Copy(hasher, file)
++	closeErr := file.Close()
++	if readErr != nil {
++		return blobInspection{verdict: blobUnreadable, err: fmt.Errorf("read blob: %w", readErr)}
++	}
++	if closeErr != nil {
++		return blobInspection{verdict: blobUnreadable, err: fmt.Errorf("close blob: %w", closeErr)}
++	}
++	if size < 0 {
++		return blobInspection{verdict: blobUnreadable, err: fmt.Errorf("read blob: negative copied length %d", size)}
++	}
++	actual, err := scalar.ParseDigest("sha256:" + hex.EncodeToString(hasher.Sum(nil)))
++	if err != nil {
++		return blobInspection{verdict: blobUnreadable, err: fmt.Errorf("calculate blob digest: %w", err)}
++	}
++	inspection := blobInspection{size: uint64(size), digest: actual}
++	if inspection.size != expectedSize || actual != expected {
++		inspection.verdict = blobMismatch
++		inspection.err = fmt.Errorf("digest path declares %s at %d bytes but contains %s at %d bytes",
++			expected, expectedSize, actual, inspection.size)
++		return inspection
++	}
++	inspection.verdict = blobMatches
++	return inspection
++}
+diff --git a/internal/localstore/blob_inspection_test.go b/internal/localstore/blob_inspection_test.go
+new file mode 100644
+index 0000000..fa8e440
+--- /dev/null
++++ b/internal/localstore/blob_inspection_test.go
+@@ -0,0 +1,497 @@
++package localstore
++
++import (
++	"bytes"
++	"context"
++	"errors"
++	"io"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"runtime"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++var errInjectedBlobRead = errors.New("injected blob read failure")
++
++// failingBlobOpener injects the three shapes of an incomplete read that a real
++// descriptor exhaustion or media failure produces. None of them establish the
++// bytes on disk, so none of them may be treated as a proven mismatch.
++func failingBlobOpener(stage string) blobOpener {
++	return func(path string) (io.ReadCloser, error) {
++		switch stage {
++		case "open":
++			return nil, errInjectedBlobRead
++		case "read":
++			return readCloserFunc{read: func([]byte) (int, error) { return 0, errInjectedBlobRead }}, nil
++		case "partial":
++			delivered := false
++			return readCloserFunc{read: func(destination []byte) (int, error) {
++				if delivered {
++					return 0, errInjectedBlobRead
++				}
++				delivered = true
++				return copy(destination, []byte("imm")), nil
++			}}, nil
++		case "close":
++			return readCloserFunc{
++				read:  func([]byte) (int, error) { return 0, io.EOF },
++				close: func() error { return errInjectedBlobRead },
++			}, nil
++		}
++		return openBlobFile(path)
++	}
++}
++
++type readCloserFunc struct {
++	read  func([]byte) (int, error)
++	close func() error
++}
++
++func (reader readCloserFunc) Read(buffer []byte) (int, error) { return reader.read(buffer) }
++
++func (reader readCloserFunc) Close() error {
++	if reader.close == nil {
++		return nil
++	}
++	return reader.close()
++}
++
++// TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing is the
++// negative case for the quarantine gate. SPEC.md §3.2 permits quarantine only
++// for a hash mismatch or representation disagreement, so a read that never
++// completed must leave the immutable object exactly where it is.
++//
++// Collapsing the classification back — routing any non-matching inspection to
++// quarantineExisting, or widening blobVerdict.quarantineWarranted beyond
++// blobMismatch — reddens this test: the durability assertion becomes an
++// immutable conflict, ExistingQuarantinePath becomes non-empty, and the
++// existing object disappears from the digest path.
++func TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	content := []byte("immutable")
++	digest := scalar.SHA256Digest(content)
++	tests := []struct {
++		name  string
++		stage string
++		raced bool
++	}{
++		{name: "open fails", stage: "open"},
++		{name: "read fails mid copy", stage: "read"},
++		{name: "close fails after read", stage: "close"},
++		{name: "raced entry appears then open fails", stage: "open", raced: true},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			store := openTestStore(t)
++			target, err := nativeDigestPath(store.objects, digest)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
++				t.Fatal(err)
++			}
++
++			operations := defaultStoreOperations()
++			operations.openExisting = failingBlobOpener(test.stage)
++			if test.raced {
++				// The digest path is empty when PutBlob inspects it, so the
++				// entry can only be discovered on the post-rename raced branch.
++				// Both branches must classify the failure identically.
++				install := operations.install
++				operations.install = func(source, destination string) error {
++					if destination != target {
++						return install(source, destination)
++					}
++					if err := os.WriteFile(target, content, 0o600); err != nil {
++						return err
++					}
++					return os.ErrExist
++				}
++			} else if err := os.WriteFile(target, content, 0o600); err != nil {
++				t.Fatal(err)
++			}
++			store.operations = operations
++
++			result, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++			if !errors.Is(err, ErrDurability) {
++				t.Fatalf("PutBlob(incomplete existing read) error = %v, want %v", err, ErrDurability)
++			}
++			if errors.Is(err, ErrImmutableConflict) || errors.Is(err, ErrIntegrityMismatch) {
++				t.Fatalf("PutBlob(incomplete existing read) error = %v, want a durability failure rather than an integrity finding", err)
++			}
++			if result.QuarantinePath != "" || result.ExistingQuarantinePath != "" {
++				t.Fatalf("PutBlob(incomplete existing read) result = %+v, want nothing quarantined", result)
++			}
++			assertFileBytes(t, target, content)
++			assertNoStagedFiles(t, filepath.Dir(target))
++			assertQuarantineNamespaceEmpty(t, store)
++
++			// The object was not sidelined: once the read works again the same
++			// digest path verifies and the identical retry reuses the inode.
++			store.operations = defaultStoreOperations()
++			retry, retryErr := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++			if retryErr != nil {
++				t.Fatalf("PutBlob(retry after transient read failure) error = %v", retryErr)
++			}
++			if retry.Path != target || retry.Installed {
++				t.Fatalf("PutBlob(retry after transient read failure) result = %+v, want the existing inode reused at %q", retry, target)
++			}
++			assertFileBytes(t, target, content)
++		})
++	}
++}
++
++// TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch drives
++// both production entry points over the same two on-disk conditions and asserts
++// they reach the same classification. The agreement is the point: the store is
++// the path that moves data, so a disagreement there is what turns a flaky read
++// into a permanently sidelined object.
++func TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	content := []byte("immutable")
++	digest := scalar.SHA256Digest(content)
++	tests := []struct {
++		name string
++		// corrupt replaces the installed bytes to create a completed,
++		// disagreeing read; empty leaves them intact.
++		corrupt []byte
++		// failRead injects an incomplete read on both paths.
++		failRead bool
++		// wantProvenMismatch is the shared classification both paths must reach.
++		wantProvenMismatch bool
++	}{
++		{name: "completed read disagrees", corrupt: []byte("corrupted"), wantProvenMismatch: true},
++		{name: "read does not complete", failRead: true, wantProvenMismatch: false},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			storeMismatch, storeMoved := classifyThroughObjectStore(t, content, digest, test.corrupt, test.failRead)
++			projectionMismatch, projectionMoved := classifyThroughProjection(t, content, digest, test.corrupt, test.failRead)
++
++			if storeMismatch != projectionMismatch {
++				t.Fatalf("object store proven-mismatch = %t, projection proven-mismatch = %t, want the two paths to agree",
++					storeMismatch, projectionMismatch)
++			}
++			if storeMismatch != test.wantProvenMismatch {
++				t.Fatalf("shared classification = %t, want proven mismatch %t", storeMismatch, test.wantProvenMismatch)
++			}
++			if projectionMoved {
++				t.Fatal("projection moved a durable object; it may only refuse")
++			}
++			if storeMoved != test.wantProvenMismatch {
++				t.Fatalf("object store moved the existing object = %t, want %t; only a proven mismatch may quarantine",
++					storeMoved, test.wantProvenMismatch)
++			}
++		})
++	}
++}
++
++// classifyThroughObjectStore drives PutBlob and reports whether it called the
++// condition a proven integrity mismatch and whether it moved the existing
++// object out of the immutable namespace.
++func classifyThroughObjectStore(t *testing.T, content []byte, digest scalar.Digest, corrupt []byte, failRead bool) (bool, bool) {
++	t.Helper()
++	store := openTestStore(t)
++	if _, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content)); err != nil {
++		t.Fatalf("PutBlob(install fixture) error = %v", err)
++	}
++	target, err := nativeDigestPath(store.objects, digest)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(corrupt) != 0 {
++		if err := os.WriteFile(target, corrupt, 0o600); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if failRead {
++		operations := defaultStoreOperations()
++		operations.openExisting = failingBlobOpener("read")
++		store.operations = operations
++	}
++
++	result, putErr := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++	if putErr == nil {
++		t.Fatalf("PutBlob(%s) succeeded; the fixture must not verify", t.Name())
++	}
++	_, statErr := os.Lstat(target)
++	moved := errors.Is(statErr, fs.ErrNotExist)
++	if !moved && statErr != nil {
++		t.Fatalf("existing object stat error = %v", statErr)
++	}
++	if moved != (result.ExistingQuarantinePath != "") {
++		t.Fatalf("existing object removed = %t but ExistingQuarantinePath = %q; a moved object must be reported",
++			moved, result.ExistingQuarantinePath)
++	}
++	return errors.Is(putErr, ErrImmutableConflict), moved
++}
++
++// classifyThroughProjection drives openProjection over the identical condition
++// and reports whether it called it a proven integrity mismatch and whether the
++// source blob moved.
++func classifyThroughProjection(t *testing.T, content []byte, digest scalar.Digest, corrupt []byte, failRead bool) (bool, bool) {
++	t.Helper()
++	store := openTestStore(t)
++	if _, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content)); err != nil {
++		t.Fatalf("PutBlob(install fixture) error = %v", err)
++	}
++	target, err := nativeDigestPath(store.objects, digest)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(corrupt) != 0 {
++		if err := os.WriteFile(target, corrupt, 0o600); err != nil {
++			t.Fatal(err)
++		}
++	}
++	hooks := projectionHooks{}
++	if failRead {
++		hooks.openBlob = failingBlobOpener("read")
++	}
++
++	_, _, openErr := openProjection(context.Background(), store.resolvedPathsForTest(t), hooks)
++	if openErr == nil {
++		t.Fatalf("openProjection(%s) succeeded; the fixture must not verify", t.Name())
++	}
++	if !errors.Is(openErr, ErrProjectionSourceIntegrity) {
++		t.Fatalf("openProjection() error = %v, want %v", openErr, ErrProjectionSourceIntegrity)
++	}
++	_, statErr := os.Lstat(target)
++	moved := errors.Is(statErr, fs.ErrNotExist)
++	if !moved && statErr != nil {
++		t.Fatalf("source blob stat error = %v", statErr)
++	}
++	// The projection reports an incomplete read as a source failure and a
++	// completed disagreement as a refusal about the bytes. Only the second is a
++	// proven mismatch.
++	return strings.Contains(openErr.Error(), "contains"), moved
++}
++
++// TestBlobVerdictAuthorizesQuarantineOnlyForACompletedDisagreeingRead pins the
++// single predicate both paths consult. Widening it to any non-matching verdict,
++// or narrowing it so a same-size digest disagreement no longer qualifies,
++// reddens the production tests above and this one together.
++func TestBlobVerdictAuthorizesQuarantineOnlyForACompletedDisagreeingRead(t *testing.T) {
++	tests := []struct {
++		verdict blobVerdict
++		want    bool
++	}{
++		{verdict: blobUnproven, want: false},
++		{verdict: blobAbsent, want: false},
++		{verdict: blobMatches, want: false},
++		{verdict: blobMismatch, want: true},
++		{verdict: blobUnreadable, want: false},
++		{verdict: blobUnsafe, want: false},
++	}
++	for _, test := range tests {
++		if got := test.verdict.quarantineWarranted(); got != test.want {
++			t.Fatalf("blobVerdict(%d).quarantineWarranted() = %t, want %t", test.verdict, got, test.want)
++		}
++	}
++}
++
++// TestVerifyBlobContentSeparatesAnIncompleteReadFromADisagreeingOne pins the
++// shared classifier itself, including the same-size digest disagreement that a
++// narrowed mismatch check would drop.
++func TestVerifyBlobContentSeparatesAnIncompleteReadFromADisagreeingOne(t *testing.T) {
++	content := []byte("immutable")
++	digest := scalar.SHA256Digest(content)
++	directory := t.TempDir()
++	path := filepath.Join(directory, "blob")
++	if err := os.WriteFile(path, content, 0o600); err != nil {
++		t.Fatal(err)
++	}
++
++	if inspection := verifyBlobContent(openBlobFile, path, digest, uint64(len(content))); inspection.verdict != blobMatches {
++		t.Fatalf("verifyBlobContent(matching bytes) verdict = %d, want blobMatches", inspection.verdict)
++	}
++	for _, stage := range []string{"open", "read", "close"} {
++		inspection := verifyBlobContent(failingBlobOpener(stage), path, digest, uint64(len(content)))
++		if inspection.verdict != blobUnreadable {
++			t.Fatalf("verifyBlobContent(%s failure) verdict = %d, want blobUnreadable", stage, inspection.verdict)
++		}
++		if !errors.Is(inspection.err, errInjectedBlobRead) {
++			t.Fatalf("verifyBlobContent(%s failure) error = %v, want the read cause preserved", stage, inspection.err)
++		}
++	}
++	if inspection := verifyBlobContent(nil, path, digest, uint64(len(content))); inspection.verdict != blobUnreadable {
++		t.Fatalf("verifyBlobContent(no reader) verdict = %d, want blobUnreadable", inspection.verdict)
++	}
++
++	sameSize := []byte("immutabl3")
++	if len(sameSize) != len(content) {
++		t.Fatalf("fixture sizes differ: %d and %d", len(sameSize), len(content))
++	}
++	if err := os.WriteFile(path, sameSize, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	inspection := verifyBlobContent(openBlobFile, path, digest, uint64(len(content)))
++	if inspection.verdict != blobMismatch {
++		t.Fatalf("verifyBlobContent(same size, different digest) verdict = %d, want blobMismatch", inspection.verdict)
++	}
++	if inspection.digest != scalar.SHA256Digest(sameSize) || inspection.size != uint64(len(sameSize)) {
++		t.Fatalf("verifyBlobContent(same size, different digest) = %+v, want the read identity reported", inspection)
++	}
++}
++
++// TestInspectExistingClassifiesEveryFaultItCanReach pins the classification for
++// every condition the digest path can present. inspectExisting is driven
++// directly because two of these faults have no on-disk fixture: an Lstat that
++// fails for a reason other than absence, and a read that stops part way
++// through. Its production call site is PutBlob, which routes every verdict
++// through resolveExistingEntry; the consequences of the moving verdicts are
++// proven at that entry point by the tests above.
++func TestInspectExistingClassifiesEveryFaultItCanReach(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	content := []byte("immutable")
++	digest := scalar.SHA256Digest(content)
++	tests := []struct {
++		name     string
++		occupant func(t *testing.T, store *ObjectStore, target string)
++		want     blobVerdict
++	}{
++		{
++			name:     "absent",
++			occupant: func(*testing.T, *ObjectStore, string) {},
++			want:     blobAbsent,
++		},
++		{
++			name: "identical bytes",
++			occupant: func(t *testing.T, _ *ObjectStore, target string) {
++				writeDigestPathOccupant(t, target, content, 0o600)
++			},
++			want: blobMatches,
++		},
++		{
++			name: "different bytes at the same size",
++			occupant: func(t *testing.T, _ *ObjectStore, target string) {
++				writeDigestPathOccupant(t, target, []byte("immutabl3"), 0o600)
++			},
++			want: blobMismatch,
++		},
++		{
++			name: "group readable mode",
++			occupant: func(t *testing.T, _ *ObjectStore, target string) {
++				writeDigestPathOccupant(t, target, content, 0o640)
++			},
++			want: blobUnsafe,
++		},
++		{
++			name: "directory in the digest path",
++			occupant: func(t *testing.T, _ *ObjectStore, target string) {
++				if err := os.MkdirAll(target, 0o700); err != nil {
++					t.Fatal(err)
++				}
++			},
++			want: blobUnsafe,
++		},
++		{
++			name: "symlink in the digest path",
++			occupant: func(t *testing.T, _ *ObjectStore, target string) {
++				if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
++					t.Fatal(err)
++				}
++				if err := os.Symlink(filepath.Join(filepath.Dir(target), "elsewhere"), target); err != nil {
++					t.Fatal(err)
++				}
++			},
++			want: blobUnsafe,
++		},
++		{
++			name: "lstat fails for a reason other than absence",
++			occupant: func(t *testing.T, _ *ObjectStore, target string) {
++				// A non-directory shard makes the Lstat of the leaf fail with
++				// ENOTDIR rather than ENOENT: present-but-unreadable, not absent.
++				shard := filepath.Dir(target)
++				if err := os.MkdirAll(filepath.Dir(shard), 0o700); err != nil {
++					t.Fatal(err)
++				}
++				if err := os.WriteFile(shard, []byte("not a directory"), 0o600); err != nil {
++					t.Fatal(err)
++				}
++			},
++			want: blobUnreadable,
++		},
++		{
++			name: "open fails",
++			occupant: func(t *testing.T, store *ObjectStore, target string) {
++				writeDigestPathOccupant(t, target, content, 0o600)
++				store.operations.openExisting = failingBlobOpener("open")
++			},
++			want: blobUnreadable,
++		},
++		{
++			name: "read stops part way through",
++			occupant: func(t *testing.T, store *ObjectStore, target string) {
++				writeDigestPathOccupant(t, target, content, 0o600)
++				store.operations.openExisting = failingBlobOpener("partial")
++			},
++			want: blobUnreadable,
++		},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			store := openTestStore(t)
++			target, err := nativeDigestPath(store.objects, digest)
++			if err != nil {
++				t.Fatal(err)
++			}
++			test.occupant(t, store, target)
++
++			inspection := store.inspectExisting(target, digest, uint64(len(content)))
++			if inspection.verdict != test.want {
++				t.Fatalf("inspectExisting(%s) verdict = %d, want %d (error = %v)",
++					test.name, inspection.verdict, test.want, inspection.err)
++			}
++			if inspection.verdict.quarantineWarranted() != (test.want == blobMismatch) {
++				t.Fatalf("inspectExisting(%s) authorized a move on verdict %d", test.name, inspection.verdict)
++			}
++		})
++	}
++}
++
++func writeDigestPathOccupant(t *testing.T, target string, content []byte, mode os.FileMode) {
++	t.Helper()
++	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(target, content, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Chmod(target, mode); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func assertQuarantineNamespaceEmpty(t *testing.T, store *ObjectStore) {
++	t.Helper()
++	var found []string
++	err := filepath.WalkDir(store.quarantine, func(path string, entry fs.DirEntry, err error) error {
++		if err != nil {
++			return err
++		}
++		if !entry.IsDir() {
++			found = append(found, path)
++		}
++		return nil
++	})
++	if err != nil {
++		t.Fatalf("walk quarantine namespace error = %v", err)
++	}
++	if len(found) != 0 {
++		t.Fatalf("quarantine namespace contains %v, want nothing moved", found)
++	}
++}
+diff --git a/internal/localstore/object_store.go b/internal/localstore/object_store.go
+index 4e57ea2..8dff4ee 100644
+--- a/internal/localstore/object_store.go
++++ b/internal/localstore/object_store.go
+@@ -87,6 +87,11 @@ type storeOperations struct {
+ 	syncFile      func(*os.File) error
+ 	install       func(string, string) error
+ 	syncDirectory func(string) error
++	// openExisting reads the entry already occupying a digest path. It is a
++	// seam because the classification that depends on it — a read that did not
++	// complete is a durability failure, never a proven mismatch — is otherwise
++	// reachable only through descriptor exhaustion or real media failure.
++	openExisting blobOpener
+ }
+ 
+ func defaultStoreOperations() storeOperations {
+@@ -96,6 +101,7 @@ func defaultStoreOperations() storeOperations {
+ 		syncDirectory: func(directory string) error {
+ 			return syncDirectory(directory)
+ 		},
++		openExisting: openBlobFile,
+ 	}
+ }
+ 
+@@ -137,8 +143,15 @@ func (store *ObjectStore) DataRoot() string { return store.dataRoot }
+ // atomically renames, then fsyncs the containing directory. An identical retry
+ // verifies and reuses the existing inode. Mismatches are installed create-new
+ // in quarantine and never enter the immutable namespace.
++//
++// Quarantine of an entry that already occupies the digest path is authorized
++// only by a completed, disagreeing read, which is the SPEC.md Section 3.2
++// trigger. An inspection whose read did not complete is a durability failure:
++// PutBlob reports it and moves nothing, because a flaky read would otherwise
++// permanently sideline a valid immutable object.
+ func (store *ObjectStore) PutBlob(expected scalar.Digest, expectedSize uint64, source io.Reader) (PutResult, error) {
+-	if store == nil || store.operations.syncFile == nil || store.operations.install == nil || store.operations.syncDirectory == nil {
++	if store == nil || store.operations.syncFile == nil || store.operations.install == nil ||
++		store.operations.syncDirectory == nil || store.operations.openExisting == nil {
+ 		return PutResult{}, fmt.Errorf("%w: object store is not initialized", ErrDurability)
+ 	}
+ 	if expectedSize > MaxBlobSize {
+@@ -213,48 +226,16 @@ func (store *ObjectStore) PutBlob(expected scalar.Digest, expectedSize uint64, s
+ 	}
+ 
+ 	result := PutResult{Digest: expected, Size: expectedSize, Path: target}
+-	existing, existingErr := store.inspectExisting(target, expected, expectedSize)
+-	switch {
+-	case existingErr == nil && existing:
+-		return result, nil
+-	case existingErr != nil:
+-		candidateQuarantine, quarantineErr := store.quarantineStaged(expected, stagedPath)
+-		if quarantineErr != nil {
+-			return PutResult{}, fmt.Errorf("%w: existing conflict and candidate quarantine failed: %v", ErrDurability, quarantineErr)
+-		}
+-		result.QuarantinePath = candidateQuarantine
+-		if errors.Is(existingErr, ErrUnsafeOwnership) {
+-			return result, fmt.Errorf("%w: unsafe digest-path entry: %v", ErrImmutableConflict, existingErr)
+-		}
+-		existingQuarantine, quarantineErr := store.quarantineExisting(expected, target)
+-		if quarantineErr != nil {
+-			return result, fmt.Errorf("%w: %v; existing quarantine failed: %v", ErrImmutableConflict, existingErr, quarantineErr)
+-		}
+-		result.ExistingQuarantinePath = existingQuarantine
+-		return result, fmt.Errorf("%w: existing digest path failed verification: %v", ErrImmutableConflict, existingErr)
++	inspection := store.inspectExisting(target, expected, expectedSize)
++	if inspection.verdict != blobAbsent {
++		return store.resolveExistingEntry(inspection, expected, stagedPath, target, result, "")
+ 	}
+ 
+ 	if err := store.operations.install(stagedPath, target); err != nil {
+ 		if errors.Is(err, os.ErrExist) {
+-			existing, inspectErr := store.inspectExisting(target, expected, expectedSize)
+-			if inspectErr == nil && existing {
+-				return result, nil
+-			}
+-			if inspectErr != nil {
+-				candidateQuarantine, quarantineErr := store.quarantineStaged(expected, stagedPath)
+-				if quarantineErr != nil {
+-					return PutResult{}, fmt.Errorf("%w: raced conflict and candidate quarantine failed: %v", ErrDurability, quarantineErr)
+-				}
+-				result.QuarantinePath = candidateQuarantine
+-				if errors.Is(inspectErr, ErrUnsafeOwnership) {
+-					return result, fmt.Errorf("%w: unsafe raced digest-path entry: %v", ErrImmutableConflict, inspectErr)
+-				}
+-				existingQuarantine, quarantineErr := store.quarantineExisting(expected, target)
+-				if quarantineErr != nil {
+-					return result, fmt.Errorf("%w: %v; raced existing quarantine failed: %v", ErrImmutableConflict, inspectErr, quarantineErr)
+-				}
+-				result.ExistingQuarantinePath = existingQuarantine
+-				return result, fmt.Errorf("%w: raced digest path failed verification: %v", ErrImmutableConflict, inspectErr)
++			raced := store.inspectExisting(target, expected, expectedSize)
++			if raced.verdict != blobAbsent {
++				return store.resolveExistingEntry(raced, expected, stagedPath, target, result, "raced ")
+ 			}
+ 		}
+ 		return PutResult{}, fmt.Errorf("%w: atomic no-replace rename: %v", ErrDurability, err)
+@@ -266,41 +247,65 @@ func (store *ObjectStore) PutBlob(expected scalar.Digest, expectedSize uint64, s
+ 	return result, nil
+ }
+ 
+-func (store *ObjectStore) inspectExisting(target string, expected scalar.Digest, expectedSize uint64) (bool, error) {
++// resolveExistingEntry maps one inspection verdict onto the single consequence
++// Section 3.2 allows for it. Both the first-attempt and the raced post-rename
++// paths funnel through here, so the two cannot drift apart: a read that did not
++// complete is a durability failure that moves nothing, and only a completed,
++// disagreeing read reaches quarantineExisting.
++func (store *ObjectStore) resolveExistingEntry(
++	inspection blobInspection, expected scalar.Digest, stagedPath, target string,
++	result PutResult, label string,
++) (PutResult, error) {
++	if inspection.verdict == blobMatches {
++		return result, nil
++	}
++	if inspection.verdict == blobUnreadable {
++		// The bytes on disk were never established, so nothing is proven and
++		// nothing may move. The staged candidate is discarded by PutBlob's
++		// deferred cleanup and the existing object stays exactly where it is.
++		return PutResult{}, fmt.Errorf("%w: inspect %sexisting digest path: %v", ErrDurability, label, inspection.err)
++	}
++	candidateQuarantine, quarantineErr := store.quarantineStaged(expected, stagedPath)
++	if quarantineErr != nil {
++		return PutResult{}, fmt.Errorf("%w: %sexisting conflict and candidate quarantine failed: %v",
++			ErrDurability, label, quarantineErr)
++	}
++	result.QuarantinePath = candidateQuarantine
++	if !inspection.verdict.quarantineWarranted() {
++		return result, fmt.Errorf("%w: unsafe %sdigest-path entry: %v", ErrImmutableConflict, label, inspection.err)
++	}
++	existingQuarantine, quarantineErr := store.quarantineExisting(expected, target)
++	if quarantineErr != nil {
++		return result, fmt.Errorf("%w: %v; %sexisting quarantine failed: %v",
++			ErrImmutableConflict, inspection.err, label, quarantineErr)
++	}
++	result.ExistingQuarantinePath = existingQuarantine
++	return result, fmt.Errorf("%w: %sexisting digest path failed verification: %v",
++		ErrImmutableConflict, label, inspection.err)
++}
++
++// inspectExisting classifies whatever occupies the digest path. It never
++// decides a consequence; it reports only what was proven. Content comparison is
++// delegated to verifyBlobContent, the classifier the projection source scan
++// also uses, so a failed read cannot become a mismatch on this path alone.
++func (store *ObjectStore) inspectExisting(target string, expected scalar.Digest, expectedSize uint64) blobInspection {
+ 	info, err := os.Lstat(target)
+ 	if errors.Is(err, os.ErrNotExist) {
+-		return false, nil
++		return blobInspection{verdict: blobAbsent}
+ 	}
+ 	if err != nil {
+-		return false, err
++		return blobInspection{verdict: blobUnreadable, err: fmt.Errorf("lstat digest path: %w", err)}
+ 	}
+ 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+-		return false, fmt.Errorf("%w: target is not a regular file", ErrUnsafeOwnership)
++		return blobInspection{verdict: blobUnsafe, err: fmt.Errorf("%w: target is not a regular file", ErrUnsafeOwnership)}
+ 	}
+ 	if err := verifyOwnerFileInfo(info, 0o600); err != nil {
+-		return false, err
+-	}
+-	file, err := os.Open(target)
+-	if err != nil {
+-		return false, err
+-	}
+-	hasher := sha256.New()
+-	size, readErr := io.Copy(hasher, file)
+-	closeErr := file.Close()
+-	if readErr != nil {
+-		return false, readErr
+-	}
+-	if closeErr != nil {
+-		return false, closeErr
+-	}
+-	actual, err := scalar.ParseDigest("sha256:" + hex.EncodeToString(hasher.Sum(nil)))
+-	if err != nil {
+-		return false, err
+-	}
+-	if size < 0 || uint64(size) != expectedSize || actual != expected {
+-		return false, fmt.Errorf("existing size or digest differs")
++		if !errors.Is(err, ErrUnsafeOwnership) {
++			return blobInspection{verdict: blobUnreadable, err: err}
++		}
++		return blobInspection{verdict: blobUnsafe, err: err}
+ 	}
+-	return true, nil
++	return verifyBlobContent(store.operations.openExisting, target, expected, expectedSize)
+ }
+ 
+ func (store *ObjectStore) quarantineStaged(expected scalar.Digest, stagedPath string) (string, error) {
+diff --git a/internal/localstore/projection.go b/internal/localstore/projection.go
+index e559559..2f0d1c5 100644
+--- a/internal/localstore/projection.go
++++ b/internal/localstore/projection.go
+@@ -97,6 +97,11 @@ type projectionHooks struct {
+ 	beforeRebuildCommit   func() error
+ 	afterBlobStat         func(string) error
+ 	afterRebuildCommit    func(string) error
++	// openBlob is the injectable read seam for an authoritative source blob.
++	// It exists so the "read did not complete" classification can be driven on
++	// this path exactly as it is on the object-store path, instead of being
++	// argued from the shared classifier alone.
++	openBlob blobOpener
+ }
+ 
+ // projectionRefusal and projectionOwnershipRefusal are the two refusal funnels
+@@ -734,6 +739,10 @@ func scanAuthoritativeBlobs(dataRoot string, hooks projectionHooks) ([]IndexedOb
+ 	if err != nil {
+ 		return nil, sourceFailure("read blob digest root", err)
+ 	}
++	openBlob := hooks.openBlob
++	if openBlob == nil {
++		openBlob = openBlobFile
++	}
+ 	objects := make([]IndexedObject, 0)
+ 	for _, shard := range shards {
+ 		if !shard.IsDir() {
+@@ -794,28 +803,22 @@ func scanAuthoritativeBlobs(dataRoot string, hooks projectionHooks) ([]IndexedOb
+ 			if err != nil {
+ 				return nil, sourceFailure("parse blob path digest", err)
+ 			}
+-			file, err := os.Open(filename)
+-			if err != nil {
+-				return nil, sourceFailure("open blob", err)
+-			}
+-			hasher := sha256.New()
+-			size, readErr := io.Copy(hasher, file)
+-			closeErr := file.Close()
+-			if readErr != nil {
+-				return nil, sourceFailure("read blob", readErr)
+-			}
+-			if closeErr != nil {
+-				return nil, sourceFailure("close blob", closeErr)
+-			}
+-			actual, err := scalar.ParseDigest("sha256:" + hex.EncodeToString(hasher.Sum(nil)))
+-			if err != nil {
+-				return nil, sourceFailure("calculate blob digest", err)
++			// verifyBlobContent is the classifier the object store's
++			// digest-path inspection also uses. Routing both through it is what
++			// keeps the two paths from disagreeing about whether a failed read
++			// is an integrity finding: blobUnreadable proves nothing, so this
++			// scan reports a source failure rather than a refusal decision
++			// about the bytes, and the store moves nothing.
++			inspection := verifyBlobContent(openBlob, filename, digest, uint64(info.Size()))
++			if inspection.verdict == blobUnreadable {
++				return nil, sourceFailure("inspect blob", inspection.err)
+ 			}
++			size := int64(inspection.size)
+ 			if size != info.Size() {
+ 				return nil, projectionRefusal(ErrProjectionSourceIntegrity, "blob %s changed size from %d to %d while reading", digest, info.Size(), size)
+ 			}
+-			if actual != digest {
+-				return nil, projectionRefusal(ErrProjectionSourceIntegrity, "blob path %s contains %s", digest, actual)
++			if inspection.digest != digest {
++				return nil, projectionRefusal(ErrProjectionSourceIntegrity, "blob path %s contains %s", digest, inspection.digest)
+ 			}
+ 			relative, err := filepath.Rel(dataRoot, filename)
+ 			if err != nil {
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index c5ae486..728de7a 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -831,7 +831,12 @@
+         {"path": "internal/localstore/object_store_test.go", "declaration": "TestPutBlobCrashBoundariesLeaveRecoverableState"},
+         {"path": "internal/localstore/object_store_test.go", "declaration": "TestConcurrentObjectStoreWritersCannotReplacePublishedInode"},
+         {"path": "internal/localstore/object_store_test.go", "declaration": "TestPutBlobRefusesUnsafeDigestPathWithoutFollowingOrQuarantiningSymlink"},
+-        {"path": "internal/localstore/object_store_test.go", "declaration": "TestPutBlobRefusesOwnerModeNonRegularDigestEntryBeforeReadingOrMovingIt"}
++        {"path": "internal/localstore/object_store_test.go", "declaration": "TestPutBlobRefusesOwnerModeNonRegularDigestEntryBeforeReadingOrMovingIt"},
++        {"path": "internal/localstore/blob_inspection_test.go", "declaration": "TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing"},
++        {"path": "internal/localstore/blob_inspection_test.go", "declaration": "TestObjectStoreAndProjectionAgreeOnIncompleteReadVersusProvenMismatch"},
++        {"path": "internal/localstore/blob_inspection_test.go", "declaration": "TestVerifyBlobContentSeparatesAnIncompleteReadFromADisagreeingOne"},
++        {"path": "internal/localstore/blob_inspection_test.go", "declaration": "TestBlobVerdictAuthorizesQuarantineOnlyForACompletedDisagreeingRead"},
++        {"path": "internal/localstore/blob_inspection_test.go", "declaration": "TestInspectExistingClassifiesEveryFaultItCanReach"}
+       ]
+     },
+     {
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 30177f3..2b8e597 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -39,7 +39,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "b5882b265b29d0c286c62a0263a6a38444d972434a5c5d42569efe6fc3af0b2c"
++	reviewedOwnershipCanonicalSHA256 = "8dd1c0acb40c83c109fe6bd27ae9d64166b9ceb0381c17116b9563aad5499924"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
