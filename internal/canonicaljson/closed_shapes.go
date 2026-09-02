@@ -25,8 +25,13 @@ const (
 )
 
 var (
-	mediaTypePattern       = regexp.MustCompile("^[a-z0-9!#$&^_.+%'*`|~-]+/[a-z0-9!#$&^_.+%'*`|~-]+$")
-	semverPattern          = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+	mediaTypePattern = regexp.MustCompile("^[a-z0-9!#$&^_.+%'*`|~-]+/[a-z0-9!#$&^_.+%'*`|~-]+$")
+	// SemVer 2.0.0 in full. The pinned document types members `semver` without
+	// spelling out a grammar, so the only defensible reading is the named
+	// standard, which admits prerelease and build metadata. A core-triple-only
+	// pattern would refuse `1.2.3-rc.1`, a version the standard declares valid
+	// and the document never excludes.
+	semverPattern          = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 	reverseDNSPattern      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(\.[a-z][a-z0-9-]{0,62})+$`)
 	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 	environmentIDPattern   = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
@@ -728,12 +733,18 @@ func validateEnvironmentTuple(object map[string]any) error {
 	if !environmentIDPattern.MatchString(environmentID) {
 		return invalidIdentity("EnvironmentTuple environment_id must match [a-z][a-z0-9.-]{0,63}")
 	}
-	// The pinned EnvironmentTuple declaration requires these two members but
-	// assigns neither a JSON type nor a local format. In particular, the
+	// The pinned EnvironmentTuple declaration requires environment_version,
+	// store_schema_fingerprint, and adapter_version but assigns none of the
+	// three a JSON type or a local format, while their platform and
+	// architecture siblings carry explicit vocabularies. In particular, the
 	// string[1..128] environment_version bound belongs to Environment
-	// Observation, and store_schema_fingerprint is not declared as a digest.
-	// Exact-member validation above proves presence without inferring either
-	// constraint from a different schema or from the member name.
+	// Observation, store_schema_fingerprint is not declared as a digest, and
+	// the SemVer word on adapter_version belongs to the Session Adapter
+	// Manifest row of a different schema - the Probe sentence that equates an
+	// adapter version to the verified Manifest names the Probe's own top-level
+	// member, not this nested tuple member. Exact-member validation above
+	// proves presence without inferring any of those constraints from another
+	// schema or from a member name.
 	platform, err := requireString(object, "platform")
 	if err != nil {
 		return err
@@ -743,13 +754,6 @@ func validateEnvironmentTuple(object map[string]any) error {
 	}
 	if _, err := requireEnum(object, "architecture", "amd64", "arm64"); err != nil {
 		return err
-	}
-	adapterVersion, err := requireString(object, "adapter_version")
-	if err != nil {
-		return err
-	}
-	if !semverPattern.MatchString(adapterVersion) {
-		return invalidIdentity("EnvironmentTuple adapter_version must be canonical semver")
 	}
 	return nil
 }

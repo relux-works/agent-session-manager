@@ -268,7 +268,7 @@ required-object lookup cannot create an attested identity.
 | `Session Record native-adoption provenance` | `source_instance_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | “digest” |
 | `Session Record native-adoption provenance` | `source_observation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | “digest” |
 | `Session Record native-adoption provenance` | `target_provider_id` | Enforced equal to the immutable target Session Record provider. Provider-ID grammar is subsumed by `validateSessionRecordCommon`, which rejects a malformed record `provider_id` before this equality gate; a different malformed target is refused by the equality gate. | `validateSessionNativeAdoptionProvenance` | “provider-id; target provider allocated at creation” |
-| `EnvironmentTuple` | `adapter_version` | Enforced as canonical SemVer. The Probe requires its adapter version to equal the verified Manifest value, whose declared type is SemVer. | `validateEnvironmentTuple` | “display_name / adapter_version — UTF-8 string[1..128] / SemVer”; “adapter version equal the verified Manifest and host values” |
+| `EnvironmentTuple` | `adapter_version` | Presence-only, by the recorded SemVer decision below. The pinned EnvironmentTuple declaration supplies no JSON type and no format; the SemVer word belongs to the Session Adapter Manifest row of a different schema and is not inferred across schemas by field-name similarity. | `validateEnvironmentTuple` | “store_schema_fingerprint, and adapter_version” |
 | `EnvironmentTuple` | `architecture` | Enforced exactly as declared before identity calculation or verification. | `validateEnvironmentTuple` | “amd64 or arm64” |
 | `EnvironmentTuple` | `environment_id` | Enforced against the exact environment ID grammar. | `validateEnvironmentTuple` | “[a-z][a-z0-9.-]{0,63}” |
 | `EnvironmentTuple` | `environment_version` | Presence-only. The pinned EnvironmentTuple declaration supplies no JSON type or bound; the `string[1..128]` bound belongs to the distinct Environment Observation schema and is not inferred here. | `validateEnvironmentTuple` | “environment_version” |
@@ -427,4 +427,42 @@ required-object lookup cannot create an attested identity.
 | Manifest closure | Every referenced working-tree/managed-tree/submodule manifest, cwd, and project config path occurs in the transitive child closure. | External: child manifests and materialized filesystem are outside one identity candidate. |
 | Decoder robustness bound (implementation, not a pinned SPEC clause) | Every public entry refuses a document nested deeper than `maxNestingDepth` (256 containers) with a typed `ErrInvalidJSON` error instead of a fatal stack overflow; the deepest pinned closed shape, the 16-level submodule tree, decodes at roughly depth 40. | Enforced by `decodeValue` inside `decodeStrict`, shared by `Canonicalize`, `CalculateObjectIdentity`, and `VerifyObjectIdentity` before number, schema, or shape validation; `TestMaxNestingDepthIsDeclaredAndPinned` pins the literal, `TestCanonicalizeAcceptsDocumentAtMaxNestingDepth`, `TestCanonicalizeRefusesDocumentPastMaxNestingDepth`, `TestIdentityEntriesAcceptDocumentAtMaxNestingDepth`, and `TestIdentityEntriesRefuseDocumentPastMaxNestingDepth` prove accept-at-256 and refuse-at-257 from a test-local literal in array, object, and mixed shapes so widening or narrowing the constant reddens the suite, and `TestNestingDepthRegressionTwoMegabyteArrayReturnsTypedError` replays the 2,000,000-byte one-million-level crash input through every entry. |
 | Section 1.6 extensions | Every open extension point has 0–64 lowercase reverse-DNS keys, depth at most 4, and canonical size at most 65,536 bytes. | Enforced by `validateExtensionsObject` before either public entry attests. |
-| Section 17.3 migration contribution | `works.relux.ax.migrated-from` is a closed three-member object; `schema_id` is bare `string`, `schema_version` canonical semver, and `object_id` digest. | Enforced by `validateMigrationExtensionObject`; publication, atomic-reference advancement, rollback retention, and runtime migration remain explicitly unclaimed. |
+| Section 17.3 migration contribution | `works.relux.ax.migrated-from` is a closed three-member object; `schema_id` is bare `string`, `schema_version` is Semantic Versioning 2.0.0 in full including optional prerelease and build metadata, and `object_id` is a digest. | Enforced by `validateMigrationExtensionObject`; `TestMigrationProvenanceSchemaVersionIsSemVer200InFull` pins both the admitted prerelease/build forms and the forms still refused. Publication, atomic-reference advancement, rollback retention, and runtime migration remain explicitly unclaimed. |
+
+## Recorded decision: where `semver` applies, and what it means
+
+This package compiles one `semverPattern` and reaches it from more than one
+schema. Two separate questions therefore have to be answered, and both answers
+are recorded here rather than left implied by the code.
+
+**Does the constraint apply at all at this member?** It applies exactly where
+the pinned document declares it, and nowhere else. A type or format written on
+a similarly named member of a different schema is not evidence about this one.
+
+**Where it does apply, what does `semver` mean?** The pinned document names
+Semantic Version and types members `semver` but spells out no grammar for one.
+The named standard is Semantic Versioning 2.0.0, whose valid versions include
+optional prerelease and build metadata. `semver` is therefore adopted as that
+standard **in full**; a core-triple-only reading would refuse `1.2.3-rc.1`, a
+version neither the standard nor the pinned document excludes.
+
+Applying the two answers to the sites that reach the grammar:
+
+| Site | Pinned declaration | Decision | Pinned by |
+| --- | --- | --- | --- |
+| EnvironmentTuple `adapter_version` | “Environment Tuple contains exactly <code>environment_id</code>, <code>environment_version</code>, <code>platform=linux&#124;macos&#124;windows&#124;wsl2</code>, <code>architecture=amd64&#124;arm64</code>, <code>store_schema_fingerprint</code>, and <code>adapter_version</code>” — no type, no format | **No constraint.** Presence-only, like its untyped `environment_version` and `store_schema_fingerprint` siblings in the same clause. `1.2.3-rc.1` is accepted. | `TestEnvironmentTupleAdapterVersionCarriesNoInferredSemVerConstraint` |
+| Migration provenance `schema_version` | “That extension value is a closed object containing exactly <code>schema_id:string</code>, <code>schema_version:semver</code>, and <code>object_id:digest</code>.” | **SemVer 2.0.0 in full.** The type is declared here, so the constraint stands; prerelease and build metadata are accepted because the standard admits them. `1.2.3-rc.1` is accepted; `01.2.3`, `1.2`, `1.2.3-`, `1.2.3-01` and `1.2.3+` are still refused. | `TestMigrationProvenanceSchemaVersionIsSemVer200InFull` |
+| Session Event `terminal.*` `implementation_version` / `protocol_version` | “<code>implementation_version:semver</code>”, “<code>protocol_version:semver</code>” | **SemVer 2.0.0 in full**, for the same reason as the row above. | `validateTerminalV4Payload`, through the shared `semverPattern` grammar inventory |
+
+The word SemVer that used to be read onto `EnvironmentTuple.adapter_version`
+comes from the Session Adapter Manifest row “<code>display_name</code> /
+<code>adapter_version</code> | UTF-8 string[1..128] / SemVer”, which closes a
+different object, and from the Probe sentence “Provider ID, manifest digest, and
+adapter version equal the verified Manifest and host values”, which names the
+Probe's own top-level members and not this nested tuple member. Neither reaches
+the tuple, so neither authorises a constraint on it.
+
+`semverPattern` itself is carried in the grammar inventory
+(`grammar_inventory_test.go`) as an implementation-defined grammar with a
+witness for every anchor, character class and one-or-more quantifier it
+declares, so widening any one of its dimensions reddens the suite.

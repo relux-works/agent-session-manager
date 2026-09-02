@@ -367,11 +367,18 @@ Provenance objects. Major 2 replaces the v1 fork field with the required
 `origin`, `same_provider_fork`, or `cross_environment_clone` derivation union;
 major 3 keeps that exact top-level wire field and adds the `native_adoption`
 creation tag. Each Environment Tuple is independently validated as a closed
-object with the declared environment-ID grammar, platform and architecture
-vocabularies, plus the Probe-to-Manifest SemVer link for `adapter_version`.
-The pinned tuple declaration assigns no type or bound to `environment_version`
-or `store_schema_fingerprint`, so identity validation requires their presence
-without inferring a constraint from another schema or a member name. The Session
+object with the declared environment-ID grammar plus the platform and
+architecture vocabularies. The pinned tuple declaration assigns no type or
+bound to `environment_version`, `store_schema_fingerprint`, or
+`adapter_version`, so identity validation requires their presence without
+inferring a constraint from another schema or a member name; in particular the
+SemVer word on `adapter_version` belongs to the Session Adapter Manifest row of
+a different schema and is not carried across. Where the document does type a
+member `semver` — Section 17.3 migration provenance and the `terminal.*` Session
+Event versions — the constraint is Semantic Versioning 2.0.0 in full, so
+prerelease and build metadata are accepted. Both halves of that decision are
+recorded in
+[`internal/canonicaljson/testdata/constraint-enumeration.md`](internal/canonicaljson/testdata/constraint-enumeration.md). The Session
 Record contract does not require its source and target `environment_id` values
 to differ. AX-source nullability, source Session ID
 separation, and immutable target-provider equality are enforced before identity

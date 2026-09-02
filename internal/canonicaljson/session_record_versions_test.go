@@ -2,6 +2,7 @@ package canonicaljson
 
 import (
 	"bytes"
+	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -302,15 +303,6 @@ func TestSessionRecordTypedProvenanceMembersRefuseMalformedValuesAtIdentityProdu
 		want   string
 	}{
 		{
-			name: "environment adapter version",
-			object: func() map[string]any {
-				provenance := validCrossEnvironmentCloneProvenance("external_native")
-				provenance["source_environment"].(map[string]any)["adapter_version"] = "1.0"
-				return validSessionRecordV3Object(provenance)
-			},
-			want: "adapter_version",
-		},
-		{
 			name: "origin creation operation ID",
 			object: func() map[string]any {
 				provenance := validOriginProvenance()
@@ -579,7 +571,7 @@ func TestSessionRecordDeclaredGrammarRowsReachIdentityProductionEntries(t *testi
 	}
 
 	for _, family := range []string{
-		"canonical-semver", "environment-id", "environment-name", "provider-id",
+		"environment-id", "environment-name", "provider-id",
 		"reverse-dns", "session-name", "board-logical-id",
 	} {
 		if familyCounts[family] == 0 {
@@ -606,8 +598,6 @@ func sessionRecordGrammarFamily(row documentedConstraintRow) (string, bool) {
 		return "environment-name", true
 	case row.shape == "EnvironmentTuple" && row.member == "environment_id" && strings.Contains(declaration, "[a-z]"):
 		return "environment-id", true
-	case row.shape == "EnvironmentTuple" && row.member == "adapter_version" && strings.Contains(declaration, "semver"):
-		return "canonical-semver", true
 	case row.member == "name" && strings.Contains(declaration, "section 2.1 grammar"):
 		return "session-name", true
 	case row.shape == "Session Record Board Identity" && row.member == "logical_id" && strings.Contains(declaration, "[a-za-z0-9]"):
@@ -621,8 +611,6 @@ func sessionRecordGrammarFamily(row documentedConstraintRow) (string, bool) {
 
 func validSessionRecordGrammarValue(family string) string {
 	switch family {
-	case "canonical-semver":
-		return "12.34.56"
 	case "environment-id":
 		return "a0.b-c"
 	case "environment-name":
@@ -642,15 +630,6 @@ func validSessionRecordGrammarValue(family string) string {
 
 func invalidSessionRecordGrammarValues(family string) []sessionRecordGrammarValue {
 	switch family {
-	case "canonical-semver":
-		return []sessionRecordGrammarValue{
-			{"leading zero", "01.2.3"},
-			{"missing component", "1.2"},
-			{"prerelease suffix", "1.2.3-alpha"},
-			{"version prefix", "v1.2.3"},
-			{"build suffix", "1.2.3+build"},
-			{"non-ASCII digit", "１.2.3"},
-		}
 	case "environment-id":
 		return rejectedLowercaseIdentifierCharacterClasses("environment")
 	case "environment-name":
@@ -727,11 +706,6 @@ func sessionRecordWithDeclaredGrammarValue(
 		object := validSessionRecordV3Object(validCrossEnvironmentCloneProvenance("external_native"))
 		provenance := object["derivation_provenance"].(map[string]any)
 		provenance["source_environment"].(map[string]any)["environment_id"] = value
-		return object
-	case "canonical-semver":
-		object := validSessionRecordV3Object(validCrossEnvironmentCloneProvenance("external_native"))
-		provenance := object["derivation_provenance"].(map[string]any)
-		provenance["source_environment"].(map[string]any)["adapter_version"] = value
 		return object
 	case "board-logical-id":
 		object := taskBoardSessionRecord("TASK-260830-3esaam")
@@ -1027,4 +1001,148 @@ func derivedAXSourceIdentityMembers(t *testing.T) []string {
 		t.Fatalf("derived AX-source identity member inventory = %v, want four members from the pinned fixture pair", identityMembers)
 	}
 	return identityMembers
+}
+
+// TestEnvironmentTupleAdapterVersionCarriesNoInferredSemVerConstraint pins the
+// first half of this package's recorded SemVer decision, in the direction that
+// used to be wrong.
+//
+// The pinned SPEC v0.5.0 declaration at commit
+// 28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c reads "Environment Tuple contains
+// exactly environment_id, environment_version, platform=linux|macos|windows|wsl2,
+// architecture=amd64|arm64, store_schema_fingerprint, and adapter_version". It
+// assigns adapter_version no type and no format. The word SemVer reaches
+// adapter_version only through the Session Adapter Manifest row "display_name /
+// adapter_version | UTF-8 string[1..128] / SemVer", which closes a DIFFERENT
+// schema, and through the Probe sentence "Provider ID, manifest digest, and
+// adapter version equal the verified Manifest and host values", which names the
+// Probe's own top-level members rather than this nested tuple member.
+//
+// The decision recorded in testdata/constraint-enumeration.md is therefore:
+// EnvironmentTuple adapter_version is PRESENCE-ONLY. Re-adding any admission
+// grammar to validateEnvironmentTuple reddens the prerelease case below, and
+// deleting the member from requireExactMembers reddens the absence case, so the
+// decision is pinned in both directions rather than only against deletion.
+func TestEnvironmentTupleAdapterVersionCarriesNoInferredSemVerConstraint(t *testing.T) {
+	t.Parallel()
+
+	withAdapterVersion := func(value any) []byte {
+		provenance := validCrossEnvironmentCloneProvenance("external_native")
+		provenance["source_environment"].(map[string]any)["adapter_version"] = value
+		return mustJSON(t, validSessionRecordV3Object(provenance))
+	}
+
+	// The exact value the bug report names. A core-triple SemVer gate refuses
+	// it; the pinned contract does not.
+	t.Run("prerelease", func(t *testing.T) {
+		assertIdentityEntriesAcceptShape(t, withAdapterVersion("1.2.3-rc.1"), SelfRecordID)
+	})
+
+	// Values a core-triple gate, a full SemVer 2.0.0 gate, or a plain string
+	// type would each refuse. None of the three is declared here.
+	for _, test := range []struct {
+		name  string
+		value any
+	}{
+		{"build metadata", "1.2.3+build.1"},
+		{"leading zero", "01.2.3"},
+		{"two components", "1.2"},
+		{"version prefix", "v1.2.3"},
+		{"free text", "not-a-version"},
+		{"empty", ""},
+		{"number", json.Number("1")},
+		{"boolean", true},
+		{"null", nil},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			assertIdentityEntriesAcceptShape(t, withAdapterVersion(test.value), SelfRecordID)
+		})
+	}
+
+	// Presence is the whole of the declared constraint, and it is enforced.
+	// Without this case the decision above would be indistinguishable from
+	// having dropped the member entirely. The member is removed from BOTH
+	// tuples of the record and the refusal is attributed by name, so dropping
+	// "adapter_version" from validateEnvironmentTuple's requireExactMembers
+	// list cannot leave this green through the sibling tuple's extra member.
+	t.Run("absent", func(t *testing.T) {
+		provenance := validCrossEnvironmentCloneProvenance("external_native")
+		for _, member := range []string{"source_environment", "target_environment"} {
+			delete(provenance[member].(map[string]any), "adapter_version")
+		}
+		assertIdentityEntriesRefuseWithReason(
+			t, mustJSON(t, validSessionRecordV3Object(provenance)), SelfRecordID, "adapter_version")
+	})
+}
+
+// TestMigrationProvenanceSchemaVersionIsSemVer200InFull pins the second half of
+// the same decision, at the site that reuses the same compiled grammar.
+//
+// Here the constraint IS authorised, by the pinned Section 17.3 sentence quoted
+// verbatim: "That extension value is a closed object containing exactly
+// schema_id:string, schema_version:semver, and object_id:digest." The document
+// names Semantic Version without spelling out a grammar, so `semver` is adopted
+// as Semantic Versioning 2.0.0 in full — prerelease and build metadata included.
+//
+// The two halves are consistent under one rule: the constraint applies exactly
+// where the pinned document declares it, and where it is declared it means the
+// whole named standard rather than a narrowed subset of it.
+func TestMigrationProvenanceSchemaVersionIsSemVer200InFull(t *testing.T) {
+	t.Parallel()
+
+	withSchemaVersion := func(value string) []byte {
+		object := validSessionRecordV1Object()
+		object["extensions"] = map[string]any{
+			"works.relux.ax.migrated-from": map[string]any{
+				"schema_id":      "urn:ax:schema:session-record",
+				"schema_version": value,
+				"object_id":      digestWithDigit('3'),
+			},
+		}
+		return mustJSON(t, object)
+	}
+
+	for _, accepted := range []struct {
+		name  string
+		value string
+	}{
+		{"core triple", "1.2.3"},
+		{"prerelease", "1.2.3-rc.1"},
+		{"alphanumeric prerelease", "1.0.0-alpha"},
+		{"hyphenated prerelease identifier", "1.0.0-x-y-z"},
+		{"zero prerelease identifier", "1.0.0-0"},
+		{"build metadata", "1.2.3+build.1"},
+		{"prerelease and build metadata", "1.2.3-rc.1+exp.sha.5114f85"},
+	} {
+		accepted := accepted
+		t.Run("accepts "+accepted.name, func(t *testing.T) {
+			assertIdentityEntriesAcceptShape(t, withSchemaVersion(accepted.value), SelfRecordID)
+		})
+	}
+
+	// The gate must still refuse. Widening it to SemVer 2.0.0 is not the same
+	// as deleting it, and only these cases tell the two apart.
+	for _, refused := range []struct {
+		name  string
+		value string
+	}{
+		{"leading zero major", "01.2.3"},
+		{"missing component", "1.2"},
+		{"version prefix", "v1.2.3"},
+		{"empty prerelease", "1.2.3-"},
+		{"leading-zero numeric prerelease identifier", "1.2.3-01"},
+		{"empty prerelease identifier", "1.2.3-a..b"},
+		{"underscore in prerelease", "1.2.3-a_b"},
+		{"empty build metadata", "1.2.3+"},
+		{"underscore in build metadata", "1.2.3+a_b"},
+		{"non-ASCII digit", "１.2.3"},
+		{"free text", "not-a-version"},
+		{"empty", ""},
+	} {
+		refused := refused
+		t.Run("refuses "+refused.name, func(t *testing.T) {
+			assertIdentityEntriesRefuseShape(t, withSchemaVersion(refused.value), SelfRecordID)
+		})
+	}
 }

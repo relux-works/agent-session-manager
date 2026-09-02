@@ -422,13 +422,17 @@ var declaredGrammars = map[string]declaredGrammar{
 		refusal: "phase must use lower_snake_case",
 	},
 	"semverPattern": {
-		reference: `^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`,
+		reference: `^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`,
 		// The pinned document types these members `semver` and states that
 		// "Every independently consumed contract has an independent Semantic
 		// Version". It spells out no regular expression for one, so the
-		// character classes below are the implementation's reading of Semantic
-		// Versioning 2.0.0 and are recorded as such rather than cited.
-		implementationDefined: "the pinned document types the member `semver` and names Semantic Version, but declares no grammar literal for it; the classes implement Semantic Versioning 2.0.0 core numbers",
+		// production below is the implementation's reading of Semantic
+		// Versioning 2.0.0 and is recorded as such rather than cited. The
+		// reading is deliberately the WHOLE standard: prerelease and build
+		// metadata are part of a valid Semantic Version, so a core-triple-only
+		// grammar would refuse `1.2.3-rc.1` on a constraint neither the
+		// standard nor the pinned document states.
+		implementationDefined: "the pinned document types the member `semver` and names Semantic Version, but declares no grammar literal for it; the production implements Semantic Versioning 2.0.0 in full, including optional prerelease and build metadata",
 		refusal:               "must be canonical semver",
 	},
 	"windowsAbsolutePathPattern": {
@@ -562,7 +566,11 @@ func declaredGrammarWitnesses() []grammarWitness {
 		{pattern: "lowerSnakePattern", dimension: "class#1", values: []string{"0ab"}},
 		{pattern: "lowerSnakePattern", dimension: "class#2", values: []string{"a-b"}},
 
-		// canonical semver: (0|[1-9][0-9]*) three times.
+		// Semantic Versioning 2.0.0 in full: three core numbers, an optional
+		// dot-separated prerelease, and optional dot-separated build metadata.
+		// Classes 1-6 are the core numbers, 7-11 the first prerelease
+		// identifier, 12-16 each later prerelease identifier, and 17-18 the
+		// build-metadata identifiers.
 		{pattern: "semverPattern", dimension: "anchor.start", values: []string{"!1.0.0"}},
 		{pattern: "semverPattern", dimension: "anchor.end", values: []string{"1.0.0!"}},
 		{pattern: "semverPattern", dimension: "class#1", values: []string{"01.0.0"}},
@@ -571,6 +579,20 @@ func declaredGrammarWitnesses() []grammarWitness {
 		{pattern: "semverPattern", dimension: "class#4", values: []string{"1.1a.0"}},
 		{pattern: "semverPattern", dimension: "class#5", values: []string{"1.0.01"}},
 		{pattern: "semverPattern", dimension: "class#6", values: []string{"1.0.1a"}},
+		{pattern: "semverPattern", dimension: "class#7", values: []string{"1.0.0-01"}},
+		{pattern: "semverPattern", dimension: "class#8", values: []string{"1.0.0-1!"}},
+		{pattern: "semverPattern", dimension: "class#9", values: []string{"1.0.0-!a"}},
+		{pattern: "semverPattern", dimension: "class#10", values: []string{"1.0.0-1_"}},
+		{pattern: "semverPattern", dimension: "class#11", values: []string{"1.0.0-a_b"}},
+		{pattern: "semverPattern", dimension: "class#12", values: []string{"1.0.0-a.01"}},
+		{pattern: "semverPattern", dimension: "class#13", values: []string{"1.0.0-a.1!"}},
+		{pattern: "semverPattern", dimension: "class#14", values: []string{"1.0.0-a.!b"}},
+		{pattern: "semverPattern", dimension: "class#15", values: []string{"1.0.0-a.1_"}},
+		{pattern: "semverPattern", dimension: "class#16", values: []string{"1.0.0-a.b_c"}},
+		{pattern: "semverPattern", dimension: "class#17", values: []string{"1.0.0+a_b"}},
+		{pattern: "semverPattern", dimension: "class#18", values: []string{"1.0.0+a.b_c"}},
+		{pattern: "semverPattern", dimension: "one-or-more#1", values: []string{"1.0.0+"}},
+		{pattern: "semverPattern", dimension: "one-or-more#2", values: []string{"1.0.0+a."}},
 
 		// Windows drive-absolute prefix: a REFUSAL matcher, so its witnesses
 		// defeat a narrowing of each character class.

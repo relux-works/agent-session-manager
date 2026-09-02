@@ -39,12 +39,14 @@ import (
 // Pinned SPEC v0.5.0 at 28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c declares:
 // "Environment Tuple contains exactly environment_id, environment_version,
 // platform=linux|macos|windows|wsl2, architecture=amd64|arm64,
-// store_schema_fingerprint, and adapter_version". The two members below are the
-// only ones in that list carrying neither a type nor a format, while their
-// siblings carry explicit ones, so presence is all the clause declares.
+// store_schema_fingerprint, and adapter_version". The three members below are
+// the only ones in that list carrying neither a type nor a format, while their
+// platform and architecture siblings carry explicit vocabularies, so presence
+// is all the clause declares.
 var untypedFixtureMembers = map[string]string{
 	"environment_version":      "EnvironmentTuple environment_version is declared by name only; the string[1..128] bound belongs to Environment Observation",
 	"store_schema_fingerprint": "EnvironmentTuple store_schema_fingerprint is declared by name only and is not declared as a digest",
+	"adapter_version":          "EnvironmentTuple adapter_version is declared by name only; the SemVer word belongs to the Session Adapter Manifest row of a different schema",
 }
 
 // wrongJSONTypeFor returns a value of a different JSON type from the one the
@@ -304,8 +306,9 @@ const malformedScalarValue = "not-a-valid-scalar"
 var unenforcedStructuredMembers = map[string]string{
 	"provider_version":         `declared "provider_version:string[1..128]" and "a 1-128 character exact version string"; the fixture value is semver-shaped but no semver form is declared`,
 	"native_session_id":        `declared "native_session_id:string[1..512]" and "Opaque provider handle; never interpreted by core"; the fixture value is UUID-shaped but no UUID form is declared`,
-	"environment_version":      `EnvironmentTuple declares "environment_id, environment_version, platform=..., architecture=..., store_schema_fingerprint, and adapter_version" — environment_version by name only, while its adapter_version sibling is separately declared canonical semver`,
+	"environment_version":      `EnvironmentTuple declares "environment_id, environment_version, platform=..., architecture=..., store_schema_fingerprint, and adapter_version" — environment_version by name only, with no type and no format`,
 	"store_schema_fingerprint": `declared by name only in the same EnvironmentTuple clause; the fixture value is digest-shaped but no digest form is declared`,
+	"adapter_version":          `declared by name only in the same EnvironmentTuple clause; the fixture value is semver-shaped, but the SemVer word appears on the Session Adapter Manifest row of a different schema and is not inferred across schemas here`,
 }
 
 // TestEveryStructuredFixtureValueRefusesAMalformedFormAtItsProductionEntry is
