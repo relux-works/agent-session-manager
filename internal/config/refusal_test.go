@@ -403,12 +403,6 @@ func TestEncodeCurrentPinsPreviouslyCompositeRefusalClauses(t *testing.T) {
 		{name: "extension reverse-DNS namespace", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
 			value.DirectoryInstallations[0].Extensions = map[string]any{"singlelabel": true}
 		}},
-		{name: "extension forbidden root name", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
-			value.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.token": "fixture"}
-		}},
-		{name: "extension forbidden nested name", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
-			value.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.fixture": map[string]any{"endpoint": "fixture"}}
-		}},
 		{name: "extension float", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
 			value.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.fixture": 1.5}
 		}},

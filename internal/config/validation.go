@@ -740,9 +740,14 @@ func validateExtensions(extensions map[string]any) error {
 		return ErrConfigValidation
 	}
 	for key, value := range extensions {
+		// SPEC.md:345-347 defines an extension key as exactly this grammar:
+		// "A reverse-DNS key is 3-253 lowercase ASCII characters, contains at
+		// least one dot, and has dot-separated labels matching
+		// [a-z][a-z0-9-]{0,62}". It declares no reserved or forbidden label,
+		// so no name is refused beyond that grammar and the byte bound.
 		// reverseDNSPattern itself makes a.b the shortest accepted namespace,
 		// so the three-byte minimum is structurally subsumed by that grammar.
-		if len(key) > 253 || !reverseDNSPattern.MatchString(key) || hasForbiddenConfigName(key) {
+		if len(key) > 253 || !reverseDNSPattern.MatchString(key) {
 			return ErrConfigValidation
 		}
 		if err := validateExtensionValue(value, 0); err != nil {
@@ -786,10 +791,11 @@ func validateExtensionValue(value any, depth int) error {
 		if depth >= 4 {
 			return ErrConfigValidation
 		}
-		for key, item := range typed {
-			if hasForbiddenConfigName(key) {
-				return ErrConfigValidation
-			}
+		// SPEC.md:347-349 constrains an ExtensionValue object only as
+		// "string-keyed object with maximum nesting depth 4". The pinned spec
+		// imposes no naming rule inside an extension value, so nested keys are
+		// admitted as data and only the depth bound is enforced here.
+		for _, item := range typed {
 			if err := validateExtensionValue(item, depth+1); err != nil {
 				return err
 			}
@@ -841,16 +847,6 @@ func validatePrintableCharacters(value string, min, max int) error {
 		}
 	}
 	return nil
-}
-
-func hasForbiddenConfigName(value string) bool {
-	normalized := strings.ToLower(strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(value))
-	for _, part := range strings.Split(normalized, "_") {
-		if oneOf(part, "secret", "secrets", "token", "tokens", "password", "passwords", "credential", "credentials", "auth", "environment", "env", "endpoint") {
-			return true
-		}
-	}
-	return false
 }
 
 func metadataPolicy(value string) bool {

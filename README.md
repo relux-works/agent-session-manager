@@ -271,6 +271,26 @@ unpermitted flag, and an unpermitted value; the negative suite derives its cases
 from those same tables, so a newly declared option is covered the moment it is
 added.
 
+Section 6 states one rule for an `extensions` key: it is a reverse-DNS key of
+3-253 lowercase ASCII characters with at least one dot and dot-separated labels
+matching `[a-z][a-z0-9-]{0,62}`. No label is reserved, so `validateExtensions`
+admits or refuses a key by that grammar and the 253-byte bound alone, and an
+`ExtensionValue` object is constrained only to string keys within nesting depth
+4. A reverse-DNS namespace this organisation owns — `works.relux.env-tools`,
+`com.example.auth-manager`, `io.example.endpoint-list` — therefore loads, and a
+nested key named `endpoint` or `token` is preserved as data. Reading a name as
+evidence about a value is not secret detection: the only "secret, token,
+endpoint credential" clause in Section 6 governs a terminal backend-config
+`settings` object, and it is enforced where it applies, by the closed schema a
+backend implementation version registers, which refuses any settings object it
+did not declare. Section 6.4's "no v2 table accepts a secret, endpoint
+credential, model token, auth root, or arbitrary environment passthrough" is
+likewise a field-declaration rule, enforced by the closed table shape
+`decodeStrict` decodes with `DisallowUnknownFields`; Section 6.1 states the
+value rule and its permission together, forbidding secret *values* in config
+fields while allowing a provider to name a machine-local environment variable or
+credential profile.
+
 Run the focused tests and assigned-scope traceability gate with:
 
     go test ./internal/config -count=1 -v
