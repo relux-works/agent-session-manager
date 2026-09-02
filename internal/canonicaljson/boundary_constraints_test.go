@@ -69,13 +69,25 @@ func declaredBoundaryConstraintCases() []boundaryConstraintCase {
 			overLimit: func() map[string]any { return sessionRecordWithArgv(repeatedValues("x", 129)) },
 		},
 		{
-			name:      "launch argv encoded size 65536 bytes",
+			name:      "launch argv canonical size 65536 bytes",
+			claims:    []boundObligation{{key: "validateSessionLaunchPlan|canonicalByteBound|Session Record Launch Plan argv|-..65536", direction: boundMaximum}},
 			selfField: SelfRecordID,
 			atLimit: func() map[string]any {
 				return sessionRecordWithArgv(encodedArgvBoundary(4_092))
 			},
 			overLimit: func() map[string]any {
 				return sessionRecordWithArgv(encodedArgvBoundary(4_093))
+			},
+		},
+		{
+			name:      "extensions object canonical size 65536 bytes",
+			claims:    []boundObligation{{key: "validateExtensionsObject|canonicalByteBound|extensions object|-..65536", direction: boundMaximum}},
+			selfField: SelfRecordID,
+			atLimit: func() map[string]any {
+				return genericExtensionIdentityObject(extensionsObjectOfCanonicalBytes(65_536))
+			},
+			overLimit: func() map[string]any {
+				return genericExtensionIdentityObject(extensionsObjectOfCanonicalBytes(65_537))
 			},
 		},
 		{
@@ -470,6 +482,15 @@ func sessionRecordWithArgv(argv []any) map[string]any {
 	object := validSessionRecordV1Object()
 	object["launch_plan"].(map[string]any)["argv"] = argv
 	return object
+}
+
+// extensionsObjectOfCanonicalBytes returns a one-member extensions object whose
+// canonical encoding is exactly target bytes. A canonical one-member object is
+// "{" plus the quoted key, ":", the quoted value and "}", so its length is the
+// key length plus the value length plus seven.
+func extensionsObjectOfCanonicalBytes(target int) map[string]any {
+	const key = "works.relux.bytes"
+	return map[string]any{key: strings.Repeat("x", target-len(key)-7)}
 }
 
 func encodedArgvBoundary(lastLength int) []any {

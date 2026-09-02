@@ -170,9 +170,12 @@ var unreachableRefusalSites = map[string]unreachableRefusal{
 	"canonical.go|Canonicalize|return nil, invalidJSON(\"serialize logical JSON value: %v\", err)|#0":                                           decodedValueRefusal,
 	"canonical.go|calculatePreparedObjectIdentity|return scalar.Digest{}, \"\", invalidIdentity(\"serialize omit-self object: %v\", err)|#0":    decodedValueRefusal,
 	"canonical.go|calculatePreparedObjectIdentity|return scalar.Digest{}, \"\", invalidIdentity(\"canonicalize omit-self object: %v\", err)|#0": decodedValueRefusal,
-	"closed_shapes.go|validateExtensionsObject|return invalidIdentity(\"serialize extensions object: %v\", err)|#0":                             decodedValueRefusal,
-	"closed_shapes.go|validateExtensionsObject|return invalidIdentity(\"canonicalize extensions object: %v\", err)|#0":                          decodedValueRefusal,
-	"closed_shapes.go|validateSessionLaunchPlan|return invalidIdentity(\"serialize Session Record Launch Plan argv: %v\", err)|#0":              decodedValueRefusal,
+	// Both declared byte bounds are measured through CanonicalByteLength, so its
+	// error paths and the one the shared bound gate wraps them in carry the same
+	// reason as the call sites that reach them.
+	"declared_byte_bounds.go|CanonicalByteLength|return 0, err|#0":                                                  decodedValueRefusal,
+	"declared_byte_bounds.go|canonicalEncoding|return nil, err|#0":                                                  decodedValueRefusal,
+	"declared_byte_bounds.go|canonicalByteBound|return invalidIdentity(\"measure canonical %s: %v\", name, err)|#0": decodedValueRefusal,
 	// VerifyObjectIdentity propagates only the two calculatePreparedObjectIdentity
 	// refusals above; its own prepare-error propagation is proven.
 	"canonical.go|VerifyObjectIdentity|return scalar.Digest{}, \"\", err|#1": decodedValueRefusal,

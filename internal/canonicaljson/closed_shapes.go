@@ -281,12 +281,8 @@ func validateSessionLaunchPlan(object map[string]any) error {
 			return invalidIdentity("Session Record Launch Plan argv[%d] must contain 1..4096 UTF-8 bytes", index)
 		}
 	}
-	encodedArgv, err := json.Marshal(argv)
-	if err != nil {
-		return invalidIdentity("serialize Session Record Launch Plan argv: %v", err)
-	}
-	if len(encodedArgv) > 65_536 {
-		return invalidIdentity("Session Record Launch Plan argv encodes to %d bytes, maximum is 65536", len(encodedArgv))
+	if err := canonicalByteBound("Session Record Launch Plan argv", argv, 65_536); err != nil {
+		return err
 	}
 	if _, err := requireUUIDv7(object, "cwd_workspace_id"); err != nil {
 		return err
@@ -1795,18 +1791,7 @@ func validateExtensionsObject(extensions map[string]any) error {
 		}
 	}
 
-	encoded, err := json.Marshal(extensions)
-	if err != nil {
-		return invalidIdentity("serialize extensions object: %v", err)
-	}
-	canonical, err := Canonicalize(encoded)
-	if err != nil {
-		return invalidIdentity("canonicalize extensions object: %v", err)
-	}
-	if len(canonical) > 65_536 {
-		return invalidIdentity("canonical extensions object is %d bytes, maximum is 65536", len(canonical))
-	}
-	return nil
+	return canonicalByteBound("extensions object", extensions, 65_536)
 }
 
 func validateExtensionValue(value any, depth int) error {

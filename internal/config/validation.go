@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -9,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
 	"github.com/relux-works/agent-session-manager/internal/catalog"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
 )
@@ -757,8 +757,11 @@ func validateExtensions(extensions map[string]any) error {
 			return err
 		}
 	}
-	encoded, err := json.Marshal(extensions)
-	if err != nil || len(encoded) > maxConfigExtensionBytes {
+	// The bound is on canonical bytes, so it is measured through the one shared
+	// canonical measurement rather than through Go's HTML-escaped encoding. See
+	// canonicaljson.CanonicalByteLength.
+	canonicalBytes, err := canonicaljson.CanonicalByteLength(extensions)
+	if err != nil || canonicalBytes > maxConfigExtensionBytes {
 		return ErrConfigValidation
 	}
 	return nil
