@@ -1,0 +1,128 @@
+BUG-260902-1874eo / CR-BUG-260902-1874eo-2 (revision 2) — reviewer round 3 mutant sweep
+Worktree: .temp/STORY-260902-xpwppu/worktree @ 8a0dcedf7d1d4a932eae335df2772effe3923cee
+Toolchain: go1.25.5 darwin/arm64
+All mutants applied to a file backed up first and restored from backup; `git status --short`
+and `git diff --stat` empty after every restore and at the end of the sweep.
+
+Every mutant below was constructed and run by the reviewer, not replayed from the
+producer's log.
+
+== BASELINE ==
+go build ./...                                          exit 0
+gofmt -l internal/                                      no output
+go vet ./...                                            exit 0
+go test ./... -count=1                                  all 10 packages ok
+go run ./internal/traceability/cmd/tracecheck           ok: contracts=60 normative_sections=36
+                                                        acceptance_cases=43 fixtures=30
+                                                        compatibility_contracts=55
+go test ./internal/canonicaljson/ -cover -count=1       coverage: 97.2% of statements
+                                                        (matches the commit's claim)
+TestEveryUTF8RecheckIsCoveredByTheEntryPointPin logged  "coverage: 7/7 guarded functions"
+
+== PART 1 — the two normative digest pins ==
+
+A   Canonicalize returns append(canonical, 0x20)
+    KILLED. Reddens all four subtests of TestCalculateObjectIdentityMatchesAXPublishedFixtures:
+    safe_integer_maximum, decimal_uint64_first_unsafe_integer, decimal_uint64_maximum,
+    UTF-16_order. Both new pins are live against encoder drift.
+
+B2  NUM-U64-STRING fixture one byte: {"n":"9007199254740992"} -> ...993
+    KILLED, and only decimal_uint64_first_unsafe_integer reddens. The pin is
+    individually decisive; it is not carried by its sibling.
+
+C2  NUM-U64-MAX fixture one byte: {"n":"18446744073709551615"} -> ...614
+    KILLED, and only decimal_uint64_maximum reddens. Same conclusion.
+
+R1  REVIEWER-ADDED. Swap the two `want` digests between the two new subtests.
+    KILLED — both subtests redden. Each pin binds its own published value; neither
+    would accept "some digest from the SPEC table".
+
+Independent recomputation (not from the encoder):
+    printf '%s' '{"n":"9007199254740992"}'      | shasum -a 256
+      -> bb80eb37329e0a7e980fe3638c9722c44ac3184f7488f20c28cf67ae0b5f4f96   MATCH
+    printf '%s' '{"n":"18446744073709551615"}'  | shasum -a 256
+      -> b0ec84c6bb6a7c030549f17dd482975d09c40ff9e5f83d4438ebeac12d3b6331   MATCH
+
+Provenance chain re-verified by the reviewer, not accepted from the producer:
+    shasum -a 256 .temp/BUG-260902-1874eo/SPEC.pinned.md
+      -> 562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a
+    internal/specpin/pin.go:30 DocumentSHA256 = same value                  MATCH
+    internal/specpin/pin.go:28 CommitV050 = 28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c
+    SPEC.pinned.md:303 and :304 quoted verbatim in the test comments        MATCH
+
+README capability claim attacked:
+    grep -n "SHA-256 <code>" over the whole pinned SPEC returns exactly four rows:
+    :300 NUM-SAFE-MAX, :303 NUM-U64-STRING, :304 NUM-U64-MAX, :307 JCS-UTF16-ORDER.
+    README's "All four Section 1.6 boundary fixtures that publish a digest are pinned"
+    names exactly those four, and all four are asserted in canonical_test.go. The claim
+    reproduces.
+
+== PART 2 — the subsumed UTF-8 re-check pin ==
+
+H   REVIEWER-ADDED. Exported `ValidateDecodedRecord(map[string]any) error` reaching the
+    guards through the package's own immutableObjectShapeValidators dispatch table.
+    This is the exact mutant that SURVIVED review round 1.
+    KILLED. TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck reddens and names
+    all 7 guards: [nullableString requireUTF8String validateExtensionValue
+    validateProviderIdentityRecord validateSessionBoardIdentity validateSessionLaunchPlan
+    validateSortedUniqueStrings].
+
+I2  REVIEWER-ADDED. Exported METHOD `(reviewerDecodedRecord).Validate(_ []byte) error` —
+    byte parameter, but a caller-supplied decoded receiver.
+    KILLED, naming all 7 guards. Methods are modelled in both derivations and the
+    receiver is correctly treated as decoded state.
+
+D2  REVIEWER-ADDED. Exported `ValidateDecodedLaunchPlan(map[string]any)` calling a guard
+    by direct identifier.
+    KILLED, naming [requireUTF8String validateExtensionValue validateSessionLaunchPlan].
+
+G2  REVIEWER-ADDED. Second decoder: exported `ParseDecodedRecord([]byte)` using
+    json.Unmarshal outside decodeStrict.
+    KILLED. TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage reddens with the
+    file, line, decoder and enclosing function named.
+
+E3  REVIEWER-ADDED. Delete one subsumption comment (closed_shapes.go:2098-2099).
+    KILLED. TestEveryUTF8RecheckDeclaresItsSubsumption names closed_shapes.go:2098.
+
+F3  REVIEWER-ADDED, NARROWING. Comment kept but names requireExactMembers instead of
+    decodeStrict.
+    KILLED. Proves the check binds the named subsuming validator, not merely
+    "a comment exists". This is the delete-only-mutant trap avoided.
+
+N1  REVIEWER-ADDED. A NEW undocumented utf8.ValidString re-check added to
+    closed_shapes.go, kept reachable from an exported []byte entry point.
+    KILLED. Confirms the guarded set is DERIVED from the AST, not a hardcoded list: a
+    re-check added later is covered the moment it is written.
+
+V1  REVIEWER-ADDED, VACUITY PROBE. An orphan guarded function reachable from no
+    exported entry point.
+    KILLED. TestEveryUTF8RecheckIsCoveredByTheEntryPointPin reddens with
+    "coverage is 7/8; [reviewerOrphanRecheck] are reachable from no exported entry point".
+    The 7/7 ratio is measured, not asserted as a constant — this is the check that
+    would have caught round 1's silent 3/7.
+
+B1  REVIEWER-ADDED, DISCLOSED-BOUND PROBE. Exported `ValidateViaFieldTable(map[string]any)`
+    dispatching through a func-typed STRUCT FIELD.
+    SURVIVED — as documented. closed_shapes.go:57-61 and README.md name "a func-typed
+    struct field" among the constructions the graph does not model, giving the reason
+    (`x.M(...)` resolves only for methods declared in this package). The published bound
+    is accurate: the survivor is exactly the shape the code says will survive, and it is
+    the stated reason the guards are kept live rather than deleted. An accurate stated
+    bound is not a defect; an unstated one would have been.
+
+== SUBSUMPTION ARGUMENT VERIFIED AT SOURCE ==
+canonical.go:324 decodeStrict
+  :328  if !utf8.Valid(input)          <- refuses before any value exists
+  :331  validateSurrogateEscapes(input)
+  :335  json.NewDecoder(...)           <- the only place bytes become Go values
+The board note's "canonical.go:311 is now canonical.go:328" is correct.
+refusal_guards_test.go:194-195 registers two of the eight sites as invalidUTF8Refusal,
+so deletion would have rewritten pinned refusal statements — the producer's stated
+reason for keep-and-document reproduces.
+
+== NON-REGRESSION ==
+git show --stat 8a0dced: 5 files changed, 732 insertions(+), 0 deletions(-).
+canonical_test.go +35/-0, closed_shapes.go +42/-0 (comments only).
+No existing assertion was weakened or deleted; no production logic changed.
+git verify-commit 8a0dced: Good "git" signature for oparin@me.com (ECDSA), author
+Ivan Oparin <oparin@me.com>, %G? = G.

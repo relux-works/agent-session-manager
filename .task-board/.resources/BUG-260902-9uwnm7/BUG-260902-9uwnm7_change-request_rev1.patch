@@ -1,0 +1,838 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index d4365b3..1d72f19 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -3,6 +3,33 @@
+ > Institutional memory. Concise, factual, high-signal.
+ > Newest entries first. One block per insight.
+ 
++## 2026-09-03
++
++### 0210 — A derived call graph that only sees `f(x)` covers 3 of 7 guards and looks complete
++
++- ROOT CAUSE: `utf8_subsumption_test.go` pinned "no exported entry point hands an already-decoded value to a `utf8.ValidString` re-check" over an AST call graph that recorded an edge only for `call.Fun.(*ast.Ident)` naming a top-level declaration, and skipped `Recv != nil` in both derivations. This package dispatches through a function-value table — validators registered in `mustBuildImmutableObjectShapeValidators` and invoked as `validator(object)` in `validateImmutableObjectShape` — so neither the registration nor the invocation was an edge.
++- EVIDENCE: review mutant H, an exported `ValidateDecodedRecord(map[string]any)` reaching the guards through that table, left all three pins green and the whole package suite `ok`. Mutant I, the same body as an exported method, survived for the second reason. The producer's own passing mutant D2 called a guard by direct identifier — the single shape the graph could see. Measured coverage was 3/7 guarded functions; `validateSessionLaunchPlan`, `validateSessionBoardIdentity`, `validateSortedUniqueStrings` and `validateProviderIdentityRecord` were pinned vacuously.
++- FINDING: an AST call graph is a claim about a *modelled subset* of dispatch, and its blind spot is invisible from inside — every test still passes, and the structure looks more thorough the longer it gets. A reachability pin must publish its coverage as a ratio; prose about what it checks cannot distinguish 7/7 from 3/7.
++- DECISION: the graph now records edges for calls through a function value — a callee that is not a package function, a predeclared identifier, or a named type is treated as reaching every function whose identifier is used as a value in the package — and includes methods in both derivations. Coverage is now 7/7 and is asserted, not narrated: `TestEveryUTF8RecheckIsCoveredByTheEntryPointPin` fails and names the uncovered functions if any guard drops out of reach.
++- DECISION: the published claim was narrowed in the same change. `closed_shapes.go` no longer says the invariant "cannot be broken silently" and `README.md` no longer says a map-taking entry point simply "reddens the pin". Both now state the modelled constructions and name what still evades them: reflection, a function value handed to another package, and a func-typed struct field, since `x.M(...)` resolves only when `M` is a method declared in this package. Fixing the graph without narrowing the claim moves a false guarantee one construction outward rather than removing it.
++- EVIDENCE: mutants H, I and I2 (byte-parameter method — the receiver is still caller-supplied decoded state) all redden `TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck`, each naming all 7 guarded functions. Narrowing mutant K removes only the function-value edge: the clean tree stays green and mutant H survives, which is what identifies that edge as the decisive addition rather than something else in the rewrite. Mutant K2 removes the computed-callee edge as well and reproduces the review's measurement exactly — `coverage is 3/7`, naming the same four functions.
++- FINDING: a guard that no mutant can redden is not covered, however thorough the derivation around it looks. The ratio is the honest report; "machine-checked" is not.
++- SCOPE: `internal/canonicaljson/utf8_subsumption_test.go`, `internal/canonicaljson/closed_shapes.go` (comment only), `README.md`. No production logic and no existing assertion changed; `internal/canonicaljson` coverage stayed at 97.2%.
++
++### 0035 — Stale line numbers turned a four-site audit into an eight-site class
++
++- ROOT CAUSE (part 1): `SPEC.md:303-304` publishes SHA-256 digests for `NUM-U64-STRING` (`{"n":"9007199254740992"}`) and `NUM-U64-MAX` (`{"n":"18446744073709551615"}`) and nothing in this repository recomputed either. Only `NUM-SAFE-MAX` was pinned. The `decimal_uint64` SYNTAX was well tested; the published DIGEST claim — the thing a content-addressed system actually promises — was not.
++- DECISION: expected values quoted from `SPEC.md` extracted at the pinned commit `28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c`, whose SHA-256 was verified equal to `internal/specpin.DocumentSHA256` before the lines were read. Both rows are quoted verbatim in the test comment. A value recomputed from this encoder would agree with any drift the encoder acquires.
++- EVIDENCE (part 1): mutant A appends one byte to `Canonicalize`'s return and reddens both new assertions plus the two that already existed; mutants B2 and C2 change one byte of one fixture each and redden exactly that fixture's assertion. Individually decisive, so neither new assertion is carried by the other.
++- ANOMALY: the audit located the part-2 sites as `closed_shapes.go:258, :1506, :1525, :1760`. None of those lines re-checks UTF-8 on any current ref. They match commit `7b94c9ad`, five commits back; the file has moved ~530 lines since. The same commit shows EIGHT `utf8.ValidString` sites, not four — the audit named a subset with no property distinguishing it. Resolved all eight rather than four, because "the clause sweep reports no unexplained survivor" is false while four identical survivors remain.
++- FINDING: line numbers in a board finding decay faster than the finding does. Map them to a commit before trusting them, and re-derive the population rather than accepting the cited count.
++- DECISION (part 2): kept and documented, not deleted. The subsumption is real — `decodeStrict` refuses non-UTF-8 input before any value exists — but it is a package-internal invariant, not a property of the eight validators. `CanonicalByteLength(value any)` already shows this package can export a non-`[]byte` entry point, so a future map-taking entry would silently make all eight comments false. Deleting would also rewrite refusal statements pinned in `refusal_guards_test.go`.
++- FINDING: a first attempt pinned the invariant as "every exported entry point that reaches a re-check also reaches `decodeStrict`". Mutant G survived it: `validateExtensionsObject` reaches `canonicalByteBound` -> `CanonicalByteLength` -> `Canonicalize` -> `decodeStrict`, so transitive reachability of `decodeStrict` is satisfied by a call that never touched the caller's bytes. Reaching a decoder downstream is not the same fact as being decoded by it. Replaced with two properties that are each decidable: no exported entry point reaching a re-check may take a non-`[]byte` parameter, and `json.NewDecoder`/`json.Unmarshal` may appear only inside `decodeStrict`.
++- EVIDENCE (part 2): 4 mutants, all killed. D2 adds an exported `map[string]any` entry point reaching the re-checks; G2 adds an exported `[]byte` entry point that decodes with `json.Unmarshal`; E3 deletes one subsumption comment; F3 is the narrowing mutant — the comment stays but names `requireExactMembers` instead of `decodeStrict`.
++- DISCLOSED, NOT FIXED: `internal/canonicaljson/core_records.go:278` (`validateProviderIdentityRecord`) carries a ninth re-check of the same class, outside this bug's stated `closed_shapes.go` scope. Also, nothing derives the set of digest-publishing Section 1.6 fixtures from the pinned document — `SPEC.md` is not vendored — so a future added fixture cannot be caught as unpinned by a test.
++- SCOPE: `internal/canonicaljson/canonical_test.go`, `internal/canonicaljson/closed_shapes.go` (comments only), new `internal/canonicaljson/utf8_subsumption_test.go`, `README.md`.
++- STATUS: BUG-260902-1874eo and sibling BUG-260902-9uwnm7 handed to review in one change. `gofmt`, `go build ./...`, `go vet ./...`, `go test ./... -count=1`, `go test ./... -cover -count=1`, tracecheck, `go generate ./internal/catalog` + clean diff, and `FuzzCanonicalizeRoundTrip` at 100x all exit 0. `internal/canonicaljson` coverage 97.2%.
++
+ ## 2026-09-02
+ 
+ ### 2322 — One regex, two schemas, two opposite right answers
+diff --git a/README.md b/README.md
+index 3fa67d4..60475d1 100644
+--- a/README.md
++++ b/README.md
+@@ -337,6 +337,32 @@ UTF-8, surrogate-pair, ECMAScript number-formatting, string-escaping, and
+ UTF-16 property-ordering rules. Its number behavior is checked against every
+ finite RFC 8785 Appendix B sample through the production entry point.
+ 
++All four Section 1.6 boundary fixtures that publish a digest are pinned:
++`NUM-SAFE-MAX`, `NUM-U64-STRING`, `NUM-U64-MAX`, and `JCS-UTF16-ORDER` are each
++recomputed from the production encoder and compared against the value quoted
++from `SPEC.md` at the pinned commit, not against a value the implementation
++derived for itself.
++
++The `utf8.ValidString` re-checks in `closed_shapes.go` are kept and documented
++rather than deleted; each names `decodeStrict` as the validator that subsumes it.
++That subsumption is machine-checked, not only asserted in prose: no exported
++function or method may hand an already-decoded value to one of those re-checks,
++and `decodeStrict` must remain the only place in the package where bytes become
++Go values. Adding a second decoder reddens the pin, as does a map-taking
++exported entry point that reaches a re-check by calling it, through the
++package's own `immutableObjectShapeValidators` dispatch table, or as a method on
++an exported type. All 7 of the 7 derived re-check functions are reachable from
++an exported entry point, so none of them is pinned vacuously, and that ratio is
++itself asserted rather than left to prose.
++
++The check is bounded, and the bound is published with it. Its call graph is
++derived from the AST, so it models direct calls, calls to methods declared in
++the package, and dispatch through a function value; it models nothing about a
++callee reached by reflection, by a function value handed to another package, or
++through a func-typed struct field. An entry point built one of those ways would
++leave the guards live while the pin stayed green — which is why the guards are
++kept rather than deleted.
++
+ The AX identity path additionally enforces the Section 1.6 common model: JSON
+ numbers are integral safe integers, and the exact `schema`/`schema_version`
+ pair selects the schema-defined self field from the generated catalog bound to
+diff --git a/internal/canonicaljson/canonical_test.go b/internal/canonicaljson/canonical_test.go
+index c078ec1..30484a1 100644
+--- a/internal/canonicaljson/canonical_test.go
++++ b/internal/canonicaljson/canonical_test.go
+@@ -504,6 +504,41 @@ func TestCalculateObjectIdentityMatchesAXPublishedFixtures(t *testing.T) {
+ 		}
+ 	})
+ 
++	// NUM-U64-STRING and NUM-U64-MAX are the two Section 1.6 boundary fixtures whose
++	// published digests nothing in this repository recomputed. Both expected
++	// values are quoted from SPEC.md at the pinned commit
++	// 28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c, whose SHA-256 is
++	// internal/specpin.DocumentSHA256
++	// (562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a), not
++	// recomputed from this encoder: an expectation derived from the
++	// implementation would agree with any drift the implementation acquires.
++	//
++	// SPEC.md:303, verbatim:
++	//   | <code>NUM-U64-STRING</code> | <code>{"n":"9007199254740992"}</code> |
++	//   Accept only when <code>n</code> is typed <code>decimal_uint64</code>;
++	//   SHA-256 <code>bb80eb37329e0a7e980fe3638c9722c44ac3184f7488f20c28cf67ae0b5f4f96</code> |
++	t.Run("decimal_uint64 first unsafe integer", func(t *testing.T) {
++		canonical, err := Canonicalize([]byte(`{"n":"9007199254740992"}`))
++		got := scalar.SHA256Digest(canonical)
++		want := "sha256:bb80eb37329e0a7e980fe3638c9722c44ac3184f7488f20c28cf67ae0b5f4f96"
++		if err != nil || got.String() != want {
++			t.Fatalf("Canonicalize/SHA256(NUM-U64-STRING) = %q, %v; want %q", got, err, want)
++		}
++	})
++
++	// SPEC.md:304, verbatim:
++	//   | <code>NUM-U64-MAX</code> | <code>{"n":"18446744073709551615"}</code> |
++	//   Accept only when <code>n</code> is typed <code>decimal_uint64</code>;
++	//   SHA-256 <code>b0ec84c6bb6a7c030549f17dd482975d09c40ff9e5f83d4438ebeac12d3b6331</code> |
++	t.Run("decimal_uint64 maximum", func(t *testing.T) {
++		canonical, err := Canonicalize([]byte(`{"n":"18446744073709551615"}`))
++		got := scalar.SHA256Digest(canonical)
++		want := "sha256:b0ec84c6bb6a7c030549f17dd482975d09c40ff9e5f83d4438ebeac12d3b6331"
++		if err != nil || got.String() != want {
++			t.Fatalf("Canonicalize/SHA256(NUM-U64-MAX) = %q, %v; want %q", got, err, want)
++		}
++	})
++
+ 	t.Run("UTF-16 order", func(t *testing.T) {
+ 		canonical, err := Canonicalize([]byte(`{"\uE000":1,"\uD800\uDC00":2}`))
+ 		got := scalar.SHA256Digest(canonical)
+diff --git a/internal/canonicaljson/closed_shapes.go b/internal/canonicaljson/closed_shapes.go
+index 07241e1..5d9c900 100644
+--- a/internal/canonicaljson/closed_shapes.go
++++ b/internal/canonicaljson/closed_shapes.go
+@@ -39,6 +39,30 @@ var (
+ 	sessionNamePattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+ )
+ 
++// Subsumed UTF-8 re-checks.
++//
++// Several validators in this file re-check utf8.ValidString on a value they
++// received. Every one of those terms is subsumed: decodeStrict in canonical.go
++// refuses input that is not valid UTF-8 before it decodes any value, and it is
++// the only place in this package where bytes become Go values, so no decoded
++// string or object key can reach a validator here invalid.
++//
++// They are kept fail-closed rather than deleted because the argument is a
++// package-internal invariant, not a property of these functions: an exported
++// entry point that accepted an already-decoded map, or a second JSON decoder
++// anywhere in the package, would make every one of them false again.
++//
++// Both conditions are machine-checked in utf8_subsumption_test.go, over a call
++// graph derived from the AST. That check is bounded, and the bound is part of
++// the claim. It models direct calls, calls to methods declared in this package,
++// and dispatch through a function value, which is the shape
++// immutableObjectShapeValidators below uses. It models nothing about a callee
++// reached by reflection, by a function value handed to another package, or
++// through a func-typed struct field, and an entry point built one of those ways
++// would leave these guards live while the pin stayed green. The pin narrows how
++// such a change can arrive unnoticed; it does not make it impossible, which is
++// the reason these terms stay rather than being deleted.
++
+ type immutableObjectShapeValidator func(map[string]any) error
+ 
+ // immutableObjectShapeValidators is deliberately explicit. The self-identity
+@@ -282,6 +306,8 @@ func validateSessionLaunchPlan(object map[string]any) error {
+ 	}
+ 	for index, value := range argv {
+ 		text, ok := value.(string)
++		// !utf8.ValidString(text) is subsumed by decodeStrict; see the subsumed
++		// UTF-8 re-check note above. The other three terms are reachable.
+ 		if !ok || !utf8.ValidString(text) || len(text) == 0 || len(text) > 4096 {
+ 			return invalidIdentity("Session Record Launch Plan argv[%d] must contain 1..4096 UTF-8 bytes", index)
+ 		}
+@@ -327,6 +353,8 @@ func validateSessionLaunchPlan(object map[string]any) error {
+ 			return invalidIdentity("Session Record Launch Plan environment name %q occurs in both env_names and env_literals", name)
+ 		}
+ 		text, ok := value.(string)
++		// !utf8.ValidString(text) is subsumed by decodeStrict; see the subsumed
++		// UTF-8 re-check note above. The other two terms are reachable.
+ 		if !ok || !utf8.ValidString(text) || len(text) > 4096 {
+ 			return invalidIdentity("Session Record Launch Plan env_literals[%q] must contain at most 4096 UTF-8 bytes", name)
+ 		}
+@@ -441,6 +469,8 @@ func validateSessionBoardIdentity(object map[string]any) error {
+ 		}
+ 	} else {
+ 		remoteURL, ok := remoteValue.(string)
++		// !utf8.ValidString(remoteURL) is subsumed by decodeStrict; see the
++		// subsumed UTF-8 re-check note above. The !ok term is reachable.
+ 		if !ok || !utf8.ValidString(remoteURL) {
+ 			return invalidIdentity("remote Session Record Board Identity remote_url must be a UTF-8 string")
+ 		}
+@@ -1803,6 +1833,9 @@ func validateExtensionValue(value any, depth int) error {
+ 	case nil, bool, json.Number:
+ 		return nil
+ 	case string:
++		// This guard is subsumed by decodeStrict; see the subsumed UTF-8
++		// re-check note above. It is declared unreachable as invalidUTF8Refusal
++		// in refusal_guards_test.go.
+ 		if !utf8.ValidString(typed) {
+ 			return invalidIdentity("string value must be valid UTF-8")
+ 		}
+@@ -1822,6 +1855,9 @@ func validateExtensionValue(value any, depth int) error {
+ 			return invalidIdentity("value exceeds maximum nesting depth 4")
+ 		}
+ 		for key, member := range typed {
++			// This guard is subsumed by decodeStrict; see the subsumed UTF-8
++			// re-check note above. It is declared unreachable as
++			// invalidUTF8Refusal in refusal_guards_test.go.
+ 			if !utf8.ValidString(key) {
+ 				return invalidIdentity("object key must be valid UTF-8")
+ 			}
+@@ -1925,6 +1961,8 @@ func nullableString(object map[string]any, name string) (string, bool, error) {
+ 		return "", false, nil
+ 	}
+ 	text, ok := value.(string)
++	// !utf8.ValidString(text) is subsumed by decodeStrict; see the subsumed
++	// UTF-8 re-check note above. The other two terms are reachable.
+ 	if !ok || text == "" || !utf8.ValidString(text) {
+ 		return "", false, invalidIdentity("member %s must be null or a non-empty UTF-8 string", name)
+ 	}
+@@ -2057,6 +2095,8 @@ func requireUTF8String(object map[string]any, name string) (string, error) {
+ 		return "", invalidIdentity("identity input requires member %s", name)
+ 	}
+ 	text, ok := value.(string)
++	// !utf8.ValidString(text) is subsumed by decodeStrict; see the subsumed
++	// UTF-8 re-check note above. The !ok term is reachable.
+ 	if !ok || !utf8.ValidString(text) {
+ 		return "", invalidIdentity("member %s must be a UTF-8 string", name)
+ 	}
+@@ -2210,6 +2250,8 @@ func validateSortedUniqueStrings(values []any, name string) error {
+ 	previous := ""
+ 	for index, value := range values {
+ 		text, ok := value.(string)
++		// !utf8.ValidString(text) is subsumed by decodeStrict; see the subsumed
++		// UTF-8 re-check note above. The !ok term is reachable.
+ 		if !ok || !utf8.ValidString(text) {
+ 			return invalidIdentity("member %s[%d] must be a UTF-8 string", name, index)
+ 		}
+diff --git a/internal/canonicaljson/utf8_subsumption_test.go b/internal/canonicaljson/utf8_subsumption_test.go
+new file mode 100644
+index 0000000..d37dc3c
+--- /dev/null
++++ b/internal/canonicaljson/utf8_subsumption_test.go
+@@ -0,0 +1,602 @@
++package canonicaljson
++
++import (
++	"fmt"
++	"go/ast"
++	"go/parser"
++	"go/token"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++	"testing"
++)
++
++// The utf8.ValidString re-checks in closed_shapes.go are documented as
++// subsumed by decodeStrict rather than deleted, and that subsumption rests on
++// one package-internal invariant: every exported entry point that can reach a
++// re-check takes its input as bytes and decodes it through decodeStrict, which
++// refuses input that is not valid UTF-8 before any value exists.
++//
++// A prose comment cannot notice when that invariant is broken. These tests pin
++// it, so an exported entry point that accepted an already-decoded Go value and
++// handed it to one of those validators reddens here instead of silently
++// turning eight documented-unreachable guards back into live ones.
++//
++// WHAT THE CALL GRAPH BELOW MODELS, AND WHAT IT DOES NOT.
++//
++// The graph is derived from the AST alone, so it is an approximation, and a
++// pin that does not state its bound is the false guarantee it was meant to
++// replace. It records an edge for:
++//
++//   - a call of a package-level function by its identifier;
++//   - a call of a method declared in this package, matched by method name;
++//   - a call through a function value - a callee that is not a package
++//     function, a predeclared identifier, or a named type - which is assumed
++//     to reach every function whose identifier is used as a value anywhere in
++//     this package. That is the shape this package actually dispatches
++//     through: immutableObjectShapeValidators holds validator function values
++//     registered in mustBuildImmutableObjectShapeValidators and is invoked as
++//     validator(object) in validateImmutableObjectShape.
++//
++// It records no edge, and therefore proves nothing, for a callee reached
++// through reflection, through a function value handed to another package and
++// invoked there, or through a func-typed struct field: `x.M(...)` resolves
++// only when M is a method declared in this package, so a dispatch table parked
++// in a struct field and invoked as `table.validate(object)` evades this graph
++// entirely. The claim these tests support is bounded to the constructions
++// above; it is not "the invariant cannot be broken".
++
++// predeclaredCallees are the identifiers a call can name without reaching any
++// function declared in this package: the builtins, and the predeclared type
++// names that appear as conversions.
++var predeclaredCallees = map[string]bool{
++	"append": true, "cap": true, "clear": true, "close": true, "complex": true,
++	"copy": true, "delete": true, "imag": true, "len": true, "make": true,
++	"max": true, "min": true, "new": true, "panic": true, "print": true,
++	"println": true, "real": true, "recover": true,
++
++	"any": true, "bool": true, "byte": true, "complex64": true, "complex128": true,
++	"error": true, "float32": true, "float64": true, "int": true, "int8": true,
++	"int16": true, "int32": true, "int64": true, "rune": true, "string": true,
++	"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true,
++	"uintptr": true,
++}
++
++// productionDeclaration is one derived production function or method.
++type productionDeclaration struct {
++	key         string
++	declaration *ast.FuncDecl
++}
++
++// productionFunctionKey names a declaration uniquely. Methods are included:
++// skipping Recv != nil would let an exported method that takes an
++// already-decoded value pass every gate below without being modelled at all.
++func productionFunctionKey(function *ast.FuncDecl) string {
++	if function.Recv == nil {
++		return function.Name.Name
++	}
++	return receiverTypeName(function.Recv) + "." + function.Name.Name
++}
++
++func receiverTypeName(receiver *ast.FieldList) string {
++	if receiver == nil || len(receiver.List) == 0 {
++		return "?"
++	}
++	expression := receiver.List[0].Type
++	for {
++		switch typed := expression.(type) {
++		case *ast.StarExpr:
++			expression = typed.X
++		case *ast.ParenExpr:
++			expression = typed.X
++		case *ast.IndexExpr:
++			expression = typed.X
++		case *ast.IndexListExpr:
++			expression = typed.X
++		case *ast.Ident:
++			return typed.Name
++		default:
++			return "?"
++		}
++	}
++}
++
++// utf8GuardedFunctions derives, rather than names, the production functions
++// that re-check UTF-8. Deriving them means a new re-check is covered by this
++// pin the moment it is written, and methods are derived alongside plain
++// functions so a re-check moved onto a method stays covered.
++func utf8GuardedFunctions(t *testing.T) map[string]bool {
++	t.Helper()
++
++	_, files := parsedProductionPackage(t)
++	guarded := make(map[string]bool)
++	for _, file := range files {
++		for _, declaration := range file.Decls {
++			function, ok := declaration.(*ast.FuncDecl)
++			if !ok || function.Body == nil {
++				continue
++			}
++			ast.Inspect(function.Body, func(node ast.Node) bool {
++				if !isUTF8ValidStringCall(node) {
++					return true
++				}
++				guarded[productionFunctionKey(function)] = true
++				return true
++			})
++		}
++	}
++	return guarded
++}
++
++func isUTF8ValidStringCall(node ast.Node) bool {
++	call, ok := node.(*ast.CallExpr)
++	if !ok {
++		return false
++	}
++	selector, ok := call.Fun.(*ast.SelectorExpr)
++	if !ok || selector.Sel.Name != "ValidString" {
++		return false
++	}
++	packageName, ok := selector.X.(*ast.Ident)
++	return ok && packageName.Name == "utf8"
++}
++
++// productionCallGraph maps each production function and method to the ones it
++// can call, under the model documented at the top of this file.
++func productionCallGraph(t *testing.T) (map[string]*ast.FuncDecl, map[string]map[string]bool) {
++	t.Helper()
++
++	_, files := parsedProductionPackage(t)
++
++	declarations := make(map[string]*ast.FuncDecl)
++	keysByName := make(map[string][]string)
++	declaredTypes := make(map[string]bool)
++	importNames := make(map[string]bool)
++	declarationNameIdentifiers := make(map[*ast.Ident]bool)
++	for _, file := range files {
++		for _, specification := range file.Imports {
++			importNames[importLocalName(specification)] = true
++		}
++		for _, declaration := range file.Decls {
++			switch typed := declaration.(type) {
++			case *ast.FuncDecl:
++				if typed.Body == nil {
++					continue
++				}
++				key := productionFunctionKey(typed)
++				declarations[key] = typed
++				keysByName[typed.Name.Name] = append(keysByName[typed.Name.Name], key)
++				declarationNameIdentifiers[typed.Name] = true
++			case *ast.GenDecl:
++				for _, specification := range typed.Specs {
++					if typeSpecification, ok := specification.(*ast.TypeSpec); ok {
++						declaredTypes[typeSpecification.Name.Name] = true
++					}
++				}
++			}
++		}
++	}
++
++	staticCalleeIdentifiers := make(map[*ast.Ident]bool)
++	for _, file := range files {
++		ast.Inspect(file, func(node ast.Node) bool {
++			call, ok := node.(*ast.CallExpr)
++			if !ok {
++				return true
++			}
++			switch callee := unparenthesize(call.Fun).(type) {
++			case *ast.Ident:
++				staticCalleeIdentifiers[callee] = true
++			case *ast.SelectorExpr:
++				staticCalleeIdentifiers[callee.Sel] = true
++			}
++			return true
++		})
++	}
++
++	// A function whose identifier is used as a value - passed as an argument,
++	// stored in a table, returned - can be invoked through any function value.
++	// This is the edge the previous revision of this pin was missing, and the
++	// one this package's own dispatch table needs.
++	addressTaken := make(map[string]bool)
++	for _, file := range files {
++		ast.Inspect(file, func(node ast.Node) bool {
++			identifier, ok := node.(*ast.Ident)
++			if !ok || staticCalleeIdentifiers[identifier] || declarationNameIdentifiers[identifier] {
++				return true
++			}
++			for _, key := range keysByName[identifier.Name] {
++				addressTaken[key] = true
++			}
++			return true
++		})
++	}
++
++	edges := make(map[string]map[string]bool, len(declarations))
++	for key, function := range declarations {
++		called := make(map[string]bool)
++		ast.Inspect(function.Body, func(node ast.Node) bool {
++			call, ok := node.(*ast.CallExpr)
++			if !ok {
++				return true
++			}
++			static, indirect := resolveCallee(call, keysByName, declaredTypes, importNames)
++			for _, callee := range static {
++				called[callee] = true
++			}
++			if indirect {
++				for callee := range addressTaken {
++					called[callee] = true
++				}
++			}
++			return true
++		})
++		edges[key] = called
++	}
++	return declarations, edges
++}
++
++// resolveCallee classifies one call site. It returns the production
++// declarations the call reaches statically, and whether the call goes through a
++// function value, in which case the caller is treated as reaching every
++// address-taken function.
++func resolveCallee(
++	call *ast.CallExpr,
++	keysByName map[string][]string,
++	declaredTypes map[string]bool,
++	importNames map[string]bool,
++) ([]string, bool) {
++	switch callee := unparenthesize(call.Fun).(type) {
++	case *ast.Ident:
++		if keys, ok := keysByName[callee.Name]; ok {
++			return keys, false
++		}
++		if predeclaredCallees[callee.Name] || declaredTypes[callee.Name] {
++			return nil, false
++		}
++		// A local function-typed variable, parameter, or closure.
++		return nil, true
++	case *ast.SelectorExpr:
++		if packageName, ok := unparenthesize(callee.X).(*ast.Ident); ok && importNames[packageName.Name] {
++			return nil, false
++		}
++		var methods []string
++		for _, key := range keysByName[callee.Sel.Name] {
++			if strings.Contains(key, ".") {
++				methods = append(methods, key)
++			}
++		}
++		// An external method, or a func-typed field. The second is the
++		// construction this graph does not model; see the note above.
++		return methods, false
++	case *ast.FuncLit:
++		// Immediately invoked; its body is walked as part of the enclosing
++		// declaration already.
++		return nil, false
++	case *ast.ArrayType, *ast.MapType, *ast.ChanType, *ast.StructType, *ast.InterfaceType, *ast.StarExpr:
++		// A conversion to a composite or pointer type.
++		return nil, false
++	default:
++		// A computed callee: a table lookup, or the result of another call.
++		return nil, true
++	}
++}
++
++func unparenthesize(expression ast.Expr) ast.Expr {
++	for {
++		parenthesized, ok := expression.(*ast.ParenExpr)
++		if !ok {
++			return expression
++		}
++		expression = parenthesized.X
++	}
++}
++
++func importLocalName(specification *ast.ImportSpec) string {
++	if specification.Name != nil {
++		return specification.Name.Name
++	}
++	path := strings.Trim(specification.Path.Value, `"`)
++	if index := strings.LastIndex(path, "/"); index >= 0 {
++		return path[index+1:]
++	}
++	return path
++}
++
++func reachableProductionFunctions(edges map[string]map[string]bool, from string) map[string]bool {
++	reached := make(map[string]bool)
++	queue := []string{from}
++	for len(queue) > 0 {
++		current := queue[0]
++		queue = queue[1:]
++		for next := range edges[current] {
++			if reached[next] {
++				continue
++			}
++			reached[next] = true
++			queue = append(queue, next)
++		}
++	}
++	return reached
++}
++
++// exportedProductionEntryPoints derives the exported functions and methods of
++// the package, sorted, so the reachability walk below has a stable subject.
++func exportedProductionEntryPoints(declarations map[string]*ast.FuncDecl) []productionDeclaration {
++	var entryPoints []productionDeclaration
++	for key, declaration := range declarations {
++		if !ast.IsExported(declaration.Name.Name) {
++			continue
++		}
++		entryPoints = append(entryPoints, productionDeclaration{key: key, declaration: declaration})
++	}
++	sort.Slice(entryPoints, func(i, j int) bool { return entryPoints[i].key < entryPoints[j].key })
++	return entryPoints
++}
++
++// byteInputParameters reports whether every parameter of function is a byte
++// slice or a slice of byte slices. Such a function cannot be handed a decoded
++// Go string, map or slice by a caller; it has to decode its own input.
++//
++// A method never qualifies. Its receiver is an already-constructed Go value
++// that the caller supplies, so an exported method reaching a re-check breaks
++// the subsumption argument whatever its parameters look like.
++func byteInputParameters(function *ast.FuncDecl) bool {
++	if function.Recv != nil {
++		return false
++	}
++	if function.Type.Params == nil {
++		return true
++	}
++	for _, field := range function.Type.Params.List {
++		if !isByteSliceType(field.Type) && !isByteSliceSliceType(field.Type) {
++			return false
++		}
++	}
++	return true
++}
++
++func isByteSliceType(expression ast.Expr) bool {
++	array, ok := expression.(*ast.ArrayType)
++	if !ok || array.Len != nil {
++		return false
++	}
++	element, ok := array.Elt.(*ast.Ident)
++	return ok && element.Name == "byte"
++}
++
++func isByteSliceSliceType(expression ast.Expr) bool {
++	array, ok := expression.(*ast.ArrayType)
++	if !ok || array.Len != nil {
++		return false
++	}
++	return isByteSliceType(array.Elt)
++}
++
++// TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck is the first half
++// of the pin the subsumption comments in closed_shapes.go depend on.
++//
++// Every exported production function or method that can reach a
++// utf8.ValidString re-check must take its input as bytes, so a caller cannot
++// supply a Go string, map or slice that never passed through this package's
++// decoder. An exported entry point taking an already-decoded value into that
++// reachable set fails here, which is exactly the break the comments declare -
++// including one that reaches the re-checks through the package's own
++// immutableObjectShapeValidators dispatch table rather than by calling a
++// validator directly.
++//
++// TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage is the second
++// half: bytes only help if decodeStrict is what decodes them.
++func TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck(t *testing.T) {
++	t.Parallel()
++
++	guarded := utf8GuardedFunctions(t)
++	if len(guarded) == 0 {
++		t.Fatal("derived no utf8.ValidString re-check; the derivation, not the package, is wrong")
++	}
++	declarations, edges := productionCallGraph(t)
++	if _, ok := declarations["decodeStrict"]; !ok {
++		t.Fatal("decodeStrict is not a top-level production function; the subsumption argument names it")
++	}
++
++	entryPoints := exportedProductionEntryPoints(declarations)
++	if len(entryPoints) == 0 {
++		t.Fatal("derived no exported entry point")
++	}
++
++	guardedEntryPoints := 0
++	for _, entryPoint := range entryPoints {
++		reachedGuards := reachedGuardNames(edges, guarded, entryPoint.key)
++		if len(reachedGuards) == 0 {
++			continue
++		}
++		guardedEntryPoints++
++
++		if !byteInputParameters(entryPoint.declaration) {
++			t.Errorf(
++				"exported entry point %s reaches the utf8.ValidString re-checks in %v "+
++					"but does not take its input as bytes; the subsumption comments in "+
++					"closed_shapes.go claim no caller can supply an already-decoded value",
++				entryPoint.key, reachedGuards,
++			)
++		}
++	}
++	if guardedEntryPoints == 0 {
++		t.Fatal("no exported entry point reaches a utf8.ValidString re-check; the pin would assert nothing")
++	}
++}
++
++// TestEveryUTF8RecheckIsCoveredByTheEntryPointPin reports the pin's coverage as
++// a ratio instead of leaving it to prose. A guarded function that no exported
++// entry point reaches is asserted about vacuously: no entry point mutant can
++// redden for it, however thorough the surrounding derivation looks.
++//
++// The previous revision of this graph covered 3 of 7 and said nothing about it.
++func TestEveryUTF8RecheckIsCoveredByTheEntryPointPin(t *testing.T) {
++	t.Parallel()
++
++	guarded := utf8GuardedFunctions(t)
++	declarations, edges := productionCallGraph(t)
++	entryPoints := exportedProductionEntryPoints(declarations)
++
++	covered := make(map[string]bool)
++	for _, entryPoint := range entryPoints {
++		for _, name := range reachedGuardNames(edges, guarded, entryPoint.key) {
++			covered[name] = true
++		}
++	}
++
++	var uncovered []string
++	for name := range guarded {
++		if !covered[name] {
++			uncovered = append(uncovered, name)
++		}
++	}
++	sort.Strings(uncovered)
++	if len(uncovered) > 0 {
++		t.Errorf(
++			"utf8.ValidString re-check coverage is %d/%d; %v are reachable from no exported entry "+
++				"point, so TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck asserts nothing "+
++				"about them",
++			len(covered), len(guarded), uncovered,
++		)
++	}
++	t.Log(fmt.Sprintf("utf8.ValidString re-check coverage: %d/%d guarded functions", len(covered), len(guarded)))
++}
++
++// reachedGuardNames returns the sorted guarded functions reachable from one
++// production declaration.
++func reachedGuardNames(edges map[string]map[string]bool, guarded map[string]bool, from string) []string {
++	var names []string
++	for candidate := range reachableProductionFunctions(edges, from) {
++		if guarded[candidate] {
++			names = append(names, candidate)
++		}
++	}
++	sort.Strings(names)
++	return names
++}
++
++// TestEveryUTF8RecheckDeclaresItsSubsumption requires each utf8.ValidString
++// re-check in closed_shapes.go to carry a comment naming decodeStrict, so a new
++// re-check added without the reachability argument is reported rather than
++// silently joining the survivors that this Story exists to remove.
++func TestEveryUTF8RecheckDeclaresItsSubsumption(t *testing.T) {
++	t.Parallel()
++
++	directory, _ := packageProductionFiles(t)
++	path := filepath.Join(directory, "closed_shapes.go")
++	contents, err := os.ReadFile(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	lines := strings.Split(string(contents), "\n")
++
++	fileSet := token.NewFileSet()
++	parsed, err := parser.ParseFile(fileSet, path, contents, parser.ParseComments)
++	if err != nil {
++		t.Fatal(err)
++	}
++
++	found := 0
++	ast.Inspect(parsed, func(node ast.Node) bool {
++		call, ok := node.(*ast.CallExpr)
++		if !ok {
++			return true
++		}
++		selector, ok := call.Fun.(*ast.SelectorExpr)
++		if !ok || selector.Sel.Name != "ValidString" {
++			return true
++		}
++		packageName, ok := selector.X.(*ast.Ident)
++		if !ok || packageName.Name != "utf8" {
++			return true
++		}
++		found++
++		line := fileSet.Position(call.Pos()).Line
++		if !precedingCommentNamesDecodeStrict(lines, line) {
++			t.Errorf(
++				"closed_shapes.go:%d re-checks UTF-8 with no preceding comment naming decodeStrict "+
++					"as the validator that subsumes it",
++				line,
++			)
++		}
++		return true
++	})
++	if found == 0 {
++		t.Fatal("derived no utf8.ValidString re-check in closed_shapes.go; the derivation, not the package, is wrong")
++	}
++}
++
++// precedingCommentNamesDecodeStrict reports whether the contiguous comment
++// block immediately above the one-indexed line names decodeStrict.
++func precedingCommentNamesDecodeStrict(lines []string, line int) bool {
++	named := false
++	for index := line - 2; index >= 0; index-- {
++		text := strings.TrimSpace(lines[index])
++		if !strings.HasPrefix(text, "//") {
++			break
++		}
++		if strings.Contains(text, "decodeStrict") {
++			named = true
++		}
++	}
++	return named
++}
++
++// TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage completes the
++// subsumption argument. Byte-only entry points prove nothing on their own; they
++// prove the UTF-8 re-checks unreachable only because decodeStrict, which
++// refuses input that is not valid UTF-8, is the single place in the production
++// package where bytes become Go values.
++//
++// A second decoder anywhere in the package would decode bytes this package
++// never UTF-8-validated, and every subsumption comment in closed_shapes.go
++// would become false. That addition reddens here.
++func TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage(t *testing.T) {
++	t.Parallel()
++
++	fileSet, files := parsedProductionPackage(t)
++	entryDecoders := map[string]bool{"NewDecoder": true, "Unmarshal": true}
++
++	found := 0
++	for _, file := range files {
++		for _, declaration := range file.Decls {
++			function, ok := declaration.(*ast.FuncDecl)
++			if !ok || function.Body == nil {
++				continue
++			}
++			ast.Inspect(function.Body, func(node ast.Node) bool {
++				call, ok := node.(*ast.CallExpr)
++				if !ok {
++					return true
++				}
++				selector, ok := call.Fun.(*ast.SelectorExpr)
++				if !ok || !entryDecoders[selector.Sel.Name] {
++					return true
++				}
++				packageName, ok := selector.X.(*ast.Ident)
++				if !ok || packageName.Name != "json" {
++					return true
++				}
++				found++
++				if function.Name.Name != "decodeStrict" {
++					t.Errorf(
++						"%s:%d decodes JSON with json.%s inside %s; decodeStrict must be the only "+
++							"place bytes become Go values, or the UTF-8 subsumption comments in "+
++							"closed_shapes.go stop holding",
++						filepath.Base(fileSet.Position(call.Pos()).Filename),
++						fileSet.Position(call.Pos()).Line,
++						selector.Sel.Name,
++						function.Name.Name,
++					)
++				}
++				return true
++			})
++		}
++	}
++	if found == 0 {
++		t.Fatal("derived no JSON decode in the production package; the derivation, not the package, is wrong")
++	}
++}

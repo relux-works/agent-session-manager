@@ -1,0 +1,226 @@
+
+=================================================================
+BASELINE (unmutated tree) - go test ./internal/canonicaljson -run 'TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck|TestEveryUTF8RecheckIsCoveredByTheEntryPointPin|TestEveryUTF8RecheckDeclaresItsSubsumption|TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage' -v -count=1
+=================================================================
+=== RUN   TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== PAUSE TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== RUN   TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+=== PAUSE TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+=== RUN   TestEveryUTF8RecheckDeclaresItsSubsumption
+=== PAUSE TestEveryUTF8RecheckDeclaresItsSubsumption
+=== RUN   TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage
+=== PAUSE TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage
+=== CONT  TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== CONT  TestEveryUTF8RecheckDeclaresItsSubsumption
+=== CONT  TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+=== CONT  TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage
+--- PASS: TestEveryUTF8RecheckDeclaresItsSubsumption (0.00s)
+--- PASS: TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage (0.00s)
+--- PASS: TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck (0.01s)
+=== NAME  TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+    utf8_subsumption_test.go:465: utf8.ValidString re-check coverage: 7/7 guarded functions
+--- PASS: TestEveryUTF8RecheckIsCoveredByTheEntryPointPin (0.01s)
+PASS
+ok  	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.408s
+REAL EXIT CODE: 0
+
+=================================================================
+MUTANT H - exported map-taking entry point reaching guards ONLY through immutableObjectShapeValidators
+=================================================================
+--- mutant present in file (cat internal/canonicaljson/zz_mutant_h.go): ---
+package canonicaljson
+
+func ValidateDecodedRecord(record map[string]any) error {
+	return validateImmutableObjectShape(record)
+}
+=== RUN   TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== PAUSE TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== CONT  TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+    utf8_subsumption_test.go:417: exported entry point ValidateDecodedRecord reaches the utf8.ValidString re-checks in [nullableString requireUTF8String validateExtensionValue validateProviderIdentityRecord validateSessionBoardIdentity validateSessionLaunchPlan validateSortedUniqueStrings] but does not take its input as bytes; the subsumption comments in closed_shapes.go claim no caller can supply an already-decoded value
+--- FAIL: TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck (0.02s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.431s
+FAIL
+REAL EXIT CODE: 1
+
+=================================================================
+MUTANT I - the same body as an exported METHOD
+=================================================================
+--- mutant present in file: ---
+package canonicaljson
+
+type DecodedRecordValidator struct{}
+
+func (DecodedRecordValidator) Validate(record map[string]any) error {
+	return validateImmutableObjectShape(record)
+}
+=== RUN   TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== PAUSE TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== CONT  TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+    utf8_subsumption_test.go:417: exported entry point DecodedRecordValidator.Validate reaches the utf8.ValidString re-checks in [nullableString requireUTF8String validateExtensionValue validateProviderIdentityRecord validateSessionBoardIdentity validateSessionLaunchPlan validateSortedUniqueStrings] but does not take its input as bytes; the subsumption comments in closed_shapes.go claim no caller can supply an already-decoded value
+--- FAIL: TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck (0.01s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.386s
+FAIL
+REAL EXIT CODE: 1
+
+=================================================================
+MUTANT I2 - exported method whose PARAMETER is bytes; decoded state arrives on the receiver
+=================================================================
+--- mutant present in file: ---
+package canonicaljson
+
+type DecodedRecordHolder struct{ record map[string]any }
+
+func (h DecodedRecordHolder) Validate(_ []byte) error {
+	return validateImmutableObjectShape(h.record)
+}
+=== RUN   TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== PAUSE TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== CONT  TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+    utf8_subsumption_test.go:417: exported entry point DecodedRecordHolder.Validate reaches the utf8.ValidString re-checks in [nullableString requireUTF8String validateExtensionValue validateProviderIdentityRecord validateSessionBoardIdentity validateSessionLaunchPlan validateSortedUniqueStrings] but does not take its input as bytes; the subsumption comments in closed_shapes.go claim no caller can supply an already-decoded value
+--- FAIL: TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck (0.00s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.372s
+FAIL
+REAL EXIT CODE: 1
+
+=================================================================
+MUTANT D2 (regression) - exported entry point calling a guard by direct identifier
+=================================================================
+--- mutant present in file: ---
+package canonicaljson
+
+func ValidateExtensionsDirectly(value any) error {
+	return validateExtensionValue(value, 0)
+}
+=== RUN   TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== PAUSE TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== CONT  TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+    utf8_subsumption_test.go:417: exported entry point ValidateExtensionsDirectly reaches the utf8.ValidString re-checks in [validateExtensionValue] but does not take its input as bytes; the subsumption comments in closed_shapes.go claim no caller can supply an already-decoded value
+--- FAIL: TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck (0.01s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.261s
+FAIL
+REAL EXIT CODE: 1
+
+=================================================================
+MUTANT G2 (regression) - a second JSON decoder in the production package
+=================================================================
+--- mutant present in file: ---
+package canonicaljson
+
+import "encoding/json"
+
+func ParseRecordBytes(input []byte) (map[string]any, error) {
+	var record map[string]any
+	if err := json.Unmarshal(input, &record); err != nil {
+		return nil, err
+	}
+	return record, validateImmutableObjectShape(record)
+}
+=== RUN   TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage
+=== PAUSE TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage
+=== CONT  TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage
+    utf8_subsumption_test.go:585: zz_mutant_g2.go:7 decodes JSON with json.Unmarshal inside ParseRecordBytes; decodeStrict must be the only place bytes become Go values, or the UTF-8 subsumption comments in closed_shapes.go stop holding
+--- FAIL: TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage (0.01s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.274s
+FAIL
+REAL EXIT CODE: 1
+
+=================================================================
+MUTANT E3 (regression) - one subsumption comment deleted
+=================================================================
+--- mutant present: occurrences of the deleted comment = 0 (expect 0) ---
+=== RUN   TestEveryUTF8RecheckDeclaresItsSubsumption
+=== PAUSE TestEveryUTF8RecheckDeclaresItsSubsumption
+=== CONT  TestEveryUTF8RecheckDeclaresItsSubsumption
+    utf8_subsumption_test.go:519: closed_shapes.go:472 re-checks UTF-8 with no preceding comment naming decodeStrict as the validator that subsumes it
+--- FAIL: TestEveryUTF8RecheckDeclaresItsSubsumption (0.00s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.350s
+FAIL
+REAL EXIT CODE: 1
+
+=================================================================
+MUTANT F3 (regression, narrowing) - comment kept but names requireExactMembers instead of decodeStrict
+=================================================================
+--- mutant present: occurrences of 'subsumed by requireExactMembers' = 1 (expect 1) ---
+=== RUN   TestEveryUTF8RecheckDeclaresItsSubsumption
+=== PAUSE TestEveryUTF8RecheckDeclaresItsSubsumption
+=== CONT  TestEveryUTF8RecheckDeclaresItsSubsumption
+    utf8_subsumption_test.go:519: closed_shapes.go:474 re-checks UTF-8 with no preceding comment naming decodeStrict as the validator that subsumes it
+--- FAIL: TestEveryUTF8RecheckDeclaresItsSubsumption (0.00s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.294s
+FAIL
+REAL EXIT CODE: 1
+
+=================================================================
+MUTANT K (narrowing on the graph) - ONLY the function-value edge removed, clean tree
+=================================================================
+--- mutant present: 258:		// MUTANT K: the function-value edge removed. (expect 1 line) ---
+=== RUN   TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== PAUSE TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== RUN   TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+=== PAUSE TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+=== CONT  TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== CONT  TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+--- PASS: TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck (0.01s)
+=== NAME  TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+    utf8_subsumption_test.go:465: utf8.ValidString re-check coverage: 7/7 guarded functions
+--- PASS: TestEveryUTF8RecheckIsCoveredByTheEntryPointPin (0.01s)
+PASS
+ok  	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.412s
+REAL EXIT CODE: 0 (clean tree stays green under K)
+
+=================================================================
+MUTANT K + MUTANT H - H SURVIVES without the function-value edge; this is what makes that edge the decisive addition
+=================================================================
+--- K present: 1; H present: 1 (expect 1 and 1) ---
+=== RUN   TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== PAUSE TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+=== CONT  TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+--- PASS: TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck (0.01s)
+PASS
+ok  	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.395s
+REAL EXIT CODE: 0 (0 = mutant H survived, as reported by review round 1)
+
+=================================================================
+MUTANT K2 - K plus the computed-callee edge removed; reproduces the review's 3/7 measurement
+=================================================================
+--- K present: 1; K2 present: 1 (expect 1 and 1) ---
+=== RUN   TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+=== PAUSE TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+=== CONT  TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+    utf8_subsumption_test.go:458: utf8.ValidString re-check coverage is 3/7; [validateProviderIdentityRecord validateSessionBoardIdentity validateSessionLaunchPlan validateSortedUniqueStrings] are reachable from no exported entry point, so TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck asserts nothing about them
+    utf8_subsumption_test.go:465: utf8.ValidString re-check coverage: 3/7 guarded functions
+--- FAIL: TestEveryUTF8RecheckIsCoveredByTheEntryPointPin (0.01s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.394s
+FAIL
+REAL EXIT CODE: 1
+
+=================================================================
+MUTANT C2 (part 1 regression) - last hex digit of the NUM-U64-MAX expected value; the quoted SPEC.md:304 line is left intact
+=================================================================
+--- mutant present, want line:  		want := "sha256:b0ec84c6bb6a7c030549f17dd482975d09c40ff9e5f83d4438ebeac12d3b6332" ---
+--- SPEC quotation untouched:   	//   SHA-256 <code>b0ec84c6bb6a7c030549f17dd482975d09c40ff9e5f83d4438ebeac12d3b6331</code> | ---
+=== RUN   TestCalculateObjectIdentityMatchesAXPublishedFixtures
+=== RUN   TestCalculateObjectIdentityMatchesAXPublishedFixtures/safe_integer_maximum
+=== RUN   TestCalculateObjectIdentityMatchesAXPublishedFixtures/decimal_uint64_first_unsafe_integer
+=== RUN   TestCalculateObjectIdentityMatchesAXPublishedFixtures/decimal_uint64_maximum
+    canonical_test.go:538: Canonicalize/SHA256(NUM-U64-MAX) = "sha256:b0ec84c6bb6a7c030549f17dd482975d09c40ff9e5f83d4438ebeac12d3b6331", <nil>; want "sha256:b0ec84c6bb6a7c030549f17dd482975d09c40ff9e5f83d4438ebeac12d3b6332"
+=== RUN   TestCalculateObjectIdentityMatchesAXPublishedFixtures/UTF-16_order
+=== RUN   TestCalculateObjectIdentityMatchesAXPublishedFixtures/Blob_Descriptor
+--- FAIL: TestCalculateObjectIdentityMatchesAXPublishedFixtures (0.00s)
+    --- PASS: TestCalculateObjectIdentityMatchesAXPublishedFixtures/safe_integer_maximum (0.00s)
+    --- PASS: TestCalculateObjectIdentityMatchesAXPublishedFixtures/decimal_uint64_first_unsafe_integer (0.00s)
+    --- FAIL: TestCalculateObjectIdentityMatchesAXPublishedFixtures/decimal_uint64_maximum (0.00s)
+    --- PASS: TestCalculateObjectIdentityMatchesAXPublishedFixtures/UTF-16_order (0.00s)
+    --- PASS: TestCalculateObjectIdentityMatchesAXPublishedFixtures/Blob_Descriptor (0.00s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.251s
+FAIL
+REAL EXIT CODE: 1

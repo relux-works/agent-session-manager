@@ -1,0 +1,146 @@
+Review round 2 — reviewer mutant sweep
+Tree under test: commit 8a0dcedf7d1d4a932eae335df2772effe3923cee, tree 6b1134ed361b7617fda0f6a48cbc9ab3aba0458a
+Every mutant was confirmed PRESENT in the file (grep -c) before the measurement, and the tree was
+verified restored (git status --short empty) after each one.
+
+Target pins:
+  P1 = TestNoExportedEntryPointHandsADecodedValueToAUTF8Recheck
+  P2 = TestEveryUTF8RecheckIsCoveredByTheEntryPointPin
+  P3 = TestEveryUTF8RecheckDeclaresItsSubsumption
+  P4 = TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage
+  D  = TestCalculateObjectIdentityMatchesAXPublishedFixtures
+
+BASELINE (clean tree)
+  P1 PASS  P2 PASS (utf8_subsumption_test.go:465: coverage 7/7 guarded functions)  P3 PASS  P4 PASS  D PASS (5/5 subtests)
+
+================ PART 1 ================
+
+--- Mutant A : Canonicalize emits one extra byte -----------------------------
+internal/canonicaljson/canonical.go, after jcs.Transform:
+    canonical = append(canonical, ' ') // REVIEW MUTANT A: one extra output byte
+RESULT: RED
+    --- FAIL: D/safe_integer_maximum
+    --- FAIL: D/decimal_uint64_first_unsafe_integer      <- new assertion
+    --- FAIL: D/decimal_uint64_maximum                   <- new assertion
+    --- FAIL: D/UTF-16_order
+    --- PASS: D/Blob_Descriptor
+Both new digest assertions redden on one byte of encoder drift.
+
+--- Mutant C2 : one byte of the NUM-U64-MAX fixture --------------------------
+canonical_test.go: {"n":"18446744073709551615"} -> {"n":"18446744073709551614"}
+RESULT: RED, and ONLY the one subtest
+    --- FAIL: D/decimal_uint64_maximum
+The sibling assertion stays green: the two are individually decisive, not carried by each other.
+
+PROVENANCE (independent, not taken from the producer report)
+  git -C <spec-repo> cat-file -p 28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c:SPEC.md | shasum -a 256
+    562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a   == internal/specpin.DocumentSHA256
+  sed -n '303,304p' of that document:
+    | <code>NUM-U64-STRING</code> | <code>{"n":"9007199254740992"}</code> | ... SHA-256 <code>bb80eb37329e0a7e980fe3638c9722c44ac3184f7488f20c28cf67ae0b5f4f96</code> |
+    | <code>NUM-U64-MAX</code> | <code>{"n":"18446744073709551615"}</code> | ... SHA-256 <code>b0ec84c6bb6a7c030549f17dd482975d09c40ff9e5f83d4438ebeac12d3b6331</code> |
+  printf '%s' '{"n":"9007199254740992"}'      | shasum -a 256 -> bb80eb37329e0a7e980fe3638c9722c44ac3184f7488f20c28cf67ae0b5f4f96
+  printf '%s' '{"n":"18446744073709551615"}'  | shasum -a 256 -> b0ec84c6bb6a7c030549f17dd482975d09c40ff9e5f83d4438ebeac12d3b6331
+Both match the pinned lines and both match the test literals.
+
+================ PART 2 — round-1 findings re-measured ================
+
+--- Mutant H : exported map entry point through the dispatch table -----------
+    func ValidateDecodedRecord(object map[string]any) error {
+        return validateImmutableObjectShape(object)
+    }
+ROUND 1: SURVIVED.  NOW: RED
+    utf8_subsumption_test.go:417: exported entry point ValidateDecodedRecord reaches the
+    utf8.ValidString re-checks in [nullableString requireUTF8String validateExtensionValue
+    validateProviderIdentityRecord validateSessionBoardIdentity validateSessionLaunchPlan
+    validateSortedUniqueStrings] but does not take its input as bytes; ...
+All 7 guards named. Round-1 blocker fixed.
+
+--- Mutant I : exported METHOD taking a decoded map --------------------------
+    type DecodedRecordValidator struct{}
+    func (DecodedRecordValidator) ValidateRecord(object map[string]any) error { ... }
+ROUND 1: SURVIVED.  NOW: RED  (entry point DecodedRecordValidator.ValidateRecord, 7 guards named)
+
+--- Mutant I2 : exported method, []byte param, decoded RECEIVER --------------
+    type RecordChecker struct{ Decoded map[string]any }
+    func (c RecordChecker) Check(_ []byte) error { return validateImmutableObjectShape(c.Decoded) }
+RESULT: RED  (entry point RecordChecker.Check, 7 guards named)
+
+--- Mutant E3 : one subsumption comment deleted ------------------------------
+Removed the two comment lines above the validateSessionBoardIdentity remote_url guard.
+RESULT: RED
+    utf8_subsumption_test.go:519: closed_shapes.go:472 re-checks UTF-8 with no preceding comment
+    naming decodeStrict as the validator that subsumes it
+
+--- Mutant F3 (narrowing) : comment kept, names a different validator --------
+"subsumed by decodeStrict" -> "subsumed by requireExactMembers"
+RESULT: RED  (closed_shapes.go:474)  — the pin checks the named validator, not merely comment presence.
+
+--- Mutant O : func-typed STRUCT FIELD (disclosed as unmodelled) -------------
+    type shapeTable struct{ validate func(map[string]any) error }
+    var reviewShapeTable = shapeTable{validate: validateImmutableObjectShape}
+    func ValidateViaField(object map[string]any) error { return reviewShapeTable.validate(object) }
+RESULT: SURVIVES — as the change explicitly discloses. The stated bound is honest.
+
+================ PART 2 — NEW SURVIVORS (blocking) ================
+
+--- Mutant J : byte-taking entry point, no decode, guard goes LIVE ----------- FINDING 1
+    func ValidateSortedNames(raw [][]byte) error {
+        values := make([]any, 0, len(raw))
+        for _, item := range raw {
+            values = append(values, string(item))   // bytes -> Go value, no decodeStrict
+        }
+        return validateSortedUniqueStrings(values, "names")
+    }
+RESULT: SURVIVES EVERYTHING
+    P1 PASS   P2 PASS (still reports 7/7)   P3 PASS   P4 PASS
+    go test ./internal/canonicaljson/ -count=1  ->  ok  18.491s
+Probe driven through the exported entry point proves the "subsumed" guard is the term that refuses:
+    ValidateSortedNames([][]byte{{0xff, 0xfe}})
+    -> invalid canonical object identity: member names[0] must be a UTF-8 string
+byteInputParameters checks parameter SHAPE, not that the bytes reach decodeStrict, and a
+[]byte -> string conversion is not a JSON decode, so neither half of the pin sees it.
+Not one of the three disclosed unmodelled constructions.
+
+--- Mutant L : second decoder, aliased import (first attempt) ----------------
+    import stdjson "encoding/json"
+    func decodeLoose(input []byte) (any, error) { var v any; err := stdjson.Unmarshal(input, &v); return v, err }
+RESULT: full suite FAILS — but via TestEveryProductionRefusalGuardIsExecuted, an unrelated
+pre-existing gate firing on the uncovered refusal return. P4 itself did not fire. Rerun as L2.
+
+--- Mutant L2 : same, shaped so no unrelated gate fires --------------------- FINDING 2
+    import stdjson "encoding/json"
+    var looseDecodeSink any
+    func decodeLoose(input []byte) any {
+        var value any
+        if stdjson.Unmarshal(input, &value) != nil { return looseDecodeSink }
+        return value
+    }
+RESULT: SURVIVES EVERYTHING
+    P4 PASS  ("--- PASS: TestDecodeStrictIsTheOnlyJSONDecodeInTheProductionPackage")
+    go test ./internal/canonicaljson/ -count=1  ->  ok  17.785s
+P4 matches selector.X only when the identifier is literally "json"; it resolves no import path.
+Same hole admits any decoder from a different package (encoding/json/v2, third-party).
+README claim "Adding a second decoder reddens the pin" does not reproduce.
+
+--- Mutant M : new undocumented re-check written as utf8.Valid -------------- FINDING 3
+Added to closed_shapes.go:
+    func reviewMutantCheck(text string) error {
+        if !utf8.Valid([]byte(text)) { return invalidIdentity("mutant re-check") }
+        return nil
+    }
+RESULT: SURVIVES — P1 PASS  P2 PASS  P3 PASS
+utf8GuardedFunctions and P3 key on ValidString with the package identifier spelled "utf8".
+utf8.Valid is an idiom already used in this package (decodeStrict, canonical.go:328), so a
+re-check written that way silently joins the undocumented survivors. Contradicts the comment at
+utf8_subsumption_test.go:106 ("a new re-check is covered by this pin the moment it is written").
+
+================ CLEAN-TREE VALIDATION ================
+git rev-parse HEAD^{tree} = 6b1134ed361b7617fda0f6a48cbc9ab3aba0458a   (identical to candidate)
+git status --short          = empty
+gofmt -l internal/          = clean
+go build ./...              = 0
+go vet ./...                = 0
+go test ./... -count=1      = all 10 packages ok
+  canonicaljson 19.696s | catalog 1.063s | catalog/cmd/cataloggen 1.489s | cataloggen 0.424s
+  config 3.075s | localstore 13.670s | scalar 2.334s | specpin 2.704s | traceability 3.564s
+  traceability/cmd/tracecheck 22.862s
