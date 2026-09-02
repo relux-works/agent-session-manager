@@ -1,0 +1,490 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 84c2337..d4365b3 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,18 @@
+ 
+ ## 2026-09-02
+ 
++### 2322 — One regex, two schemas, two opposite right answers
++
++- ROOT CAUSE: `semverPattern` in `internal/canonicaljson/closed_shapes.go` was applied to `EnvironmentTuple.adapter_version`, a member the pinned SPEC v0.5.0 declares with NO type and NO format. The SemVer word reaches it only through the Session Adapter Manifest row at `SPEC.md:3610`, which closes a different object, and the Probe sentence at `:3625` that equates "adapter version" to the verified Manifest — which names the Probe's own top-level member, not the nested tuple member. Cross-schema inference by field-name similarity, which §1.6 forbids. `1.2.3-rc.1` was refused with nothing in the contract rejecting it.
++- FINDING: the same compiled regex was ALSO used at `validateMigrationExtensionObject` and `validateTerminalV4Payload`, where §17.3 and §1871-1872 DO declare `semver`. So the fix is not one answer applied twice; it is one rule producing opposite answers. The constraint applies exactly where the document declares it — nowhere at the tuple, everywhere it says `semver`.
++- FINDING: at the sites where it IS declared, the pattern was wrong in the other direction. `^(0|[1-9][0-9]*)\.(...)\.(...)$` is not Semantic Versioning 2.0.0; it omits prerelease and build metadata entirely. The document names Semantic Version and spells out no grammar, so the only defensible reading is the whole standard. `internal/config/validation.go:21` already carried the full SemVer 2.0.0 spelling — the repo was internally inconsistent about its own type name.
++- DECISION: constraint REMOVED at the tuple (presence-only, matching its untyped `environment_version` and `store_schema_fingerprint` siblings in the same clause); constraint KEPT and WIDENED to SemVer 2.0.0 in full everywhere the document types a member `semver`. Both halves written into `internal/canonicaljson/testdata/constraint-enumeration.md` as an explicit decision section with the §17.3 authorising line quoted verbatim, not left implied by the code.
++- FINDING: widening the pattern cost 22 grammar-inventory dimensions (2 anchors, 18 character classes, 2 one-or-more quantifiers), each needing a witness that production refuses and that exactly its own one-dimension widening admits. Derived mechanically with a throwaway reimplementation of `deriveGrammarSites` rather than guessed. That inventory is the reason this was affordable at all: it forced every new class to be proven instead of shipping unpinned.
++- EVIDENCE: 4 mutants, all killed. A2 is the exact reported bug — re-adding the original core-triple gate reddens the `1.2.3-rc.1` case at `session_record_versions_test.go:1038`. B (narrow the pattern back) reddens 5 accept cases; C (delete the migration gate) reddens 8 refuse cases, so widening is provably not the same as deleting. D (drop the member from `requireExactMembers`) reddens the absence case.
++- ANOMALY: mutant D was GREEN on the first attempt. The absence case deleted `adapter_version` from `source_environment` only, and the surviving member in the sibling `target_environment` produced an unrelated extra-member refusal — the test passed for the wrong reason. Fixed by deleting from BOTH tuples and attributing the refusal by name. A refusal that fires is not evidence that YOUR clause fired.
++- SCOPE: `internal/canonicaljson/closed_shapes.go` (production), `grammar_inventory_test.go`, `member_shape_refusal_test.go`, `session_record_versions_test.go`, `testdata/constraint-enumeration.md`, `README.md`.
++- STATUS: `internal/canonicaljson` 97.2% before and after, verified against a `git archive HEAD` baseline. gofmt, `go build ./...`, both cross-compile targets, `go vet ./...`, `go test ./... -count=1`, `-cover -count=1`, `-race -count=1`, tracecheck, `cataloggen -check` and all five fuzz gates at 100x exit 0.
++
+ ### 2237 — A fault suite that only proves the call failed proves the cheap half
+ 
+ - FINDING (review round 2, blocking): seven fault boundaries were pinned at 2204, but only three carried a recovery half. Staged mode drift, both FIFO shard cases and BOTH quarantine-ENOSPC subtests asserted the failure state and stopped. Anything can fail; what a durability suite exists to establish is what a later run can still do. Both quarantine-ENOSPC cases are full-disk cases, so this was a direct miss against the front-loaded rule that full-disk and short-write cases must show the store is left recoverable.
+diff --git a/README.md b/README.md
+index 210ba4e..3fa67d4 100644
+--- a/README.md
++++ b/README.md
+@@ -367,11 +367,18 @@ Provenance objects. Major 2 replaces the v1 fork field with the required
+ `origin`, `same_provider_fork`, or `cross_environment_clone` derivation union;
+ major 3 keeps that exact top-level wire field and adds the `native_adoption`
+ creation tag. Each Environment Tuple is independently validated as a closed
+-object with the declared environment-ID grammar, platform and architecture
+-vocabularies, plus the Probe-to-Manifest SemVer link for `adapter_version`.
+-The pinned tuple declaration assigns no type or bound to `environment_version`
+-or `store_schema_fingerprint`, so identity validation requires their presence
+-without inferring a constraint from another schema or a member name. The Session
++object with the declared environment-ID grammar plus the platform and
++architecture vocabularies. The pinned tuple declaration assigns no type or
++bound to `environment_version`, `store_schema_fingerprint`, or
++`adapter_version`, so identity validation requires their presence without
++inferring a constraint from another schema or a member name; in particular the
++SemVer word on `adapter_version` belongs to the Session Adapter Manifest row of
++a different schema and is not carried across. Where the document does type a
++member `semver` — Section 17.3 migration provenance and the `terminal.*` Session
++Event versions — the constraint is Semantic Versioning 2.0.0 in full, so
++prerelease and build metadata are accepted. Both halves of that decision are
++recorded in
++[`internal/canonicaljson/testdata/constraint-enumeration.md`](internal/canonicaljson/testdata/constraint-enumeration.md). The Session
+ Record contract does not require its source and target `environment_id` values
+ to differ. AX-source nullability, source Session ID
+ separation, and immutable target-provider equality are enforced before identity
+diff --git a/internal/canonicaljson/closed_shapes.go b/internal/canonicaljson/closed_shapes.go
+index 75836b7..07241e1 100644
+--- a/internal/canonicaljson/closed_shapes.go
++++ b/internal/canonicaljson/closed_shapes.go
+@@ -25,8 +25,13 @@ const (
+ )
+ 
+ var (
+-	mediaTypePattern       = regexp.MustCompile("^[a-z0-9!#$&^_.+%'*`|~-]+/[a-z0-9!#$&^_.+%'*`|~-]+$")
+-	semverPattern          = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
++	mediaTypePattern = regexp.MustCompile("^[a-z0-9!#$&^_.+%'*`|~-]+/[a-z0-9!#$&^_.+%'*`|~-]+$")
++	// SemVer 2.0.0 in full. The pinned document types members `semver` without
++	// spelling out a grammar, so the only defensible reading is the named
++	// standard, which admits prerelease and build metadata. A core-triple-only
++	// pattern would refuse `1.2.3-rc.1`, a version the standard declares valid
++	// and the document never excludes.
++	semverPattern          = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
+ 	reverseDNSPattern      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(\.[a-z][a-z0-9-]{0,62})+$`)
+ 	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+ 	environmentIDPattern   = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
+@@ -728,12 +733,18 @@ func validateEnvironmentTuple(object map[string]any) error {
+ 	if !environmentIDPattern.MatchString(environmentID) {
+ 		return invalidIdentity("EnvironmentTuple environment_id must match [a-z][a-z0-9.-]{0,63}")
+ 	}
+-	// The pinned EnvironmentTuple declaration requires these two members but
+-	// assigns neither a JSON type nor a local format. In particular, the
++	// The pinned EnvironmentTuple declaration requires environment_version,
++	// store_schema_fingerprint, and adapter_version but assigns none of the
++	// three a JSON type or a local format, while their platform and
++	// architecture siblings carry explicit vocabularies. In particular, the
+ 	// string[1..128] environment_version bound belongs to Environment
+-	// Observation, and store_schema_fingerprint is not declared as a digest.
+-	// Exact-member validation above proves presence without inferring either
+-	// constraint from a different schema or from the member name.
++	// Observation, store_schema_fingerprint is not declared as a digest, and
++	// the SemVer word on adapter_version belongs to the Session Adapter
++	// Manifest row of a different schema - the Probe sentence that equates an
++	// adapter version to the verified Manifest names the Probe's own top-level
++	// member, not this nested tuple member. Exact-member validation above
++	// proves presence without inferring any of those constraints from another
++	// schema or from a member name.
+ 	platform, err := requireString(object, "platform")
+ 	if err != nil {
+ 		return err
+@@ -744,13 +755,6 @@ func validateEnvironmentTuple(object map[string]any) error {
+ 	if _, err := requireEnum(object, "architecture", "amd64", "arm64"); err != nil {
+ 		return err
+ 	}
+-	adapterVersion, err := requireString(object, "adapter_version")
+-	if err != nil {
+-		return err
+-	}
+-	if !semverPattern.MatchString(adapterVersion) {
+-		return invalidIdentity("EnvironmentTuple adapter_version must be canonical semver")
+-	}
+ 	return nil
+ }
+ 
+diff --git a/internal/canonicaljson/grammar_inventory_test.go b/internal/canonicaljson/grammar_inventory_test.go
+index 80c09b1..1dfde44 100644
+--- a/internal/canonicaljson/grammar_inventory_test.go
++++ b/internal/canonicaljson/grammar_inventory_test.go
+@@ -422,13 +422,17 @@ var declaredGrammars = map[string]declaredGrammar{
+ 		refusal: "phase must use lower_snake_case",
+ 	},
+ 	"semverPattern": {
+-		reference: `^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`,
++		reference: `^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`,
+ 		// The pinned document types these members `semver` and states that
+ 		// "Every independently consumed contract has an independent Semantic
+ 		// Version". It spells out no regular expression for one, so the
+-		// character classes below are the implementation's reading of Semantic
+-		// Versioning 2.0.0 and are recorded as such rather than cited.
+-		implementationDefined: "the pinned document types the member `semver` and names Semantic Version, but declares no grammar literal for it; the classes implement Semantic Versioning 2.0.0 core numbers",
++		// production below is the implementation's reading of Semantic
++		// Versioning 2.0.0 and is recorded as such rather than cited. The
++		// reading is deliberately the WHOLE standard: prerelease and build
++		// metadata are part of a valid Semantic Version, so a core-triple-only
++		// grammar would refuse `1.2.3-rc.1` on a constraint neither the
++		// standard nor the pinned document states.
++		implementationDefined: "the pinned document types the member `semver` and names Semantic Version, but declares no grammar literal for it; the production implements Semantic Versioning 2.0.0 in full, including optional prerelease and build metadata",
+ 		refusal:               "must be canonical semver",
+ 	},
+ 	"windowsAbsolutePathPattern": {
+@@ -562,7 +566,11 @@ func declaredGrammarWitnesses() []grammarWitness {
+ 		{pattern: "lowerSnakePattern", dimension: "class#1", values: []string{"0ab"}},
+ 		{pattern: "lowerSnakePattern", dimension: "class#2", values: []string{"a-b"}},
+ 
+-		// canonical semver: (0|[1-9][0-9]*) three times.
++		// Semantic Versioning 2.0.0 in full: three core numbers, an optional
++		// dot-separated prerelease, and optional dot-separated build metadata.
++		// Classes 1-6 are the core numbers, 7-11 the first prerelease
++		// identifier, 12-16 each later prerelease identifier, and 17-18 the
++		// build-metadata identifiers.
+ 		{pattern: "semverPattern", dimension: "anchor.start", values: []string{"!1.0.0"}},
+ 		{pattern: "semverPattern", dimension: "anchor.end", values: []string{"1.0.0!"}},
+ 		{pattern: "semverPattern", dimension: "class#1", values: []string{"01.0.0"}},
+@@ -571,6 +579,20 @@ func declaredGrammarWitnesses() []grammarWitness {
+ 		{pattern: "semverPattern", dimension: "class#4", values: []string{"1.1a.0"}},
+ 		{pattern: "semverPattern", dimension: "class#5", values: []string{"1.0.01"}},
+ 		{pattern: "semverPattern", dimension: "class#6", values: []string{"1.0.1a"}},
++		{pattern: "semverPattern", dimension: "class#7", values: []string{"1.0.0-01"}},
++		{pattern: "semverPattern", dimension: "class#8", values: []string{"1.0.0-1!"}},
++		{pattern: "semverPattern", dimension: "class#9", values: []string{"1.0.0-!a"}},
++		{pattern: "semverPattern", dimension: "class#10", values: []string{"1.0.0-1_"}},
++		{pattern: "semverPattern", dimension: "class#11", values: []string{"1.0.0-a_b"}},
++		{pattern: "semverPattern", dimension: "class#12", values: []string{"1.0.0-a.01"}},
++		{pattern: "semverPattern", dimension: "class#13", values: []string{"1.0.0-a.1!"}},
++		{pattern: "semverPattern", dimension: "class#14", values: []string{"1.0.0-a.!b"}},
++		{pattern: "semverPattern", dimension: "class#15", values: []string{"1.0.0-a.1_"}},
++		{pattern: "semverPattern", dimension: "class#16", values: []string{"1.0.0-a.b_c"}},
++		{pattern: "semverPattern", dimension: "class#17", values: []string{"1.0.0+a_b"}},
++		{pattern: "semverPattern", dimension: "class#18", values: []string{"1.0.0+a.b_c"}},
++		{pattern: "semverPattern", dimension: "one-or-more#1", values: []string{"1.0.0+"}},
++		{pattern: "semverPattern", dimension: "one-or-more#2", values: []string{"1.0.0+a."}},
+ 
+ 		// Windows drive-absolute prefix: a REFUSAL matcher, so its witnesses
+ 		// defeat a narrowing of each character class.
+diff --git a/internal/canonicaljson/member_shape_refusal_test.go b/internal/canonicaljson/member_shape_refusal_test.go
+index a2e3c23..6d3ecfc 100644
+--- a/internal/canonicaljson/member_shape_refusal_test.go
++++ b/internal/canonicaljson/member_shape_refusal_test.go
+@@ -39,12 +39,14 @@ import (
+ // Pinned SPEC v0.5.0 at 28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c declares:
+ // "Environment Tuple contains exactly environment_id, environment_version,
+ // platform=linux|macos|windows|wsl2, architecture=amd64|arm64,
+-// store_schema_fingerprint, and adapter_version". The two members below are the
+-// only ones in that list carrying neither a type nor a format, while their
+-// siblings carry explicit ones, so presence is all the clause declares.
++// store_schema_fingerprint, and adapter_version". The three members below are
++// the only ones in that list carrying neither a type nor a format, while their
++// platform and architecture siblings carry explicit vocabularies, so presence
++// is all the clause declares.
+ var untypedFixtureMembers = map[string]string{
+ 	"environment_version":      "EnvironmentTuple environment_version is declared by name only; the string[1..128] bound belongs to Environment Observation",
+ 	"store_schema_fingerprint": "EnvironmentTuple store_schema_fingerprint is declared by name only and is not declared as a digest",
++	"adapter_version":          "EnvironmentTuple adapter_version is declared by name only; the SemVer word belongs to the Session Adapter Manifest row of a different schema",
+ }
+ 
+ // wrongJSONTypeFor returns a value of a different JSON type from the one the
+@@ -304,8 +306,9 @@ const malformedScalarValue = "not-a-valid-scalar"
+ var unenforcedStructuredMembers = map[string]string{
+ 	"provider_version":         `declared "provider_version:string[1..128]" and "a 1-128 character exact version string"; the fixture value is semver-shaped but no semver form is declared`,
+ 	"native_session_id":        `declared "native_session_id:string[1..512]" and "Opaque provider handle; never interpreted by core"; the fixture value is UUID-shaped but no UUID form is declared`,
+-	"environment_version":      `EnvironmentTuple declares "environment_id, environment_version, platform=..., architecture=..., store_schema_fingerprint, and adapter_version" — environment_version by name only, while its adapter_version sibling is separately declared canonical semver`,
++	"environment_version":      `EnvironmentTuple declares "environment_id, environment_version, platform=..., architecture=..., store_schema_fingerprint, and adapter_version" — environment_version by name only, with no type and no format`,
+ 	"store_schema_fingerprint": `declared by name only in the same EnvironmentTuple clause; the fixture value is digest-shaped but no digest form is declared`,
++	"adapter_version":          `declared by name only in the same EnvironmentTuple clause; the fixture value is semver-shaped, but the SemVer word appears on the Session Adapter Manifest row of a different schema and is not inferred across schemas here`,
+ }
+ 
+ // TestEveryStructuredFixtureValueRefusesAMalformedFormAtItsProductionEntry is
+diff --git a/internal/canonicaljson/session_record_versions_test.go b/internal/canonicaljson/session_record_versions_test.go
+index 7df4ba5..3a04faf 100644
+--- a/internal/canonicaljson/session_record_versions_test.go
++++ b/internal/canonicaljson/session_record_versions_test.go
+@@ -2,6 +2,7 @@ package canonicaljson
+ 
+ import (
+ 	"bytes"
++	"encoding/json"
+ 	"go/ast"
+ 	"go/parser"
+ 	"go/token"
+@@ -301,15 +302,6 @@ func TestSessionRecordTypedProvenanceMembersRefuseMalformedValuesAtIdentityProdu
+ 		object func() map[string]any
+ 		want   string
+ 	}{
+-		{
+-			name: "environment adapter version",
+-			object: func() map[string]any {
+-				provenance := validCrossEnvironmentCloneProvenance("external_native")
+-				provenance["source_environment"].(map[string]any)["adapter_version"] = "1.0"
+-				return validSessionRecordV3Object(provenance)
+-			},
+-			want: "adapter_version",
+-		},
+ 		{
+ 			name: "origin creation operation ID",
+ 			object: func() map[string]any {
+@@ -579,7 +571,7 @@ func TestSessionRecordDeclaredGrammarRowsReachIdentityProductionEntries(t *testi
+ 	}
+ 
+ 	for _, family := range []string{
+-		"canonical-semver", "environment-id", "environment-name", "provider-id",
++		"environment-id", "environment-name", "provider-id",
+ 		"reverse-dns", "session-name", "board-logical-id",
+ 	} {
+ 		if familyCounts[family] == 0 {
+@@ -606,8 +598,6 @@ func sessionRecordGrammarFamily(row documentedConstraintRow) (string, bool) {
+ 		return "environment-name", true
+ 	case row.shape == "EnvironmentTuple" && row.member == "environment_id" && strings.Contains(declaration, "[a-z]"):
+ 		return "environment-id", true
+-	case row.shape == "EnvironmentTuple" && row.member == "adapter_version" && strings.Contains(declaration, "semver"):
+-		return "canonical-semver", true
+ 	case row.member == "name" && strings.Contains(declaration, "section 2.1 grammar"):
+ 		return "session-name", true
+ 	case row.shape == "Session Record Board Identity" && row.member == "logical_id" && strings.Contains(declaration, "[a-za-z0-9]"):
+@@ -621,8 +611,6 @@ func sessionRecordGrammarFamily(row documentedConstraintRow) (string, bool) {
+ 
+ func validSessionRecordGrammarValue(family string) string {
+ 	switch family {
+-	case "canonical-semver":
+-		return "12.34.56"
+ 	case "environment-id":
+ 		return "a0.b-c"
+ 	case "environment-name":
+@@ -642,15 +630,6 @@ func validSessionRecordGrammarValue(family string) string {
+ 
+ func invalidSessionRecordGrammarValues(family string) []sessionRecordGrammarValue {
+ 	switch family {
+-	case "canonical-semver":
+-		return []sessionRecordGrammarValue{
+-			{"leading zero", "01.2.3"},
+-			{"missing component", "1.2"},
+-			{"prerelease suffix", "1.2.3-alpha"},
+-			{"version prefix", "v1.2.3"},
+-			{"build suffix", "1.2.3+build"},
+-			{"non-ASCII digit", "１.2.3"},
+-		}
+ 	case "environment-id":
+ 		return rejectedLowercaseIdentifierCharacterClasses("environment")
+ 	case "environment-name":
+@@ -728,11 +707,6 @@ func sessionRecordWithDeclaredGrammarValue(
+ 		provenance := object["derivation_provenance"].(map[string]any)
+ 		provenance["source_environment"].(map[string]any)["environment_id"] = value
+ 		return object
+-	case "canonical-semver":
+-		object := validSessionRecordV3Object(validCrossEnvironmentCloneProvenance("external_native"))
+-		provenance := object["derivation_provenance"].(map[string]any)
+-		provenance["source_environment"].(map[string]any)["adapter_version"] = value
+-		return object
+ 	case "board-logical-id":
+ 		object := taskBoardSessionRecord("TASK-260830-3esaam")
+ 		board := object["task_board"].(map[string]any)["board"].(map[string]any)
+@@ -1028,3 +1002,147 @@ func derivedAXSourceIdentityMembers(t *testing.T) []string {
+ 	}
+ 	return identityMembers
+ }
++
++// TestEnvironmentTupleAdapterVersionCarriesNoInferredSemVerConstraint pins the
++// first half of this package's recorded SemVer decision, in the direction that
++// used to be wrong.
++//
++// The pinned SPEC v0.5.0 declaration at commit
++// 28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c reads "Environment Tuple contains
++// exactly environment_id, environment_version, platform=linux|macos|windows|wsl2,
++// architecture=amd64|arm64, store_schema_fingerprint, and adapter_version". It
++// assigns adapter_version no type and no format. The word SemVer reaches
++// adapter_version only through the Session Adapter Manifest row "display_name /
++// adapter_version | UTF-8 string[1..128] / SemVer", which closes a DIFFERENT
++// schema, and through the Probe sentence "Provider ID, manifest digest, and
++// adapter version equal the verified Manifest and host values", which names the
++// Probe's own top-level members rather than this nested tuple member.
++//
++// The decision recorded in testdata/constraint-enumeration.md is therefore:
++// EnvironmentTuple adapter_version is PRESENCE-ONLY. Re-adding any admission
++// grammar to validateEnvironmentTuple reddens the prerelease case below, and
++// deleting the member from requireExactMembers reddens the absence case, so the
++// decision is pinned in both directions rather than only against deletion.
++func TestEnvironmentTupleAdapterVersionCarriesNoInferredSemVerConstraint(t *testing.T) {
++	t.Parallel()
++
++	withAdapterVersion := func(value any) []byte {
++		provenance := validCrossEnvironmentCloneProvenance("external_native")
++		provenance["source_environment"].(map[string]any)["adapter_version"] = value
++		return mustJSON(t, validSessionRecordV3Object(provenance))
++	}
++
++	// The exact value the bug report names. A core-triple SemVer gate refuses
++	// it; the pinned contract does not.
++	t.Run("prerelease", func(t *testing.T) {
++		assertIdentityEntriesAcceptShape(t, withAdapterVersion("1.2.3-rc.1"), SelfRecordID)
++	})
++
++	// Values a core-triple gate, a full SemVer 2.0.0 gate, or a plain string
++	// type would each refuse. None of the three is declared here.
++	for _, test := range []struct {
++		name  string
++		value any
++	}{
++		{"build metadata", "1.2.3+build.1"},
++		{"leading zero", "01.2.3"},
++		{"two components", "1.2"},
++		{"version prefix", "v1.2.3"},
++		{"free text", "not-a-version"},
++		{"empty", ""},
++		{"number", json.Number("1")},
++		{"boolean", true},
++		{"null", nil},
++	} {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			assertIdentityEntriesAcceptShape(t, withAdapterVersion(test.value), SelfRecordID)
++		})
++	}
++
++	// Presence is the whole of the declared constraint, and it is enforced.
++	// Without this case the decision above would be indistinguishable from
++	// having dropped the member entirely. The member is removed from BOTH
++	// tuples of the record and the refusal is attributed by name, so dropping
++	// "adapter_version" from validateEnvironmentTuple's requireExactMembers
++	// list cannot leave this green through the sibling tuple's extra member.
++	t.Run("absent", func(t *testing.T) {
++		provenance := validCrossEnvironmentCloneProvenance("external_native")
++		for _, member := range []string{"source_environment", "target_environment"} {
++			delete(provenance[member].(map[string]any), "adapter_version")
++		}
++		assertIdentityEntriesRefuseWithReason(
++			t, mustJSON(t, validSessionRecordV3Object(provenance)), SelfRecordID, "adapter_version")
++	})
++}
++
++// TestMigrationProvenanceSchemaVersionIsSemVer200InFull pins the second half of
++// the same decision, at the site that reuses the same compiled grammar.
++//
++// Here the constraint IS authorised, by the pinned Section 17.3 sentence quoted
++// verbatim: "That extension value is a closed object containing exactly
++// schema_id:string, schema_version:semver, and object_id:digest." The document
++// names Semantic Version without spelling out a grammar, so `semver` is adopted
++// as Semantic Versioning 2.0.0 in full — prerelease and build metadata included.
++//
++// The two halves are consistent under one rule: the constraint applies exactly
++// where the pinned document declares it, and where it is declared it means the
++// whole named standard rather than a narrowed subset of it.
++func TestMigrationProvenanceSchemaVersionIsSemVer200InFull(t *testing.T) {
++	t.Parallel()
++
++	withSchemaVersion := func(value string) []byte {
++		object := validSessionRecordV1Object()
++		object["extensions"] = map[string]any{
++			"works.relux.ax.migrated-from": map[string]any{
++				"schema_id":      "urn:ax:schema:session-record",
++				"schema_version": value,
++				"object_id":      digestWithDigit('3'),
++			},
++		}
++		return mustJSON(t, object)
++	}
++
++	for _, accepted := range []struct {
++		name  string
++		value string
++	}{
++		{"core triple", "1.2.3"},
++		{"prerelease", "1.2.3-rc.1"},
++		{"alphanumeric prerelease", "1.0.0-alpha"},
++		{"hyphenated prerelease identifier", "1.0.0-x-y-z"},
++		{"zero prerelease identifier", "1.0.0-0"},
++		{"build metadata", "1.2.3+build.1"},
++		{"prerelease and build metadata", "1.2.3-rc.1+exp.sha.5114f85"},
++	} {
++		accepted := accepted
++		t.Run("accepts "+accepted.name, func(t *testing.T) {
++			assertIdentityEntriesAcceptShape(t, withSchemaVersion(accepted.value), SelfRecordID)
++		})
++	}
++
++	// The gate must still refuse. Widening it to SemVer 2.0.0 is not the same
++	// as deleting it, and only these cases tell the two apart.
++	for _, refused := range []struct {
++		name  string
++		value string
++	}{
++		{"leading zero major", "01.2.3"},
++		{"missing component", "1.2"},
++		{"version prefix", "v1.2.3"},
++		{"empty prerelease", "1.2.3-"},
++		{"leading-zero numeric prerelease identifier", "1.2.3-01"},
++		{"empty prerelease identifier", "1.2.3-a..b"},
++		{"underscore in prerelease", "1.2.3-a_b"},
++		{"empty build metadata", "1.2.3+"},
++		{"underscore in build metadata", "1.2.3+a_b"},
++		{"non-ASCII digit", "１.2.3"},
++		{"free text", "not-a-version"},
++		{"empty", ""},
++	} {
++		refused := refused
++		t.Run("refuses "+refused.name, func(t *testing.T) {
++			assertIdentityEntriesRefuseShape(t, withSchemaVersion(refused.value), SelfRecordID)
++		})
++	}
++}
+diff --git a/internal/canonicaljson/testdata/constraint-enumeration.md b/internal/canonicaljson/testdata/constraint-enumeration.md
+index 1bc23d0..016e1ba 100644
+--- a/internal/canonicaljson/testdata/constraint-enumeration.md
++++ b/internal/canonicaljson/testdata/constraint-enumeration.md
+@@ -268,7 +268,7 @@ required-object lookup cannot create an attested identity.
+ | `Session Record native-adoption provenance` | `source_instance_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | “digest” |
+ | `Session Record native-adoption provenance` | `source_observation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | “digest” |
+ | `Session Record native-adoption provenance` | `target_provider_id` | Enforced equal to the immutable target Session Record provider. Provider-ID grammar is subsumed by `validateSessionRecordCommon`, which rejects a malformed record `provider_id` before this equality gate; a different malformed target is refused by the equality gate. | `validateSessionNativeAdoptionProvenance` | “provider-id; target provider allocated at creation” |
+-| `EnvironmentTuple` | `adapter_version` | Enforced as canonical SemVer. The Probe requires its adapter version to equal the verified Manifest value, whose declared type is SemVer. | `validateEnvironmentTuple` | “display_name / adapter_version — UTF-8 string[1..128] / SemVer”; “adapter version equal the verified Manifest and host values” |
++| `EnvironmentTuple` | `adapter_version` | Presence-only, by the recorded SemVer decision below. The pinned EnvironmentTuple declaration supplies no JSON type and no format; the SemVer word belongs to the Session Adapter Manifest row of a different schema and is not inferred across schemas by field-name similarity. | `validateEnvironmentTuple` | “store_schema_fingerprint, and adapter_version” |
+ | `EnvironmentTuple` | `architecture` | Enforced exactly as declared before identity calculation or verification. | `validateEnvironmentTuple` | “amd64 or arm64” |
+ | `EnvironmentTuple` | `environment_id` | Enforced against the exact environment ID grammar. | `validateEnvironmentTuple` | “[a-z][a-z0-9.-]{0,63}” |
+ | `EnvironmentTuple` | `environment_version` | Presence-only. The pinned EnvironmentTuple declaration supplies no JSON type or bound; the `string[1..128]` bound belongs to the distinct Environment Observation schema and is not inferred here. | `validateEnvironmentTuple` | “environment_version” |
+@@ -427,4 +427,42 @@ required-object lookup cannot create an attested identity.
+ | Manifest closure | Every referenced working-tree/managed-tree/submodule manifest, cwd, and project config path occurs in the transitive child closure. | External: child manifests and materialized filesystem are outside one identity candidate. |
+ | Decoder robustness bound (implementation, not a pinned SPEC clause) | Every public entry refuses a document nested deeper than `maxNestingDepth` (256 containers) with a typed `ErrInvalidJSON` error instead of a fatal stack overflow; the deepest pinned closed shape, the 16-level submodule tree, decodes at roughly depth 40. | Enforced by `decodeValue` inside `decodeStrict`, shared by `Canonicalize`, `CalculateObjectIdentity`, and `VerifyObjectIdentity` before number, schema, or shape validation; `TestMaxNestingDepthIsDeclaredAndPinned` pins the literal, `TestCanonicalizeAcceptsDocumentAtMaxNestingDepth`, `TestCanonicalizeRefusesDocumentPastMaxNestingDepth`, `TestIdentityEntriesAcceptDocumentAtMaxNestingDepth`, and `TestIdentityEntriesRefuseDocumentPastMaxNestingDepth` prove accept-at-256 and refuse-at-257 from a test-local literal in array, object, and mixed shapes so widening or narrowing the constant reddens the suite, and `TestNestingDepthRegressionTwoMegabyteArrayReturnsTypedError` replays the 2,000,000-byte one-million-level crash input through every entry. |
+ | Section 1.6 extensions | Every open extension point has 0–64 lowercase reverse-DNS keys, depth at most 4, and canonical size at most 65,536 bytes. | Enforced by `validateExtensionsObject` before either public entry attests. |
+-| Section 17.3 migration contribution | `works.relux.ax.migrated-from` is a closed three-member object; `schema_id` is bare `string`, `schema_version` canonical semver, and `object_id` digest. | Enforced by `validateMigrationExtensionObject`; publication, atomic-reference advancement, rollback retention, and runtime migration remain explicitly unclaimed. |
++| Section 17.3 migration contribution | `works.relux.ax.migrated-from` is a closed three-member object; `schema_id` is bare `string`, `schema_version` is Semantic Versioning 2.0.0 in full including optional prerelease and build metadata, and `object_id` is a digest. | Enforced by `validateMigrationExtensionObject`; `TestMigrationProvenanceSchemaVersionIsSemVer200InFull` pins both the admitted prerelease/build forms and the forms still refused. Publication, atomic-reference advancement, rollback retention, and runtime migration remain explicitly unclaimed. |
++
++## Recorded decision: where `semver` applies, and what it means
++
++This package compiles one `semverPattern` and reaches it from more than one
++schema. Two separate questions therefore have to be answered, and both answers
++are recorded here rather than left implied by the code.
++
++**Does the constraint apply at all at this member?** It applies exactly where
++the pinned document declares it, and nowhere else. A type or format written on
++a similarly named member of a different schema is not evidence about this one.
++
++**Where it does apply, what does `semver` mean?** The pinned document names
++Semantic Version and types members `semver` but spells out no grammar for one.
++The named standard is Semantic Versioning 2.0.0, whose valid versions include
++optional prerelease and build metadata. `semver` is therefore adopted as that
++standard **in full**; a core-triple-only reading would refuse `1.2.3-rc.1`, a
++version neither the standard nor the pinned document excludes.
++
++Applying the two answers to the sites that reach the grammar:
++
++| Site | Pinned declaration | Decision | Pinned by |
++| --- | --- | --- | --- |
++| EnvironmentTuple `adapter_version` | “Environment Tuple contains exactly <code>environment_id</code>, <code>environment_version</code>, <code>platform=linux&#124;macos&#124;windows&#124;wsl2</code>, <code>architecture=amd64&#124;arm64</code>, <code>store_schema_fingerprint</code>, and <code>adapter_version</code>” — no type, no format | **No constraint.** Presence-only, like its untyped `environment_version` and `store_schema_fingerprint` siblings in the same clause. `1.2.3-rc.1` is accepted. | `TestEnvironmentTupleAdapterVersionCarriesNoInferredSemVerConstraint` |
++| Migration provenance `schema_version` | “That extension value is a closed object containing exactly <code>schema_id:string</code>, <code>schema_version:semver</code>, and <code>object_id:digest</code>.” | **SemVer 2.0.0 in full.** The type is declared here, so the constraint stands; prerelease and build metadata are accepted because the standard admits them. `1.2.3-rc.1` is accepted; `01.2.3`, `1.2`, `1.2.3-`, `1.2.3-01` and `1.2.3+` are still refused. | `TestMigrationProvenanceSchemaVersionIsSemVer200InFull` |
++| Session Event `terminal.*` `implementation_version` / `protocol_version` | “<code>implementation_version:semver</code>”, “<code>protocol_version:semver</code>” | **SemVer 2.0.0 in full**, for the same reason as the row above. | `validateTerminalV4Payload`, through the shared `semverPattern` grammar inventory |
++
++The word SemVer that used to be read onto `EnvironmentTuple.adapter_version`
++comes from the Session Adapter Manifest row “<code>display_name</code> /
++<code>adapter_version</code> | UTF-8 string[1..128] / SemVer”, which closes a
++different object, and from the Probe sentence “Provider ID, manifest digest, and
++adapter version equal the verified Manifest and host values”, which names the
++Probe's own top-level members and not this nested tuple member. Neither reaches
++the tuple, so neither authorises a constraint on it.
++
++`semverPattern` itself is carried in the grammar inventory
++(`grammar_inventory_test.go`) as an implementation-defined grammar with a
++witness for every anchor, character class and one-or-more quantifier it
++declares, so widening any one of its dimensions reddens the suite.
