@@ -102,6 +102,12 @@ type projectionHooks struct {
 	// this path exactly as it is on the object-store path, instead of being
 	// argued from the shared classifier alone.
 	openBlob blobOpener
+	// afterDatabaseOpen runs on the configured index connection before any
+	// migration or rebuild statement. It exists so a test can constrain that
+	// exact connection and make SQLite itself raise SQLITE_FULL from inside the
+	// rebuild transaction, which is the only way to observe a real full-volume
+	// engine failure rather than a substituted error value.
+	afterDatabaseOpen func(context.Context, *sql.DB) error
 }
 
 // projectionRefusal and projectionOwnershipRefusal are the two refusal funnels
@@ -191,7 +197,7 @@ func openProjection(ctx context.Context, paths ResolvedPaths, hooks projectionHo
 		return nil, ProjectionRecovery{}, fmt.Errorf("%w: acquire index lock: %w", ErrProjection, err)
 	}
 	defer lock.release()
-	projection, openErr := openProjectionDatabase(ctx, indexPath)
+	projection, openErr := openProjectionDatabase(ctx, indexPath, hooks)
 	recovery := ProjectionRecovery{Rebuilt: true, ObjectCount: len(objects)}
 	if openErr != nil && errors.Is(openErr, ErrProjectionCorrupt) {
 		recoveryDirectory, recoveryErr := quarantineProjectionFiles(state.Value.String(), indexPath)
@@ -200,7 +206,7 @@ func openProjection(ctx context.Context, paths ResolvedPaths, hooks projectionHo
 		}
 		recovery.RecoveredCorruption = true
 		recovery.RecoveryDirectory = recoveryDirectory
-		projection, openErr = openProjectionDatabase(ctx, indexPath)
+		projection, openErr = openProjectionDatabase(ctx, indexPath, hooks)
 	}
 	if openErr != nil {
 		return nil, ProjectionRecovery{}, openErr
@@ -224,7 +230,7 @@ func openProjection(ctx context.Context, paths ResolvedPaths, hooks projectionHo
 		}
 		recovery.RecoveredCorruption = true
 		recovery.RecoveryDirectory = recoveryDirectory
-		projection, openErr = openProjectionDatabase(ctx, indexPath)
+		projection, openErr = openProjectionDatabase(ctx, indexPath, hooks)
 		if openErr != nil {
 			return nil, ProjectionRecovery{}, openErr
 		}
@@ -246,7 +252,7 @@ func openProjection(ctx context.Context, paths ResolvedPaths, hooks projectionHo
 	return projection, recovery, nil
 }
 
-func openProjectionDatabase(ctx context.Context, path string) (*Projection, error) {
+func openProjectionDatabase(ctx context.Context, path string, hooks projectionHooks) (*Projection, error) {
 	if err := prepareProjectionFile(path); err != nil {
 		return nil, fmt.Errorf("%w: prepare index: %w", ErrProjection, err)
 	}
@@ -287,6 +293,12 @@ func openProjectionDatabase(ctx context.Context, path string) (*Projection, erro
 	if err := verifyProjectionIntegrity(ctx, db); err != nil {
 		_ = db.Close()
 		return nil, err
+	}
+	if hooks.afterDatabaseOpen != nil {
+		if err := hooks.afterDatabaseOpen(ctx, db); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("%w: after database open: %w", ErrProjection, err)
+		}
 	}
 	// Defence in depth against SQLite's own umask when it creates -wal/-shm:
 	// refusing here fails before the rebuild transaction writes any row. Every

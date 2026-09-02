@@ -1736,7 +1736,7 @@ func TestOpenProjectionRecoversPageCorruptionDetectableOnlyByQuickCheck(t *testi
 	}
 	// Naming the production call site: openProjectionDatabase is what
 	// openProjection calls, and quick_check is the clause that refuses here.
-	opened, openErr := openProjectionDatabase(ctx, indexPath)
+	opened, openErr := openProjectionDatabase(ctx, indexPath, projectionHooks{})
 	if opened != nil {
 		_ = opened.db.Close()
 	}

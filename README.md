@@ -865,11 +865,11 @@ Windows storage support.
 same-directory temporary file, fsyncs it, verifies the declared uint53 size and
 SHA-256, performs an OS-native atomic no-replace rename, then fsyncs the shard
 directory. An identical retry verifies and reuses the existing inode. Size or
-digest mismatches are installed create-new under the exact quarantined digest
-path with a UUIDv7 leaf. Oversized input is read and quarantined only through
-the bounded declared-size-plus-one diagnostic prefix. A corrupt existing digest
-path causes both candidates to be quarantined and the immutable namespace to
-refuse the write.
+digest mismatches of the source bytes are installed create-new under the exact
+quarantined digest path with a UUIDv7 leaf. Oversized input is read and
+quarantined only through the bounded declared-size-plus-one diagnostic prefix. A
+corrupt existing digest path causes both candidates to be quarantined and the
+immutable namespace to refuse the write.
 
 Quarantining an entry that already occupies a digest path requires a proof.
 `verifyBlobContent` is the one classifier both `PutBlob` and the projection
@@ -882,6 +882,50 @@ disagreement. `storeOperations.openExisting` and `projectionHooks.openBlob` are
 the injected read seams that drive that path in tests, and the two paths are
 asserted to reach the same classification rather than assumed to.
 
+The same rule applies to the write side, and it is a separate refusal rather
+than a variant of the mismatch. When the length the filesystem kept disagrees
+with the byte count the staged copy accepted, the write did not complete and
+therefore proves nothing about the source bytes: `PutBlob` reports a durability
+failure and the partial candidate is discarded rather than quarantined as
+disagreeing evidence. Quarantining it would misattribute the fault to a source
+that may have been valid, and would consume more of the space whose exhaustion
+typically caused it. That comparison is the only thing between a partially
+written file and the immutable namespace when the declared digest and the copied
+length still agree with the caller, so it is pinned in both directions: a
+fixture that keeps less than the copy accepted and one that keeps more.
+
+Full and failing volumes are driven at every boundary of the durable write. The
+source that stops producing, the volume that refuses the accepting write, the
+volume that discovers exhaustion at writeback, the staged file whose mode
+drifted before installation, and the shard directory that is group-accessible, a
+symlink, or not a directory at all are each refused with the immutable digest
+path left absent, no staged residue beside live objects, nothing manufactured
+into quarantine, and a retry after the fault clears installing the exact
+declared bytes.
+
+The quarantine move that cannot itself be written is a separate outcome, stated
+separately because the artifact the move was refused for is precisely the one
+that must not vanish. When the mismatched candidate cannot be moved, nothing is
+installed and nothing is quarantined, and once the volume has room that same
+candidate is preserved as evidence exactly as it would have been without the
+fault — recovering from the fault does not relax the verdict that produced it.
+When the candidate was preserved but the corrupt object already occupying the
+digest path could not be moved, that object deliberately stays where it is and
+the caller is told which artifact was preserved and which was not. A later run
+then reads it, proves the disagreement, quarantines both artifacts, and installs
+the declared bytes, so the denied move defers the cleanup rather than stranding
+the digest path. A quarantine that failed is never reported as one that
+succeeded.
+
+A digest path replaced by a special file bounds availability as well as safety.
+The regularity clause is driven with a FIFO created at exactly mode `0600`,
+which is not a symlink, belongs to the effective user and already carries
+owner-only bits, so every preceding check passes and that clause is the only
+thing that can refuse; with it removed `os.Open` blocks indefinitely on a FIFO
+that has no writer, so the case asserts a bounded return rather than hanging.
+The refusal moves the entry nowhere, because an unsafe shape is not a proven
+mismatch.
+
 `OpenProjection` scans the immutable raw-blob namespace, re-verifies every byte
 against its digest path, and rebuilds `<state>/index.sqlite` in deterministic
 digest order. That order is owned by one comparator and asserted against the
@@ -893,7 +937,16 @@ The integrity gate derives SQLite-created internal indexes by applying that
 catalog to a clean in-memory database, then compares every `sqlite_master` row;
 no object kind or `sqlite_` name prefix is filtered out of verification.
 Migrations and full row replacement run in transactions, with injected
-pre-commit failures proving rollback to the prior usable index. Connections use
+pre-commit failures proving rollback to the prior usable index. A full volume is
+driven as the engine failure it actually is rather than as a substituted error
+value: `PRAGMA max_page_count` pinned to the database's current size makes
+SQLite raise `SQLITE_FULL` from inside the migration and the rebuild
+transactions. Exhaustion is classified as a migration or rebuild failure and
+never as corruption, so the index is not quarantined and rebuilt on a volume
+that just ran out of room; the prior usable index keeps its inode, its rows and
+its recorded object count, no `index-recovery` directory appears, and the next
+open on a volume with room migrates and rebuilds as if the refused one had never
+run. Connections use
 WAL journal mode, `synchronous=FULL`, foreign keys, defensive mode that refuses
 `sqlite_master` writes on the live connection, and a bounded busy timeout;
 an owner-only `index.sqlite.lock` serializes cold open, migration, rebuild, and

@@ -216,7 +216,23 @@ func (store *ObjectStore) PutBlob(expected scalar.Digest, expectedSize uint64, s
 		return PutResult{}, fmt.Errorf("%w: calculate staged digest: %v", ErrDurability, err)
 	}
 	actualSize := uint64(written)
-	if info.Size() < 0 || uint64(info.Size()) != actualSize || actualSize != expectedSize || actualDigest != expected {
+	// A staged write that did not durably keep what the copy accepted proves
+	// nothing about the source bytes. A volume that fills discovers ENOSPC at
+	// writeback rather than at the accepting write, so the byte count the copy
+	// reported and the length the filesystem kept can disagree without either
+	// side raising an error. That is a durability failure, the exact mirror of
+	// the rule verifyBlobContent owns for reads: an operation that did not
+	// complete is never a proven mismatch. The partial candidate is discarded
+	// by the deferred cleanup instead of being quarantined as disagreeing
+	// evidence, because quarantining it would both misattribute the fault and
+	// consume more of the space that just ran out. The negative length term is
+	// unreachable through os.FileInfo and is stated for the same reason the
+	// projection states it: the comparison below is unsigned.
+	if info.Size() < 0 || uint64(info.Size()) != actualSize {
+		return PutResult{}, fmt.Errorf("%w: staged write kept %d of %d accepted bytes",
+			ErrDurability, info.Size(), actualSize)
+	}
+	if actualSize != expectedSize || actualDigest != expected {
 		quarantinePath, quarantineErr := store.quarantineStaged(expected, stagedPath)
 		if quarantineErr != nil {
 			return PutResult{}, fmt.Errorf("%w: mismatch and quarantine failed: %v", ErrDurability, quarantineErr)
