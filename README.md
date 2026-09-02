@@ -252,6 +252,25 @@ mutating path fails closed: a selected file that is not itself a regular file is
 refused with `ErrConfigNotRegular` before any backup, staging file, or
 replacement is written, and the refusal leaves the directory exactly as it was.
 
+Section 6.3 requires refusing `StrictHostKeyChecking=no`, an empty
+`UserKnownHostsFile`, "or an equivalent host-authentication bypass" in a mesh
+peer's `ssh_args`. An equivalence class has no enumeration, so admission is
+derived rather than blacklisted: `internal/config/sshargs.go` declares the
+`ssh(1)` short-option arity transcribed from the OpenSSH usage text, the short
+options AX admits, and the `-o` option registry with the values each option
+permits. Every argument outside that declaration is refused, so an option name
+the parser has never heard of — `ProxyCommand`, `KnownHostsCommand`, `Include`,
+`LocalCommand`, or anything OpenSSH adds later — fails closed, as do `-F`, a
+bare destination or remote command, and any grouped short flag carrying them.
+Short options are walked with getopt semantics, so `-vo StrictHostKeyChecking=no`
+and `-4o UserKnownHostsFile=/dev/null` are seen as the options OpenSSH resolves
+them to. `StrictHostKeyChecking` is declared with only its enforcing spelling,
+which refuses the live `false` alias without listing aliases. The refusal clause
+distinguishes a host-authentication option from an undeclared name, an
+unpermitted flag, and an unpermitted value; the negative suite derives its cases
+from those same tables, so a newly declared option is covered the moment it is
+added.
+
 Run the focused tests and assigned-scope traceability gate with:
 
     go test ./internal/config -count=1 -v

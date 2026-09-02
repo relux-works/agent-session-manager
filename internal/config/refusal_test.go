@@ -12,7 +12,16 @@ import (
 
 const testPeerID2 = "0198f4c8-9d40-7e55-8e6f-1234567890ab"
 
-func TestLoadRefusesEveryOpenSSHHostAuthenticationBypassSpelling(t *testing.T) {
+// TestLoadRefusesHostAuthenticationBypassAcrossTheOptionSpellingGrammar pins
+// the separator, quoting, and grouping spellings that reach the same option.
+// It does not claim completeness over option names: that is earned separately
+// by TestLoadRefusesEveryHostAuthenticationOptionDeclaredInTheRegistry, which
+// derives its cases from sshOptionRegistry, and by the closed admission in
+// admitSSHArguments, which refuses every name the registry does not declare.
+// Each StrictHostKeyChecking value below was reproduced against OpenSSH
+// 10.2p1: ssh -G -o StrictHostKeyChecking=false prints
+// "stricthostkeychecking false", because false is a live OpenSSH alias for no.
+func TestLoadRefusesHostAuthenticationBypassAcrossTheOptionSpellingGrammar(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -22,6 +31,13 @@ func TestLoadRefusesEveryOpenSSHHostAuthenticationBypassSpelling(t *testing.T) {
 		{name: "separate equals", args: `["-o", "StrictHostKeyChecking=no"]`},
 		{name: "strict off alias", args: `["-o", "StrictHostKeyChecking=off"]`},
 		{name: "strict off alias combined", args: `["-oStrictHostKeyChecking=off"]`},
+		{name: "strict false alias", args: `["-o", "StrictHostKeyChecking=false"]`},
+		{name: "strict false alias case folded", args: `["-o", "StrictHostKeyChecking=FALSE"]`},
+		{name: "strict no case folded", args: `["-o", "StrictHostKeyChecking=NO"]`},
+		{name: "strict trust on first use", args: `["-o", "StrictHostKeyChecking=accept-new"]`},
+		{name: "strict grouped short flag", args: `["-vo", "StrictHostKeyChecking=no"]`},
+		{name: "known hosts grouped short flag", args: `["-4o", "UserKnownHostsFile=/dev/null"]`},
+		{name: "strict grouped attached value", args: `["-voStrictHostKeyChecking=no"]`},
 		{name: "separate whitespace", args: `["-o", "StrictHostKeyChecking no"]`},
 		{name: "separator run", args: `["-o", "StrictHostKeyChecking = no"]`},
 		{name: "combined whitespace", args: `["-oStrictHostKeyChecking no"]`},

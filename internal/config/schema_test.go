@@ -376,11 +376,11 @@ name = "peer"
 endpoint = "x"
 platform = "linux"
 `
-	atArgument := peerPrefix + "ssh_args = [\"" + strings.Repeat("x", 4096) + "\"]\n"
+	atArgument := peerPrefix + "ssh_args = [\"-i" + strings.Repeat("x", 4094) + "\"]\n"
 	if _, err := loadConfigDocument([]byte(atArgument), scalar.PlatformMacOS, nil); err != nil {
 		t.Fatalf("4096-byte SSH argument refused: %v", err)
 	}
-	overArgument := peerPrefix + "ssh_args = [\"" + strings.Repeat("x", 4097) + "\"]\n"
+	overArgument := peerPrefix + "ssh_args = [\"-i" + strings.Repeat("x", 4095) + "\"]\n"
 	if _, err := loadConfigDocument([]byte(overArgument), scalar.PlatformMacOS, nil); !errors.Is(err, ErrConfigValidation) {
 		t.Fatalf("4097-byte SSH argument error = %v", err)
 	}
@@ -469,9 +469,9 @@ func TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections(
 		at.Mesh.Peers[0].Endpoint = "x"
 		at.Mesh.Peers[0].SSHArgs = make([]string, 16)
 		for index := range at.Mesh.Peers[0].SSHArgs {
-			at.Mesh.Peers[0].SSHArgs[index] = strings.Repeat("x", 4096)
+			at.Mesh.Peers[0].SSHArgs[index] = "-i" + strings.Repeat("x", 4094)
 		}
-		at.Mesh.Peers[0].SSHArgs[0] = strings.Repeat("x", 4095)
+		at.Mesh.Peers[0].SSHArgs[0] = "-i" + strings.Repeat("x", 4093)
 		assertCurrentAccepted(t, at)
 		overBytes := cloneConfiguration(at)
 		overBytes.Mesh.Peers[0].SSHArgs[0] += "x"
@@ -479,7 +479,7 @@ func TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections(
 		overCount := validCurrentConfiguration()
 		overCount.Mesh.Peers[0].SSHArgs = make([]string, 65)
 		for index := range overCount.Mesh.Peers[0].SSHArgs {
-			overCount.Mesh.Peers[0].SSHArgs[index] = "x"
+			overCount.Mesh.Peers[0].SSHArgs[index] = "-q"
 		}
 		assertCurrentRefused(t, overCount)
 	})

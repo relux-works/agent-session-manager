@@ -462,8 +462,8 @@ func validateMesh(configuration *Configuration) error {
 		if totalBytes > 65_536 {
 			return configError(prefix+" SSH argv bytes", ErrConfigValidation)
 		}
-		if sshHostAuthenticationBypass(peer.SSHArgs) {
-			return configError(prefix+".ssh_args host authentication bypass", ErrConfigValidation)
+		if reason := admitSSHArguments(peer.SSHArgs); reason != sshArgumentAdmitted {
+			return configError(prefix+".ssh_args "+reason, ErrConfigValidation)
 		}
 		if err := validateWorkspaceRoots(prefix+".workspace_roots", peer.WorkspaceRoots, peer.Platform, 64); err != nil {
 			return err
@@ -841,53 +841,6 @@ func validatePrintableCharacters(value string, min, max int) error {
 		}
 	}
 	return nil
-}
-
-func sshHostAuthenticationBypass(arguments []string) bool {
-	options := make([]string, 0, len(arguments))
-	for index := 0; index < len(arguments); index++ {
-		argument := arguments[index]
-		if argument == "-o" && index+1 < len(arguments) {
-			index++
-			options = append(options, arguments[index])
-			continue
-		}
-		if strings.HasPrefix(argument, "-o") && len(argument) > 2 {
-			options = append(options, argument[2:])
-		}
-	}
-	for _, option := range options {
-		name, value := parseSSHConfigOption(option)
-		if name == "stricthostkeychecking" && oneOf(value, "no", "off") {
-			return true
-		}
-		if name == "userknownhostsfile" && sshKnownHostsDisabled(value) {
-			return true
-		}
-		if name == "globalknownhostsfile" && sshKnownHostsDisabled(value) {
-			return true
-		}
-	}
-	return false
-}
-
-func sshKnownHostsDisabled(value string) bool {
-	return oneOf(value, "", "none", "/dev/null", "nul")
-}
-
-func parseSSHConfigOption(option string) (string, string) {
-	option = strings.TrimSpace(option)
-	separator := strings.IndexFunc(option, func(character rune) bool { return character == '=' || unicode.IsSpace(character) })
-	if separator < 0 {
-		return strings.ToLower(option), ""
-	}
-	name := strings.ToLower(strings.TrimSpace(option[:separator]))
-	remainder := strings.TrimLeftFunc(option[separator:], func(character rune) bool { return character == '=' || unicode.IsSpace(character) })
-	value := strings.ToLower(strings.TrimSpace(remainder))
-	if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
-		value = strings.TrimSpace(value[1 : len(value)-1])
-	}
-	return name, value
 }
 
 func hasForbiddenConfigName(value string) bool {
