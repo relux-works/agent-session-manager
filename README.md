@@ -444,7 +444,11 @@ both `null` and scalar substitutions are refused by both identity entries.
 Manifest entry destination-case
 collision detection uses a linear Unicode simple-fold set; a production-entry
 regression covers the declared 65,536-entry maximum inside the encoded identity
-size cap.
+size cap. Entry-local path OVERLAP is refused by the same scan: an entry whose
+ancestor is a declared `file`, `symlink` or `hardlink` is rejected, reusing the
+strict bytewise order the scan already proves rather than re-deriving each
+path's ancestor set, so a symlink or file parent cannot carry children into
+materialization.
 The shared strict decoder behind `Canonicalize` and both identity entries
 enforces a declared 256-container nesting bound: a document that opens a 257th
 nested object or array is refused with the typed `ErrInvalidJSON` error before

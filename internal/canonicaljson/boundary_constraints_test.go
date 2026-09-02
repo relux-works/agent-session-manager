@@ -903,3 +903,40 @@ func uninitializedSubmodule(index int) map[string]any {
 		"repo_relative_cwd": nil, "agent_project_config_paths": nil,
 	}
 }
+
+// manifestDirectoryEntry, manifestFileEntry, manifestSymlinkEntry and
+// manifestHardlinkEntry build one complete ManifestEntry of each tag so an
+// overlap fixture differs from a valid manifest only in the paths and tags it
+// declares.
+func manifestDirectoryEntry(path string) map[string]any {
+	return map[string]any{"path": path, "type": "directory", "mode": json.Number("493")}
+}
+
+func manifestFileEntry(path string) map[string]any {
+	return map[string]any{
+		"path":               path,
+		"type":               "file",
+		"mode":               json.Number("420"),
+		"size":               json.Number("11"),
+		"blob_id":            digestWithDigit('4'),
+		"blob_descriptor_id": digestWithDigit('5'),
+	}
+}
+
+func manifestSymlinkEntry(path, target string) map[string]any {
+	return map[string]any{"path": path, "type": "symlink", "mode": json.Number("511"), "target": target}
+}
+
+func manifestHardlinkEntry(path, targetPath string) map[string]any {
+	return map[string]any{"path": path, "type": "hardlink", "mode": json.Number("420"), "target_path": targetPath}
+}
+
+func transferManifestWithEntryShapes(entries ...map[string]any) map[string]any {
+	object := validTransferManifestObject("workspace_tree")
+	values := make([]any, len(entries))
+	for index, entry := range entries {
+		values[index] = entry
+	}
+	object["entries"] = values
+	return object
+}

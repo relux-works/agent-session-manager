@@ -554,3 +554,135 @@ func assertIdentityEntriesRefuseWithReason(t *testing.T, input []byte, selfField
 		t.Fatalf("VerifyObjectIdentity(%s malformed shape with correct omit-self claim) error = %v, want identity refusal containing %q", selfField, err, want)
 	}
 }
+
+// TestManifestEntryOverlapRefusalReachesBothIdentityEntries pins the entry-local
+// half of SPEC.md:4768-4769 — "Entries and child partitions MUST contain no
+// duplicate, overlapping, or destination-case-colliding path" — at
+// CalculateObjectIdentity and VerifyObjectIdentity.
+//
+// The duplicate and destination-case-collision halves were enforced; the
+// overlapping half was absent, so a file, symlink or hardlink entry could
+// declare children. A symlink parent over a real child is a materialization
+// escape primitive, which is why every non-directory tag is pinned separately
+// rather than through one representative case.
+//
+// Each case names the exact overlap message it must produce. A neighbouring
+// refusal reporting some other problem for the same fixture would otherwise let
+// a weakened overlap clause pass.
+func TestManifestEntryOverlapRefusalReachesBothIdentityEntries(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		entries []map[string]any
+		want    string
+	}{
+		{
+			name: "file over file",
+			entries: []map[string]any{
+				manifestFileEntry("a"),
+				manifestFileEntry("a/b"),
+			},
+			want: `ManifestEntry[1] path "a/b" overlaps earlier file entry "a"`,
+		},
+		{
+			name: "symlink over file",
+			entries: []map[string]any{
+				manifestSymlinkEntry("s", "target"),
+				manifestFileEntry("s/x"),
+			},
+			want: `ManifestEntry[1] path "s/x" overlaps earlier symlink entry "s"`,
+		},
+		{
+			name: "file over directory",
+			entries: []map[string]any{
+				manifestFileEntry("a"),
+				manifestDirectoryEntry("a/b"),
+			},
+			want: `ManifestEntry[1] path "a/b" overlaps earlier file entry "a"`,
+		},
+		{
+			name: "hardlink over file",
+			entries: []map[string]any{
+				manifestFileEntry("a.bin"),
+				manifestHardlinkEntry("h", "a.bin"),
+				manifestFileEntry("h/x"),
+			},
+			want: `ManifestEntry[2] path "h/x" overlaps earlier hardlink entry "h"`,
+		},
+		{
+			// "a.txt" sorts between "a" and "a/b" because '.' precedes '/', so
+			// an implementation that closes an open non-directory on the first
+			// path that is not its descendant loses the "a" owner before the
+			// escaping child arrives.
+			name: "file over file across an intervening sibling",
+			entries: []map[string]any{
+				manifestFileEntry("a"),
+				manifestFileEntry("a.txt"),
+				manifestFileEntry("a/b"),
+			},
+			want: `ManifestEntry[2] path "a/b" overlaps earlier file entry "a"`,
+		},
+		{
+			name: "file below a directory still owns its own subtree",
+			entries: []map[string]any{
+				manifestDirectoryEntry("a"),
+				manifestFileEntry("a/b"),
+				manifestFileEntry("a/b/c"),
+			},
+			want: `ManifestEntry[2] path "a/b/c" overlaps earlier file entry "a/b"`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertIdentityEntriesRefuseWithReason(
+				t,
+				mustJSON(t, transferManifestWithEntryShapes(test.entries...)),
+				SelfManifestID,
+				test.want,
+			)
+		})
+	}
+}
+
+// TestManifestEntryOverlapAdmitsDirectoryParents keeps the refusal narrow: a
+// declared directory legitimately contains children, and a sibling whose name
+// merely shares a byte prefix is not an ancestor. Without these, the overlap
+// clause could be "proven" by a validator that refuses every nested manifest.
+func TestManifestEntryOverlapAdmitsDirectoryParents(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		entries []map[string]any
+	}{
+		{
+			name: "nested directories carry files",
+			entries: []map[string]any{
+				manifestDirectoryEntry("a"),
+				manifestFileEntry("a/b"),
+				manifestDirectoryEntry("a/c"),
+				manifestFileEntry("a/c/d"),
+			},
+		},
+		{
+			name: "byte prefix is not an ancestor",
+			entries: []map[string]any{
+				manifestFileEntry("a"),
+				manifestFileEntry("a.txt"),
+				manifestDirectoryEntry("b"),
+				manifestFileEntry("b/c"),
+			},
+		},
+		{
+			name: "symlink sibling shares a prefix",
+			entries: []map[string]any{
+				manifestSymlinkEntry("s", "target"),
+				manifestFileEntry("s.txt"),
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertIdentityEntriesAcceptShape(
+				t,
+				mustJSON(t, transferManifestWithEntryShapes(test.entries...)),
+				SelfManifestID,
+			)
+		})
+	}
+}

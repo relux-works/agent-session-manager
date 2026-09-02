@@ -1019,10 +1019,25 @@ func validateTransferManifest(object map[string]any) error {
 	return nil
 }
 
+// manifestPathOwner is one declared non-directory Transfer Manifest entry.
+// Section 10.4 admits children only below a directory, so any later entry that
+// resolves through one of these paths is an overlapping destination.
+type manifestPathOwner struct {
+	path      string
+	entryType string
+}
+
 func validateManifestEntries(values []any) error {
 	previous := ""
 	foldedPaths := make(map[string]struct{}, len(values))
 	fileModes := make(map[string]uint64)
+	// openNonDirectories carries the non-directory entries whose descendant
+	// range the scan has not yet passed, deepest last. Overlap detection reuses
+	// the strict bytewise order already proven below instead of re-deriving the
+	// ancestor set of every path: a descendant of p always starts with p + "/",
+	// so it sorts after p and before any later path that is neither a
+	// descendant of p nor ordered below p + "/".
+	var openNonDirectories []manifestPathOwner
 	for index, value := range values {
 		entry, err := requireObjectValue(value, fmt.Sprintf("ManifestEntry[%d]", index))
 		if err != nil {
@@ -1048,6 +1063,22 @@ func validateManifestEntries(values []any) error {
 		}
 		foldedPaths[foldedPath] = struct{}{}
 		previous = pathValue
+		for len(openNonDirectories) > 0 {
+			owner := openNonDirectories[len(openNonDirectories)-1]
+			subtree := owner.path + "/"
+			if strings.HasPrefix(pathValue, subtree) {
+				return invalidIdentity(
+					"ManifestEntry[%d] path %q overlaps earlier %s entry %q; Transfer Manifest entry paths must not overlap",
+					index, pathValue, owner.entryType, owner.path)
+			}
+			if pathValue <= subtree {
+				break
+			}
+			openNonDirectories = openNonDirectories[:len(openNonDirectories)-1]
+		}
+		if entryType != "directory" {
+			openNonDirectories = append(openNonDirectories, manifestPathOwner{path: pathValue, entryType: entryType})
+		}
 		mode, err := requireUint(entry, "mode", 4095)
 		if err != nil {
 			return err
