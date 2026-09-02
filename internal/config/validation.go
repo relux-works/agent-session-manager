@@ -449,6 +449,9 @@ func validateMesh(configuration *Configuration) error {
 		if err := validatePrintableCharacters(peer.Endpoint, 1, 1024); err != nil {
 			return configError(prefix+".endpoint", err)
 		}
+		if reason := admitMeshEndpoint(peer.Endpoint); reason != endpointAdmitted {
+			return configError(prefix+".endpoint "+reason, ErrConfigValidation)
+		}
 		if len(peer.SSHArgs) > 64 {
 			return configError(prefix+".ssh_args", ErrConfigValidation)
 		}

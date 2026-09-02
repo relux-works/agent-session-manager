@@ -322,3 +322,143 @@ func TestSSHArgumentAdmissionRefusesThroughTheMeshPeerClause(t *testing.T) {
 		t.Fatalf("clause = %q, want the mesh peer ssh_args prefix", documentError.Clause)
 	}
 }
+
+// permittedSSHFlagSamples names every valueless short option AX permits. It
+// carries the same both-directions key-set pin permittedSSHOptionSamples gives
+// the -o registry: the key set is asserted to equal sshPermittedFlags exactly,
+// so a mutant that permits one extra letter reddens here instead of silently
+// widening what AX hands to ssh(1).
+var permittedSSHFlagSamples = map[byte]string{
+	'4': "IPv4 only",
+	'6': "IPv6 only",
+	'C': "request compression",
+	'T': "no remote pseudo-terminal",
+	'a': "disable agent forwarding",
+	'q': "quiet",
+	'v': "verbose",
+}
+
+// permittedSSHValueFlagSamples carries, for every value-taking short option AX
+// permits, a value its declared rule admits and a value it refuses together
+// with the reason. Its key set is pinned to sshPermittedValueFlags the same
+// way, so widening that table without proving both directions of the new rule
+// reddens.
+var permittedSSHValueFlagSamples = map[byte]struct{ admitted, refused, reason string }{
+	'i': {admitted: "/home/ax/.ssh/id_ed25519", refused: "/home/ax/.ssh/id ed25519", reason: sshRefusalUnpermittedFlagValue},
+	'l': {admitted: "ax", refused: "ax user", reason: sshRefusalUnpermittedFlagValue},
+	'p': {admitted: "2222", refused: "65536", reason: sshRefusalUnpermittedFlagValue},
+	'o': {admitted: "BatchMode=yes", refused: "ProxyCommand=id", reason: sshRefusalUnpermittedOption},
+}
+
+// TestLoadAdmitsExactlyTheDeclaredPermittedSSHShortOptions closes the
+// asymmetry the SSH admission review disclosed: the short-flag tables were
+// covered only by a derived test that skips whatever production permits, so a
+// mutant adding -A, -E or -L to the permitted tables passed the suite green.
+// The key-set equality below is what reddens for that mutant, and each sample
+// then proves the letter in both directions at the production entry.
+func TestLoadAdmitsExactlyTheDeclaredPermittedSSHShortOptions(t *testing.T) {
+	t.Parallel()
+
+	for letter := range sshPermittedFlags {
+		if _, ok := permittedSSHFlagSamples[letter]; !ok {
+			t.Fatalf("permitted flag -%c has no declared sample", letter)
+		}
+	}
+	for letter := range permittedSSHFlagSamples {
+		if _, ok := sshPermittedFlags[letter]; !ok {
+			t.Fatalf("sample -%c is not a permitted flag in sshPermittedFlags", letter)
+		}
+	}
+	for letter := range sshPermittedValueFlags {
+		if _, ok := permittedSSHValueFlagSamples[letter]; !ok {
+			t.Fatalf("permitted value flag -%c has no admitted/refused sample", letter)
+		}
+	}
+	for letter := range permittedSSHValueFlagSamples {
+		if _, ok := sshPermittedValueFlags[letter]; !ok {
+			t.Fatalf("sample -%c is not a permitted value flag in sshPermittedValueFlags", letter)
+		}
+	}
+
+	for _, letter := range sortedFlagLetters(permittedSSHFlagSamples) {
+		letter := letter
+		t.Run("valueless "+string(letter), func(t *testing.T) {
+			t.Parallel()
+			// Alone, and grouped ahead of a value-taking letter, because the
+			// group walk is where a wrongly declared arity would show.
+			requireSSHArgsAdmitted(t, "-"+string(letter))
+			requireSSHArgsAdmitted(t, "-"+string(letter)+"p2222")
+		})
+	}
+	for _, letter := range sortedValueFlagLetters(permittedSSHValueFlagSamples) {
+		letter := letter
+		t.Run("value-taking "+string(letter), func(t *testing.T) {
+			t.Parallel()
+			sample := permittedSSHValueFlagSamples[letter]
+			requireSSHArgsAdmitted(t, "-"+string(letter), sample.admitted)
+			requireSSHArgsAdmitted(t, "-"+string(letter)+sample.admitted)
+			requireSSHArgsRefusal(t, sample.reason, "-"+string(letter), sample.refused)
+			requireSSHArgsRefusal(t, sample.reason, "-"+string(letter)+sample.refused)
+			// A declared value-taking letter with no operand left is refused
+			// rather than admitted as a bare flag, in every spelling that can
+			// leave it dangling.
+			requireSSHArgsRefusal(t, sshRefusalMissingFlagValue, "-"+string(letter))
+			requireSSHArgsRefusal(t, sshRefusalMissingFlagValue, "-q"+string(letter))
+			requireSSHArgsRefusal(t, sshRefusalMissingFlagValue, "-4", "-"+string(letter))
+		})
+	}
+}
+
+// TestLoadRefusesTheNamedSSHCapabilityWideningFlags names the letters the SSH
+// admission review called out as capability widenings outside Section 6.3:
+// agent forwarding, a chosen log file, and the forwarding and tunnelling
+// letters. The derived walk covers them only while production does not permit
+// them; these assertions redden directly if it ever does.
+func TestLoadRefusesTheNamedSSHCapabilityWideningFlags(t *testing.T) {
+	t.Parallel()
+
+	t.Run("agent forwarding", func(t *testing.T) {
+		t.Parallel()
+		requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-A")
+		requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-qA")
+	})
+	t.Run("log file redirection", func(t *testing.T) {
+		t.Parallel()
+		requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-E", "/tmp/attacker/ssh.log")
+		requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-E/tmp/attacker/ssh.log")
+	})
+	for name, argument := range map[string]string{
+		"local forward":   "L",
+		"remote forward":  "R",
+		"dynamic forward": "D",
+		"stdio forward":   "W",
+		"tunnel device":   "w",
+		"control socket":  "S",
+		"control command": "O",
+	} {
+		name, letter := name, argument
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-"+letter, "value")
+			requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-q"+letter, "value")
+		})
+	}
+}
+
+func sortedFlagLetters(table map[byte]string) []byte {
+	letters := make([]byte, 0, len(table))
+	for letter := range table {
+		letters = append(letters, letter)
+	}
+	sort.Slice(letters, func(first, second int) bool { return letters[first] < letters[second] })
+	return letters
+}
+
+func sortedValueFlagLetters(table map[byte]struct{ admitted, refused, reason string }) []byte {
+	letters := make([]byte, 0, len(table))
+	for letter := range table {
+		letters = append(letters, letter)
+	}
+	sort.Slice(letters, func(first, second int) bool { return letters[first] < letters[second] })
+	return letters
+}

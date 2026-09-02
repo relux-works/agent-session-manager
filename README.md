@@ -271,6 +271,31 @@ unpermitted flag, and an unpermitted value; the negative suite derives its cases
 from those same tables, so a newly declared option is covered the moment it is
 added.
 
+That gate reads `ssh_args` only, and Section 6.2 hands `ssh(1)` the peer
+`endpoint` as an atomic argv value too. An atomic argv value is not by itself a
+destination: `ssh(1)` reads its destination positionally through getopt, so an
+endpoint beginning with `-` is parsed as an option. `-oStrictHostKeyChecking=no`
+written into `endpoint` was therefore the same Section 6.3 bypass reached
+through a field the `ssh_args` gate never inspects, and an endpoint carrying a
+space is that injection one word-split away. `internal/config/endpoint.go`
+closes it the same derived way: the field is admitted against a closed
+`[user@]host[:port]` grammar — a 1-64 character login name, LDH DNS labels or a
+bracketed IPv6 literal, and a decimal port in 1-65535 — and refused otherwise,
+naming which clause it violated. The grammar is narrower than every destination
+`ssh(1)` would accept, so widening it is a reviewed change; the 1-1024 character
+endpoint bound stays reachable through the grammar and is still proved at both
+its limits.
+
+Every negative case for that grammar carries an isolating neighbour: the same
+endpoint with only the named violation removed, asserted to be admitted. A case
+that names the `host` clause but would also be refused by the `port` clause
+pins nothing, so the neighbour is what proves the named clause is the one
+deciding. The leading-hyphen clause needs it most — the reported shapes such as
+`-oStrictHostKeyChecking=no` are refused by the host grammar too once the
+hyphen clause is gone, while `-ivan@peer.example` is not, because `-` is a legal
+login-name byte and `ssh(1)` reads that value as `-i` with identity file
+`van@peer.example`.
+
 Section 6 states one rule for an `extensions` key: it is a reverse-DNS key of
 3-253 lowercase ASCII characters with at least one dot and dot-separated labels
 matching `[a-z][a-z0-9-]{0,62}`. No label is reserved, so `validateExtensions`

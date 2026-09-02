@@ -503,7 +503,10 @@ func TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections(
 	t.Run("character bounds on endpoint logical root path and directory IDs", func(t *testing.T) {
 		at := validCurrentConfiguration()
 		at.Mesh.Peers[0].Name = strings.Repeat("界", 64)
-		at.Mesh.Peers[0].Endpoint = strings.Repeat("界", 1024)
+		// The endpoint bound is proved with a name the [user@]host[:port]
+		// grammar admits, so the 1024-character limit stays reachable through
+		// the production gate rather than being masked by a grammar refusal.
+		at.Mesh.Peers[0].Endpoint = strings.Repeat("a.", 511) + "ab"
 		at.WorkspaceRoots[0].LogicalRoot = "a" + strings.Repeat("b", 63)
 		at.WorkspaceRoots[0].Path = "/" + strings.Repeat("p", 32_766)
 		at.DirectoryInstallations[0].EnvironmentID = strings.Repeat("界", 64)
@@ -511,7 +514,7 @@ func TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections(
 		assertCurrentAccepted(t, at)
 		for name, mutate := range map[string]func(*Configuration){
 			"peer name":      func(value *Configuration) { value.Mesh.Peers[0].Name = strings.Repeat("界", 65) },
-			"endpoint":       func(value *Configuration) { value.Mesh.Peers[0].Endpoint = strings.Repeat("界", 1025) },
+			"endpoint":       func(value *Configuration) { value.Mesh.Peers[0].Endpoint = strings.Repeat("a.", 511) + "abc" },
 			"logical root":   func(value *Configuration) { value.WorkspaceRoots[0].LogicalRoot = "a" + strings.Repeat("b", 64) },
 			"absolute path":  func(value *Configuration) { value.WorkspaceRoots[0].Path = "/" + strings.Repeat("p", 32_767) },
 			"environment id": func(value *Configuration) { value.DirectoryInstallations[0].EnvironmentID = strings.Repeat("界", 65) },
