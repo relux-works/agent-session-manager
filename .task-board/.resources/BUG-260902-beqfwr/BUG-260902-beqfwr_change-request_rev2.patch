@@ -1,0 +1,764 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 6bbe661..2008999 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,18 @@
+ 
+ ## 2026-09-02
+ 
++### 1353 — ssh_args admission derived from a declared grammar, not a name blacklist
++- ROOT CAUSE: `sshHostAuthenticationBypass` (`internal/config/validation.go:846`, called from `:465`) matched three option names, which cannot satisfy SPEC.md 6.3's "or an equivalent host-authentication bypass"; it inspected only whole `-o` tokens and matched only `no|off`.
++- FINDING: reproduced against OpenSSH 10.2p1 on this host — `ssh -G -vo StrictHostKeyChecking=no` prints `stricthostkeychecking false` (grouped short flags were never seen), `-o StrictHostKeyChecking=false` and `=NO` also print `false` (live aliases, case-folded), and `-F`, `ProxyCommand`, `KnownHostsCommand`, `Include`, `PermitLocalCommand`+`LocalCommand` were unknown to the filter entirely.
++- FIX: `internal/config/sshargs.go` declares the ssh(1) short-option arity transcribed from the OpenSSH usage text, the short options AX admits (`4 6 C T a q v`, `i l p o`), and an `-o` registry with per-option value rules; `admitSSHArguments` walks argv with getopt semantics and refuses the complement, so an undeclared option fails closed. One refusal call site remains at `validation.go:465`, now carrying a closed reason vocabulary in the clause.
++- DECISION: `StrictHostKeyChecking` declared with only the enforcing spelling `yes`, so `no`/`off`/`false`/`accept-new` and anything OpenSSH adds later are refused without listing aliases. Host-authentication option names are still declared in the registry — not to widen admission, but so their refusal reports the 6.3 clause instead of an unknown-name clause.
++- FINDING: `-i` consuming the next argv as a filename (`ssh -G -i -oProxyCommand=id` sets no proxycommand) is faithful OpenSSH behavior and is admitted deliberately; a token scanner that "found" `-oProxyCommand=` there would diverge from what ssh actually does.
++- FINDING: a derived per-letter loop goes quiet under the mutant that permits that letter — the subtest simply stops existing. Cited bypasses need an explicitly named assertion alongside the derivation; M1 (permit `-F`) reddens only because of it.
++- REGRESSION: two pre-existing bound tests in `internal/config/schema_test.go` used `"xxxx…"` filler as `ssh_args`; that is a bare operand and is now refused, so they were rewritten to `-i<path>` argv of identical byte lengths.
++- SCOPE: `internal/config/sshargs.go` (new), `internal/config/ssh_admission_test.go` (new), `internal/config/validation.go`, `internal/config/refusal_test.go`, `internal/config/schema_test.go`, `README.md`.
++- REAPPLY: this leaf was reprovisioned onto a fresh Story workspace after an empty-OID checkpoint; the accepted patch was reapplied rather than reimplemented, and every gate and mutant below was rerun in the new workspace instead of inherited from the earlier run. The five cited OpenSSH behaviours were reproduced again against the live OpenSSH 10.2p1 binary on this host.
++- STATUS: BUG-260902-beqfwr on `task-board/story/STORY-260902-2230n7`, one commit past checkpoint `6f77719`; `internal/config` coverage 93.7% (measured at the checkpoint) -> 93.9%; `go build ./...`, `go vet ./...`, `gofmt -l .`, `go test ./... -count=1`, `go test ./... -cover`, tracecheck, and the catalog `-check` gate all exit 0; ten single-clause mutants each redden their own cases; handed off to review.
++
+ ### 0900 — BUG-260902-lyhvkw rev-2 reapplied onto advanced trunk a351afd
+ - FINDING: the accepted revision-2 patch reapplied cleanly except `internal/traceability/traceability.go`, where trunk had independently repinned `reviewedOwnershipCanonicalSHA256`; resolved to the trunk value, then repinned to the recomputed projection digest `9f7737cb07f853012fcc9e2359981e20e9b65df622f9da7fa4935a2180cd04b0` reported by tracecheck.
+ - STATUS: canonicaljson coverage 87.1% (trunk a351afd) -> 87.2%; widen-512, narrow-128, and delete-gate mutants all redden the suite; the delete-gate mutant still reproduces `fatal error: stack overflow`.
+diff --git a/README.md b/README.md
+index ec47c22..b596480 100644
+--- a/README.md
++++ b/README.md
+@@ -252,6 +252,25 @@ mutating path fails closed: a selected file that is not itself a regular file is
+ refused with `ErrConfigNotRegular` before any backup, staging file, or
+ replacement is written, and the refusal leaves the directory exactly as it was.
+ 
++Section 6.3 requires refusing `StrictHostKeyChecking=no`, an empty
++`UserKnownHostsFile`, "or an equivalent host-authentication bypass" in a mesh
++peer's `ssh_args`. An equivalence class has no enumeration, so admission is
++derived rather than blacklisted: `internal/config/sshargs.go` declares the
++`ssh(1)` short-option arity transcribed from the OpenSSH usage text, the short
++options AX admits, and the `-o` option registry with the values each option
++permits. Every argument outside that declaration is refused, so an option name
++the parser has never heard of — `ProxyCommand`, `KnownHostsCommand`, `Include`,
++`LocalCommand`, or anything OpenSSH adds later — fails closed, as do `-F`, a
++bare destination or remote command, and any grouped short flag carrying them.
++Short options are walked with getopt semantics, so `-vo StrictHostKeyChecking=no`
++and `-4o UserKnownHostsFile=/dev/null` are seen as the options OpenSSH resolves
++them to. `StrictHostKeyChecking` is declared with only its enforcing spelling,
++which refuses the live `false` alias without listing aliases. The refusal clause
++distinguishes a host-authentication option from an undeclared name, an
++unpermitted flag, and an unpermitted value; the negative suite derives its cases
++from those same tables, so a newly declared option is covered the moment it is
++added.
++
+ Run the focused tests and assigned-scope traceability gate with:
+ 
+     go test ./internal/config -count=1 -v
+diff --git a/internal/config/refusal_test.go b/internal/config/refusal_test.go
+index 849d490..9be3e35 100644
+--- a/internal/config/refusal_test.go
++++ b/internal/config/refusal_test.go
+@@ -12,7 +12,16 @@ import (
+ 
+ const testPeerID2 = "0198f4c8-9d40-7e55-8e6f-1234567890ab"
+ 
+-func TestLoadRefusesEveryOpenSSHHostAuthenticationBypassSpelling(t *testing.T) {
++// TestLoadRefusesHostAuthenticationBypassAcrossTheOptionSpellingGrammar pins
++// the separator, quoting, and grouping spellings that reach the same option.
++// It does not claim completeness over option names: that is earned separately
++// by TestLoadRefusesEveryHostAuthenticationOptionDeclaredInTheRegistry, which
++// derives its cases from sshOptionRegistry, and by the closed admission in
++// admitSSHArguments, which refuses every name the registry does not declare.
++// Each StrictHostKeyChecking value below was reproduced against OpenSSH
++// 10.2p1: ssh -G -o StrictHostKeyChecking=false prints
++// "stricthostkeychecking false", because false is a live OpenSSH alias for no.
++func TestLoadRefusesHostAuthenticationBypassAcrossTheOptionSpellingGrammar(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	tests := []struct {
+@@ -22,6 +31,13 @@ func TestLoadRefusesEveryOpenSSHHostAuthenticationBypassSpelling(t *testing.T) {
+ 		{name: "separate equals", args: `["-o", "StrictHostKeyChecking=no"]`},
+ 		{name: "strict off alias", args: `["-o", "StrictHostKeyChecking=off"]`},
+ 		{name: "strict off alias combined", args: `["-oStrictHostKeyChecking=off"]`},
++		{name: "strict false alias", args: `["-o", "StrictHostKeyChecking=false"]`},
++		{name: "strict false alias case folded", args: `["-o", "StrictHostKeyChecking=FALSE"]`},
++		{name: "strict no case folded", args: `["-o", "StrictHostKeyChecking=NO"]`},
++		{name: "strict trust on first use", args: `["-o", "StrictHostKeyChecking=accept-new"]`},
++		{name: "strict grouped short flag", args: `["-vo", "StrictHostKeyChecking=no"]`},
++		{name: "known hosts grouped short flag", args: `["-4o", "UserKnownHostsFile=/dev/null"]`},
++		{name: "strict grouped attached value", args: `["-voStrictHostKeyChecking=no"]`},
+ 		{name: "separate whitespace", args: `["-o", "StrictHostKeyChecking no"]`},
+ 		{name: "separator run", args: `["-o", "StrictHostKeyChecking = no"]`},
+ 		{name: "combined whitespace", args: `["-oStrictHostKeyChecking no"]`},
+diff --git a/internal/config/schema_test.go b/internal/config/schema_test.go
+index 2a6f9fc..c75f0b3 100644
+--- a/internal/config/schema_test.go
++++ b/internal/config/schema_test.go
+@@ -376,11 +376,11 @@ name = "peer"
+ endpoint = "x"
+ platform = "linux"
+ `
+-	atArgument := peerPrefix + "ssh_args = [\"" + strings.Repeat("x", 4096) + "\"]\n"
++	atArgument := peerPrefix + "ssh_args = [\"-i" + strings.Repeat("x", 4094) + "\"]\n"
+ 	if _, err := loadConfigDocument([]byte(atArgument), scalar.PlatformMacOS, nil); err != nil {
+ 		t.Fatalf("4096-byte SSH argument refused: %v", err)
+ 	}
+-	overArgument := peerPrefix + "ssh_args = [\"" + strings.Repeat("x", 4097) + "\"]\n"
++	overArgument := peerPrefix + "ssh_args = [\"-i" + strings.Repeat("x", 4095) + "\"]\n"
+ 	if _, err := loadConfigDocument([]byte(overArgument), scalar.PlatformMacOS, nil); !errors.Is(err, ErrConfigValidation) {
+ 		t.Fatalf("4097-byte SSH argument error = %v", err)
+ 	}
+@@ -469,9 +469,9 @@ func TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections(
+ 		at.Mesh.Peers[0].Endpoint = "x"
+ 		at.Mesh.Peers[0].SSHArgs = make([]string, 16)
+ 		for index := range at.Mesh.Peers[0].SSHArgs {
+-			at.Mesh.Peers[0].SSHArgs[index] = strings.Repeat("x", 4096)
++			at.Mesh.Peers[0].SSHArgs[index] = "-i" + strings.Repeat("x", 4094)
+ 		}
+-		at.Mesh.Peers[0].SSHArgs[0] = strings.Repeat("x", 4095)
++		at.Mesh.Peers[0].SSHArgs[0] = "-i" + strings.Repeat("x", 4093)
+ 		assertCurrentAccepted(t, at)
+ 		overBytes := cloneConfiguration(at)
+ 		overBytes.Mesh.Peers[0].SSHArgs[0] += "x"
+@@ -479,7 +479,7 @@ func TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections(
+ 		overCount := validCurrentConfiguration()
+ 		overCount.Mesh.Peers[0].SSHArgs = make([]string, 65)
+ 		for index := range overCount.Mesh.Peers[0].SSHArgs {
+-			overCount.Mesh.Peers[0].SSHArgs[index] = "x"
++			overCount.Mesh.Peers[0].SSHArgs[index] = "-q"
+ 		}
+ 		assertCurrentRefused(t, overCount)
+ 	})
+diff --git a/internal/config/ssh_admission_test.go b/internal/config/ssh_admission_test.go
+new file mode 100644
+index 0000000..bfc624b
+--- /dev/null
++++ b/internal/config/ssh_admission_test.go
+@@ -0,0 +1,324 @@
++package config
++
++import (
++	"errors"
++	"sort"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// peerDocumentWithSSHArgs builds a document whose only interesting content is
++// one mesh peer carrying the given argv, so every case below is decided by the
++// production loadConfigDocument entry and its mesh.peers[0].ssh_args gate.
++func peerDocumentWithSSHArgs(arguments ...string) []byte {
++	quoted := make([]string, 0, len(arguments))
++	for _, argument := range arguments {
++		quoted = append(quoted, strconv.Quote(argument))
++	}
++	return append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[mesh.peers]]
++host_id = "`+testPeerID+`"
++name = "peer"
++endpoint = "peer.example"
++platform = "linux"
++ssh_args = [`+strings.Join(quoted, ", ")+`]
++workspace_roots = []
++`)...)
++}
++
++func requireSSHArgsRefusal(t *testing.T, reason string, arguments ...string) {
++	t.Helper()
++	_, err := loadConfigDocument(peerDocumentWithSSHArgs(arguments...), scalar.PlatformMacOS, nil)
++	requireConfigClause(t, err, "mesh.peers[0].ssh_args "+reason)
++}
++
++func requireSSHArgsAdmitted(t *testing.T, arguments ...string) {
++	t.Helper()
++	if _, err := loadConfigDocument(peerDocumentWithSSHArgs(arguments...), scalar.PlatformMacOS, nil); err != nil {
++		t.Fatalf("ssh_args %q refused: %v", arguments, err)
++	}
++}
++
++// TestSSHShortOptionTablesAreDerivedFromTheOpenSSHGrammar pins the arity of
++// every admitted short option to the transcribed ssh(1) usage grammar. A
++// letter admitted with the wrong arity would make the grouped-flag walk
++// diverge from OpenSSH, which is exactly how -vo StrictHostKeyChecking=no
++// slipped past the previous name-matching gate.
++func TestSSHShortOptionTablesAreDerivedFromTheOpenSSHGrammar(t *testing.T) {
++	t.Parallel()
++
++	seen := map[byte]string{}
++	for _, letter := range []byte(sshShortOptionsWithoutValue) {
++		if where, duplicate := seen[letter]; duplicate {
++			t.Fatalf("letter %q declared twice in the ssh(1) grammar (%s)", letter, where)
++		}
++		seen[letter] = "valueless"
++	}
++	for _, letter := range []byte(sshShortOptionsWithValue) {
++		if where, duplicate := seen[letter]; duplicate {
++			t.Fatalf("letter %q declared twice in the ssh(1) grammar (%s)", letter, where)
++		}
++		seen[letter] = "value-taking"
++	}
++	for letter := range sshPermittedFlags {
++		if seen[letter] != "valueless" {
++			t.Fatalf("permitted flag -%c has arity %q in the ssh(1) grammar, want valueless", letter, seen[letter])
++		}
++	}
++	for letter := range sshPermittedValueFlags {
++		if seen[letter] != "value-taking" {
++			t.Fatalf("permitted value flag -%c has arity %q in the ssh(1) grammar, want value-taking", letter, seen[letter])
++		}
++		if _, both := sshPermittedFlags[letter]; both {
++			t.Fatalf("letter -%c is declared in both permitted tables", letter)
++		}
++	}
++}
++
++// TestLoadRefusesEveryHostAuthenticationOptionDeclaredInTheRegistry derives
++// its cases from sshOptionRegistry rather than listing spellings, so a newly
++// declared host-authentication option is covered the moment it is added.
++func TestLoadRefusesEveryHostAuthenticationOptionDeclaredInTheRegistry(t *testing.T) {
++	t.Parallel()
++
++	// Candidate values a caller would reach for to relax host authentication.
++	// The first one the declared rule does not permit is the case value.
++	candidates := []string{"no", "off", "false", "accept-new", "ask", "/dev/null", "none", "", "/tmp/attacker-writable"}
++	names := make([]string, 0, len(sshOptionRegistry))
++	for name, rule := range sshOptionRegistry {
++		if rule.hostAuthentication {
++			names = append(names, name)
++		}
++	}
++	sort.Strings(names)
++	if len(names) == 0 {
++		t.Fatal("sshOptionRegistry declares no host-authentication option")
++	}
++	for _, name := range names {
++		name := name
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++			rule := sshOptionRegistry[name]
++			bypass, found := "", false
++			for _, candidate := range candidates {
++				if rule.permits == nil || !rule.permits(candidate) {
++					bypass, found = candidate, true
++					break
++				}
++			}
++			if !found {
++				t.Fatalf("option %q permits every bypass candidate", name)
++			}
++			requireSSHArgsRefusal(t, sshRefusalHostAuthentication, "-o", name+"="+bypass)
++			requireSSHArgsRefusal(t, sshRefusalHostAuthentication, "-o"+name+"="+bypass)
++		})
++	}
++}
++
++// permittedSSHOptionSamples carries, for every option the registry permits, a
++// value the rule admits and a value it refuses. The key set is asserted to
++// equal the permitted registry exactly, so widening the registry without
++// proving both directions of the new rule reddens this test.
++var permittedSSHOptionSamples = map[string]struct{ admitted, refused string }{
++	"addressfamily":       {admitted: "inet", refused: "unix"},
++	"batchmode":           {admitted: "yes", refused: "maybe"},
++	"compression":         {admitted: "no", refused: "delayed"},
++	"connectionattempts":  {admitted: "3", refused: "0"},
++	"connecttimeout":      {admitted: "30", refused: "301"},
++	"identitiesonly":      {admitted: "yes", refused: "1"},
++	"identityfile":        {admitted: "/home/ax/.ssh/id_ed25519", refused: "/home/ax/.ssh/id ed25519"},
++	"loglevel":            {admitted: "ERROR", refused: "trace"},
++	"port":                {admitted: "2222", refused: "65536"},
++	"serveralivecountmax": {admitted: "3", refused: "101"},
++	"serveraliveinterval": {admitted: "30", refused: "86401"},
++	"tcpkeepalive":        {admitted: "yes", refused: "always"},
++	"user":                {admitted: "ax", refused: "ax user"},
++}
++
++// TestLoadAdmitsExactlyTheDeclaredPermittedSSHOptions proves admission is
++// closed in both directions: every permitted option loads with a value its
++// declared rule admits, and refuses a value the rule does not.
++func TestLoadAdmitsExactlyTheDeclaredPermittedSSHOptions(t *testing.T) {
++	t.Parallel()
++
++	permitted := map[string]struct{}{}
++	for name, rule := range sshOptionRegistry {
++		if rule.permits != nil && !rule.hostAuthentication {
++			permitted[name] = struct{}{}
++		}
++	}
++	for name := range permitted {
++		if _, ok := permittedSSHOptionSamples[name]; !ok {
++			t.Fatalf("permitted option %q has no admitted/refused sample", name)
++		}
++	}
++	for name := range permittedSSHOptionSamples {
++		if _, ok := permitted[name]; !ok {
++			t.Fatalf("sample %q is not a permitted option in sshOptionRegistry", name)
++		}
++	}
++	names := make([]string, 0, len(permittedSSHOptionSamples))
++	for name := range permittedSSHOptionSamples {
++		names = append(names, name)
++	}
++	sort.Strings(names)
++	for _, name := range names {
++		name := name
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++			sample := permittedSSHOptionSamples[name]
++			requireSSHArgsAdmitted(t, "-o", name+"="+sample.admitted)
++			requireSSHArgsRefusal(t, sshRefusalUnpermittedOptionValue, "-o", name+"="+sample.refused)
++		})
++	}
++}
++
++// TestLoadRefusesEverySSHShortOptionOutsideThePermittedTables walks the whole
++// declared ssh(1) short-option grammar and requires every letter AX does not
++// declare as permitted to be refused at the production entry. -F, the config
++// file redirection cited in the report, is one derived case among them.
++func TestLoadRefusesEverySSHShortOptionOutsideThePermittedTables(t *testing.T) {
++	t.Parallel()
++
++	for _, letter := range []byte(sshShortOptionsWithoutValue + sshShortOptionsWithValue) {
++		if _, permitted := sshPermittedFlags[letter]; permitted {
++			continue
++		}
++		if _, permitted := sshPermittedValueFlags[letter]; permitted {
++			continue
++		}
++		letter := letter
++		t.Run(string(letter), func(t *testing.T) {
++			t.Parallel()
++			requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-"+string(letter), "value")
++			requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-q"+string(letter), "value")
++		})
++	}
++	// The cited -F bypass in both spellings, named explicitly rather than only
++	// derived, because an attacker-writable ssh_config redirects every option
++	// this gate protects.
++	requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-F", "/tmp/attacker/ssh_config")
++	requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-F/tmp/attacker/ssh_config")
++	// A letter ssh(1) itself does not define is refused rather than skipped.
++	requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-z")
++}
++
++// TestLoadParsesGroupedShortFlagsTheWayOpenSSHParsesThem covers the grouping
++// bypasses reproduced against OpenSSH 10.2p1: ssh -G -vo
++// StrictHostKeyChecking=no prints "stricthostkeychecking false", and ssh -G
++// -4o UserKnownHostsFile=/dev/null prints "userknownhostsfile /dev/null".
++func TestLoadParsesGroupedShortFlagsTheWayOpenSSHParsesThem(t *testing.T) {
++	t.Parallel()
++
++	t.Run("grouped valueless flag still lets -o take the next argument", func(t *testing.T) {
++		t.Parallel()
++		requireSSHArgsRefusal(t, sshRefusalHostAuthentication, "-vo", "StrictHostKeyChecking=no")
++		requireSSHArgsRefusal(t, sshRefusalHostAuthentication, "-4o", "UserKnownHostsFile=/dev/null")
++		requireSSHArgsRefusal(t, sshRefusalUnpermittedOption, "-6o", "ProxyCommand=/bin/sh")
++	})
++	t.Run("grouped valueless flag still lets -o take the attached value", func(t *testing.T) {
++		t.Parallel()
++		requireSSHArgsRefusal(t, sshRefusalHostAuthentication, "-voStrictHostKeyChecking=no")
++		requireSSHArgsRefusal(t, sshRefusalHostAuthentication, "-qvoUserKnownHostsFile=/dev/null")
++	})
++	t.Run("a value-taking letter ends its group", func(t *testing.T) {
++		t.Parallel()
++		// -qp2222 is q plus p=2222, matching ssh -G -qp2222 (port 2222). The
++		// digits are the port value, not further flag letters.
++		requireSSHArgsAdmitted(t, "-qp2222")
++		requireSSHArgsAdmitted(t, "-4v")
++		requireSSHArgsAdmitted(t, "-vqTCa")
++		requireSSHArgsRefusal(t, sshRefusalUnpermittedFlagValue, "-qp65536")
++		// -i consumes the whole next argument as its identity file exactly as
++		// OpenSSH does: ssh -G -i -oProxyCommand=id host sets no proxycommand.
++		requireSSHArgsAdmitted(t, "-i", "-oProxyCommand=id")
++	})
++	t.Run("an unpermitted letter inside a group is refused", func(t *testing.T) {
++		t.Parallel()
++		requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-vF", "/tmp/attacker/ssh_config")
++		requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-4J", "jump.example")
++	})
++}
++
++// TestLoadRefusesUndeclaredSSHOptionNamesAtTheProductionEntry covers the
++// option names the previous three-name filter did not know at all. None of
++// them is listed in production: they are refused because the registry does not
++// declare them.
++func TestLoadRefusesUndeclaredSSHOptionNamesAtTheProductionEntry(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name      string
++		reason    string
++		arguments []string
++	}{
++		{name: "ProxyCommand", reason: sshRefusalUnpermittedOption, arguments: []string{"-o", "ProxyCommand=/bin/sh -c id"}},
++		{name: "ProxyCommand combined", reason: sshRefusalUnpermittedOption, arguments: []string{"-oProxyCommand=/bin/sh"}},
++		{name: "ProxyUseFdpass", reason: sshRefusalUnpermittedOption, arguments: []string{"-o", "ProxyUseFdpass=yes"}},
++		{name: "Include", reason: sshRefusalUnpermittedOption, arguments: []string{"-o", "Include=/tmp/attacker/ssh_config"}},
++		{name: "PermitLocalCommand and LocalCommand", reason: sshRefusalUnpermittedOption, arguments: []string{"-o", "PermitLocalCommand=yes", "-o", "LocalCommand=id"}},
++		{name: "LocalCommand alone", reason: sshRefusalUnpermittedOption, arguments: []string{"-o", "LocalCommand=id"}},
++		{name: "KnownHostsCommand", reason: sshRefusalHostAuthentication, arguments: []string{"-o", "KnownHostsCommand=/bin/true"}},
++		{name: "Match exec", reason: sshRefusalUnpermittedOption, arguments: []string{"-o", "Match=exec /bin/true"}},
++		{name: "unknown to this parser", reason: sshRefusalUnpermittedOption, arguments: []string{"-o", "ThisOptionDoesNotExistYet=1"}},
++		{name: "option name only", reason: sshRefusalUnpermittedOption, arguments: []string{"-o", "ProxyCommand"}},
++		{name: "separator only", reason: sshRefusalUnpermittedOption, arguments: []string{"-o", "="}},
++	}
++	for _, test := range tests {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			requireSSHArgsRefusal(t, test.reason, test.arguments...)
++		})
++	}
++}
++
++// TestLoadRefusesSSHArgumentsThatAreNotOptions keeps ssh_args to options only.
++// A bare word is ssh(1)'s destination or remote command, which would run on
++// the peer.
++func TestLoadRefusesSSHArgumentsThatAreNotOptions(t *testing.T) {
++	t.Parallel()
++
++	requireSSHArgsRefusal(t, sshRefusalUnpermittedArgument, "peer.example")
++	requireSSHArgsRefusal(t, sshRefusalUnpermittedArgument, "-q", "id")
++	requireSSHArgsRefusal(t, sshRefusalUnpermittedArgument, "--")
++	requireSSHArgsRefusal(t, sshRefusalUnpermittedArgument, "-")
++	// A GNU-style long option is not ssh(1) grammar; getopt reads its leading
++	// dash as an undefined option letter, and so does this walk.
++	requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "--proxy-command=id")
++	requireSSHArgsRefusal(t, sshRefusalMissingFlagValue, "-q", "-o")
++	requireSSHArgsRefusal(t, sshRefusalMissingFlagValue, "-p")
++}
++
++// TestLoadAdmitsTheSpecifiedPeerArgumentExample keeps the Section 6.3 example
++// argv loadable, so the closed admission above is not vacuously strict.
++func TestLoadAdmitsTheSpecifiedPeerArgumentExample(t *testing.T) {
++	t.Parallel()
++
++	requireSSHArgsAdmitted(t, "-o", "BatchMode=yes")
++	requireSSHArgsAdmitted(t)
++	requireSSHArgsAdmitted(t, "-4", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-p", "2222", "-i", "/home/ax/.ssh/id_ed25519")
++	requireSSHArgsAdmitted(t, "-o", "StrictHostKeyChecking=yes")
++}
++
++// TestSSHArgumentAdmissionIsTheOnlyGateBetweenArgvAndTheLoader guards the
++// production wiring: the refusal clause must come from validateMesh's peer
++// prefix, not from an unrelated bound.
++func TestSSHArgumentAdmissionRefusesThroughTheMeshPeerClause(t *testing.T) {
++	t.Parallel()
++
++	_, err := loadConfigDocument(peerDocumentWithSSHArgs("-o", "ProxyCommand=id"), scalar.PlatformMacOS, nil)
++	if !errors.Is(err, ErrConfigValidation) {
++		t.Fatalf("error = %v, want ErrConfigValidation", err)
++	}
++	var documentError *DocumentError
++	if !errors.As(err, &documentError) {
++		t.Fatalf("error = %T, want *DocumentError", err)
++	}
++	if !strings.HasPrefix(documentError.Clause, "mesh.peers[0].ssh_args ") {
++		t.Fatalf("clause = %q, want the mesh peer ssh_args prefix", documentError.Clause)
++	}
++}
+diff --git a/internal/config/sshargs.go b/internal/config/sshargs.go
+new file mode 100644
+index 0000000..a0e7b63
+--- /dev/null
++++ b/internal/config/sshargs.go
+@@ -0,0 +1,231 @@
++package config
++
++import (
++	"strconv"
++	"strings"
++	"unicode"
++)
++
++// Admission for the argv AX hands to ssh(1) for a mesh peer.
++//
++// SPEC.md Section 6.3 requires refusing StrictHostKeyChecking=no, an empty
++// UserKnownHostsFile, "or an equivalent host-authentication bypass". That
++// equivalence class has no enumeration: OpenSSH keeps adding option names, a
++// name can be spelled through a grouped short flag, and options such as
++// ProxyCommand replace the authenticated transport outright. Admission is
++// therefore derived the other way round. The tables below declare the exact
++// argv AX passes to ssh(1); every argument outside that declaration is
++// refused, so an option this package has never heard of fails closed instead
++// of being admitted.
++
++// sshShortOptionsWithoutValue and sshShortOptionsWithValue transcribe the
++// ssh(1) short-option arity from the OpenSSH 10.2p1 usage text:
++//
++//	usage: ssh [-46AaCfGgKkMNnqsTtVvXxYy] [-B bind_interface] [-b bind_address]
++//	           [-c cipher_spec] [-D [bind_address:]port] [-E log_file]
++//	           [-e escape_char] [-F configfile] [-I pkcs11] [-i identity_file]
++//	           [-J destination] [-L address] [-l login_name] [-m mac_spec]
++//	           [-O ctl_cmd] [-o option] [-P tag] [-p port] [-R address]
++//	           [-S ctl_path] [-W host:port] [-w local_tun[:remote_tun]]
++//	           destination [command [argument ...]]
++//	       ssh [-Q query_option]
++//
++// Arity is what makes grouped short flags parse the way OpenSSH's getopt
++// parses them: in "-vo StrictHostKeyChecking=no" the v carries no value, so o
++// still consumes the following argument, and OpenSSH resolves that argv to
++// stricthostkeychecking false.
++const (
++	sshShortOptionsWithoutValue = "46AaCfGgKkMNnqsTtVvXxYy"
++	sshShortOptionsWithValue    = "BbcDEeFIiJLlmOoPpQRSWw"
++)
++
++// Refusal reasons. They are a closed vocabulary appended to the ssh_args
++// clause, never derived from the rejected argument itself.
++const (
++	sshArgumentAdmitted              = ""
++	sshRefusalHostAuthentication     = "host authentication bypass"
++	sshRefusalUnpermittedArgument    = "unpermitted argument"
++	sshRefusalUnpermittedFlag        = "unpermitted flag"
++	sshRefusalUnpermittedFlagValue   = "unpermitted flag value"
++	sshRefusalMissingFlagValue       = "flag without its value"
++	sshRefusalUnpermittedOption      = "unpermitted option"
++	sshRefusalUnpermittedOptionValue = "unpermitted option value"
++)
++
++// sshValueRule reports the refusal reason for a value-taking short option, or
++// sshArgumentAdmitted when the value is admitted.
++type sshValueRule func(string) string
++
++// sshPermittedFlags declares the valueless ssh(1) short options AX admits.
++// Every other letter is refused, including letters OpenSSH itself accepts.
++var sshPermittedFlags = map[byte]struct{}{
++	'4': {}, // IPv4 only
++	'6': {}, // IPv6 only
++	'C': {}, // request compression
++	'T': {}, // no remote pseudo-terminal
++	'a': {}, // disable agent forwarding
++	'q': {}, // quiet
++	'v': {}, // verbose
++}
++
++// sshPermittedValueFlags declares the value-taking ssh(1) short options AX
++// admits together with the rule that admits their value.
++var sshPermittedValueFlags = map[byte]sshValueRule{
++	'i': sshFlagValueRule(sshWordValue),               // identity file
++	'l': sshFlagValueRule(sshWordValue),               // login name
++	'p': sshFlagValueRule(sshNumericValue(1, 65_535)), // port
++	'o': admitSSHOption,                               // configuration option
++}
++
++// sshOptionRule declares how one ssh_config option name given through -o is
++// admitted. A nil permits refuses every value of that name.
++type sshOptionRule struct {
++	permits            func(string) bool
++	hostAuthentication bool
++}
++
++// sshOptionRegistry is the declared source for -o admission. An absent name is
++// refused; a present name is admitted only for the values its rule permits.
++//
++// The second group names the options that select or relax how ssh(1)
++// authenticates the peer host key. Their presence does not widen admission —
++// they are refused exactly like an undeclared name — but it lets the refusal
++// report the Section 6.3 host-authentication clause instead of an unknown-name
++// clause. StrictHostKeyChecking is declared with the single enforcing spelling
++// so its aliases (no, off, false, accept-new, ask, and anything OpenSSH adds
++// later) fall outside the permitted set without being listed.
++var sshOptionRegistry = map[string]sshOptionRule{
++	"addressfamily":       {permits: sshEnumeratedValue("any", "inet", "inet6")},
++	"batchmode":           {permits: sshEnumeratedValue("yes", "no")},
++	"compression":         {permits: sshEnumeratedValue("yes", "no")},
++	"connectionattempts":  {permits: sshNumericValue(1, 16)},
++	"connecttimeout":      {permits: sshNumericValue(1, 300)},
++	"identitiesonly":      {permits: sshEnumeratedValue("yes", "no")},
++	"identityfile":        {permits: sshWordValue},
++	"loglevel":            {permits: sshEnumeratedValue("quiet", "fatal", "error", "info", "verbose", "debug", "debug1", "debug2", "debug3")},
++	"port":                {permits: sshNumericValue(1, 65_535)},
++	"serveralivecountmax": {permits: sshNumericValue(1, 100)},
++	"serveraliveinterval": {permits: sshNumericValue(1, 86_400)},
++	"tcpkeepalive":        {permits: sshEnumeratedValue("yes", "no")},
++	"user":                {permits: sshWordValue},
++
++	"stricthostkeychecking":            {permits: sshEnumeratedValue("yes"), hostAuthentication: true},
++	"checkhostip":                      {hostAuthentication: true},
++	"globalknownhostsfile":             {hostAuthentication: true},
++	"hostkeyalgorithms":                {hostAuthentication: true},
++	"hostkeyalias":                     {hostAuthentication: true},
++	"knownhostscommand":                {hostAuthentication: true},
++	"nohostauthenticationforlocalhost": {hostAuthentication: true},
++	"updatehostkeys":                   {hostAuthentication: true},
++	"userknownhostsfile":               {hostAuthentication: true},
++	"verifyhostkeydns":                 {hostAuthentication: true},
++}
++
++// admitSSHArguments returns sshArgumentAdmitted when every argument is
++// declared as permitted, or the refusal reason for the first argument that is
++// not. Arguments are walked with ssh(1) getopt semantics: short options group,
++// a value-taking letter ends its group and takes the rest of the argument or
++// the whole next argument as its value, and a non-option argument is ssh(1)'s
++// destination or remote command rather than an option.
++func admitSSHArguments(arguments []string) string {
++	for index := 0; index < len(arguments); index++ {
++		argument := arguments[index]
++		if len(argument) < 2 || argument[0] != '-' || argument == "--" {
++			return sshRefusalUnpermittedArgument
++		}
++		group := argument[1:]
++		for position := 0; position < len(group); position++ {
++			letter := group[position]
++			if _, valueless := sshPermittedFlags[letter]; valueless {
++				continue
++			}
++			rule, permitted := sshPermittedValueFlags[letter]
++			if !permitted {
++				return sshRefusalUnpermittedFlag
++			}
++			value := group[position+1:]
++			if value == "" {
++				if index+1 >= len(arguments) {
++					return sshRefusalMissingFlagValue
++				}
++				index++
++				value = arguments[index]
++			}
++			if reason := rule(value); reason != sshArgumentAdmitted {
++				return reason
++			}
++			break
++		}
++	}
++	return sshArgumentAdmitted
++}
++
++// admitSSHOption admits one -o argument against sshOptionRegistry.
++func admitSSHOption(option string) string {
++	name, value := parseSSHConfigOption(option)
++	rule, declared := sshOptionRegistry[name]
++	if !declared {
++		return sshRefusalUnpermittedOption
++	}
++	if rule.permits != nil && rule.permits(value) {
++		return sshArgumentAdmitted
++	}
++	if rule.hostAuthentication {
++		return sshRefusalHostAuthentication
++	}
++	return sshRefusalUnpermittedOptionValue
++}
++
++// parseSSHConfigOption splits an ssh_config option into its case-folded name
++// and its raw value, accepting the separators OpenSSH accepts: "=", any run of
++// whitespace, or both. A quoted value is unquoted.
++func parseSSHConfigOption(option string) (string, string) {
++	option = strings.TrimSpace(option)
++	separator := strings.IndexFunc(option, func(character rune) bool { return character == '=' || unicode.IsSpace(character) })
++	if separator < 0 {
++		return strings.ToLower(option), ""
++	}
++	name := strings.ToLower(strings.TrimSpace(option[:separator]))
++	remainder := strings.TrimLeftFunc(option[separator:], func(character rune) bool { return character == '=' || unicode.IsSpace(character) })
++	value := strings.TrimSpace(remainder)
++	if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
++		value = strings.TrimSpace(value[1 : len(value)-1])
++	}
++	return name, value
++}
++
++// sshFlagValueRule adapts a value predicate to the refusal-reason contract of
++// a value-taking short option.
++func sshFlagValueRule(permits func(string) bool) sshValueRule {
++	return func(value string) string {
++		if permits(value) {
++			return sshArgumentAdmitted
++		}
++		return sshRefusalUnpermittedFlagValue
++	}
++}
++
++// sshEnumeratedValue permits exactly the listed spellings, case-folded the way
++// OpenSSH folds option values.
++func sshEnumeratedValue(permitted ...string) func(string) bool {
++	return func(value string) bool { return oneOf(strings.ToLower(value), permitted...) }
++}
++
++// sshNumericValue permits a plain decimal integer inside the closed range.
++func sshNumericValue(min, max uint64) func(string) bool {
++	return func(value string) bool {
++		number, err := strconv.ParseUint(value, 10, 64)
++		return err == nil && between(number, min, max)
++	}
++}
++
++// sshWordValue permits a single printable whitespace-free word. It belongs to
++// the options whose value is a name or path that cannot itself relax host
++// authentication. Refusing embedded whitespace keeps the admitted value a
++// single ssh_config token, which is what OpenSSH accepts for these options.
++func sshWordValue(value string) bool {
++	if strings.IndexFunc(value, unicode.IsSpace) >= 0 {
++		return false
++	}
++	return validatePrintableCharacters(value, 1, 4_096) == nil
++}
+diff --git a/internal/config/validation.go b/internal/config/validation.go
+index 06fe963..db66454 100644
+--- a/internal/config/validation.go
++++ b/internal/config/validation.go
+@@ -462,8 +462,8 @@ func validateMesh(configuration *Configuration) error {
+ 		if totalBytes > 65_536 {
+ 			return configError(prefix+" SSH argv bytes", ErrConfigValidation)
+ 		}
+-		if sshHostAuthenticationBypass(peer.SSHArgs) {
+-			return configError(prefix+".ssh_args host authentication bypass", ErrConfigValidation)
++		if reason := admitSSHArguments(peer.SSHArgs); reason != sshArgumentAdmitted {
++			return configError(prefix+".ssh_args "+reason, ErrConfigValidation)
+ 		}
+ 		if err := validateWorkspaceRoots(prefix+".workspace_roots", peer.WorkspaceRoots, peer.Platform, 64); err != nil {
+ 			return err
+@@ -843,53 +843,6 @@ func validatePrintableCharacters(value string, min, max int) error {
+ 	return nil
+ }
+ 
+-func sshHostAuthenticationBypass(arguments []string) bool {
+-	options := make([]string, 0, len(arguments))
+-	for index := 0; index < len(arguments); index++ {
+-		argument := arguments[index]
+-		if argument == "-o" && index+1 < len(arguments) {
+-			index++
+-			options = append(options, arguments[index])
+-			continue
+-		}
+-		if strings.HasPrefix(argument, "-o") && len(argument) > 2 {
+-			options = append(options, argument[2:])
+-		}
+-	}
+-	for _, option := range options {
+-		name, value := parseSSHConfigOption(option)
+-		if name == "stricthostkeychecking" && oneOf(value, "no", "off") {
+-			return true
+-		}
+-		if name == "userknownhostsfile" && sshKnownHostsDisabled(value) {
+-			return true
+-		}
+-		if name == "globalknownhostsfile" && sshKnownHostsDisabled(value) {
+-			return true
+-		}
+-	}
+-	return false
+-}
+-
+-func sshKnownHostsDisabled(value string) bool {
+-	return oneOf(value, "", "none", "/dev/null", "nul")
+-}
+-
+-func parseSSHConfigOption(option string) (string, string) {
+-	option = strings.TrimSpace(option)
+-	separator := strings.IndexFunc(option, func(character rune) bool { return character == '=' || unicode.IsSpace(character) })
+-	if separator < 0 {
+-		return strings.ToLower(option), ""
+-	}
+-	name := strings.ToLower(strings.TrimSpace(option[:separator]))
+-	remainder := strings.TrimLeftFunc(option[separator:], func(character rune) bool { return character == '=' || unicode.IsSpace(character) })
+-	value := strings.ToLower(strings.TrimSpace(remainder))
+-	if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+-		value = strings.TrimSpace(value[1 : len(value)-1])
+-	}
+-	return name, value
+-}
+-
+ func hasForbiddenConfigName(value string) bool {
+ 	normalized := strings.ToLower(strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(value))
+ 	for _, part := range strings.Split(normalized, "_") {
