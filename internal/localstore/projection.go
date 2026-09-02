@@ -97,6 +97,11 @@ type projectionHooks struct {
 	beforeRebuildCommit   func() error
 	afterBlobStat         func(string) error
 	afterRebuildCommit    func(string) error
+	// openBlob is the injectable read seam for an authoritative source blob.
+	// It exists so the "read did not complete" classification can be driven on
+	// this path exactly as it is on the object-store path, instead of being
+	// argued from the shared classifier alone.
+	openBlob blobOpener
 }
 
 // projectionRefusal and projectionOwnershipRefusal are the two refusal funnels
@@ -734,6 +739,10 @@ func scanAuthoritativeBlobs(dataRoot string, hooks projectionHooks) ([]IndexedOb
 	if err != nil {
 		return nil, sourceFailure("read blob digest root", err)
 	}
+	openBlob := hooks.openBlob
+	if openBlob == nil {
+		openBlob = openBlobFile
+	}
 	objects := make([]IndexedObject, 0)
 	for _, shard := range shards {
 		if !shard.IsDir() {
@@ -794,28 +803,22 @@ func scanAuthoritativeBlobs(dataRoot string, hooks projectionHooks) ([]IndexedOb
 			if err != nil {
 				return nil, sourceFailure("parse blob path digest", err)
 			}
-			file, err := os.Open(filename)
-			if err != nil {
-				return nil, sourceFailure("open blob", err)
+			// verifyBlobContent is the classifier the object store's
+			// digest-path inspection also uses. Routing both through it is what
+			// keeps the two paths from disagreeing about whether a failed read
+			// is an integrity finding: blobUnreadable proves nothing, so this
+			// scan reports a source failure rather than a refusal decision
+			// about the bytes, and the store moves nothing.
+			inspection := verifyBlobContent(openBlob, filename, digest, uint64(info.Size()))
+			if inspection.verdict == blobUnreadable {
+				return nil, sourceFailure("inspect blob", inspection.err)
 			}
-			hasher := sha256.New()
-			size, readErr := io.Copy(hasher, file)
-			closeErr := file.Close()
-			if readErr != nil {
-				return nil, sourceFailure("read blob", readErr)
-			}
-			if closeErr != nil {
-				return nil, sourceFailure("close blob", closeErr)
-			}
-			actual, err := scalar.ParseDigest("sha256:" + hex.EncodeToString(hasher.Sum(nil)))
-			if err != nil {
-				return nil, sourceFailure("calculate blob digest", err)
-			}
+			size := int64(inspection.size)
 			if size != info.Size() {
 				return nil, projectionRefusal(ErrProjectionSourceIntegrity, "blob %s changed size from %d to %d while reading", digest, info.Size(), size)
 			}
-			if actual != digest {
-				return nil, projectionRefusal(ErrProjectionSourceIntegrity, "blob path %s contains %s", digest, actual)
+			if inspection.digest != digest {
+				return nil, projectionRefusal(ErrProjectionSourceIntegrity, "blob path %s contains %s", digest, inspection.digest)
 			}
 			relative, err := filepath.Rel(dataRoot, filename)
 			if err != nil {

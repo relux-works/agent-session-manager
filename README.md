@@ -871,6 +871,17 @@ the bounded declared-size-plus-one diagnostic prefix. A corrupt existing digest
 path causes both candidates to be quarantined and the immutable namespace to
 refuse the write.
 
+Quarantining an entry that already occupies a digest path requires a proof.
+`verifyBlobContent` is the one classifier both `PutBlob` and the projection
+source scan consult, and only a completed read that disagrees with the declared
+size and digest authorizes a move. An inspection whose read did not complete —
+descriptor exhaustion, media failure, a failed close — is reported as a
+durability failure with the existing object left exactly where it is, because a
+read that never finished proves neither a hash mismatch nor a representation
+disagreement. `storeOperations.openExisting` and `projectionHooks.openBlob` are
+the injected read seams that drive that path in tests, and the two paths are
+asserted to reach the same classification rather than assumed to.
+
 `OpenProjection` scans the immutable raw-blob namespace, re-verifies every byte
 against its digest path, and rebuilds `<state>/index.sqlite` in deterministic
 digest order. That order is owned by one comparator and asserted against the

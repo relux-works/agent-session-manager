@@ -87,6 +87,11 @@ type storeOperations struct {
 	syncFile      func(*os.File) error
 	install       func(string, string) error
 	syncDirectory func(string) error
+	// openExisting reads the entry already occupying a digest path. It is a
+	// seam because the classification that depends on it — a read that did not
+	// complete is a durability failure, never a proven mismatch — is otherwise
+	// reachable only through descriptor exhaustion or real media failure.
+	openExisting blobOpener
 }
 
 func defaultStoreOperations() storeOperations {
@@ -96,6 +101,7 @@ func defaultStoreOperations() storeOperations {
 		syncDirectory: func(directory string) error {
 			return syncDirectory(directory)
 		},
+		openExisting: openBlobFile,
 	}
 }
 
@@ -137,8 +143,15 @@ func (store *ObjectStore) DataRoot() string { return store.dataRoot }
 // atomically renames, then fsyncs the containing directory. An identical retry
 // verifies and reuses the existing inode. Mismatches are installed create-new
 // in quarantine and never enter the immutable namespace.
+//
+// Quarantine of an entry that already occupies the digest path is authorized
+// only by a completed, disagreeing read, which is the SPEC.md Section 3.2
+// trigger. An inspection whose read did not complete is a durability failure:
+// PutBlob reports it and moves nothing, because a flaky read would otherwise
+// permanently sideline a valid immutable object.
 func (store *ObjectStore) PutBlob(expected scalar.Digest, expectedSize uint64, source io.Reader) (PutResult, error) {
-	if store == nil || store.operations.syncFile == nil || store.operations.install == nil || store.operations.syncDirectory == nil {
+	if store == nil || store.operations.syncFile == nil || store.operations.install == nil ||
+		store.operations.syncDirectory == nil || store.operations.openExisting == nil {
 		return PutResult{}, fmt.Errorf("%w: object store is not initialized", ErrDurability)
 	}
 	if expectedSize > MaxBlobSize {
@@ -213,48 +226,16 @@ func (store *ObjectStore) PutBlob(expected scalar.Digest, expectedSize uint64, s
 	}
 
 	result := PutResult{Digest: expected, Size: expectedSize, Path: target}
-	existing, existingErr := store.inspectExisting(target, expected, expectedSize)
-	switch {
-	case existingErr == nil && existing:
-		return result, nil
-	case existingErr != nil:
-		candidateQuarantine, quarantineErr := store.quarantineStaged(expected, stagedPath)
-		if quarantineErr != nil {
-			return PutResult{}, fmt.Errorf("%w: existing conflict and candidate quarantine failed: %v", ErrDurability, quarantineErr)
-		}
-		result.QuarantinePath = candidateQuarantine
-		if errors.Is(existingErr, ErrUnsafeOwnership) {
-			return result, fmt.Errorf("%w: unsafe digest-path entry: %v", ErrImmutableConflict, existingErr)
-		}
-		existingQuarantine, quarantineErr := store.quarantineExisting(expected, target)
-		if quarantineErr != nil {
-			return result, fmt.Errorf("%w: %v; existing quarantine failed: %v", ErrImmutableConflict, existingErr, quarantineErr)
-		}
-		result.ExistingQuarantinePath = existingQuarantine
-		return result, fmt.Errorf("%w: existing digest path failed verification: %v", ErrImmutableConflict, existingErr)
+	inspection := store.inspectExisting(target, expected, expectedSize)
+	if inspection.verdict != blobAbsent {
+		return store.resolveExistingEntry(inspection, expected, stagedPath, target, result, "")
 	}
 
 	if err := store.operations.install(stagedPath, target); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			existing, inspectErr := store.inspectExisting(target, expected, expectedSize)
-			if inspectErr == nil && existing {
-				return result, nil
-			}
-			if inspectErr != nil {
-				candidateQuarantine, quarantineErr := store.quarantineStaged(expected, stagedPath)
-				if quarantineErr != nil {
-					return PutResult{}, fmt.Errorf("%w: raced conflict and candidate quarantine failed: %v", ErrDurability, quarantineErr)
-				}
-				result.QuarantinePath = candidateQuarantine
-				if errors.Is(inspectErr, ErrUnsafeOwnership) {
-					return result, fmt.Errorf("%w: unsafe raced digest-path entry: %v", ErrImmutableConflict, inspectErr)
-				}
-				existingQuarantine, quarantineErr := store.quarantineExisting(expected, target)
-				if quarantineErr != nil {
-					return result, fmt.Errorf("%w: %v; raced existing quarantine failed: %v", ErrImmutableConflict, inspectErr, quarantineErr)
-				}
-				result.ExistingQuarantinePath = existingQuarantine
-				return result, fmt.Errorf("%w: raced digest path failed verification: %v", ErrImmutableConflict, inspectErr)
+			raced := store.inspectExisting(target, expected, expectedSize)
+			if raced.verdict != blobAbsent {
+				return store.resolveExistingEntry(raced, expected, stagedPath, target, result, "raced ")
 			}
 		}
 		return PutResult{}, fmt.Errorf("%w: atomic no-replace rename: %v", ErrDurability, err)
@@ -266,41 +247,65 @@ func (store *ObjectStore) PutBlob(expected scalar.Digest, expectedSize uint64, s
 	return result, nil
 }
 
-func (store *ObjectStore) inspectExisting(target string, expected scalar.Digest, expectedSize uint64) (bool, error) {
+// resolveExistingEntry maps one inspection verdict onto the single consequence
+// Section 3.2 allows for it. Both the first-attempt and the raced post-rename
+// paths funnel through here, so the two cannot drift apart: a read that did not
+// complete is a durability failure that moves nothing, and only a completed,
+// disagreeing read reaches quarantineExisting.
+func (store *ObjectStore) resolveExistingEntry(
+	inspection blobInspection, expected scalar.Digest, stagedPath, target string,
+	result PutResult, label string,
+) (PutResult, error) {
+	if inspection.verdict == blobMatches {
+		return result, nil
+	}
+	if inspection.verdict == blobUnreadable {
+		// The bytes on disk were never established, so nothing is proven and
+		// nothing may move. The staged candidate is discarded by PutBlob's
+		// deferred cleanup and the existing object stays exactly where it is.
+		return PutResult{}, fmt.Errorf("%w: inspect %sexisting digest path: %v", ErrDurability, label, inspection.err)
+	}
+	candidateQuarantine, quarantineErr := store.quarantineStaged(expected, stagedPath)
+	if quarantineErr != nil {
+		return PutResult{}, fmt.Errorf("%w: %sexisting conflict and candidate quarantine failed: %v",
+			ErrDurability, label, quarantineErr)
+	}
+	result.QuarantinePath = candidateQuarantine
+	if !inspection.verdict.quarantineWarranted() {
+		return result, fmt.Errorf("%w: unsafe %sdigest-path entry: %v", ErrImmutableConflict, label, inspection.err)
+	}
+	existingQuarantine, quarantineErr := store.quarantineExisting(expected, target)
+	if quarantineErr != nil {
+		return result, fmt.Errorf("%w: %v; %sexisting quarantine failed: %v",
+			ErrImmutableConflict, inspection.err, label, quarantineErr)
+	}
+	result.ExistingQuarantinePath = existingQuarantine
+	return result, fmt.Errorf("%w: %sexisting digest path failed verification: %v",
+		ErrImmutableConflict, label, inspection.err)
+}
+
+// inspectExisting classifies whatever occupies the digest path. It never
+// decides a consequence; it reports only what was proven. Content comparison is
+// delegated to verifyBlobContent, the classifier the projection source scan
+// also uses, so a failed read cannot become a mismatch on this path alone.
+func (store *ObjectStore) inspectExisting(target string, expected scalar.Digest, expectedSize uint64) blobInspection {
 	info, err := os.Lstat(target)
 	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
+		return blobInspection{verdict: blobAbsent}
 	}
 	if err != nil {
-		return false, err
+		return blobInspection{verdict: blobUnreadable, err: fmt.Errorf("lstat digest path: %w", err)}
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return false, fmt.Errorf("%w: target is not a regular file", ErrUnsafeOwnership)
+		return blobInspection{verdict: blobUnsafe, err: fmt.Errorf("%w: target is not a regular file", ErrUnsafeOwnership)}
 	}
 	if err := verifyOwnerFileInfo(info, 0o600); err != nil {
-		return false, err
+		if !errors.Is(err, ErrUnsafeOwnership) {
+			return blobInspection{verdict: blobUnreadable, err: err}
+		}
+		return blobInspection{verdict: blobUnsafe, err: err}
 	}
-	file, err := os.Open(target)
-	if err != nil {
-		return false, err
-	}
-	hasher := sha256.New()
-	size, readErr := io.Copy(hasher, file)
-	closeErr := file.Close()
-	if readErr != nil {
-		return false, readErr
-	}
-	if closeErr != nil {
-		return false, closeErr
-	}
-	actual, err := scalar.ParseDigest("sha256:" + hex.EncodeToString(hasher.Sum(nil)))
-	if err != nil {
-		return false, err
-	}
-	if size < 0 || uint64(size) != expectedSize || actual != expected {
-		return false, fmt.Errorf("existing size or digest differs")
-	}
-	return true, nil
+	return verifyBlobContent(store.operations.openExisting, target, expected, expectedSize)
 }
 
 func (store *ObjectStore) quarantineStaged(expected scalar.Digest, stagedPath string) (string, error) {
