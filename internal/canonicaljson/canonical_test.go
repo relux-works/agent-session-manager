@@ -504,6 +504,41 @@ func TestCalculateObjectIdentityMatchesAXPublishedFixtures(t *testing.T) {
 		}
 	})
 
+	// NUM-U64-STRING and NUM-U64-MAX are the two Section 1.6 boundary fixtures whose
+	// published digests nothing in this repository recomputed. Both expected
+	// values are quoted from SPEC.md at the pinned commit
+	// 28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c, whose SHA-256 is
+	// internal/specpin.DocumentSHA256
+	// (562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a), not
+	// recomputed from this encoder: an expectation derived from the
+	// implementation would agree with any drift the implementation acquires.
+	//
+	// SPEC.md:303, verbatim:
+	//   | <code>NUM-U64-STRING</code> | <code>{"n":"9007199254740992"}</code> |
+	//   Accept only when <code>n</code> is typed <code>decimal_uint64</code>;
+	//   SHA-256 <code>bb80eb37329e0a7e980fe3638c9722c44ac3184f7488f20c28cf67ae0b5f4f96</code> |
+	t.Run("decimal_uint64 first unsafe integer", func(t *testing.T) {
+		canonical, err := Canonicalize([]byte(`{"n":"9007199254740992"}`))
+		got := scalar.SHA256Digest(canonical)
+		want := "sha256:bb80eb37329e0a7e980fe3638c9722c44ac3184f7488f20c28cf67ae0b5f4f96"
+		if err != nil || got.String() != want {
+			t.Fatalf("Canonicalize/SHA256(NUM-U64-STRING) = %q, %v; want %q", got, err, want)
+		}
+	})
+
+	// SPEC.md:304, verbatim:
+	//   | <code>NUM-U64-MAX</code> | <code>{"n":"18446744073709551615"}</code> |
+	//   Accept only when <code>n</code> is typed <code>decimal_uint64</code>;
+	//   SHA-256 <code>b0ec84c6bb6a7c030549f17dd482975d09c40ff9e5f83d4438ebeac12d3b6331</code> |
+	t.Run("decimal_uint64 maximum", func(t *testing.T) {
+		canonical, err := Canonicalize([]byte(`{"n":"18446744073709551615"}`))
+		got := scalar.SHA256Digest(canonical)
+		want := "sha256:b0ec84c6bb6a7c030549f17dd482975d09c40ff9e5f83d4438ebeac12d3b6331"
+		if err != nil || got.String() != want {
+			t.Fatalf("Canonicalize/SHA256(NUM-U64-MAX) = %q, %v; want %q", got, err, want)
+		}
+	})
+
 	t.Run("UTF-16 order", func(t *testing.T) {
 		canonical, err := Canonicalize([]byte(`{"\uE000":1,"\uD800\uDC00":2}`))
 		got := scalar.SHA256Digest(canonical)

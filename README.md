@@ -337,6 +337,32 @@ UTF-8, surrogate-pair, ECMAScript number-formatting, string-escaping, and
 UTF-16 property-ordering rules. Its number behavior is checked against every
 finite RFC 8785 Appendix B sample through the production entry point.
 
+All four Section 1.6 boundary fixtures that publish a digest are pinned:
+`NUM-SAFE-MAX`, `NUM-U64-STRING`, `NUM-U64-MAX`, and `JCS-UTF16-ORDER` are each
+recomputed from the production encoder and compared against the value quoted
+from `SPEC.md` at the pinned commit, not against a value the implementation
+derived for itself.
+
+The `utf8.ValidString` re-checks in `closed_shapes.go` are kept and documented
+rather than deleted; each names `decodeStrict` as the validator that subsumes it.
+That subsumption is machine-checked, not only asserted in prose: no exported
+function or method may hand an already-decoded value to one of those re-checks,
+and `decodeStrict` must remain the only place in the package where bytes become
+Go values. Adding a second decoder reddens the pin, as does a map-taking
+exported entry point that reaches a re-check by calling it, through the
+package's own `immutableObjectShapeValidators` dispatch table, or as a method on
+an exported type. All 7 of the 7 derived re-check functions are reachable from
+an exported entry point, so none of them is pinned vacuously, and that ratio is
+itself asserted rather than left to prose.
+
+The check is bounded, and the bound is published with it. Its call graph is
+derived from the AST, so it models direct calls, calls to methods declared in
+the package, and dispatch through a function value; it models nothing about a
+callee reached by reflection, by a function value handed to another package, or
+through a func-typed struct field. An entry point built one of those ways would
+leave the guards live while the pin stayed green — which is why the guards are
+kept rather than deleted.
+
 The AX identity path additionally enforces the Section 1.6 common model: JSON
 numbers are integral safe integers, and the exact `schema`/`schema_version`
 pair selects the schema-defined self field from the generated catalog bound to

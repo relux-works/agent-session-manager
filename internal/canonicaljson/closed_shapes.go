@@ -39,6 +39,30 @@ var (
 	sessionNamePattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 )
 
+// Subsumed UTF-8 re-checks.
+//
+// Several validators in this file re-check utf8.ValidString on a value they
+// received. Every one of those terms is subsumed: decodeStrict in canonical.go
+// refuses input that is not valid UTF-8 before it decodes any value, and it is
+// the only place in this package where bytes become Go values, so no decoded
+// string or object key can reach a validator here invalid.
+//
+// They are kept fail-closed rather than deleted because the argument is a
+// package-internal invariant, not a property of these functions: an exported
+// entry point that accepted an already-decoded map, or a second JSON decoder
+// anywhere in the package, would make every one of them false again.
+//
+// Both conditions are machine-checked in utf8_subsumption_test.go, over a call
+// graph derived from the AST. That check is bounded, and the bound is part of
+// the claim. It models direct calls, calls to methods declared in this package,
+// and dispatch through a function value, which is the shape
+// immutableObjectShapeValidators below uses. It models nothing about a callee
+// reached by reflection, by a function value handed to another package, or
+// through a func-typed struct field, and an entry point built one of those ways
+// would leave these guards live while the pin stayed green. The pin narrows how
+// such a change can arrive unnoticed; it does not make it impossible, which is
+// the reason these terms stay rather than being deleted.
+
 type immutableObjectShapeValidator func(map[string]any) error
 
 // immutableObjectShapeValidators is deliberately explicit. The self-identity
@@ -282,6 +306,8 @@ func validateSessionLaunchPlan(object map[string]any) error {
 	}
 	for index, value := range argv {
 		text, ok := value.(string)
+		// !utf8.ValidString(text) is subsumed by decodeStrict; see the subsumed
+		// UTF-8 re-check note above. The other three terms are reachable.
 		if !ok || !utf8.ValidString(text) || len(text) == 0 || len(text) > 4096 {
 			return invalidIdentity("Session Record Launch Plan argv[%d] must contain 1..4096 UTF-8 bytes", index)
 		}
@@ -327,6 +353,8 @@ func validateSessionLaunchPlan(object map[string]any) error {
 			return invalidIdentity("Session Record Launch Plan environment name %q occurs in both env_names and env_literals", name)
 		}
 		text, ok := value.(string)
+		// !utf8.ValidString(text) is subsumed by decodeStrict; see the subsumed
+		// UTF-8 re-check note above. The other two terms are reachable.
 		if !ok || !utf8.ValidString(text) || len(text) > 4096 {
 			return invalidIdentity("Session Record Launch Plan env_literals[%q] must contain at most 4096 UTF-8 bytes", name)
 		}
@@ -441,6 +469,8 @@ func validateSessionBoardIdentity(object map[string]any) error {
 		}
 	} else {
 		remoteURL, ok := remoteValue.(string)
+		// !utf8.ValidString(remoteURL) is subsumed by decodeStrict; see the
+		// subsumed UTF-8 re-check note above. The !ok term is reachable.
 		if !ok || !utf8.ValidString(remoteURL) {
 			return invalidIdentity("remote Session Record Board Identity remote_url must be a UTF-8 string")
 		}
@@ -1803,6 +1833,9 @@ func validateExtensionValue(value any, depth int) error {
 	case nil, bool, json.Number:
 		return nil
 	case string:
+		// This guard is subsumed by decodeStrict; see the subsumed UTF-8
+		// re-check note above. It is declared unreachable as invalidUTF8Refusal
+		// in refusal_guards_test.go.
 		if !utf8.ValidString(typed) {
 			return invalidIdentity("string value must be valid UTF-8")
 		}
@@ -1822,6 +1855,9 @@ func validateExtensionValue(value any, depth int) error {
 			return invalidIdentity("value exceeds maximum nesting depth 4")
 		}
 		for key, member := range typed {
+			// This guard is subsumed by decodeStrict; see the subsumed UTF-8
+			// re-check note above. It is declared unreachable as
+			// invalidUTF8Refusal in refusal_guards_test.go.
 			if !utf8.ValidString(key) {
 				return invalidIdentity("object key must be valid UTF-8")
 			}
@@ -1925,6 +1961,8 @@ func nullableString(object map[string]any, name string) (string, bool, error) {
 		return "", false, nil
 	}
 	text, ok := value.(string)
+	// !utf8.ValidString(text) is subsumed by decodeStrict; see the subsumed
+	// UTF-8 re-check note above. The other two terms are reachable.
 	if !ok || text == "" || !utf8.ValidString(text) {
 		return "", false, invalidIdentity("member %s must be null or a non-empty UTF-8 string", name)
 	}
@@ -2057,6 +2095,8 @@ func requireUTF8String(object map[string]any, name string) (string, error) {
 		return "", invalidIdentity("identity input requires member %s", name)
 	}
 	text, ok := value.(string)
+	// !utf8.ValidString(text) is subsumed by decodeStrict; see the subsumed
+	// UTF-8 re-check note above. The !ok term is reachable.
 	if !ok || !utf8.ValidString(text) {
 		return "", invalidIdentity("member %s must be a UTF-8 string", name)
 	}
@@ -2210,6 +2250,8 @@ func validateSortedUniqueStrings(values []any, name string) error {
 	previous := ""
 	for index, value := range values {
 		text, ok := value.(string)
+		// !utf8.ValidString(text) is subsumed by decodeStrict; see the subsumed
+		// UTF-8 re-check note above. The !ok term is reachable.
 		if !ok || !utf8.ValidString(text) {
 			return invalidIdentity("member %s[%d] must be a UTF-8 string", name, index)
 		}
