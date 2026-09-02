@@ -39,7 +39,7 @@ const (
 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
 	// formatting may change, but ownership claims cannot be self-minted without
 	// an explicit review of this binding.
-	reviewedOwnershipCanonicalSHA256 = "9f7737cb07f853012fcc9e2359981e20e9b65df622f9da7fa4935a2180cd04b0"
+	reviewedOwnershipCanonicalSHA256 = "f126a4a00c64744586cc9d2bfc07e03a3923a93ee910970fe9183c9869759716"
 )
 
 var ErrTraceability = errors.New("spec-to-code traceability check failed")

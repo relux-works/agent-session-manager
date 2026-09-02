@@ -291,6 +291,10 @@ func TestEveryFixtureClosedShapeMemberIsRequiredAtBothIdentityEntries(t *testing
 		{"session primary owner", SelfRecordID, primaryOwnerSessionRecord("GOAL-260830-primary")},
 		{"session fork", SelfRecordID, sessionRecordWithForkProvenance()},
 		{"session migration provenance", SelfRecordID, sessionRecordWithMigrationProvenance()},
+		{"session v2 origin", SelfRecordID, validSessionRecordV2Object(validOriginProvenance())},
+		{"session v2 same-provider fork", SelfRecordID, validSessionRecordV2Object(validSameProviderForkProvenance())},
+		{"session v2 cross-environment clone", SelfRecordID, validSessionRecordV2Object(validCrossEnvironmentCloneProvenance("external_native"))},
+		{"session v3 native adoption", SelfRecordID, validSessionRecordV3Object(validNativeAdoptionProvenance())},
 		{"blob descriptor", SelfDescriptorID, validBlobDescriptorObject()},
 		{"workspace tree entries", SelfManifestID, workspaceTreeWithEveryEntryVariant()},
 		{"managed workspace group", SelfManifestID, validTransferManifestObject("workspace_group")},
@@ -309,6 +313,35 @@ func TestEveryFixtureClosedShapeMemberIsRequiredAtBothIdentityEntries(t *testing
 				deleteJSONObjectMemberAtPath(t, object, path)
 				assertIdentityEntriesRefuseShape(t, mustJSON(t, object), fixture.selfField)
 			})
+		}
+	}
+}
+
+func TestSessionRecordRequiredNestedObjectsRefuseNullAndScalarAtBothIdentityEntries(t *testing.T) {
+	replacements := []struct {
+		name  string
+		value any
+	}{
+		{"null", nil},
+		{"scalar", "not-an-object"},
+	}
+
+	for _, fixture := range sessionRecordProvenanceFixtures() {
+		object := validSessionRecordV2Object(fixture.value)
+		object["schema_version"] = fixture.version
+		for _, path := range closedObjectMemberPaths(object) {
+			if _, isObject := jsonValueAtPath(t, object, path).(map[string]any); !isObject {
+				continue
+			}
+			path := path
+			for _, replacement := range replacements {
+				replacement := replacement
+				t.Run(fixture.name+"/"+replacement.name+" "+formatJSONPath(path), func(t *testing.T) {
+					candidate := cloneJSONObject(t, object)
+					setJSONObjectMemberAtPath(t, candidate, path, replacement.value)
+					assertIdentityEntriesRefuseShape(t, mustJSON(t, candidate), SelfRecordID)
+				})
+			}
 		}
 	}
 }
@@ -392,6 +425,19 @@ func gitWorkspaceWithInitializedSubmodule() map[string]any {
 	return object
 }
 
+// openMapMembers are the members whose KEYS are data rather than schema members,
+// so removing one is legitimately accepted and must not be swept as a missing
+// closed member. Section 3 declares extensions as
+// `map(reverse-dns,ExtensionValue)[0..64]`; Section 5.5 declares of
+// opaque_identity that "Map keys are data rather than schema members"; the
+// Launch Plan declares env_literals as a destination-local environment map.
+// Their key grammars are proven by the declared-grammar inventory instead.
+var openMapMembers = map[string]string{
+	"extensions":      "reverse-DNS extension map",
+	"env_literals":    "destination-local environment map",
+	"opaque_identity": "provider-defined identity data map",
+}
+
 func closedObjectMemberPaths(object map[string]any) [][]string {
 	var paths [][]string
 	var visit func(any, []string)
@@ -403,9 +449,12 @@ func closedObjectMemberPaths(object map[string]any) [][]string {
 				keys = append(keys, key)
 			}
 			sort.Strings(keys)
+			openMap := len(prefix) > 0 && openMapMembers[prefix[len(prefix)-1]] != ""
 			for _, key := range keys {
 				path := append(append([]string{}, prefix...), key)
-				paths = append(paths, path)
+				if !openMap {
+					paths = append(paths, path)
+				}
 				if key == "env_literals" {
 					continue
 				}
@@ -444,6 +493,40 @@ func deleteJSONObjectMemberAtPath(t *testing.T, root map[string]any, path []stri
 		current = current.(map[string]any)[component]
 	}
 	delete(current.(map[string]any), path[len(path)-1])
+}
+
+func jsonValueAtPath(t *testing.T, root map[string]any, path []string) any {
+	t.Helper()
+	var current any = root
+	for _, component := range path {
+		if strings.HasPrefix(component, "[") {
+			var index int
+			if _, err := fmt.Sscanf(component, "[%d]", &index); err != nil {
+				t.Fatal(err)
+			}
+			current = current.([]any)[index]
+			continue
+		}
+		current = current.(map[string]any)[component]
+	}
+	return current
+}
+
+func setJSONObjectMemberAtPath(t *testing.T, root map[string]any, path []string, value any) {
+	t.Helper()
+	var current any = root
+	for _, component := range path[:len(path)-1] {
+		if strings.HasPrefix(component, "[") {
+			var index int
+			if _, err := fmt.Sscanf(component, "[%d]", &index); err != nil {
+				t.Fatal(err)
+			}
+			current = current.([]any)[index]
+			continue
+		}
+		current = current.(map[string]any)[component]
+	}
+	current.(map[string]any)[path[len(path)-1]] = value
 }
 
 func formatJSONPath(path []string) string {

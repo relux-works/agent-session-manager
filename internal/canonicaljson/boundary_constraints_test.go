@@ -9,13 +9,32 @@ import (
 	"testing"
 )
 
+// boundaryConstraintCase is one at-limit acceptance paired with one over-limit
+// refusal, both driven through CalculateObjectIdentity and VerifyObjectIdentity.
+//
+// claims names the derived bound obligations this case discharges. The
+// obligation keys are produced by deriveBoundCallSites in declared_bounds_test.go
+// and asserted exactly there, so a case cannot claim a bound that no production
+// call site declares, and a production bound cannot exist without a claim.
+type boundaryConstraintCase struct {
+	name      string
+	selfField SelfField
+	claims    []boundObligation
+	atLimit   func() map[string]any
+	overLimit func() map[string]any
+}
+
 func TestDeclaredBoundaryConstraintsReachBothIdentityEntries(t *testing.T) {
-	tests := []struct {
-		name      string
-		selfField SelfField
-		atLimit   func() map[string]any
-		overLimit func() map[string]any
-	}{
+	for _, test := range declaredBoundaryConstraintCases() {
+		t.Run(test.name, func(t *testing.T) {
+			assertIdentityEntriesAcceptShape(t, mustJSON(t, test.atLimit()), test.selfField)
+			assertIdentityEntriesRefuseShape(t, mustJSON(t, test.overLimit()), test.selfField)
+		})
+	}
+}
+
+func declaredBoundaryConstraintCases() []boundaryConstraintCase {
+	return []boundaryConstraintCase{
 		{
 			name:      "reverse DNS key requires a dot",
 			selfField: SelfRecordID,
@@ -44,6 +63,7 @@ func TestDeclaredBoundaryConstraintsReachBothIdentityEntries(t *testing.T) {
 		},
 		{
 			name:      "launch argv count 128",
+			claims:    []boundObligation{{key: "validateSessionLaunchPlan|requireArray|argv|-..128", direction: boundMaximum}},
 			selfField: SelfRecordID,
 			atLimit:   func() map[string]any { return sessionRecordWithArgv(repeatedValues("x", 128)) },
 			overLimit: func() map[string]any { return sessionRecordWithArgv(repeatedValues("x", 129)) },
@@ -60,6 +80,7 @@ func TestDeclaredBoundaryConstraintsReachBothIdentityEntries(t *testing.T) {
 		},
 		{
 			name:      "launch env_names count 64",
+			claims:    []boundObligation{{key: "validateSessionLaunchPlan|requireArray|env_names|-..64", direction: boundMaximum}},
 			selfField: SelfRecordID,
 			atLimit:   func() map[string]any { return sessionRecordWithEnvNames(environmentNames(64)) },
 			overLimit: func() map[string]any { return sessionRecordWithEnvNames(environmentNames(65)) },
@@ -88,6 +109,7 @@ func TestDeclaredBoundaryConstraintsReachBothIdentityEntries(t *testing.T) {
 		},
 		{
 			name:      "task element identifier 128 bytes",
+			claims:    []boundObligation{{key: "validateSessionTaskBoardReference|requirePrintableByteBoundedString|task_element_id|1..128", direction: boundMaximum}},
 			selfField: SelfRecordID,
 			atLimit:   func() map[string]any { return taskBoardSessionRecord(strings.Repeat("a", 128)) },
 			overLimit: func() map[string]any { return taskBoardSessionRecord(strings.Repeat("a", 129)) },
@@ -100,6 +122,7 @@ func TestDeclaredBoundaryConstraintsReachBothIdentityEntries(t *testing.T) {
 		},
 		{
 			name:      "board goal identifier 128 characters",
+			claims:    []boundObligation{{key: "validateSessionBoardGoal|requireBoundedString|goal_id|1..128", direction: boundMaximum}},
 			selfField: SelfRecordID,
 			atLimit:   func() map[string]any { return primaryOwnerSessionRecord(strings.Repeat("界", 128)) },
 			overLimit: func() map[string]any { return primaryOwnerSessionRecord(strings.Repeat("界", 129)) },
@@ -134,12 +157,14 @@ func TestDeclaredBoundaryConstraintsReachBothIdentityEntries(t *testing.T) {
 		},
 		{
 			name:      "blob chunk count 32768",
+			claims:    []boundObligation{{key: "validateBlobDescriptor|requireArray|chunks|-..32768", direction: boundMaximum}},
 			selfField: SelfDescriptorID,
 			atLimit:   func() map[string]any { return blobDescriptorWithChunks(32_768) },
 			overLimit: func() map[string]any { return blobDescriptorWithChunks(32_769) },
 		},
 		{
 			name:      "transfer manifest entry count 65536",
+			claims:    []boundObligation{{key: "validateTransferManifest|requireArray|entries|-..65536", direction: boundMaximum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return transferManifestWithEntries(65_536) },
 			overLimit: func() map[string]any { return transferManifestWithEntries(65_537) },
@@ -193,36 +218,42 @@ func TestDeclaredBoundaryConstraintsReachBothIdentityEntries(t *testing.T) {
 		},
 		{
 			name:      "child manifest identifier count 1024",
+			claims:    []boundObligation{{key: "validateTransferManifest|requireArray|child_manifest_ids|-..1024", direction: boundMaximum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return compositeManifestWithChildren(1_024) },
 			overLimit: func() map[string]any { return compositeManifestWithChildren(1_025) },
 		},
 		{
 			name:      "excluded class count 128",
+			claims:    []boundObligation{{key: "validateTransferManifest|requireArray|excluded_classes|-..128", direction: boundMaximum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return workspaceTreeWithExcludedClasses(128) },
 			overLimit: func() map[string]any { return workspaceTreeWithExcludedClasses(129) },
 		},
 		{
 			name:      "Git remote count 16",
+			claims:    []boundObligation{{key: "validateGitRemotes|requireArray|remotes|-..16", direction: boundMaximum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return gitWorkspaceWithRemotes(16) },
 			overLimit: func() map[string]any { return gitWorkspaceWithRemotes(17) },
 		},
 		{
 			name:      "workspace snapshot member count 256",
+			claims:    []boundObligation{{key: "validateWorkspaceSnapshot|requireArray|members|-..256", direction: boundMaximum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return workspaceGroupWithManagedMembers(256) },
 			overLimit: func() map[string]any { return workspaceGroupWithManagedMembers(257) },
 		},
 		{
 			name:      "required filter name count 64",
+			claims:    []boundObligation{{key: "validateGitFeatures|requireArray|required_filter_names|-..64", direction: boundMaximum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return gitWorkspaceWithRequiredFilters(64) },
 			overLimit: func() map[string]any { return gitWorkspaceWithRequiredFilters(65) },
 		},
 		{
 			name:      "agent project config path count 256",
+			claims:    []boundObligation{{key: "validateWorkspaceSnapshotMember|requireSortedUniquePaths|agent_project_config_paths|-..256", direction: boundMaximum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return gitWorkspaceWithProjectPaths(256) },
 			overLimit: func() map[string]any { return gitWorkspaceWithProjectPaths(257) },
@@ -253,36 +284,42 @@ func TestDeclaredBoundaryConstraintsReachBothIdentityEntries(t *testing.T) {
 		},
 		{
 			name:      "board logical identifier 128 characters",
+			claims:    []boundObligation{{key: "validateSessionBoardIdentity|requireBoundedString|logical_id|1..128", direction: boundMaximum}},
 			selfField: SelfRecordID,
 			atLimit:   func() map[string]any { return taskBoardRecordWithLogicalID(strings.Repeat("a", 128)) },
 			overLimit: func() map[string]any { return taskBoardRecordWithLogicalID(strings.Repeat("a", 129)) },
 		},
 		{
 			name:      "managed tree project config path count 256",
+			claims:    []boundObligation{{key: "validateWorkspaceSnapshotMember|requireSortedUniquePaths|agent_project_config_paths|-..256", direction: boundMaximum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return managedTreeWithProjectPaths(256) },
 			overLimit: func() map[string]any { return managedTreeWithProjectPaths(257) },
 		},
 		{
 			name:      "Git submodule repository identity 256 characters",
+			claims:    []boundObligation{{key: "validateGitSubmodule|requireBoundedString|repository_identity|1..256", direction: boundMaximum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return gitWorkspaceWithSubmoduleIdentity("s" + strings.Repeat("界", 255)) },
 			overLimit: func() map[string]any { return gitWorkspaceWithSubmoduleIdentity("s" + strings.Repeat("界", 256)) },
 		},
 		{
 			name:      "Git submodule project config path count 256",
+			claims:    []boundObligation{{key: "validateGitSubmodule|requireSortedUniquePaths|agent_project_config_paths|-..256", direction: boundMaximum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return gitWorkspaceWithInitializedSubmoduleProjectPaths(256) },
 			overLimit: func() map[string]any { return gitWorkspaceWithInitializedSubmoduleProjectPaths(257) },
 		},
 		{
 			name:      "task element identifier non-empty",
+			claims:    []boundObligation{{key: "validateSessionTaskBoardReference|requirePrintableByteBoundedString|task_element_id|1..128", direction: boundMinimum}},
 			selfField: SelfRecordID,
 			atLimit:   func() map[string]any { return taskBoardSessionRecord("T") },
 			overLimit: func() map[string]any { return taskBoardSessionRecord("") },
 		},
 		{
 			name:      "board goal identifier non-empty",
+			claims:    []boundObligation{{key: "validateSessionBoardGoal|requireBoundedString|goal_id|1..128", direction: boundMinimum}},
 			selfField: SelfRecordID,
 			atLimit:   func() map[string]any { return primaryOwnerSessionRecord("g") },
 			overLimit: func() map[string]any { return primaryOwnerSessionRecord("") },
@@ -295,27 +332,80 @@ func TestDeclaredBoundaryConstraintsReachBothIdentityEntries(t *testing.T) {
 		},
 		{
 			name:      "managed tree identity non-empty",
+			claims:    []boundObligation{{key: "validateWorkspaceSnapshotMember|requireBoundedString|tree_identity|1..256", direction: boundMinimum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return managedTreeWithIdentity("x") },
 			overLimit: func() map[string]any { return managedTreeWithIdentity("") },
 		},
 		{
 			name:      "Git workspace repository identity non-empty",
+			claims:    []boundObligation{{key: "validateWorkspaceSnapshotMember|requireBoundedString|repository_identity|1..256", direction: boundMinimum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return gitWorkspaceWithRepositoryIdentity("x") },
 			overLimit: func() map[string]any { return gitWorkspaceWithRepositoryIdentity("") },
 		},
 		{
 			name:      "Git remote name non-empty",
+			claims:    []boundObligation{{key: "validateGitRemote|requireBoundedString|name|1..128", direction: boundMinimum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return gitWorkspaceWithRemoteName("x") },
 			overLimit: func() map[string]any { return gitWorkspaceWithRemoteName("") },
 		},
 		{
 			name:      "Git submodule repository identity non-empty",
+			claims:    []boundObligation{{key: "validateGitSubmodule|requireBoundedString|repository_identity|1..256", direction: boundMinimum}},
 			selfField: SelfManifestID,
 			atLimit:   func() map[string]any { return gitWorkspaceWithSubmoduleIdentity("s") },
 			overLimit: func() map[string]any { return gitWorkspaceWithSubmoduleIdentity("") },
+		},
+		{
+			name:      "board logical identifier non-empty",
+			selfField: SelfRecordID,
+			claims:    []boundObligation{{key: "validateSessionBoardIdentity|requireBoundedString|logical_id|1..128", direction: boundMinimum}},
+			atLimit:   func() map[string]any { return taskBoardRecordWithLogicalID("a") },
+			overLimit: func() map[string]any { return taskBoardRecordWithLogicalID("") },
+		},
+		{
+			name:      "Git workspace repository identity 256 characters",
+			selfField: SelfManifestID,
+			claims:    []boundObligation{{key: "validateWorkspaceSnapshotMember|requireBoundedString|repository_identity|1..256", direction: boundMaximum}},
+			atLimit:   func() map[string]any { return gitWorkspaceWithRepositoryIdentity(strings.Repeat("界", 256)) },
+			overLimit: func() map[string]any { return gitWorkspaceWithRepositoryIdentity(strings.Repeat("界", 257)) },
+		},
+		{
+			name:      "managed tree identity 256 characters",
+			selfField: SelfManifestID,
+			claims:    []boundObligation{{key: "validateWorkspaceSnapshotMember|requireBoundedString|tree_identity|1..256", direction: boundMaximum}},
+			atLimit:   func() map[string]any { return managedTreeWithIdentity(strings.Repeat("界", 256)) },
+			overLimit: func() map[string]any { return managedTreeWithIdentity(strings.Repeat("界", 257)) },
+		},
+		{
+			name:      "Git remote name 128 characters",
+			selfField: SelfManifestID,
+			claims:    []boundObligation{{key: "validateGitRemote|requireBoundedString|name|1..128", direction: boundMaximum}},
+			atLimit:   func() map[string]any { return gitWorkspaceWithRemoteName(strings.Repeat("界", 128)) },
+			overLimit: func() map[string]any { return gitWorkspaceWithRemoteName(strings.Repeat("界", 129)) },
+		},
+		{
+			name:      "workspace snapshot member submodule count 256",
+			selfField: SelfManifestID,
+			claims:    []boundObligation{{key: "validateWorkspaceSnapshotMember|requireArray|submodules|-..256", direction: boundMaximum}},
+			atLimit:   func() map[string]any { return gitWorkspaceWithSubmoduleCount(256) },
+			overLimit: func() map[string]any { return gitWorkspaceWithSubmoduleCount(257) },
+		},
+		{
+			name:      "clone source native session identifier 512 characters",
+			selfField: SelfRecordID,
+			claims:    []boundObligation{{key: "validateSessionCrossEnvironmentCloneProvenance|requirePrintableBoundedString|source_native_session_id|1..512", direction: boundMaximum}},
+			atLimit:   func() map[string]any { return cloneProvenanceWithNativeSessionID(strings.Repeat("界", 512)) },
+			overLimit: func() map[string]any { return cloneProvenanceWithNativeSessionID(strings.Repeat("界", 513)) },
+		},
+		{
+			name:      "clone source native session identifier non-empty",
+			selfField: SelfRecordID,
+			claims:    []boundObligation{{key: "validateSessionCrossEnvironmentCloneProvenance|requirePrintableBoundedString|source_native_session_id|1..512", direction: boundMinimum}},
+			atLimit:   func() map[string]any { return cloneProvenanceWithNativeSessionID("n") },
+			overLimit: func() map[string]any { return cloneProvenanceWithNativeSessionID("") },
 		},
 		{
 			name:      "workspace snapshot members non-empty",
@@ -323,13 +413,6 @@ func TestDeclaredBoundaryConstraintsReachBothIdentityEntries(t *testing.T) {
 			atLimit:   func() map[string]any { return workspaceGroupWithMemberCount(1) },
 			overLimit: func() map[string]any { return workspaceGroupWithMemberCount(0) },
 		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			assertIdentityEntriesAcceptShape(t, mustJSON(t, test.atLimit()), test.selfField)
-			assertIdentityEntriesRefuseShape(t, mustJSON(t, test.overLimit()), test.selfField)
-		})
 	}
 }
 
@@ -743,5 +826,80 @@ func gitIndexWithEntries(count int) map[string]any {
 		"blob_descriptor_id": digestWithDigit('6'),
 		"entries":            entries,
 		"entry_count":        json.Number(strconv.Itoa(count)),
+	}
+}
+
+// cloneProvenanceWithNativeSessionID builds a v2 Session Record whose
+// cross-environment-clone provenance carries a source native session identifier
+// of the given value.
+func cloneProvenanceWithNativeSessionID(identity string) map[string]any {
+	provenance := validCrossEnvironmentCloneProvenance("external_native")
+	provenance["source_native_session_id"] = identity
+	return validSessionRecordV2Object(provenance)
+}
+
+// gitWorkspaceWithSubmoduleCount builds a Git workspace member carrying count
+// uninitialized submodules, each matched by its stage-0 gitlink index entry as
+// validateGitSubmodule requires.
+func gitWorkspaceWithSubmoduleCount(count int) map[string]any {
+	object := validGitWorkspaceGroupObject()
+	member := gitWorkspaceMember(object)
+	entries := make([]any, 0, count)
+	submodules := make([]any, 0, count)
+	for index := range count {
+		entries = append(entries, gitlinkIndexEntry(index))
+		submodules = append(submodules, uninitializedSubmodule(index))
+	}
+	index := member["index"].(map[string]any)
+	index["entries"] = entries
+	index["entry_count"] = json.Number(strconv.Itoa(count))
+	member["submodules"] = submodules
+	return object
+}
+
+// gitWorkspaceWithNestedSubmoduleCount builds a Git workspace member carrying
+// one initialized submodule that itself carries count nested submodules.
+func gitWorkspaceWithNestedSubmoduleCount(count int) map[string]any {
+	object := validGitWorkspaceGroupObject()
+	member := gitWorkspaceMember(object)
+	parent := validInitializedSubmoduleShape(1, 1)
+	parent["path"] = "modules/000"
+	// The parent identity must not repeat inside its own subtree: the
+	// submodule tree is required to be acyclic by repository_identity.
+	parent["repository_identity"] = "relux/parent-module"
+	nestedEntries := make([]any, 0, count)
+	nested := make([]any, 0, count)
+	for index := range count {
+		nestedEntries = append(nestedEntries, gitlinkIndexEntry(index))
+		nested = append(nested, uninitializedSubmodule(index))
+	}
+	parentIndex := parent["index"].(map[string]any)
+	parentIndex["entries"] = nestedEntries
+	parentIndex["entry_count"] = json.Number(strconv.Itoa(count))
+	parent["submodules"] = nested
+
+	memberIndex := member["index"].(map[string]any)
+	memberIndex["entries"] = []any{gitlinkIndexEntry(0)}
+	memberIndex["entry_count"] = json.Number("1")
+	member["submodules"] = []any{parent}
+	return object
+}
+
+func gitlinkIndexEntry(index int) map[string]any {
+	return map[string]any{
+		"path": fmt.Sprintf("modules/%03d", index), "stage": json.Number("0"), "mode": json.Number("57344"),
+		"oid": "sha1:" + strings.Repeat("3", 40), "intent_to_add": false,
+		"skip_worktree": false, "assume_unchanged": false, "fsmonitor_valid": false,
+	}
+}
+
+func uninitializedSubmodule(index int) map[string]any {
+	return map[string]any{
+		"path": fmt.Sprintf("modules/%03d", index), "repository_identity": fmt.Sprintf("relux/module-%03d", index),
+		"sanitized_url": fmt.Sprintf("https://example.com/module-%03d.git", index),
+		"gitlink_oid":   "sha1:" + strings.Repeat("3", 40), "initialized": false,
+		"head": nil, "upstream_ref": nil, "object_pack": nil, "index": nil,
+		"working_tree_manifest_id": nil, "submodules": nil, "features": nil,
+		"repo_relative_cwd": nil, "agent_project_config_paths": nil,
 	}
 }

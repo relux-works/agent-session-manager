@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=35 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
+	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=38 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
 	if output.String() != want {
 		t.Fatalf("run() output = %q, want %q", output.String(), want)
 	}
@@ -54,7 +54,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run(assigned sections) error = %v", err)
 	}
-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=35 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
+	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=38 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
 	if output.String() != want {
 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
 	}
@@ -93,7 +93,7 @@ func TestRunAssignedScalarSectionsUseScopedImplementationOwners(t *testing.T) {
 	t.Parallel()
 
 	repositoryRoot := filepath.Join("..", "..", "..", "..")
-	for _, section := range []string{"1.6", "10.1", "10.2", "10.3", "10.4", "17.3"} {
+	for _, section := range []string{"1.6", "2.1", "2.2", "2.3", "2.4", "5.1", "10.1", "10.2", "10.3", "10.4", "17.3"} {
 		var output bytes.Buffer
 		if err := run([]string{"-root", repositoryRoot, "-section", section}, &output); err != nil {
 			t.Errorf("run(-section %s) error = %v", section, err)
@@ -121,6 +121,11 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
 		to          string
 	}{
 		{"1.6", "internal/scalar/scalar.go", "ErrInvalidScalar", "var ErrInvalidScalar", "var RenamedErrInvalidScalar"},
+		{"2.1", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
+		{"2.2", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
+		{"2.3", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
+		{"2.4", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
+		{"5.1", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordWithDerivation", "func validateSessionRecordWithDerivation(", "func renamedValidateSessionRecordWithDerivation("},
 		{"10.1", "internal/canonicaljson/closed_shapes.go", "validateImmutableObjectShape", "func validateImmutableObjectShape(", "func renamedValidateImmutableObjectShape("},
 		{"10.2", "internal/canonicaljson/closed_shapes.go", "validateBlobDescriptor", "func validateBlobDescriptor", "func renamedValidateBlobDescriptor"},
 		{"10.3", "internal/canonicaljson/closed_shapes.go", "validateBlobDescriptor", "func validateBlobDescriptor", "func renamedValidateBlobDescriptor"},

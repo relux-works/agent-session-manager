@@ -29,6 +29,7 @@ var (
 	semverPattern          = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 	reverseDNSPattern      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(\.[a-z][a-z0-9-]{0,62})+$`)
 	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	environmentIDPattern   = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
 	boardLogicalIDPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 	sessionNamePattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 )
@@ -58,18 +59,23 @@ func mustBuildImmutableObjectShapeValidators() map[schemaIdentityKey]immutableOb
 
 	// Complete validators owned by the scoped Sections 10.1-10.4 gate.
 	register("urn:ax:schema:session-record", validateSessionRecordV1, "1.0.0")
+	register("urn:ax:schema:session-record", validateSessionRecordV2, "2.0.0")
+	register("urn:ax:schema:session-record", validateSessionRecordV3, "3.0.0")
 	register(blobSchema, validateBlobDescriptor, closedSchemaVersion)
 	register(transferManifestSchema, validateTransferManifest, closedSchemaVersion)
 
-	// Section 10.1 record envelopes whose schema-specific closed validators are
-	// owned outside this task. Their common envelope is checked before the
-	// public identity surface refuses the unsupported complete shape.
-	register("urn:ax:schema:session-record", validateUnsupportedRecordEnvelopeShape, "2.0.0", "3.0.0")
-	register("urn:ax:schema:lease", validateUnsupportedRecordEnvelopeShape, "1.0.0")
-	register("urn:ax:schema:workspace-group", validateUnsupportedRecordEnvelopeShape, "1.0.0")
-	register("urn:ax:schema:provider-identity", validateUnsupportedRecordEnvelopeShape, "1.0.0")
-	register("urn:ax:schema:session-event", validateUnsupportedRecordEnvelopeShape, "1.0.0", "2.0.0", "3.0.0", "4.0.0")
-	register("urn:ax:schema:checkpoint", validateUnsupportedRecordEnvelopeShape, "1.0.0")
+	// Complete Section 5 and Section 10.1 core-record validators.
+	register("urn:ax:schema:lease", validateLeaseRecord, "1.0.0")
+	register("urn:ax:schema:workspace-group", validateWorkspaceGroupRecord, "1.0.0")
+	register("urn:ax:schema:provider-identity", validateProviderIdentityRecord, "1.0.0")
+	register("urn:ax:schema:session-event", validateSessionEventV1, "1.0.0")
+	register("urn:ax:schema:session-event", validateSessionEventV2, "2.0.0")
+	register("urn:ax:schema:session-event", validateSessionEventV3, "3.0.0")
+	register("urn:ax:schema:session-event", validateSessionEventV4, "4.0.0")
+	register("urn:ax:schema:checkpoint", validateCheckpointRecord, "1.0.0")
+
+	// Remaining Section 10.1 records retain their common-envelope gate before
+	// the public identity surface explicitly refuses an unsupported shape.
 	register("urn:ax:schema:tombstone", validateUnsupportedRecordEnvelopeShape, "1.0.0")
 	register("urn:ax:schema:tombstone-ack", validateUnsupportedRecordEnvelopeShape, "1.0.0")
 
@@ -167,78 +173,94 @@ func validateSessionRecordV1(object map[string]any) error {
 		"launch_plan", "task_board", "fork_provenance", "extensions"); err != nil {
 		return err
 	}
-	if err := requireExactString(object, "schema", "urn:ax:schema:session-record"); err != nil {
+	sessionID, _, _, err := validateSessionRecordCommon(object, "1.0.0")
+	if err != nil {
 		return err
 	}
-	if err := requireExactString(object, "schema_version", "1.0.0"); err != nil {
+	return validateSessionForkProvenance(object, sessionID)
+}
+
+func validateSessionRecordV2(object map[string]any) error {
+	return validateSessionRecordWithDerivation(object, "2.0.0")
+}
+
+func validateSessionRecordV3(object map[string]any) error {
+	return validateSessionRecordWithDerivation(object, "3.0.0")
+}
+
+func validateSessionRecordWithDerivation(object map[string]any, version string) error {
+	if err := requireExactMembers("Session Record 2.0.0 and 3.0.0", object,
+		"schema", "schema_version", "record_id", "subject_id", "session_id", "name", "kind",
+		"created_at", "created_by_host_id", "provider_id", "workspace_group_id", "execution_profile",
+		"launch_plan", "task_board", "derivation_provenance", "extensions"); err != nil {
 		return err
+	}
+	sessionID, providerID, _, err := validateSessionRecordCommon(object, version)
+	if err != nil {
+		return err
+	}
+	return validateSessionDerivationProvenance(object, version, sessionID, providerID)
+}
+
+func validateSessionRecordCommon(object map[string]any, version string) (string, string, string, error) {
+	if err := requireExactString(object, "schema", "urn:ax:schema:session-record"); err != nil {
+		return "", "", "", err
+	}
+	if err := requireExactString(object, "schema_version", version); err != nil {
+		return "", "", "", err
 	}
 	if err := requireDigest(object, "record_id"); err != nil {
-		return err
+		return "", "", "", err
+	}
+	if err := validateCommonRecordEnvelope(object); err != nil {
+		return "", "", "", err
 	}
 	subjectID, err := requireUUIDv7(object, "subject_id")
 	if err != nil {
-		return err
+		return "", "", "", err
 	}
 	sessionID, err := requireUUIDv7(object, "session_id")
 	if err != nil {
-		return err
+		return "", "", "", err
 	}
 	if subjectID != sessionID {
-		return invalidIdentity("Session Record subject_id must equal session_id")
+		return "", "", "", invalidIdentity("Session Record subject_id must equal session_id")
 	}
 	name, err := requireString(object, "name")
 	if err != nil {
-		return err
+		return "", "", "", err
 	}
 	if !sessionNamePattern.MatchString(name) {
-		return invalidIdentity("Session Record name must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+		return "", "", "", invalidIdentity("Session Record name must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 	}
 	kind, err := requireEnum(object, "kind", "direct", "task_board")
 	if err != nil {
-		return err
-	}
-	createdAt, err := requireString(object, "created_at")
-	if err != nil {
-		return err
-	}
-	if _, err := scalar.ParseTimestamp(createdAt); err != nil {
-		return invalidIdentity("Session Record created_at: %v", err)
-	}
-	if _, err := requireUUIDv7(object, "created_by_host_id"); err != nil {
-		return err
+		return "", "", "", err
 	}
 	providerID, err := requireString(object, "provider_id")
 	if err != nil {
-		return err
+		return "", "", "", err
 	}
 	if _, err := scalar.ParseProviderID(providerID); err != nil {
-		return invalidIdentity("Session Record provider_id: %v", err)
+		return "", "", "", invalidIdentity("Session Record provider_id: %v", err)
 	}
 	if _, err := requireUUIDv7(object, "workspace_group_id"); err != nil {
-		return err
+		return "", "", "", err
 	}
 	if _, err := requireEnum(object, "execution_profile", "standard", "yolo"); err != nil {
-		return err
+		return "", "", "", err
 	}
 	launchPlan, err := requireObject(object, "launch_plan")
 	if err != nil {
-		return err
+		return "", "", "", err
 	}
 	if err := validateSessionLaunchPlan(launchPlan); err != nil {
-		return err
+		return "", "", "", err
 	}
 	if err := validateSessionTaskBoardReference(object, kind); err != nil {
-		return err
+		return "", "", "", err
 	}
-	if err := validateSessionForkProvenance(object); err != nil {
-		return err
-	}
-	extensions, err := requireObject(object, "extensions")
-	if err != nil {
-		return err
-	}
-	return validateMigrationExtensionObject(extensions)
+	return sessionID, providerID, kind, nil
 }
 
 func validateSessionLaunchPlan(object map[string]any) error {
@@ -457,7 +479,7 @@ func validateSessionBoardGoal(object map[string]any) error {
 	return validateExtensionsObject(extensions)
 }
 
-func validateSessionForkProvenance(parent map[string]any) error {
+func validateSessionForkProvenance(parent map[string]any, sessionID string) error {
 	value, ok := parent["fork_provenance"]
 	if !ok {
 		return invalidIdentity("identity input requires member fork_provenance")
@@ -473,8 +495,12 @@ func validateSessionForkProvenance(parent map[string]any) error {
 		"source_session_id", "source_checkpoint_id", "source_workspace_group_id", "operation_id", "provider_fork_mode", "extensions"); err != nil {
 		return err
 	}
-	if _, err := requireUUIDv7(object, "source_session_id"); err != nil {
+	sourceSessionID, err := requireUUIDv7(object, "source_session_id")
+	if err != nil {
 		return err
+	}
+	if sourceSessionID == sessionID {
+		return invalidIdentity("Session Record Fork Provenance source_session_id must differ from target session_id")
 	}
 	if err := requireDigest(object, "source_checkpoint_id"); err != nil {
 		return err
@@ -495,6 +521,243 @@ func validateSessionForkProvenance(parent map[string]any) error {
 	return validateExtensionsObject(extensions)
 }
 
+func validateSessionDerivationProvenance(parent map[string]any, version, sessionID, providerID string) error {
+	provenance, err := requireObject(parent, "derivation_provenance")
+	if err != nil {
+		return err
+	}
+	kind, err := requireString(provenance, "kind")
+	if err != nil {
+		return invalidIdentity("Session Record derivation_provenance.kind: %v", err)
+	}
+	switch kind {
+	case "origin":
+		return validateSessionOriginProvenance(provenance)
+	case "same_provider_fork":
+		return validateSessionSameProviderForkProvenance(provenance, sessionID)
+	case "cross_environment_clone":
+		return validateSessionCrossEnvironmentCloneProvenance(provenance, sessionID)
+	case "native_adoption":
+		if version != "3.0.0" {
+			return invalidIdentity("Session Record derivation_provenance.kind %q is unavailable in %s", kind, version)
+		}
+		return validateSessionNativeAdoptionProvenance(provenance, providerID)
+	default:
+		return invalidIdentity("Session Record derivation_provenance.kind %q is not a closed %s union member", kind, version)
+	}
+}
+
+func validateSessionOriginProvenance(object map[string]any) error {
+	if err := requireExactMembers("Session Record origin provenance", object,
+		"kind", "creation_operation_id", "extensions"); err != nil {
+		return err
+	}
+	if err := requireExactString(object, "kind", "origin"); err != nil {
+		return err
+	}
+	if _, err := requireUUIDv7(object, "creation_operation_id"); err != nil {
+		return err
+	}
+	extensions, err := requireObject(object, "extensions")
+	if err != nil {
+		return err
+	}
+	return validateExtensionsObject(extensions)
+}
+
+func validateSessionSameProviderForkProvenance(object map[string]any, sessionID string) error {
+	if err := requireExactMembers("Session Record same-provider-fork provenance", object,
+		"kind", "source_session_id", "source_checkpoint_id", "source_workspace_group_id", "operation_id",
+		"provider_fork_mode", "source_profile_event_id", "extensions"); err != nil {
+		return err
+	}
+	if err := requireExactString(object, "kind", "same_provider_fork"); err != nil {
+		return err
+	}
+	sourceSessionID, err := requireUUIDv7(object, "source_session_id")
+	if err != nil {
+		return err
+	}
+	if sourceSessionID == sessionID {
+		return invalidIdentity("Session Record same-provider-fork provenance source_session_id must differ from target session_id")
+	}
+	if err := requireDigest(object, "source_checkpoint_id"); err != nil {
+		return err
+	}
+	if _, err := requireUUIDv7(object, "source_workspace_group_id"); err != nil {
+		return err
+	}
+	if _, err := requireUUIDv7(object, "operation_id"); err != nil {
+		return err
+	}
+	if _, err := requireEnum(object, "provider_fork_mode", "native", "supported_import", "task_board_clone"); err != nil {
+		return err
+	}
+	if err := requireNullableDigest(object, "source_profile_event_id"); err != nil {
+		return err
+	}
+	extensions, err := requireObject(object, "extensions")
+	if err != nil {
+		return err
+	}
+	return validateExtensionsObject(extensions)
+}
+
+func validateSessionCrossEnvironmentCloneProvenance(object map[string]any, sessionID string) error {
+	if err := requireExactMembers("Session Record cross-environment-clone provenance", object,
+		"kind", "operation_id", "bundle_id", "source_kind", "source_session_id", "source_session_record_id",
+		"source_checkpoint_id", "source_provider_identity_record_id", "source_native_session_id", "source_environment",
+		"target_environment", "source_snapshot_digest", "capture_manifest_id", "canonical_session_id",
+		"projection_plan_id", "migration_checkpoint_id", "previous_lineage_receipt_id", "source_profile_event_id",
+		"extensions"); err != nil {
+		return err
+	}
+	if err := requireExactString(object, "kind", "cross_environment_clone"); err != nil {
+		return err
+	}
+	if _, err := requireUUIDv7(object, "operation_id"); err != nil {
+		return err
+	}
+	if _, err := requireUUIDv7(object, "bundle_id"); err != nil {
+		return err
+	}
+	sourceKind, err := requireEnum(object, "source_kind", "ax_session", "external_native")
+	if err != nil {
+		return err
+	}
+	sourceSessionID, sourceSessionPresent, err := requireNullableUUIDv7(object, "source_session_id")
+	if err != nil {
+		return err
+	}
+	if sourceSessionPresent && sourceSessionID == sessionID {
+		return invalidIdentity("Session Record cross-environment-clone provenance source_session_id must differ from target session_id")
+	}
+	axSourcePresence := make([]bool, 0, 4)
+	axSourcePresence = append(axSourcePresence, sourceSessionPresent)
+	for _, name := range []string{"source_session_record_id", "source_checkpoint_id", "source_provider_identity_record_id"} {
+		present, err := requireNullableDigestPresence(object, name)
+		if err != nil {
+			return err
+		}
+		axSourcePresence = append(axSourcePresence, present)
+	}
+	for _, present := range axSourcePresence {
+		if sourceKind == "ax_session" && !present {
+			return invalidIdentity("Session Record cross-environment-clone provenance all four AX-source IDs must be non-null for ax_session")
+		}
+		if sourceKind == "external_native" && present {
+			return invalidIdentity("Session Record cross-environment-clone provenance all four AX-source IDs must be null for external_native")
+		}
+	}
+	if _, err := requirePrintableBoundedString(object, "source_native_session_id", 1, 512); err != nil {
+		return err
+	}
+	for _, name := range []string{"source_environment", "target_environment"} {
+		environment, err := requireObject(object, name)
+		if err != nil {
+			return err
+		}
+		if err := validateEnvironmentTuple(environment); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{
+		"source_snapshot_digest", "capture_manifest_id", "canonical_session_id", "projection_plan_id", "migration_checkpoint_id",
+	} {
+		if err := requireDigest(object, name); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{"previous_lineage_receipt_id", "source_profile_event_id"} {
+		if err := requireNullableDigest(object, name); err != nil {
+			return err
+		}
+	}
+	extensions, err := requireObject(object, "extensions")
+	if err != nil {
+		return err
+	}
+	return validateExtensionsObject(extensions)
+}
+
+func validateSessionNativeAdoptionProvenance(object map[string]any, providerID string) error {
+	if err := requireExactMembers("Session Record native-adoption provenance", object,
+		"kind", "operation_id", "source_host_id", "source_instance_id", "source_observation_id", "source_head_digest",
+		"source_environment", "target_provider_id", "extensions"); err != nil {
+		return err
+	}
+	if err := requireExactString(object, "kind", "native_adoption"); err != nil {
+		return err
+	}
+	for _, name := range []string{"operation_id", "source_host_id"} {
+		if _, err := requireUUIDv7(object, name); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{"source_instance_id", "source_observation_id", "source_head_digest"} {
+		if err := requireDigest(object, name); err != nil {
+			return err
+		}
+	}
+	environment, err := requireObject(object, "source_environment")
+	if err != nil {
+		return err
+	}
+	if err := validateEnvironmentTuple(environment); err != nil {
+		return err
+	}
+	targetProviderID, err := requireString(object, "target_provider_id")
+	if err != nil {
+		return err
+	}
+	if targetProviderID != providerID {
+		return invalidIdentity("Session Record native-adoption provenance target_provider_id must equal Session Record provider_id")
+	}
+	extensions, err := requireObject(object, "extensions")
+	if err != nil {
+		return err
+	}
+	return validateExtensionsObject(extensions)
+}
+
+func validateEnvironmentTuple(object map[string]any) error {
+	if err := requireExactMembers("EnvironmentTuple", object,
+		"environment_id", "environment_version", "platform", "architecture", "store_schema_fingerprint", "adapter_version"); err != nil {
+		return err
+	}
+	environmentID, err := requireString(object, "environment_id")
+	if err != nil {
+		return err
+	}
+	if !environmentIDPattern.MatchString(environmentID) {
+		return invalidIdentity("EnvironmentTuple environment_id must match [a-z][a-z0-9.-]{0,63}")
+	}
+	// The pinned EnvironmentTuple declaration requires these two members but
+	// assigns neither a JSON type nor a local format. In particular, the
+	// string[1..128] environment_version bound belongs to Environment
+	// Observation, and store_schema_fingerprint is not declared as a digest.
+	// Exact-member validation above proves presence without inferring either
+	// constraint from a different schema or from the member name.
+	platform, err := requireString(object, "platform")
+	if err != nil {
+		return err
+	}
+	if _, err := scalar.ParsePlatform(platform); err != nil {
+		return invalidIdentity("EnvironmentTuple platform: %v", err)
+	}
+	if _, err := requireEnum(object, "architecture", "amd64", "arm64"); err != nil {
+		return err
+	}
+	adapterVersion, err := requireString(object, "adapter_version")
+	if err != nil {
+		return err
+	}
+	if !semverPattern.MatchString(adapterVersion) {
+		return invalidIdentity("EnvironmentTuple adapter_version must be canonical semver")
+	}
+	return nil
+}
+
 func validateCommonRecordEnvelope(object map[string]any) error {
 	if _, err := requireUUIDv7(object, "subject_id"); err != nil {
 		return err
@@ -509,7 +772,11 @@ func validateCommonRecordEnvelope(object map[string]any) error {
 	if _, err := scalar.ParseTimestamp(createdAt); err != nil {
 		return invalidIdentity("record envelope created_at: %v", err)
 	}
-	return validateMigrationProvenance(object)
+	extensions, err := requireObject(object, "extensions")
+	if err != nil {
+		return err
+	}
+	return validateMigrationExtensionObject(extensions)
 }
 
 func validateUnsupportedRecordEnvelopeShape(object map[string]any) error {
@@ -535,6 +802,19 @@ func requirePrintableByteBoundedString(object map[string]any, name string, minim
 	}
 	if len(text) < minimum || len(text) > maximum {
 		return "", invalidIdentity("member %s must contain %d..%d UTF-8 bytes", name, minimum, maximum)
+	}
+	for _, character := range text {
+		if unicode.IsControl(character) {
+			return "", invalidIdentity("member %s must contain printable non-control UTF-8", name)
+		}
+	}
+	return text, nil
+}
+
+func requirePrintableBoundedString(object map[string]any, name string, minimum, maximum int) (string, error) {
+	text, err := requireBoundedString(object, name, minimum, maximum)
+	if err != nil {
+		return "", err
 	}
 	for _, character := range text {
 		if unicode.IsControl(character) {
@@ -1827,6 +2107,20 @@ func requireNullableDigest(object map[string]any, name string) error {
 	return requireDigest(object, name)
 }
 
+func requireNullableDigestPresence(object map[string]any, name string) (bool, error) {
+	value, ok := object[name]
+	if !ok {
+		return false, invalidIdentity("identity input requires member %s", name)
+	}
+	if value == nil {
+		return false, nil
+	}
+	if err := requireDigest(object, name); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func requireUUIDv7(object map[string]any, name string) (string, error) {
 	value, err := requireString(object, name)
 	if err != nil {
@@ -1836,6 +2130,42 @@ func requireUUIDv7(object map[string]any, name string) (string, error) {
 		return "", invalidIdentity("member %s: %v", name, err)
 	}
 	return value, nil
+}
+
+func requireNullableUUIDv7(object map[string]any, name string) (string, bool, error) {
+	value, present, err := nullableString(object, name)
+	if err != nil || !present {
+		return value, present, err
+	}
+	if _, err := scalar.ParseUUIDv7(value); err != nil {
+		return "", false, invalidIdentity("member %s: %v", name, err)
+	}
+	return value, true, nil
+}
+
+// validateSortedDigests enforces the bare `sorted` phrase: bytewise
+// non-descending order, with duplicates ADMITTED. Section 1.6 defines
+// `sorted unique T[n..m]` as the compound phrase meaning "bytewise canonical
+// ordering and no duplicate", and the document uses bare `sorted` where it does
+// not require uniqueness. Refusing a duplicate here would invent a constraint
+// the pinned specification does not declare; the phrase-to-validator mapping in
+// array_order_inventory_test.go is what keeps the two apart mechanically.
+func validateSortedDigests(values []any, name string) error {
+	previous := ""
+	for index, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			return invalidIdentity("member %s[%d] must be a digest string", name, index)
+		}
+		if _, err := scalar.ParseDigest(text); err != nil {
+			return invalidIdentity("member %s[%d]: %v", name, index, err)
+		}
+		if index > 0 && text < previous {
+			return invalidIdentity("member %s must be sorted", name)
+		}
+		previous = text
+	}
+	return nil
 }
 
 func validateSortedUniqueDigests(values []any, name string) error {

@@ -158,6 +158,14 @@ func FuzzClosedIdentityShapeRefusal(f *testing.F) {
 		"record-unknown-top-level",
 		"record-launch-plan-unknown-nested",
 		"record-invalid-name",
+		"lease-successor-missing-predecessor",
+		"checkpoint-unsafe-boundary",
+		"provider-unknown-identity-kind",
+		"provider-absolute-opaque-path",
+		"workspace-unknown-member",
+		"workspace-absolute-logical-identity",
+		"event-unknown-payload-member",
+		"event-required-literal",
 	} {
 		f.Add(uint8(shape), salt)
 	}
@@ -170,7 +178,7 @@ func FuzzClosedIdentityShapeRefusal(f *testing.F) {
 		var object map[string]any
 		var selfField SelfField
 
-		switch shape % 31 {
+		switch shape % 39 {
 		case 0:
 			object, selfField = validBlobDescriptorObject(), SelfDescriptorID
 			object[unknown] = true
@@ -275,8 +283,73 @@ func FuzzClosedIdentityShapeRefusal(f *testing.F) {
 		case 30:
 			object, selfField = validSessionRecordV1Object(), SelfRecordID
 			object["name"] = "-" + salt
+		case 31:
+			object, selfField = validLeaseRecordObject(), SelfRecordID
+			object["predecessor_lease_id"] = nil
+		case 32:
+			object, selfField = validCheckpointRecordObject(true), SelfCheckpointID
+			object["safe_boundary"].(map[string]any)["input_blocked"] = false
+		case 33:
+			object, selfField = validProviderIdentityRecordObject(), SelfRecordID
+			object["identity_kind"] = "unknown_" + salt
+		case 34:
+			object, selfField = validProviderIdentityRecordObject(), SelfRecordID
+			object["opaque_identity"] = map[string]any{"store_path": "/" + salt}
+		case 35:
+			object, selfField = validWorkspaceGroupRecordObject(), SelfRecordID
+			object["members"].([]any)[0].(map[string]any)[unknown] = true
+		case 36:
+			object, selfField = validWorkspaceGroupRecordObject(), SelfRecordID
+			object["members"].([]any)[0].(map[string]any)["repository_identity"] = "/" + salt
+		case 37:
+			object, selfField = validSessionEventObject("4.0.0", "session.resumed"), SelfEventID
+			object["payload"].(map[string]any)[unknown] = true
+		case 38:
+			object, selfField = validSessionEventObject("2.0.0", "clone.committed"), SelfEventID
+			object["payload"].(map[string]any)["native_resumable"] = false
 		}
 		assertIdentityEntriesRefuseShape(t, mustJSON(t, object), selfField)
+	})
+}
+
+// FuzzObservationEventRefusal keeps each generated candidate outside the
+// closed Section 18.1 shape and drives the exported read-only validator.
+func FuzzObservationEventRefusal(f *testing.F) {
+	for shape, salt := range []string{
+		"unknown-member",
+		"event-name-grammar",
+		"partial-without-error",
+		"counts-member-absent",
+		"duplicate-object-id",
+		"started-with-duration",
+	} {
+		f.Add(uint8(shape), salt)
+	}
+
+	f.Fuzz(func(t *testing.T, shape uint8, salt string) {
+		if len(salt) > 1024 {
+			return
+		}
+		object := validObservationEventObject()
+		switch shape % 6 {
+		case 0:
+			object[fmt.Sprintf("unexpected_%x", []byte(salt))] = true
+		case 1:
+			object["event"] = "Invalid." + salt
+		case 2:
+			object["result"] = "partial"
+			object["error_code"] = nil
+		case 3:
+			delete(object["counts"].(map[string]any), "chunks")
+		case 4:
+			object["object_ids"] = []any{zeroDigest, zeroDigest}
+		case 5:
+			object["result"] = "started"
+			object["duration_ms"] = json.Number("1")
+		}
+		if err := ValidateObservationEvent(mustJSON(t, object)); err == nil {
+			t.Fatal("ValidateObservationEvent accepted a structurally invalid fuzz candidate")
+		}
 	})
 }
 

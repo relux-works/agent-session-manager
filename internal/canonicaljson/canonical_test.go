@@ -389,16 +389,6 @@ func TestUnsupportedSection10RecordSchemasValidateCommonEnvelopeBeforeRefusal(t 
 	t.Parallel()
 
 	keys := []schemaIdentityKey{
-		{schema: "urn:ax:schema:session-record", version: "2.0.0"},
-		{schema: "urn:ax:schema:session-record", version: "3.0.0"},
-		{schema: "urn:ax:schema:lease", version: "1.0.0"},
-		{schema: "urn:ax:schema:workspace-group", version: "1.0.0"},
-		{schema: "urn:ax:schema:provider-identity", version: "1.0.0"},
-		{schema: "urn:ax:schema:session-event", version: "1.0.0"},
-		{schema: "urn:ax:schema:session-event", version: "2.0.0"},
-		{schema: "urn:ax:schema:session-event", version: "3.0.0"},
-		{schema: "urn:ax:schema:session-event", version: "4.0.0"},
-		{schema: "urn:ax:schema:checkpoint", version: "1.0.0"},
 		{schema: "urn:ax:schema:tombstone", version: "1.0.0"},
 		{schema: "urn:ax:schema:tombstone-ack", version: "1.0.0"},
 	}

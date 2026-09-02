@@ -318,8 +318,9 @@ runtime shape-support claim. A separate explicit shape-validator registry is
 checked for exact completeness against every catalog schema/version: a newly
 registered identity cannot silently fall through to extension-only
 attestation. The public calculation and verification entries currently accept
-only Session Record `1.0.0`, Blob Descriptor `1.0.0`, and Transfer Manifest
-`1.0.0`, whose complete shapes are validated here. Every other catalog
+Session Record `1.0.0`–`3.0.0`, Session Event `1.0.0`–`4.0.0`, Lease,
+Checkpoint, Provider Identity, Workspace Group, Blob Descriptor, and Transfer
+Manifest `1.0.0`, whose complete shapes are validated here. Every other catalog
 identity is recognized for self-field resolution but is explicitly refused by
 the public entries until its schema owner supplies a complete validator. Other
 registered ID names may remain ordinary references inside a supported object;
@@ -330,11 +331,23 @@ refuses unsupported or malformed schema contracts, a missing or malformed
 selected self field, raw-byte `chunk_id` objects, mutable journal variants,
 self-included digests, duplicate keys, unsafe integers, and floating-point
 literals. Before either identity entry attests a value, the composed path
-enforces the exact Session Record `1.0.0`, Blob Descriptor, and Transfer
-Manifest member sets. Session Record validation covers its Section 10.1 common
+enforces exact top-level and nested shapes for every supported record. Session
+Record validation covers its Section 10.1 common
 envelope, the Section 2.1 ASCII name grammar and 1–64 character bound, plus the
 closed Launch Plan, Task-board Reference, Board Identity, Board Goal, and Fork
-Provenance objects; other Section 10.1 record schemas have
+Provenance objects. Major 2 replaces the v1 fork field with the required
+`origin`, `same_provider_fork`, or `cross_environment_clone` derivation union;
+major 3 keeps that exact top-level wire field and adds the `native_adoption`
+creation tag. Each Environment Tuple is independently validated as a closed
+object with the declared environment-ID grammar, platform and architecture
+vocabularies, plus the Probe-to-Manifest SemVer link for `adapter_version`.
+The pinned tuple declaration assigns no type or bound to `environment_version`
+or `store_schema_fingerprint`, so identity validation requires their presence
+without inferring a constraint from another schema or a member name. The Session
+Record contract does not require its source and target `environment_id` values
+to differ. AX-source nullability, source Session ID
+separation, and immutable target-provider equality are enforced before identity
+calculation or verification. Other Section 10.1 record schemas have
 their common envelope scalar grammar checked before the explicit unsupported
 shape refusal. Blob and Manifest validation covers every self-contained closed
 nested object and rejects BlobChunk index, offset, size, bounds, ordering, and
@@ -345,10 +358,65 @@ symlink rules, and recursive submodule state/depth/count constraints that can
 be proven from the candidate object alone. Rules that need referenced Blob
 Descriptors, child manifests, raw Git pack/index bytes, an isolated Git object
 database, or filesystem resolution remain external integrity/materialization
-checks; this identity package does not claim to perform them. The complete
-per-member inventory is checked against the production `requireExactMembers`
+checks; this identity package does not claim to perform them. Its Section 2.2
+identity contribution is limited to validating invariant 10's persisted
+`execution_profile` member; it does not claim initial-launch/resume, lease,
+replica, event-fencing,
+replication, materialization, tombstone, capability, bridge, sync, or takeover
+runtime enforcement. Session Event validation derives its complete
+version/type registry from the generated catalog, selects the exact closed
+payload for every registered v1–v4 event, retains unknown v1 event types as
+inert immutable history, and refuses cross-major payload leakage. Lease,
+Checkpoint, Provider Identity, and Workspace Group validation covers their
+candidate-local scalar, closed-union, ordering, bound, literal, and cross-field
+requirements, including Safe Boundary Evidence and direct/task-board
+persistence exclusivity. Checks requiring a referenced predecessor, winning
+lease, Session Record kind/profile, event DAG history, provider-specific secret
+classification, materialized filesystem, or converged workspace-group history
+remain external integrity/publication gates; this package reports no claim for
+those facts.
+
+Session Event 4.0.0 replaces exactly the `terminal.created` and
+`session.resumed` payloads, and both declare `terminal_backend_id` as the
+Section 4.B `terminal-backend-id` scalar type rather than a bare string.
+`requireTerminalBackendID` enforces the declared 1–128 ASCII byte bound and the
+declared `[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*` grammar before either identity entry
+attests the event; the declared minimum is subsumed by the existing non-empty
+string check. Section 4.B also reserves the `ax.` namespace and names `ax.tmux`
+and `ax.conpty` as canonical built-ins, but that is a registry and trust rule
+rather than a payload constraint, so a vendor-namespaced backend ID that matches
+the grammar is accepted here and no backend registry, discovery, probe, or trust
+capability is claimed by this package.
+
+`ValidateObservationEvent` validates one closed Section 18.1 Observation Event,
+including the observation-name grammar, nullable fields, the result/error
+relationship in both directions — `partial` and `failure` require a non-null
+`error_code` and every other admitted result requires null, each half driven for
+every result the production vocabulary admits — exact counts object, object-ID
+ordering, and extension boundary.
+`ValidateObservationStream` additionally requires one stream UUID, a first
+sequence of 1, and exact `+1` continuity. It validates a supplied read-only
+snapshot; it does not append, rotate, authorize, or retrieve logs. Whether a
+terminal observation belongs to a measured operation requires operation-history
+context and is intentionally not inferred from a single candidate.
+
+The per-member inventory is checked against the production `requireExactMembers`
 argument lists, so adding, removing, or renaming a member without updating its
-pinned constraint row fails the focused suite. Manifest entry destination-case
+pinned constraint row fails the focused suite. That walk is only complete while
+`requireExactMembers` is the sole closed-member gate, so a separate assertion
+derives every function in the package that emits a closed-member refusal and
+fails unless that set is exactly `requireExactMembers`; a duplicate helper
+previously carried whole member sets outside the inventory. The scanned file set
+is derived from the package directory rather than a hand-written list, and every
+inventoried validator must be reachable from an exported entry point. The one
+production call whose member slice is computed rather than literal is the
+Session Event payload gate; its members are pinned separately against
+`testdata/session-event-payload-members.md`, mechanically extracted from the
+pinned specification's `Exact payload members` tables, and any other computed
+call site fails until it is declared and given its own pin. The Session Record provenance
+fixture inventory also derives every required nested-object path and proves that
+both `null` and scalar substitutions are refused by both identity entries.
+Manifest entry destination-case
 collision detection uses a linear Unicode simple-fold set; a production-entry
 regression covers the declared 65,536-entry maximum inside the encoded identity
 size cap.
@@ -369,6 +437,333 @@ attests it. Declared `string[n..m]` bounds count Unicode characters rather than
 UTF-8 bytes, including Blob media type, Manifest symlink target, workspace
 identity, remote name, and recursive submodule identity boundaries.
 
+Every declared range bound is proven at both of its limits, and the inventory
+that requires those proofs derives its own subject rather than listing it. The
+bound-helper set is derived transitively from the package sources — a function
+declaring a bounded `name` with an int `minimum` and/or `maximum`, plus any
+wrapper forwarding that name to one with literal bounds — and every call site of
+every derived helper becomes an obligation carrying the member and the literal
+bounds. A proof discharges an obligation only by accepting at the limit and
+refusing past it through `CalculateObjectIdentity` and `VerifyObjectIdentity`,
+or through `ValidateObservationEvent` for the Observation Event bounds, and the
+obligation set and the proof set are asserted equal in both directions. Adding a
+bound call site, widening or narrowing a bound, or deleting a proof therefore
+fails the suite; a review sweep previously found roughly twenty bounds that
+widened silently while every configured gate stayed green.
+
+Two obligations cannot be discharged that way and are declared rather than
+waved through. The 65,536-entry `GitIndex` bound is refused by the outer 5 MiB
+identity-size gate before the declared bound is reached, and a 256-entry nested
+submodule array is refused by the whole-tree submodule count first. Each names
+its subsuming refusal and the test that pins it, both sets are asserted exactly,
+and each named test must exist in the package. Bounds written inline rather than
+through a helper — the `opaque_identity` value length and the
+`terminal-backend-id` byte count — are proven by their own named tests instead.
+No behavioural claim here depends on a mutation sweep; the sweep is an audit of
+these gates, not a substitute for them.
+
+Every closed vocabulary the package admits is bound to a reviewed pin in
+[`testdata/closed-vocabularies.md`](internal/canonicaljson/testdata/closed-vocabularies.md).
+The production side is derived: the vocabulary-admitting helpers are derived
+from the sources rather than named — a function that yields the value it
+admitted and decides admission from its own variadic set, plus any wrapper
+forwarding that set to one — and every call to one of them becomes a row
+carrying the member and the admitted values in declaration order. The pinned
+side records where the specification declares that vocabulary, by SPEC line and
+by quoted declaration, so a row is checkable against the pinned document rather
+than against this repository. Those two columns are read and checked rather than
+parsed and discarded: the line must be a positive line number, the quoted
+declaration must name the member and every admitted value as a whole token, and
+two rows quoting the same declaration must cite the same line — so a row widened
+with an extra member also has to carry that member into the text a reviewer
+reads. The artifact still cannot verify itself against `SPEC.md`, which this
+repository does not vendor. Admitting an extra member, dropping one, reordering
+them, adding an unpinned call site, or deleting a pinned one all fail; so does
+adding a second admitting helper, because the derivation asserts its own helper
+set is complete.
+
+This exists because a "refuses one outside value" test proves a vocabulary gate
+is *reachable*, not that its admitted set is the *declared* set, and coverage
+cannot tell the difference — a widened gate still executes its refusal for
+whichever outside value a test happens to pick. A derived sweep that admitted one
+extra member at each of the 47 call sites in turn survived all 47 times against
+the full configured gate set. Binding the admitted set to a reviewed pin is what
+makes widening fail, at derivation, before any case runs.
+
+The pin covers the member LIST. The admitted set is that list intersected with
+the COMPARISON that decides membership, and a pinned argument list says nothing
+about the comparison: case-folding `requireEnum` made `CalculateObjectIdentity`
+attest a Lease Record whose `reason` was `CREATE`, trimming made it attest
+`" create "`, and relaxing `requireExactString` from equality to a prefix test
+made it attest a Checkpoint Record whose `status` was
+`validated_but_not_really` — each with the whole configured gate set green. The
+second factor is pinned separately. Every function that decides a string
+member's admission from a caller-supplied parameter is derived from the sources
+rather than named, its call sites are resolved to literals through package
+constants and through forwarding wrappers up the real call graph, and each of
+the 74 resulting sites is located in the valid fixtures by behaviour: a site
+binds to a position only when every one of its declared members is admitted
+there. Each bound position is then attacked at `CalculateObjectIdentity` and
+`VerifyObjectIdentity`, or at `ValidateObservationEvent`, with a family built
+from the admitted value itself — case variants, leading and trailing whitespace,
+a proper prefix, a proper suffix, a proper superstring, and an embedded NUL. A
+site that binds nowhere is reported, which is also the signature of a narrowed
+matcher. What this does not prove is a matcher that admits one arbitrary extra
+string unrelated to any declared member; that space is unbounded and no finite
+family reaches it.
+
+Every regular expression the package compiles is pinned the same way, because a
+grammar has the identical failure mode: widening `observationNamePattern` from
+`{1,7}` to `{1,8}` segments, to `{0,7}` so a bare single-segment name is
+admitted, or adding a hyphen to its character class each left the whole gate set
+green. Each production pattern carries a reference written independently of the
+source, its pinned SPEC declaration or an explicit statement that the document
+declares none, and the refusal it emits; the reference is what every oracle in
+that file reads, and production must equal it exactly. Anchors, character
+classes, counted quantifier bounds and one-or-more quantifiers are then derived
+from the reference as obligations, each discharged by a witness that the
+production entry must refuse and that the mechanically widened grammar must
+admit — so a witness which could not fail against a widened pattern is rejected
+before it is trusted. Counted bounds are asserted against the number the pinned
+specification declares, never the implementation constant, and the one bound
+that cannot be reached — `boardLogicalIDPattern`'s repetition, refused first by
+the declared `logical_id` string bound — names its subsuming refusal and the
+test that pins it. On top of that, every one-character neighbour of the value
+each fixture already carries at a located position — each position substituted
+by each of twelve character families, each family inserted at each boundary, and
+each position deleted — is driven through the production entry, so widening any
+class by any family moves a neighbour into the admitted set and fails.
+
+Every refusal this package can emit at runtime must have been executed by the
+shipped suite, and that is observed rather than claimed. The obligation set is
+derived from production the same way the bounds inventory is: every
+refusal-emitting return in the package's sources, with the refusal constructors
+themselves derived rather than named. The gate then runs the shipped suite in a
+child process under a statement-coverage profile and requires each derived site
+to carry a non-zero execution count. A guard added without a negative case, a
+deleted negative case, an unreachability claim that becomes reachable, and a
+declaration naming a guard that no longer exists all fail the gate.
+
+This exists because a percentage is not evidence. At 87.7% package coverage,
+eight normative gates could be deleted from the core-record validators
+simultaneously with the whole configured gate set — `go test ./...`, both seeded
+fuzz corpora, and `tracecheck` — still green, because 91 runtime refusal
+branches in that one file were never executed once. The cause is structural:
+`requireExactMembers` runs first in every validator, so a negative fixture that
+omits a member stops at the closed-member sweep and never reaches the type,
+format or coupling refusal it claims to pin. Every negative case here therefore
+supplies a complete valid member set and violates exactly one clause.
+
+Reaching those refusals is itself derived rather than hand-listed. Two sweeps
+walk every value position of every valid fixture: one substitutes a value of the
+wrong JSON type, and one corrupts every structurally-shaped value — digest,
+UUIDv7, UUIDv4, timestamp, git OID, sanitized git URL, semver — classified by
+the production `internal/scalar` parsers rather than by member name. The fixture
+set is itself an obligation: every schema/version registered to a validator that
+can accept anything must have a valid fixture, with the exempt total-refusal
+validators derived from the sources rather than excused by name.
+
+Members the pinned specification declares by name only are declared exemptions
+quoting the clause, not silent acceptances. `EnvironmentTuple`
+`environment_version` and `store_schema_fingerprint` carry neither a type nor a
+format at the pinned commit while their siblings carry explicit ones, so
+requiring a refusal there would invent a constraint. Both exemption sets are
+asserted exactly in both directions, so an exemption that stops being true fails
+as loudly as a missing case. 55 obligations that no candidate can reach through
+any production entry — overwhelmingly the "requires member" branches that
+`requireExactMembers` short-circuits — are declared with a reason, the refusal
+that subsumes them, and a test that must exist in the package.
+
+Two clause shapes are invisible to a deletion or operator-rewrite sweep, and
+this leaf shipped one live instance of each. A coupling written as a single
+boolean comparison — `requiresError != errorPresent` — was proven in one lexical
+direction only: narrowing it to `requiresError && !errorPresent` left the whole
+configured gate set green while `ValidateObservationEvent` attested a `success`
+Observation Event carrying a non-null `error_code`. There is no operator to
+rewrite there, only a boolean identity to split. An integer comparison against a
+literal — `epoch != 1` — was proven only at epoch 4: narrowing it to
+`epoch >= 3` left the gate set green while `CalculateObjectIdentity` attested an
+epoch-2 Lease Record with a null predecessor, and `epoch != 1` narrowed to
+`epoch > 1` is an equivalent mutant, so no deletion or operator sweep could ever
+have surfaced it.
+
+Both classes are now standing gates with derived subjects. Every `==`/`!=`
+whose two operands are boolean-valued is derived from the package sources —
+boolean-valued decided from the source, a negation, a nested comparison, a
+short-circuit, or an identifier the enclosing function binds from a package
+function whose result at that position is declared `bool` — and each site
+obliges two proofs, one per single-sided violation, with the pair chosen by the
+operator rather than by hand. Every comparison between an integer literal and
+anything else in `core_records.go` obliges a proof at each value where the
+comparison flips, read off the operator, with values below zero dropped for a
+length, a range index, or an unsigned local. The obligation key carries the
+literal, so moving a literal fails the gate before any case runs. Each proof
+drives `CalculateObjectIdentity` and `VerifyObjectIdentity`, or
+`ValidateObservationEvent`/`ValidateObservationStream` for the Observation
+Event. Three boundary values cannot be driven — a zero `sequence` and a zero
+`epoch` are refused by the positive-integer gate first — and each names its
+subsuming refusal and a test that must exist. The one derived function whose
+comparisons run at package initialization over the pinned catalog rather than
+over a candidate is exempted by name, and the exemption asserts from the sources
+that every caller of it is a package-level initializer that panics, so a new
+caller from a validator reddens the gate.
+
+An audit sweep generates its mutants from that same derivation rather than from
+a hand-picked list: `TestDumpSweepSites` writes each derived site with its exact
+source byte range when `AX_SWEEP_DUMP` is set, and skips otherwise, so an
+external harness can only mutate what the gates themselves derive. Forty mutants
+in the two grammars — both single-direction splits of every derived coupling,
+and literal shifts an operator-rewrite grammar cannot express — were killed with
+no survivors. `x >= K+1` is deliberately not generated for `x != K`: in a
+non-negative domain whose minimum is `K` it is an equivalent mutant, and
+reporting an equivalent mutant as a kill is how an earlier sweep on this leaf
+reported strength it did not have.
+
+The literal-boundary gate is scoped to `core_records.go`, this leaf's
+deliverable. `canonical.go` and `closed_shapes.go` belong to the preceding
+leaves; their comparisons were measured and disclosed rather than claimed. The
+presence-coupling gate is package-wide, because a boolean-valued equality is
+rare enough — eight sites — that scoping it would have left a known instance of
+the same class unproven in a file this package ships.
+
+Section 5.3 declares three Lease Record couplings and this package enforces
+exactly those three: a lease after epoch one carries a non-null predecessor, an
+epoch-one `create` lease carries a null predecessor, and every lease other than
+an epoch-one `create` carries a non-null checkpoint. Section 5.3 declares no
+coupling from the epoch to the `reason`, so an epoch-one `recovery` lease and a
+`create` lease above epoch one are both admitted; the executable suite pins that
+permissiveness so the inference cannot return.
+
+Array order constraints are mapped from the specification's phrase to the
+validator that enforces it, mechanically, in
+[`testdata/array-order-constraints.md`](internal/canonicaljson/testdata/array-order-constraints.md).
+Section 1.6 defines `sorted unique T[n..m]` as the compound phrase meaning
+"bytewise canonical ordering and no duplicate", and the pinned document uses
+bare `sorted` where it declares ordering alone. Reading the two as synonyms
+shipped two live refusals the contract does not declare: Session Event
+`predecessors` and Workspace Group Record `members` were both validated with the
+strict comparison, so each refused a duplicate the contract admits. Both are
+repaired, and both directions are now driven at `CalculateObjectIdentity` and
+`VerifyObjectIdentity` — a descending pair refused, a duplicate admitted — with
+the Session Event version set taken from the pinned catalog.
+
+The production side is derived, not listed. An ordering site is found by tracing
+the loop's element dataflow: a comparison between a value derived from the
+ranged element and a value bound to an earlier element, either carried forward
+or indexed at an offset from the loop key. Its strength is read off the
+comparison OPERATOR, which is the only thing that decides whether a duplicate
+survives. The array member is derived too, by tracing the ranged collection back
+to the string literal that named it, through helper parameters and across call
+sites, so a reusable ordering helper contributes one row per member it actually
+orders. A row whose `Enforces` is `sorted unique` must cite a uniqueness
+declaration; a row whose `Enforces` is `sorted` must cite none. A strengthened
+validator therefore cannot be written down consistently: its row would have to
+quote a uniqueness clause the document does not contain.
+
+The gate proves its own coverage three ways. An ordering site whose member
+cannot be traced is reported rather than silently contributing no row, which is
+what a new ordering helper with no call site looks like. Every production
+refusal whose message speaks about order must belong to a function carrying a
+derived site, so a check written in a shape the tracer does not model reddens
+instead of passing unpinned. And the phrase-to-validator mapping is a pure
+function with its own negative proof, driven with rows wrong in each way it
+claims to detect and asserted against the exact problem each must produce, so
+narrowing one clause cannot pass on a neighbouring clause's refusal.
+
+Three ordering sites enforce uniqueness the pinned document declares nowhere.
+They are recorded as disclosed strengthenings rather than admitted silently, the
+disclosed set is asserted exactly against the artifact in both directions, and
+each names the leaf that owns the section it sits in. One — Workspace Group
+Record `members` — is in this leaf's Section 2 and was repaired here. The other
+two are `WorkspaceSnapshot.members` and `GitIndex.entries`, in sections owned by
+a later leaf; they are reported with their exact undeclared refusal rather than
+changed inside a reviewed and accepted candidate.
+
+Six record-level conformance dimensions are swept across every registered
+shape rather than one record at a time, in
+[`record_conformance_test.go`](internal/canonicaljson/record_conformance_test.go).
+
+Round trip drives `Canonicalize` as the storage form for every identity fixture:
+canonicalization is idempotent, reading the canonical bytes back through
+`CalculateObjectIdentity` reproduces the digest, and `VerifyObjectIdentity`
+accepts the canonical claimed record. Its negative half is the Section 1.5
+sentence "a malformed value remains invalid after a caller recomputes the
+containing object's self-ID", driven through both the recomputation and the
+canonicalization a writer could use to launder it; its anti-degenerate bound is
+that the fixture digests are pairwise distinct, so a calculation that ignored
+content would fail rather than satisfy every comparison.
+
+Unknown-field closure binds both halves of the Section 1.5 extension boundary at
+one call. The same reverse-DNS key with the same value is refused at the top
+level and accepted under `extensions`, so neither a validator that rejects it
+everywhere — which would break the only declared forward-compatibility channel —
+nor one that accepts it everywhere passes.
+
+Historical-major retention compares two independently generated release
+projections: every contract version the v0.4.3 Section 1.5 registry declares must
+still be declared by v0.5.0. The detector is a pure function with its own
+negative proof, driven with a dropped version, a dropped contract, and a
+purely additive registry, and asserted against the exact problem each must
+produce. The opposite direction is checked too, because a historical projection
+that silently returned the current registry would make every retention assertion
+vacuous. Every historical-major fixture is then accepted through the identity
+entries under its own registered version, and one major above the highest
+registered version of each schema is refused.
+
+Union closure walks every closed-vocabulary position of every fixture and feeds
+it the union of every other pinned vocabulary. The pinned inventory kills a
+widening mutant at the source; it does not establish that a JSON path in a real
+record routes to the vocabulary its row names. A validator reading a Lease Record
+`reason` through the `session.quiescing` reason gate would leave every pinned row
+unchanged and admit `stop` on a lease, and that mutant is refused here. Each
+position's declared set is derived from the single pinned row whose member and
+values contain the fixture value; the four positions with two genuinely
+different candidate rows carry a reviewed resolution that must remain one of the
+candidates, so a widened production vocabulary invalidates the resolution rather
+than being absorbed by it.
+
+Provenance is swept per Section 10.1 family rather than per record. The family
+list is the section's own sentence, and the families without a complete shape
+validator are derived out by walking the production sources rather than excused
+by name, so a Tombstone validator landing later enters the sweep automatically.
+Each of `subject_id`, `created_by_host_id`, `created_at`, and `extensions` is
+driven absent, null, wrongly typed, empty, and — the one that matters — carrying
+a value of the right JSON type in the wrong identity grammar: a UUIDv4 stamped
+into a UUIDv7 member is the shape a forged or copied provenance stamp takes, and
+a check that only asks whether the member is a string admits it.
+
+Cross-record references are resolved rather than pattern-matched. One coherent
+lineage is built — session record, provider identity, provider and workspace
+manifests, an epoch-1 create lease, the `session.created` event, the checkpoint
+closing over that event head and both manifests, and the epoch-2 graceful
+takeover whose handoff base is that checkpoint — with every cross-record member
+holding the recomputed omit-self digest of the record it names. Each reference is
+then resolved through a content-addressed store keyed by recomputed digest and
+must land on the record it names. The negative half replaces one referenced
+record with a different, individually valid record of the same schema, kind, and
+subject, differing only in a diagnostic timestamp: under the "untrusted display
+name" storage path Section 10.1 forbids, the substitute would keep the same
+address, and here it must not resolve and swapping the reference must invalidate
+the referring record's own claim. The in-object couplings those records carry —
+subject/session scope, the lease issuer, the checkpoint's exactly-one manifest
+rule — are already pinned by the derived coupling inventory and the clause
+refusal proofs and are not restated.
+
+These sweeps are audited by a recorded mutation run over the production sources.
+Five mutants — a lease vocabulary widened with another record's value, a
+`created_by_host_id` admitted as any string, an unknown reverse-DNS top-level
+member retained, the self field included in its own digest, and a historical
+release projection serving the current registry — are each refused by these
+tests. A deleted checkpoint scope coupling survives them and is refused by the
+existing coupling inventory, which owns that clause. A seventh mutant, skipping
+the `created_by_host_id` check when the member is absent, survives both these
+tests and the whole package suite: it is an equivalent mutant, because every
+Section 10.1 validator calls `requireExactMembers` with its closed member list
+before the envelope runs, so the absent-member path is unreachable at the
+production entry. That subsumption is pinned rather than assumed — the sweep's
+absent case asserts the refusal names the missing member — and the reading is
+recorded rather than presented as a pass.
+
 Native fuzz targets recursively attack malformed member syntax, duplicate
 names, unpaired surrogates, and UTF-16 ordering through `Canonicalize`, then
 prove canonical read-back, outer-whitespace invariance, omit-self identity
@@ -384,11 +779,14 @@ budgets and one
 worker per fuzz target so the gate is bounded by an input count rather than
 wall-clock timing.
 
-This package is read-only and deterministic; it does not mutate durable state.
+This package is read-only and deterministic; it does not mutate durable state,
+so crash recovery and mutation idempotency are not applicable to these entry
+points.
 It supplies identity calculation for a new schema-versioned object under
 Section 17.3, but does not claim to implement migration publication, atomic
-reference advancement, rollback retention, `ax migrate`, `ax doctor`, or any
-runtime capability. Those surfaces remain unavailable until their owning
+reference advancement, rollback retention, `ax migrate`, `ax doctor`, Session
+creation, clone, adoption, or any runtime capability. Schema acceptance alone
+does not advertise those operations. Those surfaces remain unavailable until their owning
 implementation tasks land.
 
 Run its focused tests with:
@@ -402,7 +800,13 @@ go test ./internal/canonicaljson -run=^$ \
   -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1
 go test ./internal/canonicaljson -run=^$ \
   -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1
-go run ./internal/traceability/cmd/tracecheck -section 17.3
+go test ./internal/canonicaljson -run=^$ \
+  -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1
+go run ./internal/traceability/cmd/tracecheck \
+  -section 2.1 -section 2.2 -section 2.3 -section 2.4 \
+  -section 5.1 -section 5.2 -section 5.3 -section 5.4 \
+  -section 5.5 -section 5.6 -section 10.1 -section 13.14.5 \
+  -section 13.15 -section 17.3 -section 18.1
 ```
 
 ## Generated Contract Catalogs
@@ -447,7 +851,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
 repository gate used by CI. Its reviewed
 [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
 registry independently enumerates implementation owners for all 60 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 30
+contract rows, 36 pinned or catalog-referenced normative section keys, 38
 executable acceptance cases, and 30 exact fixture identities or Appendix D
 anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
 The generated v0.5.0 catalog also carries the reviewed schema/version/self-field
@@ -472,9 +876,15 @@ each assigned subsection, and every heading in a same-top-level range, against
 the immutable v0.5.0 inventory. Every exact `section_binding` must name its own
 production declaration and executable acceptance case. A generic top-level
 source pin is not a scoped implementation owner. The common-types and canonical
-identity implementations now own the assigned Section 1.6, Sections 10.1-10.4,
-and Section 17.3 identity-contribution bindings; malformed, nonexistent,
-unpinned, or otherwise unowned assignments fail closed.
+identity implementations now own the assigned Section 1.6, Section 2.1 name
+grammar, Section 2.2 invariant-10 creation-profile value, Section 2.4 profile
+enum, Sections 5.1–5.6 and 10.1–10.4, Sections 13.14.5 and 13.15 event
+payloads, Section 17.3 identity contribution, and Section 18.1 Observation
+validation bindings. The Section 2.3 binding is limited to the immutable validated name
+consumed by a future resolver; local/peer lookup, ASCII-fold collision handling,
+route choice, and the associated runtime errors are not implemented or
+advertised. Malformed, nonexistent, unpinned, or otherwise unowned assignments
+fail closed.
 
 Successful output reports ownership inventory counts only. The gate does not
 mutate repository or product state, add an `ax` command or `doctor` result,
@@ -502,7 +912,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | --- | --- | --- | --- |
 | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
-| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate and fuzz common wire scalars and canonical identities, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.1 -section 6.2 -section 6.3 -section 6.4 -section 6.5 -section 17.1 -section 17.2 -section 17.4`; `go test ./internal/config -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 1.6 -section 2.1 -section 2.2 -section 2.3 -section 2.4 -section 5.1 -section 5.2 -section 5.3 -section 5.4 -section 5.5 -section 5.6 -section 6.1 -section 6.2 -section 6.3 -section 6.4 -section 6.5 -section 10.1 -section 10.2 -section 10.3 -section 10.4 -section 13.14.5 -section 13.15 -section 17.1 -section 17.2 -section 17.3 -section 17.4 -section 18.1`; `go test ./internal/config -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
 | `github.com/pelletier/go-toml/v2` | Parse and emit TOML while the repository-owned Configuration layer enforces exact versioned closed schemas | Imported by `internal/config.Decode`, `internal/config.EncodeCurrent`, and explicit `internal/config.Migrate` at pinned module version `v2.4.3` | Validated Configuration values/TOML bytes in memory; explicit migration writes a same-directory replacement plus an owner-only versioned backup |
 | GitHub Actions | Enforce traceability, generated-output, test, vet, and build gates on pull requests and `main` | `.github/workflows/ci.yml` | GitHub-hosted CI check results |
