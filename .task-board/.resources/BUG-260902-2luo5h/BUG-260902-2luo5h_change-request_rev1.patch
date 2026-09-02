@@ -1,0 +1,291 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 82adb77..314e1e6 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,18 @@
+ 
+ ## 2026-09-02
+ 
++### 1900 — An absent clause has nothing to mutate, and the artifact row read as if it were there
++
++- FINDING: `validateManifestEntries` enforced the duplicate and destination-case-collision halves of SPEC.md:4768-4769 and dropped the OVERLAPPING half entirely. On checkpoint `a031128` a manifest declaring file `a` with file `a/b`, symlink `s` with file `s/x`, or file `a` with directory `a/b` was ACCEPTED at both identity entries. A symlink parent over a real child is a materialization-escape primitive, so this was a path-safety hole on landed main.
++- ROOT CAUSE of why every existing gate stayed green: mutation testing cannot surface an ABSENT clause. There is no operator to rewrite, no literal to shift, no guard to delete. The 47-call-site vocabulary sweep, the derived refusal-coverage gate, the declared-bounds inventory and five seeded fuzz corpora were all satisfied by a validator missing a third of one normative sentence. It was found by reading the spec sentence against the code, which is the only method that finds a clause that is not there.
++- FINDING: `testdata/constraint-enumeration.md` actively hid it. The row narrowed "overlapping" to the external child-partition case and dispositioned the entry-local half as "duplicate/case collision is enforced", so the sentence read as fully accounted for. An enumeration row that paraphrases half a clause is worse than a missing row: a missing row fails the inventory, a half-quoted one passes review. The row now quotes the whole sentence and states that all three properties are entry-local.
++- DECISION: detection reuses the strict bytewise order the same loop already proves instead of re-deriving each path's ancestor set. Every ancestor is a proper prefix ending at `/`, so it precedes its descendants and the open non-directory owners form a stack.
++- FINDING, the non-obvious half: an owner may be closed only once the scan passes strictly above `owner + "/"`, not on the first non-descendant path. `.` (0x2E) sorts below `/` (0x2F), so `a.txt` sits between `a` and `a/b`; the naive closing rule evicts the `a` owner before its escaping child arrives and admits the overlap. Mutant M5 is exactly that implementation and needed its own three-entry case to die.
++- DECISION, an over-refusal declined: parent directories are NOT required to be declared. SPEC.md §10.4/§13.14 states no such rule, and the shipped `transferManifestWithEntries(count)` fixture already declares `p/00000` with no `p` entry. Overlap is also compared bytewise, not case-folded — folding does not preserve byte order, so the stack cannot run over folded paths — and that narrowing is disclosed in the artifact row rather than silently assumed.
++- EVIDENCE: 7 mutants, 7 killed, 0 survivors, every acceptance case green throughout. Two of them are the pair that proves no tag arm is redundant: restricting the refusal to `file` owners kills only the symlink and hardlink cases, restricting it to non-`file` owners kills only the rest. `BUG-260902-2luo5h_overlap-mutants.log`.
++- SCOPE: `README.md`, `internal/canonicaljson/closed_shapes.go`, `internal/canonicaljson/clause_refusal_test.go`, `internal/canonicaljson/boundary_constraints_test.go`, `internal/canonicaljson/testdata/constraint-enumeration.md`
++- STATUS: BUG-260902-2luo5h on `task-board/story/STORY-260902-1evi33`, one commit past checkpoint `a031128`; `internal/canonicaljson` coverage 97.2% (measured at the checkpoint in a throwaway worktree) -> 97.2%; `go build ./...`, `go vet ./...`, `gofmt -l .`, `go test ./... -count=1`, `-cover`, all five seeded fuzz targets, `tracecheck` and `cataloggen -check` exit 0; handed off to review.
++
+ ### 1810 — Two derived counts collided in one merge, and only one of them was honest
+ 
+ - FINDING: reapplying the record-schema Story onto trunk `10aaa16` produced nine conflict blocks, not the four structural hunks the previous probe recorded. The extra five were derived counts that both sides had bumped independently: `AcceptanceCases` in `traceability_test.go`, the two `acceptance_cases=` strings in `cmd/tracecheck/main_test.go`, and the count sentence plus tools row in `README.md`. A count conflict cannot be resolved by choosing a side; base 29 + trunk 6 + accepted 3 = 38, which the union-merged registry then confirmed at `go run ./internal/traceability/cmd/tracecheck` (`acceptance_cases=38`).
+diff --git a/README.md b/README.md
+index 426fd55..2dc08ef 100644
+--- a/README.md
++++ b/README.md
+@@ -444,7 +444,11 @@ both `null` and scalar substitutions are refused by both identity entries.
+ Manifest entry destination-case
+ collision detection uses a linear Unicode simple-fold set; a production-entry
+ regression covers the declared 65,536-entry maximum inside the encoded identity
+-size cap.
++size cap. Entry-local path OVERLAP is refused by the same scan: an entry whose
++ancestor is a declared `file`, `symlink` or `hardlink` is rejected, reusing the
++strict bytewise order the scan already proves rather than re-deriving each
++path's ancestor set, so a symlink or file parent cannot carry children into
++materialization.
+ The shared strict decoder behind `Canonicalize` and both identity entries
+ enforces a declared 256-container nesting bound: a document that opens a 257th
+ nested object or array is refused with the typed `ErrInvalidJSON` error before
+diff --git a/internal/canonicaljson/boundary_constraints_test.go b/internal/canonicaljson/boundary_constraints_test.go
+index 57f36ee..c247cd8 100644
+--- a/internal/canonicaljson/boundary_constraints_test.go
++++ b/internal/canonicaljson/boundary_constraints_test.go
+@@ -903,3 +903,40 @@ func uninitializedSubmodule(index int) map[string]any {
+ 		"repo_relative_cwd": nil, "agent_project_config_paths": nil,
+ 	}
+ }
++
++// manifestDirectoryEntry, manifestFileEntry, manifestSymlinkEntry and
++// manifestHardlinkEntry build one complete ManifestEntry of each tag so an
++// overlap fixture differs from a valid manifest only in the paths and tags it
++// declares.
++func manifestDirectoryEntry(path string) map[string]any {
++	return map[string]any{"path": path, "type": "directory", "mode": json.Number("493")}
++}
++
++func manifestFileEntry(path string) map[string]any {
++	return map[string]any{
++		"path":               path,
++		"type":               "file",
++		"mode":               json.Number("420"),
++		"size":               json.Number("11"),
++		"blob_id":            digestWithDigit('4'),
++		"blob_descriptor_id": digestWithDigit('5'),
++	}
++}
++
++func manifestSymlinkEntry(path, target string) map[string]any {
++	return map[string]any{"path": path, "type": "symlink", "mode": json.Number("511"), "target": target}
++}
++
++func manifestHardlinkEntry(path, targetPath string) map[string]any {
++	return map[string]any{"path": path, "type": "hardlink", "mode": json.Number("420"), "target_path": targetPath}
++}
++
++func transferManifestWithEntryShapes(entries ...map[string]any) map[string]any {
++	object := validTransferManifestObject("workspace_tree")
++	values := make([]any, len(entries))
++	for index, entry := range entries {
++		values[index] = entry
++	}
++	object["entries"] = values
++	return object
++}
+diff --git a/internal/canonicaljson/clause_refusal_test.go b/internal/canonicaljson/clause_refusal_test.go
+index c6f78cb..aec1d99 100644
+--- a/internal/canonicaljson/clause_refusal_test.go
++++ b/internal/canonicaljson/clause_refusal_test.go
+@@ -554,3 +554,135 @@ func assertIdentityEntriesRefuseWithReason(t *testing.T, input []byte, selfField
+ 		t.Fatalf("VerifyObjectIdentity(%s malformed shape with correct omit-self claim) error = %v, want identity refusal containing %q", selfField, err, want)
+ 	}
+ }
++
++// TestManifestEntryOverlapRefusalReachesBothIdentityEntries pins the entry-local
++// half of SPEC.md:4768-4769 — "Entries and child partitions MUST contain no
++// duplicate, overlapping, or destination-case-colliding path" — at
++// CalculateObjectIdentity and VerifyObjectIdentity.
++//
++// The duplicate and destination-case-collision halves were enforced; the
++// overlapping half was absent, so a file, symlink or hardlink entry could
++// declare children. A symlink parent over a real child is a materialization
++// escape primitive, which is why every non-directory tag is pinned separately
++// rather than through one representative case.
++//
++// Each case names the exact overlap message it must produce. A neighbouring
++// refusal reporting some other problem for the same fixture would otherwise let
++// a weakened overlap clause pass.
++func TestManifestEntryOverlapRefusalReachesBothIdentityEntries(t *testing.T) {
++	for _, test := range []struct {
++		name    string
++		entries []map[string]any
++		want    string
++	}{
++		{
++			name: "file over file",
++			entries: []map[string]any{
++				manifestFileEntry("a"),
++				manifestFileEntry("a/b"),
++			},
++			want: `ManifestEntry[1] path "a/b" overlaps earlier file entry "a"`,
++		},
++		{
++			name: "symlink over file",
++			entries: []map[string]any{
++				manifestSymlinkEntry("s", "target"),
++				manifestFileEntry("s/x"),
++			},
++			want: `ManifestEntry[1] path "s/x" overlaps earlier symlink entry "s"`,
++		},
++		{
++			name: "file over directory",
++			entries: []map[string]any{
++				manifestFileEntry("a"),
++				manifestDirectoryEntry("a/b"),
++			},
++			want: `ManifestEntry[1] path "a/b" overlaps earlier file entry "a"`,
++		},
++		{
++			name: "hardlink over file",
++			entries: []map[string]any{
++				manifestFileEntry("a.bin"),
++				manifestHardlinkEntry("h", "a.bin"),
++				manifestFileEntry("h/x"),
++			},
++			want: `ManifestEntry[2] path "h/x" overlaps earlier hardlink entry "h"`,
++		},
++		{
++			// "a.txt" sorts between "a" and "a/b" because '.' precedes '/', so
++			// an implementation that closes an open non-directory on the first
++			// path that is not its descendant loses the "a" owner before the
++			// escaping child arrives.
++			name: "file over file across an intervening sibling",
++			entries: []map[string]any{
++				manifestFileEntry("a"),
++				manifestFileEntry("a.txt"),
++				manifestFileEntry("a/b"),
++			},
++			want: `ManifestEntry[2] path "a/b" overlaps earlier file entry "a"`,
++		},
++		{
++			name: "file below a directory still owns its own subtree",
++			entries: []map[string]any{
++				manifestDirectoryEntry("a"),
++				manifestFileEntry("a/b"),
++				manifestFileEntry("a/b/c"),
++			},
++			want: `ManifestEntry[2] path "a/b/c" overlaps earlier file entry "a/b"`,
++		},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			assertIdentityEntriesRefuseWithReason(
++				t,
++				mustJSON(t, transferManifestWithEntryShapes(test.entries...)),
++				SelfManifestID,
++				test.want,
++			)
++		})
++	}
++}
++
++// TestManifestEntryOverlapAdmitsDirectoryParents keeps the refusal narrow: a
++// declared directory legitimately contains children, and a sibling whose name
++// merely shares a byte prefix is not an ancestor. Without these, the overlap
++// clause could be "proven" by a validator that refuses every nested manifest.
++func TestManifestEntryOverlapAdmitsDirectoryParents(t *testing.T) {
++	for _, test := range []struct {
++		name    string
++		entries []map[string]any
++	}{
++		{
++			name: "nested directories carry files",
++			entries: []map[string]any{
++				manifestDirectoryEntry("a"),
++				manifestFileEntry("a/b"),
++				manifestDirectoryEntry("a/c"),
++				manifestFileEntry("a/c/d"),
++			},
++		},
++		{
++			name: "byte prefix is not an ancestor",
++			entries: []map[string]any{
++				manifestFileEntry("a"),
++				manifestFileEntry("a.txt"),
++				manifestDirectoryEntry("b"),
++				manifestFileEntry("b/c"),
++			},
++		},
++		{
++			name: "symlink sibling shares a prefix",
++			entries: []map[string]any{
++				manifestSymlinkEntry("s", "target"),
++				manifestFileEntry("s.txt"),
++			},
++		},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			assertIdentityEntriesAcceptShape(
++				t,
++				mustJSON(t, transferManifestWithEntryShapes(test.entries...)),
++				SelfManifestID,
++			)
++		})
++	}
++}
+diff --git a/internal/canonicaljson/closed_shapes.go b/internal/canonicaljson/closed_shapes.go
+index 18267d0..95c6449 100644
+--- a/internal/canonicaljson/closed_shapes.go
++++ b/internal/canonicaljson/closed_shapes.go
+@@ -1019,10 +1019,25 @@ func validateTransferManifest(object map[string]any) error {
+ 	return nil
+ }
+ 
++// manifestPathOwner is one declared non-directory Transfer Manifest entry.
++// Section 10.4 admits children only below a directory, so any later entry that
++// resolves through one of these paths is an overlapping destination.
++type manifestPathOwner struct {
++	path      string
++	entryType string
++}
++
+ func validateManifestEntries(values []any) error {
+ 	previous := ""
+ 	foldedPaths := make(map[string]struct{}, len(values))
+ 	fileModes := make(map[string]uint64)
++	// openNonDirectories carries the non-directory entries whose descendant
++	// range the scan has not yet passed, deepest last. Overlap detection reuses
++	// the strict bytewise order already proven below instead of re-deriving the
++	// ancestor set of every path: a descendant of p always starts with p + "/",
++	// so it sorts after p and before any later path that is neither a
++	// descendant of p nor ordered below p + "/".
++	var openNonDirectories []manifestPathOwner
+ 	for index, value := range values {
+ 		entry, err := requireObjectValue(value, fmt.Sprintf("ManifestEntry[%d]", index))
+ 		if err != nil {
+@@ -1048,6 +1063,22 @@ func validateManifestEntries(values []any) error {
+ 		}
+ 		foldedPaths[foldedPath] = struct{}{}
+ 		previous = pathValue
++		for len(openNonDirectories) > 0 {
++			owner := openNonDirectories[len(openNonDirectories)-1]
++			subtree := owner.path + "/"
++			if strings.HasPrefix(pathValue, subtree) {
++				return invalidIdentity(
++					"ManifestEntry[%d] path %q overlaps earlier %s entry %q; Transfer Manifest entry paths must not overlap",
++					index, pathValue, owner.entryType, owner.path)
++			}
++			if pathValue <= subtree {
++				break
++			}
++			openNonDirectories = openNonDirectories[:len(openNonDirectories)-1]
++		}
++		if entryType != "directory" {
++			openNonDirectories = append(openNonDirectories, manifestPathOwner{path: pathValue, entryType: entryType})
++		}
+ 		mode, err := requireUint(entry, "mode", 4095)
+ 		if err != nil {
+ 			return err
+diff --git a/internal/canonicaljson/testdata/constraint-enumeration.md b/internal/canonicaljson/testdata/constraint-enumeration.md
+index 2664edf..1bc23d0 100644
+--- a/internal/canonicaljson/testdata/constraint-enumeration.md
++++ b/internal/canonicaljson/testdata/constraint-enumeration.md
+@@ -412,7 +412,7 @@ required-object lookup cannot create an attested identity.
+ | Blob Descriptor | Descriptor size/digest and chunk digests match referenced raw bytes. | External: raw bytes are not members of the descriptor identity candidate. |
+ | Transfer Manifest | The five `kind` arms impose exact nullability plus empty/non-empty entry and child rules. | Enforced by `validateTransferManifest`. |
+ | Transfer Manifest | Entries are strictly bytewise path-sorted and have no destination-case collisions. | Enforced by `validateManifestEntries`; collision membership is O(total path characters) through `simpleFoldKey`, and the 65,536-entry production calculation guard is below 2 seconds. |
+-| Transfer Manifest | Entry and child partitions have no duplicate, overlapping, or destination-case-colliding paths. | Entry-local duplicate/case collision is enforced. Child partition paths require the referenced child manifests and are external to one candidate. |
++| Transfer Manifest | “Entries and child partitions MUST contain no duplicate, overlapping, or destination-case-colliding path.” All three properties are entry-local, and the whole sentence is the row. | Entry-local duplicate and destination-case collision are enforced by `simpleFoldKey` membership. Entry-local OVERLAP is enforced by `validateManifestEntries`: an entry whose ancestor is a declared `file`, `symlink` or `hardlink` is refused, reusing the strict bytewise order the same loop already proves rather than re-deriving each path's ancestor set. `TestManifestEntryOverlapRefusalReachesBothIdentityEntries` pins file-over-file, symlink-over-file, file-over-directory, hardlink-over-file, an intervening `.`-sorted sibling and a nested owner through both public entries, and `TestManifestEntryOverlapAdmitsDirectoryParents` keeps declared directory parents and shared byte prefixes admitted. Overlap is compared bytewise, not case-folded, so a case-only overlap such as `A` over `a/b` is refused only where the duplicate/case-collision clause already reaches it. Child partition paths require the referenced child manifests and remain external to one candidate. |
+ | Transfer Manifest | Every file entry agrees with its referenced Blob Descriptor on blob ID and size. | External: referenced descriptors are not members of this candidate. |
+ | Transfer Manifest | A hardlink names an earlier file with the same mode; a symlink target stays lexically within the materialization root. | Enforced by `validateManifestEntries`; `TestSpecDerivedRefusalClausesReachBothIdentityEntries` pins both target type guards through both public entries, while filesystem resolution is explicitly external. |
+ | Transfer Manifest | `excluded_classes` diagnoses every applicable capture exclusion. | Syntax/order/count are enforced; capture-selection completeness requires capture evidence and is external. |
