@@ -30,8 +30,8 @@ func TestPinnedNormativeScopeEqualsBoardStoryUnion(t *testing.T) {
 
 	boardRoot := filepath.Join("..", "..", ".task-board")
 	got, storyCount := claimedNormativeUnion(t, boardRoot)
-	if storyCount != 81 {
-		t.Fatalf("board normative-scope survey covered %d Stories, want 81; update the survey assertion and pin for an intentional board change", storyCount)
+	if storyCount != 82 {
+		t.Fatalf("board normative-scope survey covered %d Stories, want 82; update the survey assertion and pin for an intentional board change", storyCount)
 	}
 	want := []string{
 		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
