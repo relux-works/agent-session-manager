@@ -1,0 +1,839 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index c1d780e..82adb77 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -64,6 +64,32 @@
+ - STATUS: Resolved; TASK-260830-1tax26 handed to review as revision 6.
+ 
+ 
++### 1620 — endpoint option injection closed; ssh_args gate never read the endpoint
++- ROOT CAUSE: `validateMesh` (`internal/config/validation.go:449`) bounded `mesh.peers[].endpoint` only with `validatePrintableCharacters(…, 1, 1024)`. The Section 6.3 bypass gate reads `ssh_args` and nothing else, and SPEC.md:2494 hands `ssh(1)` the endpoint as an atomic argv value — but an atomic argv value is not a destination, because `ssh(1)` reads its destination positionally through getopt.
++- FINDING: reproduced at the production `loadConfigDocument` entry with a 34-shape hostile-endpoint probe. Against the pre-fix base (an archive of checkpoint `10aaa16`) 32 of 34 loaded with `err=nil`, including `endpoint = "-oStrictHostKeyChecking=no"`, `"-oUserKnownHostsFile=/dev/null"`, `"-F/attacker/config"`, `"-J jump.example"`, `"--"`, and `"peer.example -oStrictHostKeyChecking=no"`. The first two are exactly the bypass Section 6.3 requires refusing, reached through a field the ssh_args gate never inspects. Only the tab and newline shapes were already refused, one clause earlier by the printable-character bound. After the fix all 34 are refused and every option-shaped one names the `option-like value` clause. Probe logs: `.temp/BUG-260902-4ajzyz/audit-probe-before-01.log` and `-after-01.log`.
++- FIX: `internal/config/endpoint.go` admits the field against a closed `[user@]host[:port]` grammar — leading `-` and any whitespace refused first by name, then a 1-64 character login name, LDH DNS labels or a bracketed IPv6 literal, and a decimal port in 1-65535. Wired as one new refusal site at `validation.go:453`, clause `mesh.peers[N].endpoint <reason>`.
++- DECISION: the grammar is deliberately narrower than every destination `ssh(1)` accepts (no bare IPv6, no trailing dot, no `%zone`, LDH labels only). Fail-closed is the point: widening it is a reviewed change, not an accident. A bare IPv6 literal is refused specifically because its colons are indistinguishable from the port separator.
++- FINDING: the dangling `-o` the audit reported as admitted was already closed by BUG-260902-beqfwr — `admitSSHArguments` returns `sshRefusalMissingFlagValue` for it today. Verified by probe, then pinned per declared value-taking letter (`-i -l -p -o`, alone, grouped as `-q<letter>`, and as a trailing argument) rather than left as the two incidental cases it had.
++- FINDING: the disclosed short-flag asymmetry is real and is what let `-A`, `-E` and `-L` mutants pass green: `TestLoadRefusesEverySSHShortOptionOutsideThePermittedTables` skips whatever production permits, so a mutant that permits a letter deletes its own subtest. Closed with the both-directions key-set pin `permittedSSHOptionSamples` already gave the `-o` registry, plus named assertions for the capability-widening letters `-A -E -L -R -D -W -w -S -O`.
++- REGRESSION: `schema_test.go`'s endpoint bound used `strings.Repeat("界", 1024)`, which the grammar refuses; rewritten as `strings.Repeat("a.", 511) + "ab"` so the 1024-character bound stays reachable through the grammar and is still proved at 1024 accepted / 1025 refused.
++- SCOPE: `internal/config/endpoint.go` (new), `internal/config/endpoint_admission_test.go` (new), `internal/config/validation.go`, `internal/config/ssh_admission_test.go`, `internal/config/schema_test.go`, `README.md`.
++- FINDING: `-ivan@peer.example` is the shape that proves the leading-hyphen clause is load-bearing rather than redundant with the grammar. The `[user@]host[:port]` rules alone admit it, because `-` is a legal login-name byte, so only the leading-hyphen clause refuses it.
++- REGRESSION: review found that claim overclaimed as shipped. None of the eight cases in `TestLoadRefusesOptionLikeMeshEndpoints` carries an `@`, so every one of them is *also* refused by the host clause once the hyphen clause is gone; they pinned the clause's reason and its ordering, never its coverage class, and the `-ivan@peer.example` proof lived only in a `.temp` probe that never reached the committed tests. A single-clause narrowing to `strings.HasPrefix(endpoint, "-") && !strings.Contains(endpoint, "@")` therefore kept the whole `internal/config` suite green while admitting `-ivan@peer.example`, which `ssh(1)` parses as `-i` with identity file `van@peer.example` — a live injection.
++- FIX: `TestLoadRefusesOptionShapedEndpointsTheGrammarWouldAdmit` commits seven `@`-bearing option-shaped endpoints, each asserted refused *and* admitted once its leading `-` is removed. All seven redden under the narrowing mutant (M04).
++- DECISION: the isolation rule is now structural for the whole endpoint grammar, not applied only to the two shapes review named. Every refusal case in `endpointGrammarCases` carries a `neighbour` — the same endpoint with only the named violation removed — that must be admitted, so a case cannot come to rest on a clause other than the one it names; `TestEveryRefusedMeshEndpointCaseDeclaresAnIsolatingNeighbour` reddens if a later case is added without one.
++- FINDING: the whitespace clause is the one clause that cannot be pinned by admission — no whitespace-carrying endpoint is spellable by a login name or a DNS label, so the grammar refuses the same inputs with a different reason. It is pinned by its named reason and its ordering ahead of the grammar instead, and the entry says so rather than claiming an admission gap it does not close.
++- DECISION: `endpoint = "peer.example:022"` is admitted; a leading-zero port reads as decimal 22 and carries no option or whitespace. Review flagged that the case named `padded port` pinned only the 1..5-byte length bound, so the name overclaimed. `:022` is now pinned as admitted reviewed behaviour, and the length bound gets cases that rest on it alone (`:000022` and `:0000022`, decimal 22 and inside the numeric bound, so only `len(port) > 5` refuses them).
++- FINDING: bare-IPv6-with-port was unpinned. Widening `admitEndpointHost` to accept anything `net.ParseIP` accepts survived the old suite, because the only bare-IPv6 case carried no port and never reached the widened branch; `2001:db8::1:2222` and `::1:22` now close it (M17).
++- EVIDENCE: 28 single-clause mutants over `endpoint.go`, `sshargs.go` and the `validateMesh` wiring, 26 killed and 2 proven equivalent. Each killed mutant reddens only its own cases: M01-M04 and M24 (leading-hyphen deleted, narrowed to `-o`, narrowed to `--`, carved out for `@`, and reordered behind whitespace) redden the option-shaped tests; M17 (host widened to anything `net.ParseIP` accepts) reddens the two bare-IPv6-with-port cases; M18 (port length upper bound dropped) reddens `port over length bound` alone; M26/M27 (`sshPermittedFlags` gains `-A`, `sshPermittedValueFlags` gains `-L`) redden the key-set pin and the named capability-widening refusals. Mutants that delete a clause and leave its import unused are reported as INVALID-BUILD rather than counted as kills. Deleting `host == ""` leaves `strings.Split("", ".")` returning one empty label that `admitEndpointHostLabel` refuses with the same reason; dropping `len(port) < 1` leaves the empty port at `number == 0`, which `number >= 1` refuses with the same reason. Both were confirmed equivalent by a differential dump of `admitMeshEndpoint` over a generated corpus, byte-identical to baseline. Harness and logs: `.temp/BUG-260902-4ajzyz/mutants2.py`, `mutants-04.log`, `equiv-*.txt`. That set was *not* exhaustive — see the boundary-adjacency regression below.
++- REGRESSION: rev2 review found one live surviving mutant, and it was introduced by the previous cycle: narrowing `admitEndpointPort` from `len(port) > 5` to `> 6` kept the whole suite green while admitting `peer.example:000022`. The case that owned the clause, `port over length bound`, uses a *seven*-byte port, which stays refused under the narrowed bound — so it pinned the bound to somewhere in [5,6] rather than to 5. The reviewed baseline patch of BUG-260902-3c7ovg had a six-byte `padded port` case that killed this mutant exactly, and rev2 replaced it. The earlier claim that both surviving mutants were equivalent was true of the 28 mutants that cycle ran, but that set contained only the *deletion* of this bound, never its one-step narrowing, and the entry above is corrected to say so. No exposure: the strings newly admitted are six-byte zero-padded ports whose decimal value is already inside 1..65535 and which `ssh(1)` resolves identically. The defect was in the evidence, not the gate.
++- DECISION: boundary adjacency is now structural, not a per-case convention — this is the third time in this Story a bound proved at a distant value left its edge unpinned. `endpointBoundEdges` names every numeric bound the grammar declares and carries the last admitted value with the first refused one: user length 64/65 and 1/0, host label length 62-in-63/64 and 1/0, port length 5/6 and 1/0, port value 65535/65536 and 1/0. `TestEveryDeclaredMeshEndpointBoundIsPinnedAtItsEdge` drives both sides of each pair through the production Load entry, so a bound that loses its adjacent case reddens. The endpoint's own 1..1024 character bound stays owned by `schema_test.go`, already proved at 1024/1025.
++- FINDING: audited every other bound in the table for the same shape; the port length upper bound was the only one proved at a distance. One bound cannot be pinned by adjacency at all and is recorded rather than papered over: `admitEndpointHost`'s bracketed `len(host) < 3` excludes exactly the string `[]`, and `net.ParseIP("")` is nil, so the sub-clause is unreachable and no admitted bracketed host exists at length 3 (the shortest is `[::]` at 4).
++- EVIDENCE (rework): 18 further single-clause mutants run at this tree from an independent harness (`.temp/BUG-260902-4ajzyz/mutants3.py`, `mutants3b.py`; logs `mutants-rework-01.log`, `-02.log`), each reported with the exact leaf subtests it reddens. The reviewer's live survivor is now KILLED and reddens only the two cases that own the clause — `…BoundIsPinnedAtItsEdge/port_length_upper` and `…DeclaredMeshEndpointGrammar/port_at_length_bound`. Every bound was mutated in both directions where both are expressible; `M11` (label lower bound) kills by making production panic on an empty label, and is reported as such. `M20` (`len(port) < 1` dropped) survives and is equivalent by measurement, not argument: 0 of 9,120 corpus rows differ, while the same corpus separates the `> 5` -> `> 6` narrowing on 178 rows, so it is discriminating rather than blind. Dumps: `equiv-rework-baseline.txt`, `-m19.txt`, `-m20.txt`.
++- SCOPE (review cycle): `internal/config/endpoint_admission_test.go`, `LOGBOOK.md`, `README.md`. No production change in either review cycle — review confirmed `endpoint.go` correct against 68 hostile shapes on all three schema versions and again against 171 loads on rev2; both defects were in the evidence, not the gate.
++- EVIDENCE (reapply): the two clauses the acceptance criteria single out were re-proved at THIS tree rather than carried on the previous cycle's word. Narrowing `admitEndpointPort` from `len(port) > 5` to `> 6` is KILLED and reddens exactly the two leaf subtests that own it — `…BoundIsPinnedAtItsEdge/port_length_upper` and `…DeclaredMeshEndpointGrammar/port_at_length_bound` — so the bound still pins to its limit and not to a range. Adding `'N'` to `sshPermittedFlags`, a letter no named capability-widening assertion covers, is KILLED by the key-set pin alone (`ssh_admission_test.go:364: permitted flag -N has no declared sample`) and by nothing else in the package, which is the asymmetry that pin exists to close. Both mutants were reverted and the sources verified byte-identical by blob hash afterwards. Logs: `.temp/BUG-260902-4ynj93/mutant-m1-portbound.log`, `mutant-m2-flagN.log`.
++- REAPPLY: reapplied as BUG-260902-4ynj93 on `task-board/story/STORY-260902-9s0i85` from trunk checkpoint `139a691`, one commit past it. The accepted patch applied at exact context everywhere except `LOGBOOK.md`, whose day block had gained five entries since the accepted tree; the entry above is placed in descending-timestamp order between 1730 and 1400 rather than at the top of the day, and nothing in it is rewritten. `internal/config/endpoint.go`, `endpoint_admission_test.go`, `schema_test.go`, `ssh_admission_test.go` and `validation.go` are byte-identical to the accepted tree, proved by blob hash against the patch post-image index lines (`d5e59d9 56c9368 e37b9cb 504894f e7505f9`). `README.md` is the one reported deviation: its trunk base is `3a0d0f7` against the patch's `014f8f5`, so the post-image blob cannot match, but the delta this leaf introduces is exactly the accepted +25 lines and nothing else — the difference is pre-existing trunk content elsewhere in the file, absorbed nowhere.
++- STATUS: BUG-260902-4ajzyz on `task-board/story/STORY-260902-cq7ivu`, kept to one signed commit. Reapplied from the accepted patch of BUG-260902-3c7ovg, which could not be integrated because its move chain had a cycle, then amended for both review findings above and kept to that one commit through two review cycles. `internal/config` coverage 94.4% at the base (measured from an archive copy of checkpoint `10aaa16`) -> 94.7%, unchanged by the rev2 rework, which is test-only; `go build ./...`, `go vet ./...`, `gofmt -l .`, `go test ./... -count=1`, `go test ./... -cover`, tracecheck (global and sections 6.1-6.5), and the catalog `-check` gate all exit 0, with no generated-file drift. Handed off to review.
++
+ ### 1400 — Pinning what a gate is GIVEN does not pin what the gate DOES with it
+ 
+ - FINDING: the 47-row closed-vocabulary pin from the previous entry works, and it is still not the admitted set. The admitted set is `member list INTERSECT matcher semantics`, and the pin covers only the first factor. Case-folding the comparison inside `requireEnum` made `CalculateObjectIdentity` **accept and attest** a Lease Record whose `reason` was `CREATE`; trimming made it attest `" create "`; relaxing `requireExactString` from equality to a prefix test made it attest a Checkpoint Record whose `status` was `validated_but_not_really`. `go test ./...`, all four seeded fuzz corpora, `tracecheck`, the 47-row pin AND the 97.1% refusal-coverage gate stayed green through every one of them, because the pinned rows still match the source and the refusal branch is still executed for whichever outside value a test happened to pick.
+diff --git a/README.md b/README.md
+index 3a0d0f7..426fd55 100644
+--- a/README.md
++++ b/README.md
+@@ -271,6 +271,31 @@ unpermitted flag, and an unpermitted value; the negative suite derives its cases
+ from those same tables, so a newly declared option is covered the moment it is
+ added.
+ 
++That gate reads `ssh_args` only, and Section 6.2 hands `ssh(1)` the peer
++`endpoint` as an atomic argv value too. An atomic argv value is not by itself a
++destination: `ssh(1)` reads its destination positionally through getopt, so an
++endpoint beginning with `-` is parsed as an option. `-oStrictHostKeyChecking=no`
++written into `endpoint` was therefore the same Section 6.3 bypass reached
++through a field the `ssh_args` gate never inspects, and an endpoint carrying a
++space is that injection one word-split away. `internal/config/endpoint.go`
++closes it the same derived way: the field is admitted against a closed
++`[user@]host[:port]` grammar — a 1-64 character login name, LDH DNS labels or a
++bracketed IPv6 literal, and a decimal port in 1-65535 — and refused otherwise,
++naming which clause it violated. The grammar is narrower than every destination
++`ssh(1)` would accept, so widening it is a reviewed change; the 1-1024 character
++endpoint bound stays reachable through the grammar and is still proved at both
++its limits.
++
++Every negative case for that grammar carries an isolating neighbour: the same
++endpoint with only the named violation removed, asserted to be admitted. A case
++that names the `host` clause but would also be refused by the `port` clause
++pins nothing, so the neighbour is what proves the named clause is the one
++deciding. The leading-hyphen clause needs it most — the reported shapes such as
++`-oStrictHostKeyChecking=no` are refused by the host grammar too once the
++hyphen clause is gone, while `-ivan@peer.example` is not, because `-` is a legal
++login-name byte and `ssh(1)` reads that value as `-i` with identity file
++`van@peer.example`.
++
+ Section 6 states one rule for an `extensions` key: it is a reverse-DNS key of
+ 3-253 lowercase ASCII characters with at least one dot and dot-separated labels
+ matching `[a-z][a-z0-9-]{0,62}`. No label is reserved, so `validateExtensions`
+diff --git a/internal/config/endpoint.go b/internal/config/endpoint.go
+new file mode 100644
+index 0000000..d5e59d9
+--- /dev/null
++++ b/internal/config/endpoint.go
+@@ -0,0 +1,176 @@
++package config
++
++import (
++	"net"
++	"strings"
++	"unicode"
++)
++
++// Admission for the mesh peer endpoint AX hands to ssh(1) as its destination.
++//
++// SPEC.md Section 6.2 states that the endpoint and every SSH argument "are
++// passed as atomic argv values, never through a shell", and Section 6.3
++// authorizes a peer only when "the SSH endpoint resolves to the authenticated
++// host expected by SSH host-key policy". ssh(1) reads that destination
++// positionally through getopt, so an atomic argv value is not by itself a
++// destination: an endpoint beginning with "-" is parsed as an option instead,
++// and "-oStrictHostKeyChecking=no" written into this field is the same host-
++// authentication bypass Section 6.3 requires ssh_args to refuse, reached
++// through a field the ssh_args gate never inspects. An endpoint carrying
++// whitespace is the same injection one word-split away, and it cannot name a
++// host either way.
++//
++// The field is therefore admitted against the closed [user@]host[:port]
++// grammar below rather than filtered for known-bad shapes: a spelling this
++// package has never considered is refused instead of admitted. The grammar is
++// deliberately narrower than every destination ssh(1) would accept; widening
++// it is a reviewed change, not an accident.
++const (
++	endpointAdmitted          = ""
++	endpointRefusalOptionLike = "option-like value"
++	endpointRefusalWhitespace = "embedded whitespace"
++	endpointRefusalUser       = "user"
++	endpointRefusalHost       = "host"
++	endpointRefusalPort       = "port"
++)
++
++// admitMeshEndpoint returns endpointAdmitted when the endpoint matches the
++// declared [user@]host[:port] grammar, or the refusal reason for the first
++// clause it violates. The overall length is not checked here; the peer's
++// 1..1024 printable-character bound owns it.
++func admitMeshEndpoint(endpoint string) string {
++	// Checked ahead of the grammar so the refusal names the option-injection
++	// shape rather than reporting a malformed user or host.
++	if strings.HasPrefix(endpoint, "-") {
++		return endpointRefusalOptionLike
++	}
++	if strings.IndexFunc(endpoint, unicode.IsSpace) >= 0 {
++		return endpointRefusalWhitespace
++	}
++	remainder := endpoint
++	// The last "@" separates user from host: OpenSSH splits there too, so a
++	// host part can never smuggle an "@" past this split.
++	if separator := strings.LastIndexByte(remainder, '@'); separator >= 0 {
++		if !admitEndpointUser(remainder[:separator]) {
++			return endpointRefusalUser
++		}
++		remainder = remainder[separator+1:]
++	}
++	host := remainder
++	switch {
++	case strings.HasPrefix(remainder, "["):
++		closing := strings.IndexByte(remainder, ']')
++		if closing < 0 {
++			return endpointRefusalHost
++		}
++		host, remainder = remainder[:closing+1], remainder[closing+1:]
++		if remainder != "" {
++			if remainder[0] != ':' || !admitEndpointPort(remainder[1:]) {
++				return endpointRefusalPort
++			}
++		}
++	default:
++		if separator := strings.LastIndexByte(remainder, ':'); separator >= 0 {
++			host = remainder[:separator]
++			if !admitEndpointPort(remainder[separator+1:]) {
++				return endpointRefusalPort
++			}
++		}
++	}
++	if !admitEndpointHost(host) {
++		return endpointRefusalHost
++	}
++	return endpointAdmitted
++}
++
++// admitEndpointUser permits a 1..64 byte login name spelled from the portable
++// POSIX name characters plus "." and "-". A leading "-" is already refused for
++// the whole endpoint, which is where a login name could otherwise reintroduce
++// an option.
++func admitEndpointUser(user string) bool {
++	if len(user) < 1 || len(user) > 64 {
++		return false
++	}
++	for index := 0; index < len(user); index++ {
++		if !isEndpointUserByte(user[index]) {
++			return false
++		}
++	}
++	return true
++}
++
++func isEndpointUserByte(character byte) bool {
++	switch {
++	case character >= 'a' && character <= 'z', character >= 'A' && character <= 'Z':
++		return true
++	case character >= '0' && character <= '9':
++		return true
++	case character == '.' || character == '_' || character == '-':
++		return true
++	}
++	return false
++}
++
++// admitEndpointHost permits a bracketed IP literal or a dot-separated name
++// whose labels are the LDH characters of a DNS label. An IPv4 literal is
++// already an LDH name. A bare IPv6 literal is refused: its colons are
++// indistinguishable from a port separator, so it must be bracketed.
++//
++// The per-label bound is the DNS 63-byte label; the whole-name bound is left
++// to the endpoint's 1..1024 printable-character bound so that bound stays
++// reachable and provable through this grammar.
++func admitEndpointHost(host string) bool {
++	if strings.HasPrefix(host, "[") {
++		if !strings.HasSuffix(host, "]") || len(host) < 3 {
++			return false
++		}
++		address := net.ParseIP(host[1 : len(host)-1])
++		return address != nil && address.To4() == nil
++	}
++	if host == "" {
++		return false
++	}
++	for _, label := range strings.Split(host, ".") {
++		if !admitEndpointHostLabel(label) {
++			return false
++		}
++	}
++	return true
++}
++
++func admitEndpointHostLabel(label string) bool {
++	if len(label) < 1 || len(label) > 63 {
++		return false
++	}
++	if label[0] == '-' || label[len(label)-1] == '-' {
++		return false
++	}
++	for index := 0; index < len(label); index++ {
++		character := label[index]
++		switch {
++		case character >= 'a' && character <= 'z', character >= 'A' && character <= 'Z':
++		case character >= '0' && character <= '9':
++		case character == '-':
++		default:
++			return false
++		}
++	}
++	return true
++}
++
++// admitEndpointPort permits a plain decimal TCP port in 1..65535. The digits
++// are checked directly rather than through strconv, which also accepts a sign
++// prefix that is not a port.
++func admitEndpointPort(port string) bool {
++	if len(port) < 1 || len(port) > 5 {
++		return false
++	}
++	number := 0
++	for index := 0; index < len(port); index++ {
++		if port[index] < '0' || port[index] > '9' {
++			return false
++		}
++		number = number*10 + int(port[index]-'0')
++	}
++	return number >= 1 && number <= 65_535
++}
+diff --git a/internal/config/endpoint_admission_test.go b/internal/config/endpoint_admission_test.go
+new file mode 100644
+index 0000000..56c9368
+--- /dev/null
++++ b/internal/config/endpoint_admission_test.go
+@@ -0,0 +1,391 @@
++package config
++
++import (
++	"errors"
++	"sort"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// peerDocumentWithEndpoint builds a document whose only interesting content is
++// one mesh peer carrying the given endpoint, so every case below is decided by
++// the production loadConfigDocument entry and its mesh.peers[0].endpoint gate.
++// ssh_args is left empty so no refusal can come from the neighbouring gate.
++func peerDocumentWithEndpoint(endpoint string) []byte {
++	return append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[mesh.peers]]
++host_id = "`+testPeerID+`"
++name = "peer"
++endpoint = `+strconv.Quote(endpoint)+`
++platform = "linux"
++ssh_args = []
++workspace_roots = []
++`)...)
++}
++
++func requireEndpointRefusal(t *testing.T, reason, endpoint string) {
++	t.Helper()
++	_, err := loadConfigDocument(peerDocumentWithEndpoint(endpoint), scalar.PlatformMacOS, nil)
++	requireConfigClause(t, err, "mesh.peers[0].endpoint "+reason)
++}
++
++func requireEndpointAdmitted(t *testing.T, endpoint string) {
++	t.Helper()
++	if _, err := loadConfigDocument(peerDocumentWithEndpoint(endpoint), scalar.PlatformMacOS, nil); err != nil {
++		t.Fatalf("endpoint %q refused: %v", endpoint, err)
++	}
++}
++
++// requireEndpointRefusedByItsOwnClause is the isolation rule every negative case
++// below obeys: the refused endpoint and an otherwise identical endpoint with
++// only the named violation removed. Admitting the neighbour proves the rest of
++// the string is grammar-clean, so the named clause — not some incidental second
++// defect in the same string — is what decided the refusal.
++func requireEndpointRefusedByItsOwnClause(t *testing.T, reason, endpoint, neighbour string) {
++	t.Helper()
++	requireEndpointRefusal(t, reason, endpoint)
++	requireEndpointAdmitted(t, neighbour)
++}
++
++// TestLoadRefusesOptionLikeMeshEndpoints covers the audit probe that loaded
++// every one of these endpoints with err=nil. SPEC.md Section 6.2 passes the
++// endpoint to ssh(1) as an atomic argv value, and ssh(1) reads its destination
++// positionally through getopt: an argv value beginning with "-" is an option,
++// not a destination. Without this gate the endpoint field reaches exactly the
++// Section 6.3 host-authentication bypass that ssh_args refuses, through a
++// field the ssh_args gate never inspects.
++//
++// These are the reported shapes and they are kept as regression coverage, but
++// none of them isolates the clause: strip the leading "-" from any of them and
++// the [user@]host[:port] grammar refuses the remainder anyway, so they pin the
++// clause's reason string and its ordering ahead of the grammar rather than its
++// coverage class. The class is pinned by the test below.
++func TestLoadRefusesOptionLikeMeshEndpoints(t *testing.T) {
++	t.Parallel()
++
++	for _, endpoint := range []string{
++		"-oStrictHostKeyChecking=no",
++		"-oUserKnownHostsFile=/dev/null",
++		"-F/attacker/config",
++		"-J",
++		"-4",
++		"-",
++		"--",
++		"--proxy-command=id",
++	} {
++		endpoint := endpoint
++		t.Run(endpoint, func(t *testing.T) {
++			t.Parallel()
++			requireEndpointRefusal(t, endpointRefusalOptionLike, endpoint)
++		})
++	}
++}
++
++// optionShapedEndpointsTheGrammarWouldAdmit carries, for each option-shaped
++// endpoint, the same endpoint with only its leading "-" removed. Every one of
++// those neighbours is admitted by the [user@]host[:port] grammar, because "-"
++// is a legal login-name byte — so for these shapes the leading-hyphen clause is
++// the only thing standing between the field and ssh(1), and a narrowing of that
++// clause admits them.
++//
++// ssh(1) parses "-ivan@peer.example" as -i with identity file "van@peer.example":
++// an option, not a destination, which is the exact failure mode this bug closes.
++var optionShapedEndpointsTheGrammarWouldAdmit = map[string]string{
++	"identity file letter": "-ivan@peer.example",
++	"address family digit": "-4@peer.example",
++	"login name letter":    "-l@peer.example",
++	"port letter":          "-p2222@peer.example",
++	"dotted login name":    "-i.ssh.key@peer.example:22",
++	"bracketed IPv6 host":  "-ivan@[2001:db8::1]:22",
++	"user and port":        "-oivan@peer.example:2222",
++}
++
++// TestLoadRefusesOptionShapedEndpointsTheGrammarWouldAdmit is the load-bearing
++// pin for the leading-hyphen clause. Each case is refused as option-like, and
++// its de-hyphenated neighbour is admitted — so narrowing the clause (carving
++// out "@"-bearing values, matching only "--", or moving the check after the
++// user/host split) admits a live ssh(1) option injection and reddens here.
++func TestLoadRefusesOptionShapedEndpointsTheGrammarWouldAdmit(t *testing.T) {
++	t.Parallel()
++
++	for _, name := range sortedEndpointCaseNames(optionShapedEndpointsTheGrammarWouldAdmit) {
++		name := name
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++			endpoint := optionShapedEndpointsTheGrammarWouldAdmit[name]
++			requireEndpointRefusedByItsOwnClause(t, endpointRefusalOptionLike, endpoint, strings.TrimPrefix(endpoint, "-"))
++		})
++	}
++}
++
++// TestLoadRefusesMeshEndpointsCarryingWhitespace covers the third probe shape.
++// A whitespace-carrying endpoint cannot name one host, and it is the same
++// option injection one word-split away from any consumer that does not keep
++// the value atomic.
++//
++// No whitespace-carrying endpoint could be admitted with this clause removed —
++// neither a login name nor a DNS label spells a space — so unlike the
++// leading-hyphen clause this one cannot be pinned by admission. What it does
++// own is the reason and the ordering: with the clause deleted or narrowed these
++// endpoints report the host or user clause instead, which reddens every case
++// here. The neighbours below carry that as far as it goes, by proving the
++// remainder of each endpoint is grammar-valid once the space is removed.
++func TestLoadRefusesMeshEndpointsCarryingWhitespace(t *testing.T) {
++	t.Parallel()
++
++	for _, name := range sortedEndpointCaseNames(whitespaceEndpointCases) {
++		name := name
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++			testCase := whitespaceEndpointCases[name]
++			if testCase.neighbour == "" {
++				requireEndpointRefusal(t, endpointRefusalWhitespace, testCase.endpoint)
++				return
++			}
++			requireEndpointRefusedByItsOwnClause(t, endpointRefusalWhitespace, testCase.endpoint, testCase.neighbour)
++		})
++	}
++}
++
++// whitespaceEndpointCases pairs each whitespace shape with the same endpoint
++// minus the space where that remainder is grammar-valid. The reported probe
++// shapes carry an injected option after the space, so no such neighbour exists
++// for them and they are asserted on the refusal alone.
++var whitespaceEndpointCases = map[string]struct{ endpoint, neighbour string }{
++	"trailing option":   {endpoint: "peer.example -oStrictHostKeyChecking=no"},
++	"trailing flag":     {endpoint: "peer.example -F /attacker/config"},
++	"double space":      {endpoint: "peer.example  -oProxyCommand=id"},
++	"leading space":     {endpoint: " peer.example", neighbour: "peer.example"},
++	"trailing space":    {endpoint: "peer.example ", neighbour: "peer.example"},
++	"two words":         {endpoint: "peer example", neighbour: "peerexample"},
++	"remote command":    {endpoint: "peer.example id", neighbour: "peer.exampleid"},
++	"space before at":   {endpoint: "ivan @peer.example", neighbour: "ivan@peer.example"},
++	"space after at":    {endpoint: "ivan@ peer.example", neighbour: "ivan@peer.example"},
++	"space before port": {endpoint: "peer.example :22", neighbour: "peer.example:22"},
++}
++
++// TestLoadRefusesMeshEndpointWhitespaceOutsideTheASCIISpace records which gate
++// owns the remaining whitespace. Only the ASCII space survives the endpoint's
++// printable-character bound, so tab, newline and the non-breaking space are
++// refused one clause earlier, by that bound rather than by the grammar.
++func TestLoadRefusesMeshEndpointWhitespaceOutsideTheASCIISpace(t *testing.T) {
++	t.Parallel()
++
++	for name, endpoint := range map[string]string{
++		"tab":                "peer.example\t-oProxyCommand=id",
++		"newline":            "peer.example\n-oProxyCommand=id",
++		"carriage return":    "peer.example\r-oProxyCommand=id",
++		"non-breaking space": "peer.example\u00a0-oProxyCommand=id",
++	} {
++		name, endpoint := name, endpoint
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++			_, err := loadConfigDocument(peerDocumentWithEndpoint(endpoint), scalar.PlatformMacOS, nil)
++			requireConfigClause(t, err, "mesh.peers[0].endpoint")
++		})
++	}
++}
++
++// endpointGrammarCases pins the declared [user@]host[:port] grammar in both
++// directions. Every refusal names the clause it violates and carries a
++// neighbour that differs only by that violation and is admitted, so a case
++// cannot silently come to rest on a clause other than the one it names, and
++// weakening one clause reddens only its own cases.
++var endpointGrammarCases = map[string]struct {
++	endpoint  string
++	reason    string
++	neighbour string
++}{
++	// Admitted, including the endpoint SPEC.md Section 6.2 shows.
++	"spec example":            {endpoint: "ivan@workstation.tailnet.ts.net", reason: endpointAdmitted},
++	"bare host":               {endpoint: "peer.example", reason: endpointAdmitted},
++	"single label":            {endpoint: "x", reason: endpointAdmitted},
++	"hyphen inside label":     {endpoint: "ax-host.example", reason: endpointAdmitted},
++	"host and port":           {endpoint: "peer.example:2222", reason: endpointAdmitted},
++	"user host and port":      {endpoint: "ivan@peer.example:22", reason: endpointAdmitted},
++	"underscore in user":      {endpoint: "ax_user@peer.example", reason: endpointAdmitted},
++	"IPv4 literal":            {endpoint: "192.0.2.10", reason: endpointAdmitted},
++	"IPv4 literal and port":   {endpoint: "192.0.2.10:2222", reason: endpointAdmitted},
++	"bracketed IPv6":          {endpoint: "[2001:db8::1]", reason: endpointAdmitted},
++	"bracketed IPv6 and port": {endpoint: "[2001:db8::1]:2222", reason: endpointAdmitted},
++	"bracketed IPv6 loopback": {endpoint: "[::1]:22", reason: endpointAdmitted},
++	"user and IPv6":           {endpoint: "ivan@[2001:db8::1]:2222", reason: endpointAdmitted},
++	"longest label":           {endpoint: "a" + strings.Repeat("b", 62), reason: endpointAdmitted},
++	"longest user":            {endpoint: strings.Repeat("u", 64) + "@peer.example", reason: endpointAdmitted},
++	"lowest port":             {endpoint: "peer.example:1", reason: endpointAdmitted},
++	"highest port":            {endpoint: "peer.example:65535", reason: endpointAdmitted},
++	// A leading-zero port is admitted and reads as decimal: ssh(1) resolves
++	// "022" to 22. Pinned as reviewed behaviour rather than left unstated,
++	// because the grammar declares no canonical-spelling rule for the port.
++	"leading zero port": {endpoint: "peer.example:022", reason: endpointAdmitted},
++
++	// Refused by the user clause.
++	"empty user":        {endpoint: "@peer.example", reason: endpointRefusalUser, neighbour: "u@peer.example"},
++	"user over bound":   {endpoint: strings.Repeat("u", 65) + "@peer.example", reason: endpointRefusalUser, neighbour: strings.Repeat("u", 64) + "@peer.example"},
++	"slash in user":     {endpoint: "a/b@peer.example", reason: endpointRefusalUser, neighbour: "a.b@peer.example"},
++	"second at sign":    {endpoint: "ivan@ivan@peer.example", reason: endpointRefusalUser, neighbour: "ivan.ivan@peer.example"},
++	"non-ASCII user":    {endpoint: "иван@peer.example", reason: endpointRefusalUser, neighbour: "ivan@peer.example"},
++	"percent in user":   {endpoint: "ivan%40root@peer.example", reason: endpointRefusalUser, neighbour: "ivan.40root@peer.example"},
++	"semicolon in user": {endpoint: "ivan;id@peer.example", reason: endpointRefusalUser, neighbour: "ivan.id@peer.example"},
++
++	// Refused by the host clause.
++	"empty label":            {endpoint: "peer..example", reason: endpointRefusalHost, neighbour: "peer.example"},
++	"trailing dot":           {endpoint: "peer.example.", reason: endpointRefusalHost, neighbour: "peer.example"},
++	"label starts with dash": {endpoint: "ivan@-peer.example", reason: endpointRefusalHost, neighbour: "ivan@peer.example"},
++	"label ends with dash":   {endpoint: "peer-.example", reason: endpointRefusalHost, neighbour: "peer.example"},
++	"underscore in host":     {endpoint: "peer_example", reason: endpointRefusalHost, neighbour: "peer-example"},
++	"slash in host":          {endpoint: "peer.example/path", reason: endpointRefusalHost, neighbour: "peer.example.path"},
++	"semicolon in host":      {endpoint: "peer.example;id", reason: endpointRefusalHost, neighbour: "peer.exampleid"},
++	"non-ASCII host":         {endpoint: "界.example", reason: endpointRefusalHost, neighbour: "jie.example"},
++	"label over bound":       {endpoint: "a" + strings.Repeat("b", 63), reason: endpointRefusalHost, neighbour: "a" + strings.Repeat("b", 62)},
++	"bare IPv6":              {endpoint: "2001:db8::1", reason: endpointRefusalHost, neighbour: "[2001:db8::1]"},
++	// A bare IPv6 literal that ends in a port-shaped group is the shape a
++	// "accept anything net.ParseIP accepts" widening of admitEndpointHost lets
++	// through: the host part left after the port split is still a valid IP.
++	"bare IPv6 and port": {endpoint: "2001:db8::1:2222", reason: endpointRefusalHost, neighbour: "[2001:db8::1]:2222"},
++	"bare IPv6 loopback": {endpoint: "::1:22", reason: endpointRefusalHost, neighbour: "[::1]:22"},
++	"unbalanced bracket": {endpoint: "[2001:db8::1", reason: endpointRefusalHost, neighbour: "[2001:db8::1]"},
++	"empty brackets":     {endpoint: "[]", reason: endpointRefusalHost, neighbour: "[::1]"},
++	"bracketed IPv4":     {endpoint: "[192.0.2.10]", reason: endpointRefusalHost, neighbour: "192.0.2.10"},
++	"bracketed name":     {endpoint: "[peer.example]", reason: endpointRefusalHost, neighbour: "peer.example"},
++	"empty host":         {endpoint: "ivan@:22", reason: endpointRefusalHost, neighbour: "ivan@h:22"},
++	"colon inside host":  {endpoint: "peer.example::22", reason: endpointRefusalHost, neighbour: "peer.example:22"},
++
++	// Refused by the port clause.
++	"zero port":        {endpoint: "peer.example:0", reason: endpointRefusalPort, neighbour: "peer.example:1"},
++	"port over bound":  {endpoint: "peer.example:65536", reason: endpointRefusalPort, neighbour: "peer.example:65535"},
++	"empty port":       {endpoint: "peer.example:", reason: endpointRefusalPort, neighbour: "peer.example:22"},
++	"non-numeric port": {endpoint: "peer.example:22a", reason: endpointRefusalPort, neighbour: "peer.example:22"},
++	"signed port":      {endpoint: "peer.example:+22", reason: endpointRefusalPort, neighbour: "peer.example:22"},
++	// Refused by the 1..5-byte port length, which leading zeros are what makes
++	// reachable: the value is decimal 22, inside the numeric bound, so these
++	// cases rest on the length clause alone rather than on "port over bound".
++	// The six-byte one sits one step past the limit; the seven-byte one is
++	// depth behind it. Review found the seven-byte case alone pins the bound to
++	// somewhere in [5,6] rather than to 5, so narrowing len(port) > 5 to > 6
++	// survived while admitting "peer.example:000022".
++	"port at length bound":   {endpoint: "peer.example:000022", reason: endpointRefusalPort, neighbour: "peer.example:22"},
++	"port over length bound": {endpoint: "peer.example:0000022", reason: endpointRefusalPort, neighbour: "peer.example:22"},
++	"IPv6 without colon":     {endpoint: "[2001:db8::1]2222", reason: endpointRefusalPort, neighbour: "[2001:db8::1]:2222"},
++}
++
++// TestLoadAdmitsExactlyTheDeclaredMeshEndpointGrammar drives every case above
++// through the production Load entry. The admitted half proves the gate is not
++// vacuously strict; the refused half names the clause and admits its neighbour,
++// so a weakened clause reddens its own cases and leaves the others green.
++func TestLoadAdmitsExactlyTheDeclaredMeshEndpointGrammar(t *testing.T) {
++	t.Parallel()
++
++	names := make([]string, 0, len(endpointGrammarCases))
++	for name := range endpointGrammarCases {
++		names = append(names, name)
++	}
++	sort.Strings(names)
++	for _, name := range names {
++		name := name
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++			testCase := endpointGrammarCases[name]
++			if testCase.reason == endpointAdmitted {
++				requireEndpointAdmitted(t, testCase.endpoint)
++				return
++			}
++			requireEndpointRefusedByItsOwnClause(t, testCase.reason, testCase.endpoint, testCase.neighbour)
++		})
++	}
++}
++
++// TestEveryRefusedMeshEndpointCaseDeclaresAnIsolatingNeighbour keeps the
++// isolation rule structural rather than a convention a later case can quietly
++// drop: a refusal case with no neighbour proves nothing about the clause it
++// names, because a second defect in the same string could be what refuses it.
++func TestEveryRefusedMeshEndpointCaseDeclaresAnIsolatingNeighbour(t *testing.T) {
++	t.Parallel()
++
++	for name, testCase := range endpointGrammarCases {
++		if testCase.reason == endpointAdmitted {
++			if testCase.neighbour != "" {
++				t.Errorf("admitted case %q declares a neighbour %q", name, testCase.neighbour)
++			}
++			continue
++		}
++		if testCase.neighbour == "" {
++			t.Errorf("refused case %q declares no isolating neighbour", name)
++		}
++	}
++}
++
++// endpointBoundEdges names every numeric bound the endpoint grammar declares
++// and pins it at its edge: the last value the clause admits and the first value
++// past it, which must be refused by that clause. A bound proven at a distant
++// value pins a range rather than a limit — "peer.example:0000022" is seven
++// bytes, so it stayed refused when len(port) > 5 was narrowed to > 6 and that
++// mutant survived the whole suite. This table is the structural form of the
++// rule, so a bound that loses its adjacent case reddens here.
++//
++// Each refused spelling is chosen so only the named bound decides it: the
++// six-byte port is decimal 22, inside 1..65535, and the 65536 port is five
++// bytes, inside the length bound. The endpoint's own 1..1024 character bound is
++// owned by schema_test.go, which proves it at 1024 accepted / 1025 refused.
++var endpointBoundEdges = map[string]struct {
++	admitted string
++	refused  string
++	reason   string
++}{
++	"user length lower":       {admitted: "u@peer.example", refused: "@peer.example", reason: endpointRefusalUser},
++	"user length upper":       {admitted: strings.Repeat("u", 64) + "@peer.example", refused: strings.Repeat("u", 65) + "@peer.example", reason: endpointRefusalUser},
++	"host label length lower": {admitted: "peer.a.example", refused: "peer..example", reason: endpointRefusalHost},
++	"host label length upper": {admitted: "a" + strings.Repeat("b", 62), refused: "a" + strings.Repeat("b", 63), reason: endpointRefusalHost},
++	"port length lower":       {admitted: "peer.example:1", refused: "peer.example:", reason: endpointRefusalPort},
++	"port length upper":       {admitted: "peer.example:65535", refused: "peer.example:000022", reason: endpointRefusalPort},
++	"port value lower":        {admitted: "peer.example:1", refused: "peer.example:0", reason: endpointRefusalPort},
++	"port value upper":        {admitted: "peer.example:65535", refused: "peer.example:65536", reason: endpointRefusalPort},
++}
++
++// TestEveryDeclaredMeshEndpointBoundIsPinnedAtItsEdge drives both sides of every
++// bound through the production Load entry. Moving a bound by one in either
++// direction reddens the pair that owns it and leaves the others green.
++func TestEveryDeclaredMeshEndpointBoundIsPinnedAtItsEdge(t *testing.T) {
++	t.Parallel()
++
++	for _, name := range sortedEndpointCaseNames(endpointBoundEdges) {
++		name := name
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++			edge := endpointBoundEdges[name]
++			requireEndpointAdmitted(t, edge.admitted)
++			requireEndpointRefusal(t, edge.reason, edge.refused)
++		})
++	}
++}
++
++// TestMeshEndpointAdmissionRefusesThroughTheMeshPeerClause guards the
++// production wiring: the refusal must come from validateMesh's peer prefix,
++// not from an unrelated bound that happens to reject the same string.
++func TestMeshEndpointAdmissionRefusesThroughTheMeshPeerClause(t *testing.T) {
++	t.Parallel()
++
++	_, err := loadConfigDocument(peerDocumentWithEndpoint("-oStrictHostKeyChecking=no"), scalar.PlatformMacOS, nil)
++	if !errors.Is(err, ErrConfigValidation) {
++		t.Fatalf("error = %v, want ErrConfigValidation", err)
++	}
++	var documentError *DocumentError
++	if !errors.As(err, &documentError) {
++		t.Fatalf("error = %T, want *DocumentError", err)
++	}
++	if !strings.HasPrefix(documentError.Clause, "mesh.peers[0].endpoint ") {
++		t.Fatalf("clause = %q, want the mesh peer endpoint prefix", documentError.Clause)
++	}
++}
++
++func sortedEndpointCaseNames[Case any](cases map[string]Case) []string {
++	names := make([]string, 0, len(cases))
++	for name := range cases {
++		names = append(names, name)
++	}
++	sort.Strings(names)
++	return names
++}
+diff --git a/internal/config/schema_test.go b/internal/config/schema_test.go
+index c75f0b3..e37b9cb 100644
+--- a/internal/config/schema_test.go
++++ b/internal/config/schema_test.go
+@@ -503,7 +503,10 @@ func TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections(
+ 	t.Run("character bounds on endpoint logical root path and directory IDs", func(t *testing.T) {
+ 		at := validCurrentConfiguration()
+ 		at.Mesh.Peers[0].Name = strings.Repeat("界", 64)
+-		at.Mesh.Peers[0].Endpoint = strings.Repeat("界", 1024)
++		// The endpoint bound is proved with a name the [user@]host[:port]
++		// grammar admits, so the 1024-character limit stays reachable through
++		// the production gate rather than being masked by a grammar refusal.
++		at.Mesh.Peers[0].Endpoint = strings.Repeat("a.", 511) + "ab"
+ 		at.WorkspaceRoots[0].LogicalRoot = "a" + strings.Repeat("b", 63)
+ 		at.WorkspaceRoots[0].Path = "/" + strings.Repeat("p", 32_766)
+ 		at.DirectoryInstallations[0].EnvironmentID = strings.Repeat("界", 64)
+@@ -511,7 +514,7 @@ func TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections(
+ 		assertCurrentAccepted(t, at)
+ 		for name, mutate := range map[string]func(*Configuration){
+ 			"peer name":      func(value *Configuration) { value.Mesh.Peers[0].Name = strings.Repeat("界", 65) },
+-			"endpoint":       func(value *Configuration) { value.Mesh.Peers[0].Endpoint = strings.Repeat("界", 1025) },
++			"endpoint":       func(value *Configuration) { value.Mesh.Peers[0].Endpoint = strings.Repeat("a.", 511) + "abc" },
+ 			"logical root":   func(value *Configuration) { value.WorkspaceRoots[0].LogicalRoot = "a" + strings.Repeat("b", 64) },
+ 			"absolute path":  func(value *Configuration) { value.WorkspaceRoots[0].Path = "/" + strings.Repeat("p", 32_767) },
+ 			"environment id": func(value *Configuration) { value.DirectoryInstallations[0].EnvironmentID = strings.Repeat("界", 65) },
+diff --git a/internal/config/ssh_admission_test.go b/internal/config/ssh_admission_test.go
+index bfc624b..504894f 100644
+--- a/internal/config/ssh_admission_test.go
++++ b/internal/config/ssh_admission_test.go
+@@ -322,3 +322,143 @@ func TestSSHArgumentAdmissionRefusesThroughTheMeshPeerClause(t *testing.T) {
+ 		t.Fatalf("clause = %q, want the mesh peer ssh_args prefix", documentError.Clause)
+ 	}
+ }
++
++// permittedSSHFlagSamples names every valueless short option AX permits. It
++// carries the same both-directions key-set pin permittedSSHOptionSamples gives
++// the -o registry: the key set is asserted to equal sshPermittedFlags exactly,
++// so a mutant that permits one extra letter reddens here instead of silently
++// widening what AX hands to ssh(1).
++var permittedSSHFlagSamples = map[byte]string{
++	'4': "IPv4 only",
++	'6': "IPv6 only",
++	'C': "request compression",
++	'T': "no remote pseudo-terminal",
++	'a': "disable agent forwarding",
++	'q': "quiet",
++	'v': "verbose",
++}
++
++// permittedSSHValueFlagSamples carries, for every value-taking short option AX
++// permits, a value its declared rule admits and a value it refuses together
++// with the reason. Its key set is pinned to sshPermittedValueFlags the same
++// way, so widening that table without proving both directions of the new rule
++// reddens.
++var permittedSSHValueFlagSamples = map[byte]struct{ admitted, refused, reason string }{
++	'i': {admitted: "/home/ax/.ssh/id_ed25519", refused: "/home/ax/.ssh/id ed25519", reason: sshRefusalUnpermittedFlagValue},
++	'l': {admitted: "ax", refused: "ax user", reason: sshRefusalUnpermittedFlagValue},
++	'p': {admitted: "2222", refused: "65536", reason: sshRefusalUnpermittedFlagValue},
++	'o': {admitted: "BatchMode=yes", refused: "ProxyCommand=id", reason: sshRefusalUnpermittedOption},
++}
++
++// TestLoadAdmitsExactlyTheDeclaredPermittedSSHShortOptions closes the
++// asymmetry the SSH admission review disclosed: the short-flag tables were
++// covered only by a derived test that skips whatever production permits, so a
++// mutant adding -A, -E or -L to the permitted tables passed the suite green.
++// The key-set equality below is what reddens for that mutant, and each sample
++// then proves the letter in both directions at the production entry.
++func TestLoadAdmitsExactlyTheDeclaredPermittedSSHShortOptions(t *testing.T) {
++	t.Parallel()
++
++	for letter := range sshPermittedFlags {
++		if _, ok := permittedSSHFlagSamples[letter]; !ok {
++			t.Fatalf("permitted flag -%c has no declared sample", letter)
++		}
++	}
++	for letter := range permittedSSHFlagSamples {
++		if _, ok := sshPermittedFlags[letter]; !ok {
++			t.Fatalf("sample -%c is not a permitted flag in sshPermittedFlags", letter)
++		}
++	}
++	for letter := range sshPermittedValueFlags {
++		if _, ok := permittedSSHValueFlagSamples[letter]; !ok {
++			t.Fatalf("permitted value flag -%c has no admitted/refused sample", letter)
++		}
++	}
++	for letter := range permittedSSHValueFlagSamples {
++		if _, ok := sshPermittedValueFlags[letter]; !ok {
++			t.Fatalf("sample -%c is not a permitted value flag in sshPermittedValueFlags", letter)
++		}
++	}
++
++	for _, letter := range sortedFlagLetters(permittedSSHFlagSamples) {
++		letter := letter
++		t.Run("valueless "+string(letter), func(t *testing.T) {
++			t.Parallel()
++			// Alone, and grouped ahead of a value-taking letter, because the
++			// group walk is where a wrongly declared arity would show.
++			requireSSHArgsAdmitted(t, "-"+string(letter))
++			requireSSHArgsAdmitted(t, "-"+string(letter)+"p2222")
++		})
++	}
++	for _, letter := range sortedValueFlagLetters(permittedSSHValueFlagSamples) {
++		letter := letter
++		t.Run("value-taking "+string(letter), func(t *testing.T) {
++			t.Parallel()
++			sample := permittedSSHValueFlagSamples[letter]
++			requireSSHArgsAdmitted(t, "-"+string(letter), sample.admitted)
++			requireSSHArgsAdmitted(t, "-"+string(letter)+sample.admitted)
++			requireSSHArgsRefusal(t, sample.reason, "-"+string(letter), sample.refused)
++			requireSSHArgsRefusal(t, sample.reason, "-"+string(letter)+sample.refused)
++			// A declared value-taking letter with no operand left is refused
++			// rather than admitted as a bare flag, in every spelling that can
++			// leave it dangling.
++			requireSSHArgsRefusal(t, sshRefusalMissingFlagValue, "-"+string(letter))
++			requireSSHArgsRefusal(t, sshRefusalMissingFlagValue, "-q"+string(letter))
++			requireSSHArgsRefusal(t, sshRefusalMissingFlagValue, "-4", "-"+string(letter))
++		})
++	}
++}
++
++// TestLoadRefusesTheNamedSSHCapabilityWideningFlags names the letters the SSH
++// admission review called out as capability widenings outside Section 6.3:
++// agent forwarding, a chosen log file, and the forwarding and tunnelling
++// letters. The derived walk covers them only while production does not permit
++// them; these assertions redden directly if it ever does.
++func TestLoadRefusesTheNamedSSHCapabilityWideningFlags(t *testing.T) {
++	t.Parallel()
++
++	t.Run("agent forwarding", func(t *testing.T) {
++		t.Parallel()
++		requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-A")
++		requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-qA")
++	})
++	t.Run("log file redirection", func(t *testing.T) {
++		t.Parallel()
++		requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-E", "/tmp/attacker/ssh.log")
++		requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-E/tmp/attacker/ssh.log")
++	})
++	for name, argument := range map[string]string{
++		"local forward":   "L",
++		"remote forward":  "R",
++		"dynamic forward": "D",
++		"stdio forward":   "W",
++		"tunnel device":   "w",
++		"control socket":  "S",
++		"control command": "O",
++	} {
++		name, letter := name, argument
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++			requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-"+letter, "value")
++			requireSSHArgsRefusal(t, sshRefusalUnpermittedFlag, "-q"+letter, "value")
++		})
++	}
++}
++
++func sortedFlagLetters(table map[byte]string) []byte {
++	letters := make([]byte, 0, len(table))
++	for letter := range table {
++		letters = append(letters, letter)
++	}
++	sort.Slice(letters, func(first, second int) bool { return letters[first] < letters[second] })
++	return letters
++}
++
++func sortedValueFlagLetters(table map[byte]struct{ admitted, refused, reason string }) []byte {
++	letters := make([]byte, 0, len(table))
++	for letter := range table {
++		letters = append(letters, letter)
++	}
++	sort.Slice(letters, func(first, second int) bool { return letters[first] < letters[second] })
++	return letters
++}
+diff --git a/internal/config/validation.go b/internal/config/validation.go
+index 2a4d41f..e7505f9 100644
+--- a/internal/config/validation.go
++++ b/internal/config/validation.go
+@@ -449,6 +449,9 @@ func validateMesh(configuration *Configuration) error {
+ 		if err := validatePrintableCharacters(peer.Endpoint, 1, 1024); err != nil {
+ 			return configError(prefix+".endpoint", err)
+ 		}
++		if reason := admitMeshEndpoint(peer.Endpoint); reason != endpointAdmitted {
++			return configError(prefix+".endpoint "+reason, ErrConfigValidation)
++		}
+ 		if len(peer.SSHArgs) > 64 {
+ 			return configError(prefix+".ssh_args", ErrConfigValidation)
+ 		}
