@@ -1,0 +1,138 @@
+REVIEW RUN-260901-de6b47 — CR-TASK-260830-1qf777-2 rev2 (tree a9b9e5fa, base 48db30b5)
+Independent reviewer mutation sweep. Tree copy: .temp/TASK-260830-1qf777/review-r2/tree (baseline green).
+Command per mutant: go build ./... && go test ./internal/config/ -count=1
+
+=== BATCH 1 ===
+R01 migration.go DIED      delete downgrade refusal | --- FAIL: TestMigrateProductionEntryRequiresExplicitChoiceAndRefusesDowngrade (0.02s)
+R02 migration.go DIED      narrow target vocabulary: admit Version1 as a migration target | --- FAIL: TestMigrateRefusesEveryTargetOutsideTheUpgradeVocabulary (0.05s)
+R04 migration.go DIED      narrow disclosure gate to empty-only (widens accepted vocabulary) | --- FAIL: TestMigrateRefusesDisclosureChoiceOutsideTheClosedVocabulary (0.07s)
+R05 migration.go SURVIVED  widen disclosure vocabulary by one extra member | 
+R09 migration.go DIED      widen backup permissions from owner-only to world-readable | --- FAIL: TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint (0.09s)
+R10 migration.go DIED      delete post-load non-regular-source TOCTOU recheck | --- FAIL: TestMigrateRefusesSourceThatStoppedBeingARegularFileAfterLoad (0.03s)
+R11 migration.go DIED      delete absent-source refusal | --- FAIL: TestMigrateRefusesAbsentSourceWithoutWriting (0.00s)
+R13 migration.go DIED      delete unsupported-source refusal in AssessCompatibility | --- FAIL: TestAssessCompatibilityRefusesMalformedEnvelopeFacts (0.00s)
+R14 migration.go DIED      delete unknown-reader refusal in AssessCompatibility | --- FAIL: TestAssessCompatibilityRefusesMalformedEnvelopeFacts (0.00s)
+R15 migration.go DIED      delete schema-id refusal in AssessCompatibility | --- FAIL: TestAssessCompatibilityRefusesMalformedEnvelopeFacts (0.00s)
+R16 loader.go    DIED      revert OS stat to symlink-following os.Stat | --- FAIL: TestLoadOSRefusesRealSymlinkAtProductionEntry (0.00s)
+R18 validation.go DIED      widen sync.max_parallel_chunks upper bound 32 -> 64 | --- FAIL: TestMigrateProductionEntryRefusesInvalidSourceBeforeBackupOrWrite (0.00s)
+R19 validation.go DIED      widen sync.max_parallel_chunks lower bound 1 -> 0 | --- FAIL: TestConfigurationNumericBoundsAcceptLimitsAndRefusePastLimitsAtProductionEntry (0.00s)
+R20 schema.go    DIED      delete unknown-field refusal (DisallowUnknownFields) | --- FAIL: TestMigrateProductionEntryRefusesInvalidSourceBeforeBackupOrWrite (0.00s)
+R24 migration.go DIED      delete rollback-failure reporting branch | --- FAIL: TestMigrateReportsRecoveryFailureWhenRollbackAlsoFails (0.03s)
+R25 migration.go DIED      delete post-sync-failure rollback of the original document | --- FAIL: TestMigrateReportsRecoveryFailureWhenRollbackAlsoFails (0.03s)
+R26 migration.go DIED      delete backup directory fsync retry | --- FAIL: TestMigrateReportsRecoveryFailureWhenRollbackAlsoFails (0.01s)
+
+=== SUMMARY ===
+applied=26 died=16 survived=1 other=9
+SURVIVED: R05 widen disclosure vocabulary by one extra member
+OTHER: R03 delete target vocabulary gate entirely BUILD-FAIL(invalid mutant) # github.com/relux-works/agent-session-manager/internal/config
+internal/config/migration.go:181:10: declared and not used: targetKnown
+
+OTHER: R06 narrow existing-backup gate: drop exact-content clause BUILD-FAIL(invalid mutant) # github.com/relux-works/agent-session-manager/internal/config
+internal/config/migration.go:4:2: "bytes" imported and not used
+internal/config/migration.go:279:3: declared and not used: existing
+
+OTHER: R07 narrow existing-backup gate: drop owner-only permission clause BUILD-FAIL(invalid mutant) # github.com/relux-works/agent-session-manager/internal/config
+internal/config/migration.go:280:3: declared and not used: info
+
+OTHER: R08 delete existing-backup integrity gate BUILD-FAIL(invalid mutant) # github.com/relux-works/agent-session-manager/internal/config
+internal/config/migration.go:4:2: "bytes" imported and not used
+internal/config/migration.go:279:3: declared and not used: existing
+inter
+OTHER: R12 delete read-only downgrade determination in AssessCompatibility BUILD-FAIL(invalid mutant) # github.com/relux-works/agent-session-manager/internal/config
+internal/config/migration.go:96:2: declared and not used: reader
+internal/config/migration.go:107:2: declared and not used: source
+
+OTHER: R17 widen v2 encoder to pass any backend id through BUILD-FAIL(invalid mutant) # github.com/relux-works/agent-session-manager/internal/config
+internal/config/writer.go:6:2: "fmt" imported and not used
+
+OTHER: R21 delete duplicate external_trust backend rejection BUILD-FAIL(invalid mutant) # github.com/relux-works/agent-session-manager/internal/config
+internal/config/validation.go:693:8: undefined: seen
+
+OTHER: R22 delete duplicate backend_config backend rejection BUILD-FAIL(invalid mutant) # github.com/relux-works/agent-session-manager/internal/config
+internal/config/validation.go:716:8: undefined: seen
+
+OTHER: R23 skip durable replace + backup entirely BUILD-FAIL(invalid mutant) # github.com/relux-works/agent-session-manager/internal/config
+internal/config/migration.go:208:6: declared and not used: replacement
+
+
+=== BATCH 2+3 (recompiled forms of batch-1 build failures, plus new mutants) ===
+R03b migration.go DIED      delete target vocabulary gate entirely | --- FAIL: TestMigrateRefusesEveryTargetOutsideTheUpgradeVocabulary (0.09s)
+R06b migration.go DIED      narrow existing-backup gate: drop exact-content clause | --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource (0.11s)
+R07b migration.go DIED      narrow existing-backup gate: drop owner-only permission clause | --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource (0.09s)
+R08b migration.go BUILD-FAIL delete existing-backup integrity gate | # github.com/relux-works/agent-session-manager/internal/config internal/config/migration.go:279:13: declared and not used: readErr internal/config/migration.go:280:9: declared and not used: statErr
+R12b migration.go DIED      delete read-only downgrade determination in AssessCompatibility | --- FAIL: TestAssessCompatibilityEnforcesReadOnlyDowngradeWithoutDecodingOrMutation (0.00s)
+R12c migration.go DIED      narrow read-only trigger to major-gap-only (>1) | --- FAIL: TestAssessCompatibilityEnforcesReadOnlyDowngradeWithoutDecodingOrMutation (0.00s)
+R17b writer.go SURVIVED  widen v2 encoder to pass any backend id through | 
+R21b validation.go DIED      delete duplicate external_trust backend rejection | --- FAIL: TestMigrateProductionEntryRefusesInvalidSourceBeforeBackupOrWrite (0.01s)
+R22b validation.go DIED      delete duplicate backend_config backend rejection | --- FAIL: TestEncodeCurrentRefusalClausesAreIndividuallyPinned (0.00s)
+R23b migration.go DIED      skip durable replace + backup entirely | --- FAIL: TestMigrateRefusesDisclosureChoiceOutsideTheClosedVocabulary (0.17s)
+R27 migration.go DIED      back up the NEW document instead of the original | --- FAIL: TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint (0.18s)
+R28 migration.go DIED      name backup after target version instead of source version | --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource (0.09s)
+R29 migration.go DIED      remove already-at-target short circuit (breaks idempotency) | --- FAIL: TestMigrateProductionEntryMapsLegacyTerminalToVersion3AndIsIdempotent (0.06s)
+R30 migration.go BUILD-FAIL replace via non-atomic path instead of rename (torn write) | # github.com/relux-works/agent-session-manager/internal/config internal/config/migration.go:306:57: undefined: copyOver
+
+=== SUMMARY2 ===
+died=11 survived=1 other=2
+BUILD : R08b delete existing-backup integrity gate
+SURVIVED : R17b widen v2 encoder to pass any backend id through
+BUILD : R30 replace via non-atomic path instead of rename (torn write)
+R08c DIED      delete existing-backup integrity gate entirely | --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource (0.11s)
+R30b DIED      replace in place (non-atomic torn write) instead of rename | --- FAIL: TestMigrateRefusesDisclosureChoiceOutsideTheClosedVocabulary (0.06s)
+
+=== SURVIVOR ANALYSIS (both proven subsumed, neither a bypass) ===
+
+R05 widen migration.go:202 disclosure vocabulary by one member ("broadcast_everything").
+Probe drove the real Migrate entry with the widened build:
+  PROBE err=configuration migration encode target failed sourceUnchanged=true backups=[] staging=[]
+The widened value is still refused downstream by validation.go:552 during the
+EncodeCurrent round trip, and that clause is itself pinned by refusal_test.go
+"directory summary choice". Source unchanged, no backup written, no
+.ax-config-* staging leak. Fail-closed; not an admitted-what-must-be-rejected.
+
+R17b widen writer.go encodeVersion2 default branch to pass any backend id through.
+Site carries config-refusal-subsumed and the justification holds: Migrate reaches
+encodeVersion2 only from a Configuration 1.0.0 source (v2->v2 short-circuits,
+v3->v2 is ErrMigrationDowngrade), validateLegacyTerminalBackend (validation.go:225)
+admits only "tmux"/"conpty", and translateLegacyTerminal (validation.go:209) maps
+those to ax.tmux/ax.conpty. The default branch is unreachable from production.
+
+=== SUBSUMPTION-RATCHET ATTACK ===
+TestRefusalSubsumptionInventoryIsPinned compares only the COUNT of
+config-refusal-subsumed markers, never their positions. Attempted to game it by
+MOVING a marker (removed writer.go v2-wire-TOML marker, added an unjustified one
+on the migration downgrade refusal) so the count stayed 7:
+  rc=1 | configuration refusal call sites without an exercised negative path: writer.go:54
+Composed with the unexercised-site audit the ratchet holds: any removal reddens,
+so the count can only rise, and a rise reddens. Not a finding.
+
+=== TRACEABILITY GATE ATTACK ===
+A fabricated section key   -> rc=1 "implementation owner is self-minted for unknown section_binding \"section:99.9\""
+An ownership edit without re-pinning the digest -> rc=1 "ownership registry projection digest ... differs from reviewed ..."
+Restored tree -> rc=0 "traceability ok: contracts=60 normative_sections=36 acceptance_cases=34 fixtures=30 compatibility_contracts=55 assigned_scopes=0"
+
+=== FINDING F1 PROBE: os.Stat -> os.Lstat at loader.go:187 ===
+Driven through the real LoadOS entry on the candidate tree:
+  PROBE symlinked DataRoot -> err=configuration inspect selected root for data-root from flag failed isRootNotDirectory=true
+  PROBE absent config under symlinked parent -> err=configuration stat selected file parent for config-file from flag failed isParentNotDirectory=true
+No test asserts either outcome in either direction; no README sentence and no
+code comment records the directory consequence.
+
+=== REPOSITORY GATES RUN BY THE REVIEWER ON THE CANDIDATE TREE ===
+go build ./...                                  ok
+go vet ./...                                    ok
+gofmt -l . (excluding .temp)                    no output
+go test ./... -count=1                          all packages ok
+go test ./... -cover                            internal/config 91.8%
+go mod verify                                   all modules verified
+git diff --check                                clean
+go run ./internal/traceability/cmd/tracecheck   ok (34 acceptance cases)
+env -i HOME=/nonexistent-empty-home go test ./internal/config/   ok
+
+=== PER-FUNCTION COVERAGE, migration.go / writer.go ===
+MigrateOS                 0.0%   <-- FINDING F2 (OS production entry, named in README)
+(*MigrationError).Error   0.0%   <-- FINDING F3 (path-free rendering claim unproven)
+Migrate                 100.0%
+AssessCompatibility     100.0%
+migrate                  97.1%
+replaceDurably           97.6%
+encodeVersion2           69.2%

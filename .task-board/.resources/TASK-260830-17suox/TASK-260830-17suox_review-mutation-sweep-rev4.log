@@ -1,0 +1,71 @@
+# Reviewer mutation sweep, CR-TASK-260830-17suox-4 (candidate tree 6df2bcbb)
+# Sandbox: /tmp/axmut4 (copy of candidate worktree, .git/.temp excluded)
+# Per mutant: apply -> `go test ./internal/config -count=1` -> restore from backup
+# Baseline (unmutated sandbox): ok github.com/relux-works/agent-session-manager/internal/config
+
+## rev3 survivors, re-run against rev4
+KILLED    M-A peer roots use configuration.Platform  :: FAIL TestPeerWorkspaceRootValidationUsesPeerPlatformAndPinsEveryNestedClause
+KILLED    M-B skip peer per-root member checks       :: FAIL TestPeerWorkspaceRootValidationUsesPeerPlatformAndPinsEveryNestedClause
+KILLED    M-E drop digest min bound                  :: FAIL TestPreviouslyUnpinnedConfigurationBoundsAtProductionEntry
+KILLED    M-3 delete legacy conpty mapping           :: FAIL TestLegacyConPTYTranslationIsPinnedForEveryLegacyReader
+KILLED    M-4 legacyBackendDefault always tmux       :: FAIL TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes
+KILLED    M-5 currentBackendDefault always ax.tmux   :: FAIL TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes
+KILLED    M-6 widen logicalRootPattern               :: FAIL TestPeerWorkspaceRootValidationUsesPeerPlatformAndPinsEveryNestedClause
+KILLED    M-8 drop int64 safe-integer bound          :: FAIL TestPreviouslyUnpinnedConfigurationBoundsAtProductionEntry
+
+## new rev4 code path
+SURVIVED  N-1 restorePresentEmptyMaps initializes nil map members regardless of source presence   <-- FINDING 1
+KILLED    N-2 delete restorePresentEmptyMaps call    :: FAIL TestLoadTreatsInlineAndMultilineEmptyClosedMapsAsPresent
+
+### N-1 behavior probe, driven through Load only
+baseline: installation absent extensions   err=configuration decode selected file for config-file from environment failed
+baseline: profile absent extensions        err=configuration decode selected file for config-file from environment failed
+baseline: disclosure absent extensions     err=configuration decode selected file for config-file from environment failed
+baseline: backend_config absent settings   err=configuration decode selected file for config-file from environment failed
+mutant:   installation absent extensions   err=<nil>
+mutant:   profile absent extensions        err=<nil>
+mutant:   disclosure absent extensions     err=<nil>
+mutant:   backend_config absent settings   err=<nil>
+mutant:   full package suite               ok  github.com/relux-works/agent-session-manager/internal/config
+
+## required-member disjunct narrowing (fail-closed but undocumented as subsumed)
+SURVIVED  P-1 drop installations Extensions presence disjunct    (validation.go:109)
+SURVIVED  P-2 drop profiles Extensions presence disjunct         (validation.go:114)
+SURVIVED  P-3 drop disclosure Extensions presence disjunct       (validation.go:119)
+SURVIVED  P-4 drop backend_config Settings presence disjunct     (validation.go:133)
+
+## extensions
+KILLED    E-1 drop extension key 253 bound           :: FAIL TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections
+KILLED    E-2 drop forbidden-name check on key       :: FAIL TestEncodeCurrentPinsPreviouslyCompositeRefusalClauses
+KILLED    E-3 drop nested forbidden key check
+KILLED    E-4 widen extensions count 64->640         :: FAIL TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections
+SURVIVED  E-5 widen maxConfigExtensionBytes 65_536 -> 655_360                                     <-- FINDING 2
+KILLED    E-6 widen extension depth 4->40            :: FAIL TestEncodeCurrentPinsPreviouslyCompositeRefusalClauses
+
+## ssh host-authentication bypass
+KILLED    S-1 ssh option split on '=' only           :: FAIL TestLoadRefusesEveryOpenSSHHostAuthenticationBypassSpelling
+KILLED    S-2 drop combined -oOption form            :: FAIL TestLoadRefusesEveryOpenSSHHostAuthenticationBypassSpelling
+
+## terminal / envelope
+KILLED    T-1 drop settings nil gate                 :: FAIL TestEncodeCurrentRefusalClausesAreIndividuallyPinned
+KILLED    T-2 drop missing-schema gate               :: FAIL TestLoadRefusesSecurityBypassesDuplicatesAndUnknownBackendSettings
+KILLED    X-1 register trust regardless of enabled   :: FAIL TestEncodeCurrentRefusesSelectedExternalBackendWhoseOnlyTrustEntryIsDisabled
+KILLED    X-2 drop backend registered gate           :: FAIL TestEncodeCurrentRefusesSelectedExternalBackendWhoseOnlyTrustEntryIsDisabled
+KILLED    X-3 drop required_capabilities provenance  :: FAIL TestEncodeCurrentRefusalClausesAreIndividuallyPinned
+KILLED    X-4 drop transport_policy provenance       :: FAIL TestEncodeCurrentRefusalClausesAreIndividuallyPinned
+KILLED    X-5 drop sorted-unique ordering in closed vocab
+KILLED    X-6 drop legacy backend vocabulary closure :: FAIL TestLoadClosesLegacyTerminalBackendVocabularyBeforeTranslation
+KILLED    X-7 drop platform-match gate               :: FAIL TestLoadRefusesUnknownClosedMembersUnsupportedVersionsAndMalformedReads
+KILLED    X-8 drop ax.conpty non-windows refusal     :: FAIL TestEncodeCurrentRefusalClausesAreIndividuallyPinned
+
+## meta-gates (attacking the new derived gates themselves)
+KILLED    I-1 add unexercised configError site in validateSync
+          :: configuration refusal call sites without an exercised negative path: validation.go:509
+KILLED    I-2 tamper an ownership claim declaration  :: FAIL internal/traceability/cmd/tracecheck
+KILLED    I-3 flip one hex digit of reviewedOwnershipCanonicalSHA256 :: FAIL internal/traceability
+
+## reviewer baseline gates on the candidate tree (worktree, unmodified)
+go build ./...                exit 0
+go vet ./...                  exit 0
+go test ./... -count=1        ok x9 packages
+git write-tree (before/after) 6df2bcbb957947da769ed6f2a22fbe76ddf68e4d  (identical)

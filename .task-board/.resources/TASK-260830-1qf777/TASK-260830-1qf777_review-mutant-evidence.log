@@ -1,0 +1,49 @@
+baseline (unmutated, candidate tree)
+ok  	github.com/relux-works/agent-session-manager/internal/config	0.474s
+
+=== MUTANT: M1 delete existing-backup integrity verification (content + owner-only perms) ===
+ok  	github.com/relux-works/agent-session-manager/internal/config	0.610s
+
+=== MUTANT: M2 delete ErrMigrationTarget gate (unknown target and Version1 target admitted) ===
+ok  	github.com/relux-works/agent-session-manager/internal/config	0.532s
+
+=== MUTANT: M3 narrow ErrMigrationTarget to unknown-only (Version1 target admitted) ===
+ok  	github.com/relux-works/agent-session-manager/internal/config	0.539s
+
+=== MUTANT: M4 delete ErrMigrationSourceAbsent ConfigPresent gate ===
+ok  	github.com/relux-works/agent-session-manager/internal/config	0.572s
+
+=== MUTANT: M5 delete non-regular-source refusal in replaceDurably ===
+ok  	github.com/relux-works/agent-session-manager/internal/config	0.610s
+
+=== MUTANT: M6 narrow disclosure-choice gate to empty-only (arbitrary value admitted) ===
+ok  	github.com/relux-works/agent-session-manager/internal/config	0.513s
+
+=== POSITIVE CONTROL: delete downgrade gate (harness must catch this) ===
+--- FAIL: TestMigrateProductionEntryRequiresExplicitChoiceAndRefusesDowngrade (0.02s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/config	0.560s
+FAIL
+
+=== POSITIVE CONTROL: backup written with replacement bytes instead of original ===
+--- FAIL: TestMigrateProductionEntryCreatesOwnerOnlyBackupAndCompleteVersion2 (0.03s)
+--- FAIL: TestMigrateProductionEntryMapsLegacyTerminalToVersion3AndIsIdempotent (0.02s)
+--- FAIL: TestMigrateRecoversOriginalAfterPostReplaceDirectorySyncFailureAndRetries (0.03s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/config	0.573s
+FAIL
+
+=== GATE BEHAVIOR PROBES (unmutated candidate; gates are correct, only untested) ===
+    zz_review_probe_test.go:32: stale-backup mismatch err = configuration migration verify backup failed (ErrMigrationBackup=true)
+    zz_review_probe_test.go:34: source unchanged = true
+    zz_review_probe_test.go:36: backup unchanged = true
+    zz_review_probe_test.go:38: leftover staging files = []
+    zz_review_probe_test.go:50: loose-perm backup err = configuration migration verify backup failed (ErrMigrationBackup=true)
+    zz_review_probe_test.go:59: target="" err=configuration migration select target failed ErrMigrationTarget=true
+    zz_review_probe_test.go:59: target="1.0.0" err=configuration migration select target failed ErrMigrationTarget=true
+    zz_review_probe_test.go:59: target="9.9.9" err=configuration migration select target failed ErrMigrationTarget=true
+    zz_review_probe_test.go:59: target="not-a-version" err=configuration migration select target failed ErrMigrationTarget=true
+    zz_review_probe_test.go:70: choice="banana" err=configuration migration validate disclosure choice failed choiceRequired=true sourceUnchanged=true
+    zz_review_probe_test.go:70: choice="unset" err=configuration migration validate disclosure choice failed choiceRequired=true sourceUnchanged=true
+    zz_review_probe_test.go:81: absent source err=configuration migration load source failed ErrMigrationSourceAbsent=true
+    zz_review_probe_test.go:89: v1(no terminal)->v2 result=config.MigrationResult{SourceVersion:"1.0.0", TargetVersion:"2.0.0", BackupPath:"/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestProbeMigrateV1MinimalToV2NoTerminalSection4116330060/001/config.toml.bak.1.0.0", Changed:true} err=<nil>

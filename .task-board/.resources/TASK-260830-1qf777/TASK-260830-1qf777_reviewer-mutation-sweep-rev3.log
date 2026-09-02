@@ -1,0 +1,49 @@
+R01-backup-mode-group-readable                 RED       widen: publish the versioned backup group/world readable
+    | --- FAIL: TestMigrateOSPerformsOneDurableMigrationAtTheRealProcessEntry (0.02s)
+    | --- FAIL: TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint (0.18s)
+    |     --- FAIL: TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint/remove_backup_staging_file (0.01s)
+    |         migration_refusal_test.go:294: staging file /var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePointremov243160832/001/.ax-config-backup-2685746031 mode = 0644, want owner-only
+R02-backup-name-drops-source-version           RED       narrow: a single unversioned backup name that a second migration would clobber
+    | --- FAIL: TestMigrateOSPerformsOneDurableMigrationAtTheRealProcessEntry (0.03s)
+    | --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource (0.09s)
+    |     --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource/stale_bytes (0.02s)
+    |         migration_refusal_test.go:130: Migrate(stale backup) error = <nil>, want ErrMigrationBackup
+R03-replacement-mode-not-preserved             SURVIVED  narrow: silently tighten the operator's configuration file mode
+R04-backup-directory-fsync-deleted             RED       delete: publish the backup without making its directory entry durable
+    | --- FAIL: TestMigrateReportsRecoveryFailureWhenRollbackAlsoFails (0.01s)
+    |     migration_refusal_test.go:328: Migrate(rollback failure) error = <nil>, want ErrMigrationRecovery and ErrMigrationSync
+    | --- FAIL: TestMigrateRecoversOriginalAfterPostReplaceDirectorySyncFailureAndRetries (0.01s)
+R05-replacement-file-fsync-deleted             SURVIVED  delete: rename a temporary file whose contents were never fsynced
+R06-idempotent-noop-rewrites                   RED       delete: rewrite an already-target-version document instead of a no-op
+    | --- FAIL: TestMigrateOSPerformsOneDurableMigrationAtTheRealProcessEntry (0.11s)
+    | --- FAIL: TestMigrateProductionEntryMapsLegacyTerminalToVersion3AndIsIdempotent (0.07s)
+R07-semver-leading-zero-admitted               SURVIVED  widen: admit a non-canonical semver core such as 01.0.0
+R08-schema-id-check-deleted                    RED       delete: assess compatibility for a document that is not an AX configuration
+    | --- FAIL: TestAssessCompatibilityRefusesMalformedEnvelopeFacts (0.00s)
+    |     --- FAIL: TestAssessCompatibilityRefusesMalformedEnvelopeFacts/wrong_schema (0.00s)
+R09-readonly-only-for-major-gap                SURVIVED  narrow: a one-major-newer document is reported fully compatible
+R10-writeall-short-write-ignored               SURVIVED  delete: silently spin on a zero-length write
+R11-stat-follows-symlink                       RED       widen: the mutating seam follows symlinks again
+    | --- FAIL: TestMigrateOSAppliesTheNoFollowMutatingSeamInBothDirections (0.68s)
+    |     --- FAIL: TestMigrateOSAppliesTheNoFollowMutatingSeamInBothDirections/symlinked_selected_source_is_refused_and_nothing_is_mutated (0.34s)
+R12-v2-encoder-drops-terminal-timeouts         SURVIVED  delete: lose the v1 safe-boundary timeout when writing the v2 document
+R13-v2-encoder-drops-directory-tables          SURVIVED  delete: discard directory installations when writing the v2 document
+R14-v2-roundtrip-validation-deleted            SURVIVED  delete: emit a v2 document without re-validating it through the production reader
+R15-migrate-ignores-load-refusal               RED       delete: continue after the production Load refused the source
+    | internal/config/migration.go:208:16: undefined: err
+    | internal/config/migration.go:210:16: undefined: err
+    | internal/config/migration.go:212:5: undefined: err
+    | internal/config/migration.go:213:81: undefined: err
+R16-choice-applied-for-v2-source-too           RED       widen: demand a disclosure choice for a v2 source the SPEC does not gate
+    | --- FAIL: TestMigrateProductionEntryMapsLegacyTerminalToVersion3AndIsIdempotent (0.04s)
+R17-backup-staging-leak-ignored                RED       delete: leave an unremovable staging file behind and report success
+    | --- FAIL: TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint (1.27s)
+    |     --- FAIL: TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint/remove_backup_staging_file (0.12s)
+    |         migration_refusal_test.go:286: Migrate(remove backup staging file failure) error = <nil>, want configuration migration backup failed
+R18-replacement-temp-not-cleaned-on-rename-failure RED       delete: leak the replacement staging file after a failed atomic replace
+    | --- FAIL: TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint (0.82s)
+    |     --- FAIL: TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint/replace_source (0.08s)
+    |         migration_refusal_test.go:296: migration left staging files [/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePointrepla1347188821/001/.ax-config-migrate-1112923466] (glob error <nil>)
+
+SURVIVED: ['R03-replacement-mode-not-preserved', 'R05-replacement-file-fsync-deleted', 'R07-semver-leading-zero-admitted', 'R09-readonly-only-for-major-gap', 'R10-writeall-short-write-ignored', 'R12-v2-encoder-drops-terminal-timeouts', 'R13-v2-encoder-drops-directory-tables', 'R14-v2-roundtrip-validation-deleted']
+INVALID: []

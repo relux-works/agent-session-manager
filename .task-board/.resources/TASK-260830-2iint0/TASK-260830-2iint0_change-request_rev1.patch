@@ -1,0 +1,1481 @@
+diff --git a/README.md b/README.md
+index e8508f5..b2afe4f 100644
+--- a/README.md
++++ b/README.md
+@@ -134,6 +134,38 @@ go run ./internal/traceability/cmd/tracecheck \
+   -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4
+ ```
+ 
++## Configuration Path Loading
++
++The internal/config package implements the read-only Section 3.2 and Section
++6.1 path/configuration loading boundary. LoadOS captures the caller-supplied
++runtime-probed AX platform and current OS inputs once; Load is the
++dependency-injected production entry used by deterministic tests and alternate
++launchers.
++
++One five-row registry drives --config, --data-dir, --state-dir, --cache-dir,
++and --runtime-dir together with their exact AX_* counterparts. Resolution
++applies flag, non-empty documented environment override, then platform default
++independently to every path class. Relative flag and override values are made
++absolute against the captured working directory before use. XDG, macOS,
++WSL2/Linux, and native Windows defaults use native path grammar; missing
++required Linux runtime or Windows profile inputs fail closed.
++
++Load returns isolated TOML bytes and one immutable resolved-root snapshot. It
++does not enumerate environment variables, copy ambient credentials, interpret
++unknown AX_* names, mutate roots, create files, parse versioned TOML schemas,
++migrate configuration, advertise doctor/CLI support, or claim a runtime
++capability. Versioned Configuration 1/2/3 decoding and explicit atomic
++migration remain owned by separate implementation tasks. Existing selected
++roots are checked for directory kind, while absent roots remain eligible for
++the later owner-only initialization boundary. A missing config, wrong file
++kind, read failure, and root inspection failure remain distinct.
++
++Run the focused tests and assigned-scope traceability gate with:
++
++    go test ./internal/config -count=1 -v
++    go test ./internal/config -cover -count=1
++    go run ./internal/traceability/cmd/tracecheck -section 3.2 -section 6.1
++
+ ## Canonical JSON and Immutable Object Identities
+ 
+ [`internal/canonicaljson`](internal/canonicaljson) exposes the production RFC
+@@ -270,7 +302,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
+ registry independently enumerates implementation owners for all 60 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 29
++contract rows, 36 pinned or catalog-referenced normative section keys, 30
+ executable acceptance cases, and 30 exact fixture identities or Appendix D
+ anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
+ The generated v0.5.0 catalog also carries the reviewed schema/version/self-field
+@@ -335,6 +367,10 @@ Temporary validation logs and worktrees belong under `.temp/<TASK-ID>/` and
+ must not be committed. Diagrams, when implementation work introduces them,
+ belong under `diagrams/`.
+ 
++Configuration loading uses the existing Go toolchain entry in the tools table.
++Its focused outputs are Go test/coverage results and the read-only traceability
++report; task-scoped captured logs belong under .temp/<TASK-ID>/.
++
+ ## Contribution Baseline
+ 
+ All non-bootstrap changes are delivered automatically through pull requests as
+diff --git a/internal/config/loader.go b/internal/config/loader.go
+new file mode 100644
+index 0000000..6ef0337
+--- /dev/null
++++ b/internal/config/loader.go
+@@ -0,0 +1,556 @@
++// Package config resolves the process-lifetime AX path snapshot and reads the
++// selected configuration document. Versioned TOML decoding and migration are
++// separate concerns; this package never mutates configuration or root state.
++package config
++
++import (
++	"errors"
++	"fmt"
++	"io/fs"
++	"os"
++	"path"
++	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++var (
++	ErrInvalidContext             = errors.New("invalid configuration loader context")
++	ErrUnknownPathClass           = errors.New("unknown AX path class")
++	ErrPlatformDefaultUnavailable = errors.New("platform path default unavailable")
++	ErrConfigNotFound             = errors.New("selected configuration file not found")
++	ErrConfigNotRegular           = errors.New("selected configuration path is not a regular file")
++	ErrConfigRead                 = errors.New("configuration file read failed")
++	ErrRootNotDirectory           = errors.New("selected root path is not a directory")
++	ErrRootInspect                = errors.New("selected root path inspection failed")
++)
++
++// PathClass names one member of the complete AX 1.0.0 path override registry.
++type PathClass string
++
++const (
++	ConfigFile  PathClass = "config-file"
++	DataRoot    PathClass = "data-root"
++	StateRoot   PathClass = "state-root"
++	CacheRoot   PathClass = "cache-root"
++	RuntimeRoot PathClass = "runtime-root"
++)
++
++// OverrideSpec binds one path class to its command flag and sole AX_*
++// environment override. The registry is vocabulary, not a capability claim.
++type OverrideSpec struct {
++	Class       PathClass
++	Flag        string
++	Environment string
++}
++
++var overrideRegistry = [...]OverrideSpec{
++	{Class: ConfigFile, Flag: "--config", Environment: "AX_CONFIG"},
++	{Class: DataRoot, Flag: "--data-dir", Environment: "AX_DATA_DIR"},
++	{Class: StateRoot, Flag: "--state-dir", Environment: "AX_STATE_DIR"},
++	{Class: CacheRoot, Flag: "--cache-dir", Environment: "AX_CACHE_DIR"},
++	{Class: RuntimeRoot, Flag: "--runtime-dir", Environment: "AX_RUNTIME_DIR"},
++}
++
++// OverrideRegistry returns an isolated ordered copy of the complete registry.
++func OverrideRegistry() []OverrideSpec {
++	registry := make([]OverrideSpec, len(overrideRegistry))
++	copy(registry, overrideRegistry[:])
++	return registry
++}
++
++// Overrides carries values supplied by command flags. Empty entries are unset.
++type Overrides map[PathClass]string
++
++// Source identifies the selecting precedence layer without carrying its value.
++type Source string
++
++const (
++	SourceFlag            Source = "flag"
++	SourceEnvironment     Source = "environment"
++	SourcePlatformDefault Source = "platform-default"
++)
++
++// ResolvedPath is an absolute platform-bound path plus safe provenance.
++type ResolvedPath struct {
++	Value  scalar.AbsolutePath
++	Source Source
++}
++
++// ResolvedPaths is an isolated process-lifetime path snapshot.
++type ResolvedPaths struct {
++	values map[PathClass]ResolvedPath
++}
++
++func (paths ResolvedPaths) Path(class PathClass) (ResolvedPath, bool) {
++	value, ok := paths.values[class]
++	return value, ok
++}
++
++func (paths ResolvedPaths) All() map[PathClass]ResolvedPath {
++	values := make(map[PathClass]ResolvedPath, len(paths.values))
++	for class, value := range paths.values {
++		values[class] = value
++	}
++	return values
++}
++
++// Inputs captures all process inputs read during one resolution.
++type Inputs struct {
++	Platform   scalar.Platform
++	HomeDir    string
++	TempDir    string
++	WorkingDir string
++	LookupEnv  func(string) (string, bool)
++	Stat       func(string) (fs.FileInfo, error)
++	ReadFile   func(string) ([]byte, error)
++}
++
++// Snapshot contains one immutable path decision and selected TOML document.
++type Snapshot struct {
++	paths    ResolvedPaths
++	document []byte
++}
++
++func (snapshot Snapshot) Paths() ResolvedPaths {
++	return ResolvedPaths{values: snapshot.paths.All()}
++}
++
++func (snapshot Snapshot) Document() []byte {
++	return append([]byte(nil), snapshot.document...)
++}
++
++// Error reports a failed class/layer without echoing machine-local values.
++type Error struct {
++	Operation string
++	Class     PathClass
++	Source    Source
++	Err       error
++}
++
++func (err *Error) Error() string {
++	if err.Class == "" {
++		return fmt.Sprintf("configuration %s: %v", err.Operation, err.Err)
++	}
++	return fmt.Sprintf("configuration %s for %s from %s: %v", err.Operation, err.Class, err.Source, err.Err)
++}
++
++func (err *Error) Unwrap() error { return err.Err }
++
++// OSInputs captures real process inputs once. The caller supplies the exact
++// runtime-probed AX platform so WSL2 is never guessed from GOOS.
++func OSInputs(platform scalar.Platform) (Inputs, error) {
++	if _, err := scalar.ParsePlatform(platform.String()); err != nil {
++		return Inputs{}, &Error{Operation: "capture OS inputs", Err: ErrInvalidContext}
++	}
++	home, err := os.UserHomeDir()
++	if err != nil {
++		return Inputs{}, &Error{Operation: "capture user home", Err: errors.Join(ErrInvalidContext, err)}
++	}
++	working, err := os.Getwd()
++	if err != nil {
++		return Inputs{}, &Error{Operation: "capture working directory", Err: errors.Join(ErrInvalidContext, err)}
++	}
++	return Inputs{
++		Platform:   platform,
++		HomeDir:    home,
++		TempDir:    os.TempDir(),
++		WorkingDir: working,
++		LookupEnv:  os.LookupEnv,
++		Stat:       os.Stat,
++		ReadFile:   os.ReadFile,
++	}, nil
++}
++
++func LoadOS(platform scalar.Platform, overrides Overrides) (Snapshot, error) {
++	inputs, err := OSInputs(platform)
++	if err != nil {
++		return Snapshot{}, err
++	}
++	return Load(inputs, overrides)
++}
++
++// Load resolves all roots, then reads exactly the selected regular file.
++func Load(inputs Inputs, overrides Overrides) (Snapshot, error) {
++	paths, err := ResolvePaths(inputs, overrides)
++	if err != nil {
++		return Snapshot{}, err
++	}
++	if inputs.Stat == nil || inputs.ReadFile == nil {
++		return Snapshot{}, &Error{Operation: "read selected file", Err: ErrInvalidContext}
++	}
++	if err := validateRootKinds(paths, inputs.Stat); err != nil {
++		return Snapshot{}, err
++	}
++
++	selected, ok := paths.Path(ConfigFile)
++	if !ok {
++		return Snapshot{}, &Error{Operation: "read selected file", Class: ConfigFile, Err: ErrInvalidContext}
++	}
++	filename := selected.Value.String()
++	info, err := inputs.Stat(filename)
++	if err != nil {
++		if errors.Is(err, fs.ErrNotExist) {
++			return Snapshot{}, &Error{
++				Operation: "stat selected file",
++				Class:     ConfigFile,
++				Source:    selected.Source,
++				Err:       ErrConfigNotFound,
++			}
++		}
++		return Snapshot{}, &Error{
++			Operation: "stat selected file",
++			Class:     ConfigFile,
++			Source:    selected.Source,
++			Err:       ErrConfigRead,
++		}
++	}
++	if !info.Mode().IsRegular() {
++		return Snapshot{}, &Error{
++			Operation: "stat selected file",
++			Class:     ConfigFile,
++			Source:    selected.Source,
++			Err:       ErrConfigNotRegular,
++		}
++	}
++
++	document, err := inputs.ReadFile(filename)
++	if err != nil {
++		return Snapshot{}, &Error{
++			Operation: "read selected file",
++			Class:     ConfigFile,
++			Source:    selected.Source,
++			Err:       ErrConfigRead,
++		}
++	}
++	return Snapshot{
++		paths:    ResolvedPaths{values: paths.All()},
++		document: append([]byte(nil), document...),
++	}, nil
++}
++
++func validateRootKinds(paths ResolvedPaths, stat func(string) (fs.FileInfo, error)) error {
++	for _, specification := range overrideRegistry {
++		if specification.Class == ConfigFile {
++			continue
++		}
++		resolved, ok := paths.Path(specification.Class)
++		if !ok {
++			return &Error{Operation: "inspect selected root", Class: specification.Class, Err: ErrInvalidContext}
++		}
++		info, err := stat(resolved.Value.String())
++		if errors.Is(err, fs.ErrNotExist) {
++			continue
++		}
++		if err != nil {
++			return &Error{
++				Operation: "inspect selected root",
++				Class:     specification.Class,
++				Source:    resolved.Source,
++				Err:       ErrRootInspect,
++			}
++		}
++		if !info.IsDir() {
++			return &Error{
++				Operation: "inspect selected root",
++				Class:     specification.Class,
++				Source:    resolved.Source,
++				Err:       ErrRootNotDirectory,
++			}
++		}
++	}
++	return nil
++}
++
++// ResolvePaths applies flag, exact AX_* environment, then platform-default
++// precedence for every registry member.
++func ResolvePaths(inputs Inputs, overrides Overrides) (ResolvedPaths, error) {
++	if _, err := scalar.ParsePlatform(inputs.Platform.String()); err != nil || inputs.LookupEnv == nil {
++		return ResolvedPaths{}, &Error{Operation: "validate inputs", Err: ErrInvalidContext}
++	}
++	if err := validateOverrideClasses(overrides); err != nil {
++		return ResolvedPaths{}, err
++	}
++
++	resolved := make(map[PathClass]ResolvedPath, len(overrideRegistry))
++	for _, specification := range overrideRegistry {
++		candidate, source, err := selectCandidate(inputs, overrides, specification)
++		if err != nil {
++			return ResolvedPaths{}, err
++		}
++		absolute, err := makeAbsolute(inputs.Platform, candidate, inputs.WorkingDir)
++		if err != nil {
++			return ResolvedPaths{}, &Error{
++				Operation: "resolve absolute path",
++				Class:     specification.Class,
++				Source:    source,
++				Err:       err,
++			}
++		}
++		resolved[specification.Class] = ResolvedPath{Value: absolute, Source: source}
++	}
++	return ResolvedPaths{values: resolved}, nil
++}
++
++func validateOverrideClasses(overrides Overrides) error {
++	known := make(map[PathClass]struct{}, len(overrideRegistry))
++	for _, specification := range overrideRegistry {
++		known[specification.Class] = struct{}{}
++	}
++	for class := range overrides {
++		if _, ok := known[class]; !ok {
++			return &Error{Operation: "validate override", Class: class, Source: SourceFlag, Err: ErrUnknownPathClass}
++		}
++	}
++	return nil
++}
++
++func selectCandidate(inputs Inputs, overrides Overrides, specification OverrideSpec) (string, Source, error) {
++	if value := overrides[specification.Class]; value != "" {
++		return value, SourceFlag, nil
++	}
++	if value, ok := inputs.LookupEnv(specification.Environment); ok && value != "" {
++		return value, SourceEnvironment, nil
++	}
++	value, err := platformDefault(inputs, specification.Class)
++	if err != nil {
++		return "", SourcePlatformDefault, &Error{
++			Operation: "resolve platform default",
++			Class:     specification.Class,
++			Source:    SourcePlatformDefault,
++			Err:       err,
++		}
++	}
++	return value, SourcePlatformDefault, nil
++}
++
++func platformDefault(inputs Inputs, class PathClass) (string, error) {
++	switch inputs.Platform {
++	case scalar.PlatformMacOS:
++		return macOSDefault(inputs, class)
++	case scalar.PlatformLinux, scalar.PlatformWSL2:
++		return linuxDefault(inputs, class)
++	case scalar.PlatformWindows:
++		return windowsDefault(inputs, class)
++	default:
++		return "", ErrInvalidContext
++	}
++}
++
++func macOSDefault(inputs Inputs, class PathClass) (string, error) {
++	switch class {
++	case ConfigFile:
++		base := nonEmptyEnvironment(inputs, "XDG_CONFIG_HOME")
++		if base == "" {
++			if inputs.HomeDir == "" {
++				return "", ErrPlatformDefaultUnavailable
++			}
++			base = join(inputs.Platform, inputs.HomeDir, ".config")
++		}
++		return join(inputs.Platform, base, "ax", "config.toml"), nil
++	case DataRoot:
++		if inputs.HomeDir == "" {
++			return "", ErrPlatformDefaultUnavailable
++		}
++		return join(inputs.Platform, inputs.HomeDir, "Library", "Application Support", "ax"), nil
++	case StateRoot:
++		if inputs.HomeDir == "" {
++			return "", ErrPlatformDefaultUnavailable
++		}
++		return join(inputs.Platform, inputs.HomeDir, "Library", "Application Support", "ax", "state"), nil
++	case CacheRoot:
++		if inputs.HomeDir == "" {
++			return "", ErrPlatformDefaultUnavailable
++		}
++		return join(inputs.Platform, inputs.HomeDir, "Library", "Caches", "ax"), nil
++	case RuntimeRoot:
++		if inputs.TempDir == "" {
++			return "", ErrPlatformDefaultUnavailable
++		}
++		return join(inputs.Platform, inputs.TempDir, "ax"), nil
++	default:
++		return "", ErrUnknownPathClass
++	}
++}
++
++func linuxDefault(inputs Inputs, class PathClass) (string, error) {
++	var base string
++	switch class {
++	case ConfigFile:
++		base = nonEmptyEnvironment(inputs, "XDG_CONFIG_HOME")
++		if base == "" {
++			if inputs.HomeDir == "" {
++				return "", ErrPlatformDefaultUnavailable
++			}
++			base = join(inputs.Platform, inputs.HomeDir, ".config")
++		}
++		return join(inputs.Platform, base, "ax", "config.toml"), nil
++	case DataRoot:
++		base = nonEmptyEnvironment(inputs, "XDG_DATA_HOME")
++		if base == "" {
++			if inputs.HomeDir == "" {
++				return "", ErrPlatformDefaultUnavailable
++			}
++			base = join(inputs.Platform, inputs.HomeDir, ".local", "share")
++		}
++	case StateRoot:
++		base = nonEmptyEnvironment(inputs, "XDG_STATE_HOME")
++		if base == "" {
++			if inputs.HomeDir == "" {
++				return "", ErrPlatformDefaultUnavailable
++			}
++			base = join(inputs.Platform, inputs.HomeDir, ".local", "state")
++		}
++	case CacheRoot:
++		base = nonEmptyEnvironment(inputs, "XDG_CACHE_HOME")
++		if base == "" {
++			if inputs.HomeDir == "" {
++				return "", ErrPlatformDefaultUnavailable
++			}
++			base = join(inputs.Platform, inputs.HomeDir, ".cache")
++		}
++	case RuntimeRoot:
++		base = nonEmptyEnvironment(inputs, "XDG_RUNTIME_DIR")
++		if base == "" {
++			return "", ErrPlatformDefaultUnavailable
++		}
++	default:
++		return "", ErrUnknownPathClass
++	}
++	return join(inputs.Platform, base, "ax"), nil
++}
++
++func windowsDefault(inputs Inputs, class PathClass) (string, error) {
++	switch class {
++	case ConfigFile:
++		base := nonEmptyEnvironment(inputs, "APPDATA")
++		if base == "" {
++			return "", ErrPlatformDefaultUnavailable
++		}
++		return join(inputs.Platform, base, "ax", "config.toml"), nil
++	case DataRoot, StateRoot, CacheRoot:
++		base := nonEmptyEnvironment(inputs, "LOCALAPPDATA")
++		if base == "" {
++			return "", ErrPlatformDefaultUnavailable
++		}
++		leaf := map[PathClass]string{
++			DataRoot:  "data",
++			StateRoot: "state",
++			CacheRoot: "cache",
++		}[class]
++		return join(inputs.Platform, base, "ax", leaf), nil
++	case RuntimeRoot:
++		if inputs.TempDir == "" {
++			return "", ErrPlatformDefaultUnavailable
++		}
++		return join(inputs.Platform, inputs.TempDir, "ax"), nil
++	default:
++		return "", ErrUnknownPathClass
++	}
++}
++
++func nonEmptyEnvironment(inputs Inputs, name string) string {
++	value, ok := inputs.LookupEnv(name)
++	if !ok || value == "" {
++		return ""
++	}
++	return value
++}
++
++func join(platform scalar.Platform, elements ...string) string {
++	if platform == scalar.PlatformWindows {
++		return strings.Join(elements, "\\")
++	}
++	return path.Join(elements...)
++}
++
++func makeAbsolute(platform scalar.Platform, candidate, workingDirectory string) (scalar.AbsolutePath, error) {
++	if candidate == "" {
++		return scalar.AbsolutePath{}, ErrInvalidContext
++	}
++	var absolute string
++	switch platform {
++	case scalar.PlatformWindows:
++		var err error
++		absolute, err = absoluteWindowsPath(candidate, workingDirectory)
++		if err != nil {
++			return scalar.AbsolutePath{}, err
++		}
++	default:
++		if strings.HasPrefix(candidate, "/") {
++			absolute = path.Clean(candidate)
++		} else {
++			if !strings.HasPrefix(workingDirectory, "/") {
++				return scalar.AbsolutePath{}, ErrInvalidContext
++			}
++			absolute = path.Join(workingDirectory, candidate)
++		}
++	}
++	return scalar.ParseAbsolutePath(platform, absolute)
++}
++
++func absoluteWindowsPath(candidate, workingDirectory string) (string, error) {
++	if strings.Contains(candidate, "/") || strings.Contains(workingDirectory, "/") {
++		return "", ErrInvalidContext
++	}
++	if isWindowsAbsolute(candidate) {
++		return cleanWindowsAbsolute(candidate)
++	}
++	if len(candidate) >= 2 && candidate[1] == ':' {
++		return "", ErrInvalidContext
++	}
++	if !isWindowsAbsolute(workingDirectory) {
++		return "", ErrInvalidContext
++	}
++	return cleanWindowsAbsolute(strings.TrimSuffix(workingDirectory, "\\") + "\\" + candidate)
++}
++
++func isWindowsAbsolute(value string) bool {
++	return len(value) >= 3 && isASCIILetter(value[0]) && value[1] == ':' && value[2] == '\\' ||
++		strings.HasPrefix(value, "\\\\")
++}
++
++func cleanWindowsAbsolute(value string) (string, error) {
++	var prefix string
++	var remainder string
++	switch {
++	case len(value) >= 3 && isASCIILetter(value[0]) && value[1] == ':' && value[2] == '\\':
++		prefix = value[:3]
++		remainder = value[3:]
++	case strings.HasPrefix(value, "\\\\"):
++		parts := strings.Split(value[2:], "\\")
++		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
++			return "", ErrInvalidContext
++		}
++		prefix = "\\\\" + parts[0] + "\\" + parts[1]
++		remainder = strings.Join(parts[2:], "\\")
++	default:
++		return "", ErrInvalidContext
++	}
++
++	segments := make([]string, 0)
++	for _, segment := range strings.Split(remainder, "\\") {
++		switch segment {
++		case "", ".":
++			continue
++		case "..":
++			if len(segments) == 0 {
++				return "", ErrInvalidContext
++			}
++			segments = segments[:len(segments)-1]
++		default:
++			segments = append(segments, segment)
++		}
++	}
++	if len(segments) == 0 {
++		if strings.HasPrefix(prefix, "\\\\") {
++			return prefix, nil
++		}
++		return strings.TrimSuffix(prefix, "\\") + "\\", nil
++	}
++	return strings.TrimSuffix(prefix, "\\") + "\\" + strings.Join(segments, "\\"), nil
++}
++
++func isASCIILetter(value byte) bool {
++	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
++}
+diff --git a/internal/config/loader_test.go b/internal/config/loader_test.go
+new file mode 100644
+index 0000000..b749327
+--- /dev/null
++++ b/internal/config/loader_test.go
+@@ -0,0 +1,706 @@
++package config
++
++import (
++	"errors"
++	"io/fs"
++	"reflect"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++func TestLoadAppliesPathPrecedenceAtProductionEntry(t *testing.T) {
++	t.Parallel()
++
++	environment := map[string]string{
++		"AX_CONFIG":         "/env/config.toml",
++		"AX_DATA_DIR":       "/env/data",
++		"AX_STATE_DIR":      "/env/state",
++		"AX_CACHE_DIR":      "",
++		"AX_RUNTIME_DIR":    "/env/runtime",
++		"AX_OPENAI_API_KEY": "must-not-be-interpreted",
++		"OPENAI_API_KEY":    "must-not-be-read",
++		"XDG_CONFIG_HOME":   "/xdg/config",
++	}
++	files := newFakeFileSystem()
++	files.regular["/flag/config.toml"] = []byte("schema = \"urn:ax:schema:config\"\n")
++	files.regular["/env/config.toml"] = []byte("wrong = true\n")
++
++	inputs := fixtureInputs(scalar.PlatformMacOS, environment, files)
++	snapshot, err := Load(inputs, Overrides{
++		ConfigFile: "/flag/config.toml",
++		DataRoot:   "/flag/data",
++	})
++	if err != nil {
++		t.Fatalf("Load() error = %v", err)
++	}
++
++	assertResolvedPath(t, snapshot.Paths(), ConfigFile, "/flag/config.toml", SourceFlag)
++	assertResolvedPath(t, snapshot.Paths(), DataRoot, "/flag/data", SourceFlag)
++	assertResolvedPath(t, snapshot.Paths(), StateRoot, "/env/state", SourceEnvironment)
++	assertResolvedPath(t, snapshot.Paths(), CacheRoot, "/Users/test/Library/Caches/ax", SourcePlatformDefault)
++	assertResolvedPath(t, snapshot.Paths(), RuntimeRoot, "/env/runtime", SourceEnvironment)
++
++	if got, want := string(snapshot.Document()), "schema = \"urn:ax:schema:config\"\n"; got != want {
++		t.Fatalf("Document() = %q, want %q", got, want)
++	}
++
++	environment["AX_STATE_DIR"] = "/changed/state"
++	document := snapshot.Document()
++	document[0] = 'X'
++	assertResolvedPath(t, snapshot.Paths(), StateRoot, "/env/state", SourceEnvironment)
++	if strings.HasPrefix(string(snapshot.Document()), "X") {
++		t.Fatal("Document() exposed mutable loader state")
++	}
++}
++
++func TestResolvePathsUsesNormativePlatformDefaults(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name        string
++		platform    scalar.Platform
++		environment map[string]string
++		home        string
++		temp        string
++		working     string
++		want        map[PathClass]string
++	}{
++		{
++			name:     "macOS fallback",
++			platform: scalar.PlatformMacOS,
++			home:     "/Users/test",
++			temp:     "/private/var/folders/test/T",
++			working:  "/work",
++			want: map[PathClass]string{
++				ConfigFile:  "/Users/test/.config/ax/config.toml",
++				DataRoot:    "/Users/test/Library/Application Support/ax",
++				StateRoot:   "/Users/test/Library/Application Support/ax/state",
++				CacheRoot:   "/Users/test/Library/Caches/ax",
++				RuntimeRoot: "/private/var/folders/test/T/ax",
++			},
++		},
++		{
++			name:     "macOS XDG config input",
++			platform: scalar.PlatformMacOS,
++			environment: map[string]string{
++				"XDG_CONFIG_HOME": "/xdg/config",
++			},
++			home:    "/Users/test",
++			temp:    "/private/tmp/user",
++			working: "/work",
++			want: map[PathClass]string{
++				ConfigFile:  "/xdg/config/ax/config.toml",
++				DataRoot:    "/Users/test/Library/Application Support/ax",
++				StateRoot:   "/Users/test/Library/Application Support/ax/state",
++				CacheRoot:   "/Users/test/Library/Caches/ax",
++				RuntimeRoot: "/private/tmp/user/ax",
++			},
++		},
++		{
++			name:     "Linux XDG inputs and fallbacks",
++			platform: scalar.PlatformLinux,
++			environment: map[string]string{
++				"XDG_CONFIG_HOME": "/xdg/config",
++				"XDG_STATE_HOME":  "/xdg/state",
++				"XDG_RUNTIME_DIR": "/run/user/1000",
++			},
++			home:    "/home/test",
++			temp:    "/tmp",
++			working: "/work",
++			want: map[PathClass]string{
++				ConfigFile:  "/xdg/config/ax/config.toml",
++				DataRoot:    "/home/test/.local/share/ax",
++				StateRoot:   "/xdg/state/ax",
++				CacheRoot:   "/home/test/.cache/ax",
++				RuntimeRoot: "/run/user/1000/ax",
++			},
++		},
++		{
++			name:     "WSL2 uses Linux layout",
++			platform: scalar.PlatformWSL2,
++			environment: map[string]string{
++				"XDG_RUNTIME_DIR": "/run/user/1000",
++			},
++			home:    "/home/test",
++			temp:    "/tmp",
++			working: "/work",
++			want: map[PathClass]string{
++				ConfigFile:  "/home/test/.config/ax/config.toml",
++				DataRoot:    "/home/test/.local/share/ax",
++				StateRoot:   "/home/test/.local/state/ax",
++				CacheRoot:   "/home/test/.cache/ax",
++				RuntimeRoot: "/run/user/1000/ax",
++			},
++		},
++		{
++			name:     "native Windows",
++			platform: scalar.PlatformWindows,
++			environment: map[string]string{
++				"APPDATA":      "C:\\Users\\test\\AppData\\Roaming",
++				"LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local",
++			},
++			home:    "C:\\Users\\test",
++			temp:    "C:\\Users\\test\\AppData\\Local\\Temp",
++			working: "C:\\work",
++			want: map[PathClass]string{
++				ConfigFile:  "C:\\Users\\test\\AppData\\Roaming\\ax\\config.toml",
++				DataRoot:    "C:\\Users\\test\\AppData\\Local\\ax\\data",
++				StateRoot:   "C:\\Users\\test\\AppData\\Local\\ax\\state",
++				CacheRoot:   "C:\\Users\\test\\AppData\\Local\\ax\\cache",
++				RuntimeRoot: "C:\\Users\\test\\AppData\\Local\\Temp\\ax",
++			},
++		},
++	}
++
++	for _, test := range tests {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			inputs := Inputs{
++				Platform:   test.platform,
++				HomeDir:    test.home,
++				TempDir:    test.temp,
++				WorkingDir: test.working,
++				LookupEnv:  mapLookup(test.environment),
++			}
++			paths, err := ResolvePaths(inputs, nil)
++			if err != nil {
++				t.Fatalf("ResolvePaths() error = %v", err)
++			}
++			if got, want := len(paths.All()), len(OverrideRegistry()); got != want {
++				t.Fatalf("resolved path count = %d, want registry count %d", got, want)
++			}
++			for class, want := range test.want {
++				assertResolvedPath(t, paths, class, want, SourcePlatformDefault)
++			}
++		})
++	}
++}
++
++func TestOverrideRegistryIsExactAndDrivesEveryEnvironmentResolution(t *testing.T) {
++	t.Parallel()
++
++	wantRegistry := []OverrideSpec{
++		{Class: ConfigFile, Flag: "--config", Environment: "AX_CONFIG"},
++		{Class: DataRoot, Flag: "--data-dir", Environment: "AX_DATA_DIR"},
++		{Class: StateRoot, Flag: "--state-dir", Environment: "AX_STATE_DIR"},
++		{Class: CacheRoot, Flag: "--cache-dir", Environment: "AX_CACHE_DIR"},
++		{Class: RuntimeRoot, Flag: "--runtime-dir", Environment: "AX_RUNTIME_DIR"},
++	}
++	if got := OverrideRegistry(); !reflect.DeepEqual(got, wantRegistry) {
++		t.Fatalf("OverrideRegistry() = %#v, want %#v", got, wantRegistry)
++	}
++
++	for _, specification := range OverrideRegistry() {
++		specification := specification
++		t.Run(string(specification.Class), func(t *testing.T) {
++			t.Parallel()
++			value := "/override/" + string(specification.Class)
++			environment := map[string]string{
++				specification.Environment: value,
++				"AX_UNKNOWN":              "/must/not/be/used",
++				"AX_PROVIDER_TOKEN":       "secret",
++				"XDG_RUNTIME_DIR":         "/run/user/1000",
++			}
++			paths, err := ResolvePaths(fixtureInputs(scalar.PlatformLinux, environment, nil), nil)
++			if err != nil {
++				t.Fatalf("ResolvePaths() error = %v", err)
++			}
++			assertResolvedPath(t, paths, specification.Class, value, SourceEnvironment)
++			for _, other := range OverrideRegistry() {
++				path, _ := paths.Path(other.Class)
++				if path.Value.String() == "/must/not/be/used" || path.Value.String() == "secret" {
++					t.Fatalf("unknown/secret environment leaked into %s", other.Class)
++				}
++			}
++		})
++	}
++}
++
++func TestResolvePathsTreatsEmptyEnvironmentOverridesAsUnset(t *testing.T) {
++	t.Parallel()
++
++	paths, err := ResolvePaths(fixtureInputs(scalar.PlatformMacOS, map[string]string{
++		"AX_CONFIG":      "",
++		"AX_DATA_DIR":    "",
++		"AX_STATE_DIR":   "",
++		"AX_CACHE_DIR":   "",
++		"AX_RUNTIME_DIR": "",
++	}, nil), nil)
++	if err != nil {
++		t.Fatalf("ResolvePaths() error = %v", err)
++	}
++	for _, specification := range OverrideRegistry() {
++		path, ok := paths.Path(specification.Class)
++		if !ok {
++			t.Fatalf("Path(%s) is missing", specification.Class)
++		}
++		if path.Source != SourcePlatformDefault {
++			t.Errorf("Path(%s).Source = %q, want %q", specification.Class, path.Source, SourcePlatformDefault)
++		}
++	}
++}
++
++func TestResolvePathsNeverEnumeratesOrPassesThroughAmbientSecrets(t *testing.T) {
++	t.Parallel()
++
++	allowed := map[string]string{
++		"AX_CONFIG":      "/config/config.toml",
++		"AX_DATA_DIR":    "/data",
++		"AX_STATE_DIR":   "/state",
++		"AX_CACHE_DIR":   "/cache",
++		"AX_RUNTIME_DIR": "/runtime",
++	}
++	lookedUp := make(map[string]int)
++	inputs := fixtureInputs(scalar.PlatformMacOS, nil, nil)
++	inputs.LookupEnv = func(name string) (string, bool) {
++		lookedUp[name]++
++		value, ok := allowed[name]
++		return value, ok
++	}
++
++	paths, err := ResolvePaths(inputs, nil)
++	if err != nil {
++		t.Fatalf("ResolvePaths() error = %v", err)
++	}
++	if got, want := len(lookedUp), len(OverrideRegistry()); got != want {
++		t.Fatalf("environment lookup count = %d, want exact override registry count %d: %#v", got, want, lookedUp)
++	}
++	for _, specification := range OverrideRegistry() {
++		if lookedUp[specification.Environment] != 1 {
++			t.Errorf("lookup count for %s = %d, want 1", specification.Environment, lookedUp[specification.Environment])
++		}
++		assertResolvedPath(t, paths, specification.Class, allowed[specification.Environment], SourceEnvironment)
++	}
++	for _, forbidden := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "AX_PROVIDER_TOKEN", "HOME"} {
++		if lookedUp[forbidden] != 0 {
++			t.Errorf("secret/ambient variable %s was read", forbidden)
++		}
++	}
++}
++
++func TestResolvePathsConvertsRelativeFlagsAgainstCapturedWorkingDirectory(t *testing.T) {
++	t.Parallel()
++
++	paths, err := ResolvePaths(fixtureInputs(scalar.PlatformLinux, map[string]string{
++		"XDG_RUNTIME_DIR": "/run/user/1000",
++	}, nil), Overrides{
++		ConfigFile:  "config/ax.toml",
++		DataRoot:    "data",
++		StateRoot:   "state",
++		CacheRoot:   "cache",
++		RuntimeRoot: "runtime",
++	})
++	if err != nil {
++		t.Fatalf("ResolvePaths() error = %v", err)
++	}
++	for class, suffix := range map[PathClass]string{
++		ConfigFile:  "config/ax.toml",
++		DataRoot:    "data",
++		StateRoot:   "state",
++		CacheRoot:   "cache",
++		RuntimeRoot: "runtime",
++	} {
++		assertResolvedPath(t, paths, class, "/work/"+suffix, SourceFlag)
++	}
++}
++
++func TestResolvePathsRefusesUnknownClassesAndInvalidContext(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name   string
++		inputs Inputs
++		flags  Overrides
++		want   error
++	}{
++		{
++			name:   "unknown override class",
++			inputs: fixtureInputs(scalar.PlatformMacOS, nil, nil),
++			flags:  Overrides{PathClass("credential"): "/secret"},
++			want:   ErrUnknownPathClass,
++		},
++		{
++			name: "unknown platform",
++			inputs: Inputs{
++				Platform:   scalar.Platform("solaris"),
++				HomeDir:    "/home/test",
++				TempDir:    "/tmp",
++				WorkingDir: "/work",
++				LookupEnv:  mapLookup(nil),
++			},
++			want: ErrInvalidContext,
++		},
++		{
++			name: "Linux runtime default unavailable",
++			inputs: Inputs{
++				Platform:   scalar.PlatformLinux,
++				HomeDir:    "/home/test",
++				TempDir:    "/tmp",
++				WorkingDir: "/work",
++				LookupEnv:  mapLookup(nil),
++			},
++			want: ErrPlatformDefaultUnavailable,
++		},
++		{
++			name: "Windows defaults unavailable",
++			inputs: Inputs{
++				Platform:   scalar.PlatformWindows,
++				HomeDir:    "C:\\Users\\test",
++				TempDir:    "C:\\Temp",
++				WorkingDir: "C:\\work",
++				LookupEnv:  mapLookup(nil),
++			},
++			flags: Overrides{
++				DataRoot:    "C:\\data",
++				StateRoot:   "C:\\state",
++				CacheRoot:   "C:\\cache",
++				RuntimeRoot: "C:\\runtime",
++			},
++			want: ErrPlatformDefaultUnavailable,
++		},
++		{
++			name: "Windows local app data unavailable",
++			inputs: Inputs{
++				Platform:   scalar.PlatformWindows,
++				HomeDir:    "C:\\Users\\test",
++				TempDir:    "C:\\Temp",
++				WorkingDir: "C:\\work",
++				LookupEnv:  mapLookup(nil),
++			},
++			flags: Overrides{
++				ConfigFile:  "C:\\config.toml",
++				RuntimeRoot: "C:\\runtime",
++			},
++			want: ErrPlatformDefaultUnavailable,
++		},
++		{
++			name: "macOS home default unavailable",
++			inputs: Inputs{
++				Platform:   scalar.PlatformMacOS,
++				TempDir:    "/tmp",
++				WorkingDir: "/work",
++				LookupEnv:  mapLookup(nil),
++			},
++			want: ErrPlatformDefaultUnavailable,
++		},
++	}
++
++	for _, test := range tests {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			_, err := ResolvePaths(test.inputs, test.flags)
++			if !errors.Is(err, test.want) {
++				t.Fatalf("ResolvePaths() error = %v, want %v", err, test.want)
++			}
++		})
++	}
++}
++
++func TestResolvePathsRejectsInvalidPlatformBeforePathResolution(t *testing.T) {
++	t.Parallel()
++
++	_, err := ResolvePaths(Inputs{
++		Platform:   scalar.Platform("solaris"),
++		WorkingDir: "/work",
++		LookupEnv:  mapLookup(nil),
++	}, Overrides{
++		ConfigFile:  "/config.toml",
++		DataRoot:    "/data",
++		StateRoot:   "/state",
++		CacheRoot:   "/cache",
++		RuntimeRoot: "/runtime",
++	})
++	if !errors.Is(err, ErrInvalidContext) {
++		t.Fatalf("ResolvePaths() error = %v, want ErrInvalidContext", err)
++	}
++}
++
++func TestLoadErrorsDoNotEchoSelectedPathValues(t *testing.T) {
++	t.Parallel()
++
++	files := newFakeFileSystem()
++	files.statErrors["/machine/private/config.toml"] = &fs.PathError{
++		Op:   "stat",
++		Path: "/machine/private/config.toml",
++		Err:  fs.ErrPermission,
++	}
++	inputs := fixtureInputs(scalar.PlatformMacOS, map[string]string{
++		"AX_CONFIG": "/machine/private/config.toml",
++	}, files)
++	_, err := Load(inputs, nil)
++	if !errors.Is(err, ErrConfigRead) {
++		t.Fatalf("Load() error = %v, want ErrConfigRead", err)
++	}
++	if strings.Contains(err.Error(), "/machine/private") {
++		t.Fatalf("Load() error echoed selected path: %v", err)
++	}
++}
++
++func TestLoadDistinguishesAbsenceFromReadFailureAndWrongKind(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name  string
++		setup func(*fakeFileSystem)
++		want  error
++	}{
++		{name: "absent selected file", want: ErrConfigNotFound},
++		{
++			name: "stat failure is not absence",
++			setup: func(files *fakeFileSystem) {
++				files.statErrors["/config/config.toml"] = fs.ErrPermission
++			},
++			want: ErrConfigRead,
++		},
++		{
++			name: "selected path is directory",
++			setup: func(files *fakeFileSystem) {
++				files.directories["/config/config.toml"] = true
++			},
++			want: ErrConfigNotRegular,
++		},
++		{
++			name: "read races after successful stat",
++			setup: func(files *fakeFileSystem) {
++				files.regular["/config/config.toml"] = []byte("schema = \"urn:ax:schema:config\"\n")
++				files.readErrors["/config/config.toml"] = fs.ErrNotExist
++			},
++			want: ErrConfigRead,
++		},
++	}
++
++	for _, test := range tests {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			files := newFakeFileSystem()
++			if test.setup != nil {
++				test.setup(files)
++			}
++			inputs := fixtureInputs(scalar.PlatformMacOS, map[string]string{
++				"AX_CONFIG": "/config/config.toml",
++			}, files)
++			_, err := Load(inputs, nil)
++			if !errors.Is(err, test.want) {
++				t.Fatalf("Load() error = %v, want %v", err, test.want)
++			}
++			if test.want != ErrConfigNotFound && errors.Is(err, ErrConfigNotFound) {
++				t.Fatalf("Load() collapsed %v into absence", test.want)
++			}
++		})
++	}
++}
++
++func TestLoadRefusesWrongOrUnreadableRootKinds(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name  string
++		setup func(*fakeFileSystem)
++		want  error
++	}{
++		{
++			name: "existing data root is regular file",
++			setup: func(files *fakeFileSystem) {
++				files.regular["/data"] = []byte("not a directory")
++			},
++			want: ErrRootNotDirectory,
++		},
++		{
++			name: "root stat failure is not treated as absent",
++			setup: func(files *fakeFileSystem) {
++				files.statErrors["/state"] = fs.ErrPermission
++			},
++			want: ErrRootInspect,
++		},
++	}
++
++	for _, test := range tests {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			files := newFakeFileSystem()
++			files.regular["/config/config.toml"] = []byte("schema = \"urn:ax:schema:config\"\n")
++			test.setup(files)
++			inputs := fixtureInputs(scalar.PlatformMacOS, map[string]string{
++				"AX_CONFIG":      "/config/config.toml",
++				"AX_DATA_DIR":    "/data",
++				"AX_STATE_DIR":   "/state",
++				"AX_CACHE_DIR":   "/cache",
++				"AX_RUNTIME_DIR": "/runtime",
++			}, files)
++			_, err := Load(inputs, nil)
++			if !errors.Is(err, test.want) {
++				t.Fatalf("Load() error = %v, want %v", err, test.want)
++			}
++		})
++	}
++}
++
++func TestResolvePathsNormalizesWindowsRelativeAndUNCRoots(t *testing.T) {
++	t.Parallel()
++
++	inputs := Inputs{
++		Platform:   scalar.PlatformWindows,
++		HomeDir:    "C:\\Users\\test",
++		TempDir:    "C:\\Temp",
++		WorkingDir: "C:\\work\\project",
++		LookupEnv:  mapLookup(nil),
++	}
++	paths, err := ResolvePaths(inputs, Overrides{
++		ConfigFile:  "config\\ax.toml",
++		DataRoot:    "\\\\server\\share",
++		StateRoot:   "state\\.\\current",
++		CacheRoot:   "cache\\old\\..\\current",
++		RuntimeRoot: "runtime",
++	})
++	if err != nil {
++		t.Fatalf("ResolvePaths() error = %v", err)
++	}
++	assertResolvedPath(t, paths, ConfigFile, "C:\\work\\project\\config\\ax.toml", SourceFlag)
++	assertResolvedPath(t, paths, DataRoot, "\\\\server\\share", SourceFlag)
++	assertResolvedPath(t, paths, StateRoot, "C:\\work\\project\\state\\current", SourceFlag)
++	assertResolvedPath(t, paths, CacheRoot, "C:\\work\\project\\cache\\current", SourceFlag)
++	assertResolvedPath(t, paths, RuntimeRoot, "C:\\work\\project\\runtime", SourceFlag)
++}
++
++func TestLoadIsIdempotentReadOnlyAndReturnsIsolatedSnapshots(t *testing.T) {
++	t.Parallel()
++
++	files := newFakeFileSystem()
++	files.regular["/config/config.toml"] = []byte("schema = \"urn:ax:schema:config\"\n")
++	inputs := fixtureInputs(scalar.PlatformMacOS, map[string]string{
++		"AX_CONFIG": "/config/config.toml",
++	}, files)
++
++	first, err := Load(inputs, nil)
++	if err != nil {
++		t.Fatalf("first Load() error = %v", err)
++	}
++	second, err := Load(inputs, nil)
++	if err != nil {
++		t.Fatalf("second Load() error = %v", err)
++	}
++	if !reflect.DeepEqual(first.Paths().All(), second.Paths().All()) || !reflect.DeepEqual(first.Document(), second.Document()) {
++		t.Fatal("identical Load() calls returned different snapshots")
++	}
++	if got, want := files.readCount["/config/config.toml"], 2; got != want {
++		t.Fatalf("config read count = %d, want %d", got, want)
++	}
++	if files.writeCount != 0 {
++		t.Fatalf("Load() performed %d writes", files.writeCount)
++	}
++
++	firstDocument := first.Document()
++	firstDocument[0] = 'X'
++	firstPaths := first.Paths().All()
++	delete(firstPaths, ConfigFile)
++	if reflect.DeepEqual(first.Document(), firstDocument) {
++		t.Fatal("snapshot document aliases caller mutation")
++	}
++	if _, ok := first.Paths().Path(ConfigFile); !ok {
++		t.Fatal("snapshot paths alias caller mutation")
++	}
++}
++
++func assertResolvedPath(t *testing.T, paths ResolvedPaths, class PathClass, want string, source Source) {
++	t.Helper()
++	resolved, ok := paths.Path(class)
++	if !ok {
++		t.Fatalf("Path(%s) is missing", class)
++	}
++	if got := resolved.Value.String(); got != want {
++		t.Errorf("Path(%s) = %q, want %q", class, got, want)
++	}
++	if resolved.Source != source {
++		t.Errorf("Path(%s).Source = %q, want %q", class, resolved.Source, source)
++	}
++}
++
++func fixtureInputs(platform scalar.Platform, environment map[string]string, files *fakeFileSystem) Inputs {
++	inputs := Inputs{
++		Platform:   platform,
++		HomeDir:    "/Users/test",
++		TempDir:    "/private/tmp/test",
++		WorkingDir: "/work",
++		LookupEnv:  mapLookup(environment),
++	}
++	if platform == scalar.PlatformLinux || platform == scalar.PlatformWSL2 {
++		inputs.HomeDir = "/home/test"
++		inputs.TempDir = "/tmp"
++	}
++	if files != nil {
++		inputs.Stat = files.Stat
++		inputs.ReadFile = files.ReadFile
++	}
++	return inputs
++}
++
++func mapLookup(values map[string]string) func(string) (string, bool) {
++	return func(name string) (string, bool) {
++		value, ok := values[name]
++		return value, ok
++	}
++}
++
++type fakeFileSystem struct {
++	regular     map[string][]byte
++	directories map[string]bool
++	statErrors  map[string]error
++	readErrors  map[string]error
++	readCount   map[string]int
++	writeCount  int
++}
++
++func newFakeFileSystem() *fakeFileSystem {
++	return &fakeFileSystem{
++		regular:     make(map[string][]byte),
++		directories: make(map[string]bool),
++		statErrors:  make(map[string]error),
++		readErrors:  make(map[string]error),
++		readCount:   make(map[string]int),
++	}
++}
++
++func (files *fakeFileSystem) Stat(name string) (fs.FileInfo, error) {
++	if err := files.statErrors[name]; err != nil {
++		return nil, err
++	}
++	if data, ok := files.regular[name]; ok {
++		return fakeFileInfo{name: name, size: int64(len(data)), mode: 0o600}, nil
++	}
++	if files.directories[name] {
++		return fakeFileInfo{name: name, mode: fs.ModeDir | 0o700}, nil
++	}
++	return nil, fs.ErrNotExist
++}
++
++func (files *fakeFileSystem) ReadFile(name string) ([]byte, error) {
++	files.readCount[name]++
++	if err := files.readErrors[name]; err != nil {
++		return nil, err
++	}
++	data, ok := files.regular[name]
++	if !ok {
++		return nil, fs.ErrNotExist
++	}
++	return append([]byte(nil), data...), nil
++}
++
++type fakeFileInfo struct {
++	name string
++	size int64
++	mode fs.FileMode
++}
++
++func (info fakeFileInfo) Name() string       { return info.name }
++func (info fakeFileInfo) Size() int64        { return info.size }
++func (info fakeFileInfo) Mode() fs.FileMode  { return info.mode }
++func (info fakeFileInfo) ModTime() time.Time { return time.Time{} }
++func (info fakeFileInfo) IsDir() bool        { return info.mode.IsDir() }
++func (info fakeFileInfo) Sys() any           { return nil }
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index 8354c1b..83fc676 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
++	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=30 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+ 	}
+@@ -54,12 +54,28 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
++	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=30 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+ 	}
+ }
+ 
++func TestRunAssignedConfigSectionsUseScopedImplementationOwners(t *testing.T) {
++	t.Parallel()
++
++	repositoryRoot := filepath.Join("..", "..", "..", "..")
++	for _, section := range []string{"3.2", "6.1"} {
++		var output bytes.Buffer
++		if err := run([]string{"-root", repositoryRoot, "-section", section}, &output); err != nil {
++			t.Errorf("run(-section %s) error = %v", section, err)
++			continue
++		}
++		if !strings.Contains(output.String(), "assigned_scopes=1") {
++			t.Errorf("run(-section %s) output = %q, want assigned_scopes=1", section, output.String())
++		}
++	}
++}
++
+ func TestRunAssignedScalarSectionsUseScopedImplementationOwners(t *testing.T) {
+ 	t.Parallel()
+ 
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index e49f164..b6f92a3 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -65,6 +65,51 @@
+         }
+       ]
+     },
++    {
++      "id": "AC-PATH-001",
++      "production": {
++        "path": "internal/config/loader.go",
++        "declaration": "Load"
++      },
++      "tests": [
++        {
++          "path": "internal/config/loader_test.go",
++          "declaration": "TestLoadAppliesPathPrecedenceAtProductionEntry"
++        },
++        {
++          "path": "internal/config/loader_test.go",
++          "declaration": "TestResolvePathsUsesNormativePlatformDefaults"
++        },
++        {
++          "path": "internal/config/loader_test.go",
++          "declaration": "TestOverrideRegistryIsExactAndDrivesEveryEnvironmentResolution"
++        },
++        {
++          "path": "internal/config/loader_test.go",
++          "declaration": "TestResolvePathsTreatsEmptyEnvironmentOverridesAsUnset"
++        },
++        {
++          "path": "internal/config/loader_test.go",
++          "declaration": "TestResolvePathsNeverEnumeratesOrPassesThroughAmbientSecrets"
++        },
++        {
++          "path": "internal/config/loader_test.go",
++          "declaration": "TestResolvePathsRefusesUnknownClassesAndInvalidContext"
++        },
++        {
++          "path": "internal/config/loader_test.go",
++          "declaration": "TestLoadDistinguishesAbsenceFromReadFailureAndWrongKind"
++        },
++        {
++          "path": "internal/config/loader_test.go",
++          "declaration": "TestLoadRefusesWrongOrUnreadableRootKinds"
++        },
++        {
++          "path": "internal/config/loader_test.go",
++          "declaration": "TestLoadIsIdempotentReadOnlyAndReturnsIsolatedSnapshots"
++        }
++      ]
++    },
+     {
+       "id": "catalog-v050-exact",
+       "production": {
+@@ -568,6 +613,18 @@
+         "canonical-identity-refusal"
+       ]
+     },
++    {
++      "kind": "section_binding",
++      "keys": ["section:3.2"],
++      "production": {"path": "internal/config/loader.go", "declaration": "ResolvePaths"},
++      "acceptance_cases": ["AC-PATH-001"]
++    },
++    {
++      "kind": "section_binding",
++      "keys": ["section:6.1"],
++      "production": {"path": "internal/config/loader.go", "declaration": "Load"},
++      "acceptance_cases": ["AC-PATH-001"]
++    },
+     {
+       "kind": "section_binding",
+       "keys": ["section:4.C"],
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 023b5aa..91c5e31 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -39,7 +39,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "30403d58757c36e9d0e5c5849c17105684b3fbd5d1f80cb5b57fd3d227a57a65"
++	reviewedOwnershipCanonicalSHA256 = "ca16565676f688a9d2aceef9d5927100453084a32195b6cd69599b9a50f0e91a"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index fb8a85d..dd64b28 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -27,7 +27,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              60,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        29,
++		AcceptanceCases:        30,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 	}

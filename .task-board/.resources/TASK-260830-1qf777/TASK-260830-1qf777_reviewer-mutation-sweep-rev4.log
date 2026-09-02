@@ -1,0 +1,76 @@
+TASK-260830-1qf777 — reviewer mutation sweep, CR revision 4
+Candidate tree 0ea2e47f55b3ce32227d69763c4bcc0118b5453d (worktree verified to hash to it)
+Harness: copy worktree to .temp/TASK-260830-1qf777/mutant, apply one source edit,
+run `go test ./internal/config/ -count=1`, restore. macOS darwin 25.5.0, go test host platform macos.
+
+Baseline: go build ./... clean; go vet ./... clean; go test ./... -cover all 9 packages ok
+          (internal/config 93.1%); gofmt -l internal/ clean;
+          tracecheck global ok; tracecheck -section 3.2 6.1..6.5 17.1 17.2 17.4 -> assigned_scopes=9.
+
+ID    MUTANT                                                          RESULT   KILLED BY
+----  --------------------------------------------------------------  -------  ----------------------------------------------------------
+M1    backup staged with mode 0o644 instead of 0o600                   KILLED   TestMigrateProductionEntryCreatesOwnerOnlyBackupAndCompleteVersion2 + 4 more
+M2    backup stores `replacement` instead of `original`                KILLED   TestMigrateProductionEntryCreatesOwnerOnlyBackupAndCompleteVersion2 + 6 more
+M3    downgrade gate compareSemver(...)>0 -> source.major>target.major SURVIVED equivalent: knownConfigVersion admits only 1.0.0/2.0.0/3.0.0, minor/patch always 0
+M3b   downgrade gate narrowed to source.major > target.major+1         KILLED   TestMigrateProductionEntryRequiresExplicitChoiceAndRefusesDowngrade/downgrade
+M4    disclosure-choice vocabulary widened with ""                     KILLED   TestMigrateRefusesDisclosureChoiceOutsideTheClosedVocabulary/absent_choice
+M4b   disclosure-choice gate narrowed to `choice == ""`                KILLED   .../uppercase_variant,padded_variant,hyphenated_variant,listed_value_prefix,unlisted_value
+M5    read-only gate narrowed to source.major > reader.major+1         KILLED   TestAssessCompatibilityPinsEveryPinnedVersionPairAtTheProductionEntry (2.0.0/1.0.0 and 3.0.0/2.0.0)
+M6    Migrate accepts Version1 as a target                             KILLED   TestMigrateRefusesEveryTargetOutsideTheUpgradeVocabulary/known_but_not_an_upgrade_target
+M7    replaceDurably drops the !IsRegular refusal                      KILLED   TestMigrateOSAppliesTheNoFollowMutatingSeamInBothDirections, TestMigrateRefusesSourceThatStoppedBeingARegularFileAfterLoad
+M8b   existing-backup verification drops the 0o077 mode clause         KILLED   TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource/group_readable_backup
+M9c   existing-backup verification neutralised on content             KILLED   .../stale_bytes
+M10   existing-backup read failure treated as an absence              KILLED   .../unreadable_backup_is_not_an_absence
+N1    backup name `.bak` instead of `.bak.<source version>`           KILLED   .../group_readable_backup,stale_bytes,unreadable_backup_is_not_an_absence + 2 more
+F3    writeTempFile drops file.Sync()                                 KILLED   TestMigrateFsyncsEveryStagedFileBeforeItBecomesVisible, TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint/{sync_backup_file,sync_replacement_file}
+F2b   currentWire drops SafeBoundaryTimeoutSeconds                    KILLED   TestMigrationRetainsEveryConfiguration1MemberOnEveryTarget
+F2c   encodeVersion2 drops SafeBoundaryTimeoutSeconds                 KILLED   TestMigrationRetainsEveryConfiguration1MemberOnEveryTarget
+P1    encodeVersion2 drops GracefulStopTimeoutSeconds                 KILLED   TestMigrationRetainsEveryConfiguration1MemberOnEveryTarget
+P2b   encodeVersion2 zeroes Profiles                                  KILLED   TestMigrationRetainsEveryConfiguration1MemberOnEveryTarget
+P3b   encodeVersion2 zeroes Mesh                                      KILLED   TestMigrationRetainsEveryConfiguration1MemberOnEveryTarget
+P4    encodeVersion2 drops DirectoryInstallations                     SURVIVED equivalent, and pinned: TestVersion1SourcesNeverCarryDirectoryCollections fails if rawV1 ever declares the collection
+C1    replacement mode tightened to 0o600 (README claims inheritance) KILLED   TestMigrateProductionEntryCreatesOwnerOnlyBackupAndCompleteVersion2
+C2    replacement mode widened with |0o044                            KILLED   TestMigrateOSPerformsOneDurableMigrationAtTheRealProcessEntry + 1
+X1    already-target no-op reports Changed=true                       KILLED   TestMigrateProductionEntryMapsLegacyTerminalToVersion3AndIsIdempotent + 1
+X2    AssessCompatibility skips the schema-id check                   KILLED   TestAssessCompatibilityRefusesMalformedEnvelopeFacts/wrong_schema
+X3    AssessCompatibility admits an unknown OLDER version             KILLED   .../unknown_older_version
+X4    AssessCompatibility admits an unknown reader version            KILLED   .../unknown_reader
+X5    Migrate source gate `!ConfigPresent() || !decoded` -> `!decoded` SURVIVED equivalent: loadAbsentConfig leaves Snapshot.configuration nil, so !decoded already covers it
+X6    backup published with Rename instead of Link (clobbers)         KILLED   TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint/publish_backup + 6 more
+X7    backup-directory fsync removed                                  KILLED   TestMigrateRecoversOriginalAfterPostReplaceDirectorySyncFailureAndRetries, TestMigrateReportsRecoveryFailureWhenRollbackAlsoFails
+X8    writeAll drops the short-write guard                            KILLED   (hangs the suite under the fake writer; detected, not silent)
+Y1    rollback restores `replacement` instead of `original`           KILLED   TestMigrateRecoversOriginalAfterPostReplaceDirectorySyncFailureAndRetries
+Y2    replacement staging file leaked on rename failure               KILLED   TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint/replace_source
+Y3    backup staging file leaked on publish failure                   KILLED   .../publish_backup
+Y4    recovery failure loses the ErrMigrationRecovery marker          KILLED   TestMigrateReportsRecoveryFailureWhenRollbackAlsoFails
+U1    decodeStrict drops DisallowUnknownFields()                      KILLED   TestLoadRefusesUnknownClosedMembersUnsupportedVersionsAndMalformedReads (1.0.0/2.0.0/3.0.0 unknown root), TestMigrateProductionEntryRefusesInvalidSourceBeforeBackupOrWrite/unknown_closed_root_member
+D1    terminal.backend_config duplicate backend_id gate disabled      KILLED   TestEncodeCurrentRefusalClausesAreIndividuallyPinned/duplicate_backend_config
+D2    terminal.external_trust duplicate backend_id gate disabled      KILLED   TestLoadRefusesSecurityBypassesDuplicatesAndUnknownBackendSettings/duplicate_backend_trust, TestMigrateProductionEntryRefusesInvalidSourceBeforeBackupOrWrite/duplicate_backend_rejection
+B1    safe_boundary_timeout upper bound 3600 -> 7200                  KILLED   TestConfigurationNumericBoundsAcceptLimitsAndRefusePastLimitsAtProductionEntry/safe_boundary_timeout
+B2    graceful_stop_timeout lower bound 1 -> 0                        KILLED   .../graceful_stop_timeout
+B3    directory.query_batch_max upper bound 64 -> 128                 KILLED   .../directory_query_batch
+B4    directory.grep_result_max upper bound 10000 -> 20000            KILLED   .../directory_grep_result
+R1    new production refusal site with no negative path               KILLED   TestMain refusal-inventory audit (exit 1)
+R2    refusal built as a raw &Error{} literal, bypassing loaderError  KILLED   TestRefusalInventoryDerivesEveryRefusalFormThePackageDeclares
+H1b   OSInputs discards the captured os.UserHomeDir error             SURVIVED **FINDING** — see verdict B1
+H2    OSInputs discards the captured user home (HomeDir = "")         SURVIVED **FINDING** — see verdict B1
+
+44 mutants applied. 41 killed, 3 equivalent (M3, P4, X5), 2 genuine survivors (H1b, H2).
+
+Survivor confirmation (probe, reviewer-home-probe-rev4_test.go):
+  clean tree          -> TestProbeOSInputsPreservesRealHomeFailure PASS, TestProbeOSInputsCapturesRealHomeForPlatformDefaults PASS
+  under H1b           -> TestProbeOSInputsPreservesRealHomeFailure FAIL
+                         "LoadOS(no home) dropped the captured os.UserHomeDir cause: &errors.joinError{errs:[1 element]}"
+  under H2            -> TestProbeOSInputsCapturesRealHomeForPlatformDefaults FAIL
+                         "LoadOS(real home) error = configuration resolve platform default for config-file from platform-default failed"
+
+Ownership pin check: every acceptance case added to ownership.v0.5.0.json
+(config-durable-migration, config-durable-migration-os-entry, config-read-only-downgrade)
+names a production declaration and 21 test declarations that all resolve to real
+declarations in the named files. Verified by an independent source scan, not by
+trusting reviewedOwnershipCanonicalSHA256.
+
+Determinism (front-loaded DoD item 8) re-verified on revision 4:
+  env -i PATH=... HOME= GOCACHE=<task-scoped> go test ./... -count=1  -> all 9 packages ok.
+  The recommended B1 probes also pass under that same clean environment
+  (they set HOME through t.Setenv rather than reading the ambient value).

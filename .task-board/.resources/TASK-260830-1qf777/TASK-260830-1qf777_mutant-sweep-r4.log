@@ -1,0 +1,195 @@
+M01-backup-content-check                     exit=1 RED    narrow: stop comparing existing backup bytes to the source
+      | --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource (0.05s)
+      |     --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource/stale_bytes (0.02s)
+      |         migration_refusal_test.go:130: Migrate(stale backup) error = <nil>, want ErrMigrationBackup
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.506s
+      | FAIL
+M02-backup-perm-check                        exit=1 RED    narrow: accept a group/world readable existing backup
+      | --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource (0.06s)
+      |     --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource/group_readable_backup (0.02s)
+      |         migration_refusal_test.go:146: Migrate(group-readable backup) error = <nil>, want ErrMigrationBackup
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.500s
+      | FAIL
+M03-backup-read-failure-as-absence           exit=1 RED    narrow: treat an unreadable backup as a satisfied backup
+      | --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource (0.05s)
+      |     --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource/unreadable_backup_is_not_an_absence (0.02s)
+      |         migration_refusal_test.go:163: Migrate(unreadable existing backup) error = <nil>, want ErrMigrationBackup
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.480s
+      | FAIL
+M04-backup-verify-deleted                    exit=1 RED    delete: publish an existing backup without verifying it
+      | --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource (0.08s)
+      |     --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource/stale_bytes (0.03s)
+      |         migration_refusal_test.go:130: Migrate(stale backup) error = <nil>, want ErrMigrationBackup
+      |     --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource/group_readable_backup (0.02s)
+      |         migration_refusal_test.go:146: Migrate(group-readable backup) error = <nil>, want ErrMigrationBackup
+      |     --- FAIL: TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource/unreadable_backup_is_not_an_absence (0.02s)
+M05-target-vocabulary-narrowed               exit=1 RED    narrow: admit Configuration 1.0.0 as a migration target
+      | --- FAIL: TestMigrateRefusesEveryTargetOutsideTheUpgradeVocabulary (0.04s)
+      |     --- FAIL: TestMigrateRefusesEveryTargetOutsideTheUpgradeVocabulary/known_but_not_an_upgrade_target (0.00s)
+      |         migration_refusal_test.go:32: Migrate(target="1.0.0") error = configuration migration select target failed, want ErrMigrationTarget
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.416s
+      | FAIL
+M06-target-gate-deleted                      exit=1 RED    delete: accept any target string
+      | --- FAIL: TestMigrateRefusesEveryTargetOutsideTheUpgradeVocabulary (0.05s)
+      |     --- FAIL: TestMigrateRefusesEveryTargetOutsideTheUpgradeVocabulary/empty_target (0.00s)
+      |         migration_refusal_test.go:32: Migrate(target="") error = configuration migration select target failed, want ErrMigrationTarget
+      |     --- FAIL: TestMigrateRefusesEveryTargetOutsideTheUpgradeVocabulary/unknown_newer_target (0.00s)
+      |         migration_refusal_test.go:32: Migrate(target="9.9.9") error = configuration migration select target failed, want ErrMigrationTarget
+      |     --- FAIL: TestMigrateRefusesEveryTargetOutsideTheUpgradeVocabulary/unknown_patch_target (0.00s)
+M07-absent-source-gate-deleted               exit=1 RED    delete: migrate a configuration that was never created
+      | --- FAIL: TestMigrateRefusesAbsentSourceWithoutWriting (0.00s)
+      |     migration_refusal_test.go:65: Migrate(absent source) error = configuration migration encode target failed, want ErrMigrationSourceAbsent
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.449s
+      | FAIL
+M08-choice-gate-narrowed-to-empty            exit=1 RED    narrow: only an empty disclosure choice is refused
+      | --- FAIL: TestMigrateRefusesDisclosureChoiceOutsideTheClosedVocabulary (0.08s)
+      |     --- FAIL: TestMigrateRefusesDisclosureChoiceOutsideTheClosedVocabulary/uppercase_variant (0.00s)
+      |         migration_refusal_test.go:92: Migrate(choice="LOCAL_ONLY") error = configuration migration encode target failed, want ErrMigrationChoiceRequired
+      |     --- FAIL: TestMigrateRefusesDisclosureChoiceOutsideTheClosedVocabulary/padded_variant (0.00s)
+      |         migration_refusal_test.go:92: Migrate(choice=" local_only") error = configuration migration encode target failed, want ErrMigrationChoiceRequired
+      |     --- FAIL: TestMigrateRefusesDisclosureChoiceOutsideTheClosedVocabulary/listed_value_prefix (0.00s)
+M09-choice-vocabulary-widened                exit=1 RED    widen: admit a disclosure value the SPEC does not list
+      | --- FAIL: TestMigrateRefusesDisclosureChoiceOutsideTheClosedVocabulary (0.08s)
+      |     --- FAIL: TestMigrateRefusesDisclosureChoiceOutsideTheClosedVocabulary/unlisted_value (0.00s)
+      |         migration_refusal_test.go:92: Migrate(choice="public") error = configuration migration encode target failed, want ErrMigrationChoiceRequired
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.472s
+      | FAIL
+M10-toctou-regular-file-recheck-deleted      exit=1 RED    delete: overwrite a source that stopped being a regular file
+      | --- FAIL: TestMigrateRefusesSourceThatStoppedBeingARegularFileAfterLoad (0.03s)
+      |     --- FAIL: TestMigrateRefusesSourceThatStoppedBeingARegularFileAfterLoad/no_longer_regular (0.03s)
+      |         migration_refusal_test.go:207: Migrate(source became a symlink) error = <nil>
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.429s
+      | FAIL
+M11-downgrade-gate-narrowed                  exit=1 RED    narrow: compareSemver never exceeds 1, so downgrade is admitted
+      | --- FAIL: TestMigrateProductionEntryRequiresExplicitChoiceAndRefusesDowngrade (0.02s)
+      |     --- FAIL: TestMigrateProductionEntryRequiresExplicitChoiceAndRefusesDowngrade/downgrade (0.02s)
+      |         migration_test.go:173: Migrate(v3 to v2) error = <nil>
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.403s
+      | FAIL
+M12-recovery-failure-silenced                exit=1 RED    delete: report a failed rollback as an ordinary sync failure
+      | --- FAIL: TestMigrateReportsRecoveryFailureWhenRollbackAlsoFails (0.02s)
+      |     migration_refusal_test.go:328: Migrate(rollback failure) error = configuration migration sync replacement directory failed, want ErrMigrationRecovery and ErrMigrationSync
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.433s
+      | FAIL
+M13-durable-replace-error-swallowed          exit=1 RED    delete: report a failed atomic replace as success
+      | --- FAIL: TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint (0.13s)
+      |     --- FAIL: TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint/replace_source (0.01s)
+      |         migration_refusal_test.go:286: Migrate(replace source failure) error = <nil>, want configuration migration atomic replace failed
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.499s
+      | FAIL
+M14-readonly-downgrade-never-triggers        exit=1 RED    narrow: a newer document is assessed as fully compatible
+      | --- FAIL: TestAssessCompatibilityEnforcesReadOnlyDowngradeWithoutDecodingOrMutation (0.00s)
+      |     migration_test.go:224: downgrade assessment = config.CompatibilityAssessment{ReaderVersion:"1.0.0", SourceVersion:"3.0.0", Mode:"compatible"}
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.378s
+      | FAIL
+M15-unknown-reader-admitted                  exit=1 RED    delete: assess compatibility for an unknown reader version
+      | --- FAIL: TestAssessCompatibilityRefusesMalformedEnvelopeFacts (0.00s)
+      |     --- FAIL: TestAssessCompatibilityRefusesMalformedEnvelopeFacts/unknown_reader (0.00s)
+      |         migration_test.go:251: AssessCompatibility() error = <nil>, want unsupported configuration reader version
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.378s
+      | FAIL
+M16-max-parallel-bound-widened               exit=1 RED    widen: admit sync.max_parallel_chunks above the SPEC bound
+      | --- FAIL: TestMigrateProductionEntryRefusesInvalidSourceBeforeBackupOrWrite (0.00s)
+      |     --- FAIL: TestMigrateProductionEntryRefusesInvalidSourceBeforeBackupOrWrite/narrowed_max_parallel_bound (0.00s)
+      |         migration_test.go:137: Migrate(invalid source) error = nil, want production Load refusal
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.390s
+      | FAIL
+M17-duplicate-backend-admitted               exit=1 RED    delete: admit two external-trust entries for one backend_id
+      | --- FAIL: TestMigrateProductionEntryRefusesInvalidSourceBeforeBackupOrWrite (0.00s)
+      |     --- FAIL: TestMigrateProductionEntryRefusesInvalidSourceBeforeBackupOrWrite/duplicate_backend_rejection (0.00s)
+      |         migration_test.go:137: Migrate(invalid source) error = nil, want production Load refusal
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.368s
+      | FAIL
+M18-unknown-fields-admitted                  exit=1 RED    delete: admit unknown members in the closed document shape
+      | --- FAIL: TestMigrateProductionEntryRefusesInvalidSourceBeforeBackupOrWrite (0.00s)
+      |     --- FAIL: TestMigrateProductionEntryRefusesInvalidSourceBeforeBackupOrWrite/unknown_closed_root_member (0.00s)
+      |         migration_test.go:137: Migrate(invalid source) error = nil, want production Load refusal
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.443s
+      | FAIL
+M19-refusal-inventory-duplicate-constructor  exit=1 RED    self-coverage: a byte-identical duplicate refusal constructor must redden the derived gate
+      | --- FAIL: TestRefusalInventoryDerivesEveryRefusalFormThePackageDeclares (0.00s)
+      |     refusal_structure_test.go:166: derived refusal constructors = map[configError:DocumentError loaderError:Error migrationError:MigrationError migrationErrorCopy:MigrationError], want map[configError:DocumentError loaderError:Error migrationError:MigrationError]
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.841s
+      | FAIL
+M21-never-exercised-refusal-site             exit=1 RED    self-coverage: a synthetic refusal site that no test reaches must redden the derived inventory
+      | PASS
+      | configuration refusal call sites without an exercised negative path: migration.go:182
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.887s
+      | FAIL
+M22-never-exercised-loader-site              exit=1 RED    self-coverage: the same property holds for the loader refusal form
+      | PASS
+      | configuration refusal call sites without an exercised negative path: loader.go:217
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	1.117s
+      | FAIL
+M23-mutating-seam-follows-symlinks           exit=1 RED    widen: let the durable migration seam follow a symlink and rename over the operator's link
+      | --- FAIL: TestMigrateOSAppliesTheNoFollowMutatingSeamInBothDirections (0.04s)
+      |     --- FAIL: TestMigrateOSAppliesTheNoFollowMutatingSeamInBothDirections/symlinked_selected_source_is_refused_and_nothing_is_mutated (0.02s)
+      |         migration_os_test.go:176: MigrateOS(symlinked configuration) error = <nil>, want ErrMigrationWrite and ErrConfigNotRegular
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.417s
+      | FAIL
+M24-read-seam-refuses-symlinks               exit=1 RED    narrow: refuse a symlinked root or configuration file the pinned SPEC does not refuse (the F1 defect)
+      | --- FAIL: TestLoadOSResolvesSymlinksAndStillEnforcesKindsAtProductionEntry (0.01s)
+      |     --- FAIL: TestLoadOSResolvesSymlinksAndStillEnforcesKindsAtProductionEntry/configuration_file_symlinked_onto_a_regular_file_loads (0.00s)
+      |         loader_test.go:410: LoadOS() error = configuration stat selected file for config-file from flag failed, want a loaded snapshot
+      |     --- FAIL: TestLoadOSResolvesSymlinksAndStillEnforcesKindsAtProductionEntry/durable_data_root_symlinked_onto_a_directory_loads (0.00s)
+      |         loader_test.go:410: LoadOS() error = configuration inspect selected root for data-root from flag failed, want a loaded snapshot
+      |     --- FAIL: TestLoadOSResolvesSymlinksAndStillEnforcesKindsAtProductionEntry/not-yet-created_configuration_file_under_a_symlinked_parent_is_admitted (0.00s)
+M25-source-stat-failure-admitted             exit=1 RED    delete: treat a failed source inspection as a satisfied one
+      | --- FAIL: TestMigrateRefusesSourceThatStoppedBeingARegularFileAfterLoad (0.00s)
+      |     --- FAIL: TestMigrateRefusesSourceThatStoppedBeingARegularFileAfterLoad/source_stat_failed (0.00s)
+      | panic: runtime error: invalid memory address or nil pointer dereference [recovered, repanicked]
+      | [signal SIGSEGV: segmentation violation code=0x2 addr=0x28 pc=0x104c21a8c]
+      | goroutine 10 [running]:
+      | testing.tRunner.func1.2({0x104d056a0, 0x104ebd190})
+M26-kind-check-moved-after-backup            exit=1 RED    reorder: keep the refusal but run it after a durable staging write, so a refused migration still mutates the directory
+      | --- FAIL: TestMigrateOSAppliesTheNoFollowMutatingSeamInBothDirections (0.03s)
+      |     --- FAIL: TestMigrateOSAppliesTheNoFollowMutatingSeamInBothDirections/symlinked_selected_source_is_refused_and_nothing_is_mutated (0.01s)
+      |         migration_os_test.go:195: migration left staging files [/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestMigrateOSAppliesTheNoFollowMutatingSeamInBothDirectionssyml891344288/001/config/.ax-config-backup-60720338] (glob error <nil>)
+      | --- FAIL: TestMigrateRefusesSourceThatStoppedBeingARegularFileAfterLoad (0.01s)
+      |     --- FAIL: TestMigrateRefusesSourceThatStoppedBeingARegularFileAfterLoad/no_longer_regular (0.01s)
+      |         migration_refusal_test.go:210: migration left staging files [/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestMigrateRefusesSourceThatStoppedBeingARegularFileAfterLoadno714559378/001/.ax-config-backup-948749953] (glob error <nil>)
+M27-migrate-os-ignores-input-refusal         exit=1 RED    delete: let MigrateOS continue with empty inputs after OSInputs refused the platform
+      | --- FAIL: TestMigrateOSRefusesAnUnknownPlatformBeforeTouchingTheFilesystem (0.00s)
+      |     migration_os_test.go:217: MigrateOS(unknown platform) refused at &config.Error{Operation:"validate inputs", Class:"", Source:"", Err:(*errors.errorString)(0x1030a4dd0)}, want the OSInputs capture guard
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.425s
+      | FAIL
+M28-migration-error-echoes-wrapped-details   exit=1 RED    widen: render the wrapped OS chain, which carries machine-local paths and document text
+      | --- FAIL: TestErrorFormattingNeverEchoesWrappedDetails (0.00s)
+      |     loader_test.go:840: MigrationError.Error() exposed wrapped details: configuration migration replace source failed: configuration migration atomic replace failed
+      |         rename /machine/private/credential-path: permission denied
+      |         host_name = "private-workstation"
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.392s
+M29-migrate-os-is-a-stub                     exit=1 RED    delete: make the advertised OS entry report success without performing the migration
+      | --- FAIL: TestMigrateOSPerformsOneDurableMigrationAtTheRealProcessEntry (0.00s)
+      |     migration_os_test.go:63: MigrateOS(v1 to v3) result = config.MigrationResult{SourceVersion:"", TargetVersion:"", BackupPath:"", Changed:false}
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.437s
+      | FAIL
+M20-refusal-inventory-bypass-literal         exit=1 RED    self-coverage: a raw literal bypassing the constructor must redden the derived gate
+      | --- FAIL: TestRefusalInventoryDerivesEveryRefusalFormThePackageDeclares (0.00s)
+      |     refusal_structure_test.go:174: derived inventory defects: uninstrumented=[] duplicated=[] stray=[migration.go:59 MigrationError]
+      | FAIL
+      | FAIL	github.com/relux-works/agent-session-manager/internal/config	0.836s
+      | FAIL
+
+restored tree: go test ./internal/config/ exit=0
+all mutants died

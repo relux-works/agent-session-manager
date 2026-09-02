@@ -1,0 +1,25 @@
+TASK-260830-17suox rework validation
+Pinned source: relux-works/agent-session-manager-spec@28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c, Sections 6 and 17
+
+Expected-red attacks
+- Initial rework clause sweep: exit 1; 95/99 clauses reddened and 4 survived. The survivors were Decode context/TOML/schema branches and the EncodeCurrent TOML failure branch. Exact production-entry cases were added before rerunning.
+- Final `python3 .temp/TASK-260830-17suox/clause_mutation_sweep.py`: exit 0.
+- Final sweep inner gates: 99 independent `go test ./internal/config -count=1` mutants each exited 1 as expected-red; 0/99 refusal clauses survived.
+- Each mutant replaced one production `return configError(...)`, used `-count=1`, restored the original bytes immediately, and verified restoration before continuing.
+
+Accepted gates after the final production change and mutant restoration
+- `go test ./internal/config -cover -count=1`: exit 0; 91.8% statement coverage.
+- `go test ./... -v -count=1`: exit 0; all 9 packages passed (earlier accepted full verbose run).
+- `go test ./... -count=1`: exit 0; all 9 packages passed (final concise rerun).
+- `go test ./... -cover -count=1`: exit 0; all 9 packages passed; internal/config 91.8%.
+- `go run ./internal/traceability/cmd/tracecheck -section 3.2 -section 6.1 -section 6.2 -section 6.3 -section 6.4 -section 6.5 -section 17.1 -section 17.2 -section 17.5`: exit 0; contracts=60, normative_sections=36, acceptance_cases=32, fixtures=30, compatibility_contracts=55, assigned_scopes=9.
+- `go vet ./...`: exit 0.
+- `go build ./...`: exit 0.
+- `go mod verify`: exit 0; all modules verified.
+- `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`: exit 0.
+- `gofmt -d internal/config/loader.go internal/config/loader_test.go internal/config/schema.go internal/config/schema_test.go internal/config/validation.go internal/config/writer.go internal/config/refusal_test.go`: exit 0 with empty output.
+- `git diff --check`: exit 0.
+
+Durability/recovery scope
+- `Load` is read-only and `EncodeCurrent` writes only caller-returned in-memory bytes. No durable configuration mutation is implemented by this task, so crash recovery and filesystem idempotency evidence do not apply here.
+- Round-trip and immutable snapshot tests cover the in-memory writer/read-back and mutation-isolation properties.

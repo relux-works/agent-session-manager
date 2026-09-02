@@ -1,0 +1,149 @@
+Independent reviewer mutation sweep - CR-TASK-260830-1qf777 revision 5
+Run: RUN-260901-fba8aa (reviewer, claude-opus-5)
+Worktree tree re-derived with git read-tree HEAD + git add -A + git write-tree:
+  613bb21abae3caa28a800b2222a1d53388cbf379  == candidate tree OID
+Harness: .temp/TASK-260830-1qf777/rev5-mutants.py
+Method: one edit at a time on the restored tree; the WHOLE internal/config
+package is run with -count=1, never a -run mask; the tree is restored after
+every mutant and re-verified green before and after each batch.
+GOCACHE: task-scoped (.temp/TASK-260830-1qf777/gocache).
+
+GROUP A - the B1 home-capture evidence that was the only open rev4 finding
+A01 RED   loader.go  drop the captured cause (rev4 survivor H01, rewritten to
+                     compile: `_ = homeErr; homeErr = nil` - the first form died
+                     on a Go build failure and was not counted)
+                     killed by TestLoadOSCarriesTheRealUserHomeFailureAtEveryHomeDerivedClass
+A02 RED   loader.go  capture returns an empty home (rev4 survivor H02)
+                     killed by TestLoadOSDerivesPlatformDefaultsFromTheRealCapturedUserHome
+A03 RED   loader.go  constant home ignores the real capture
+                     killed by TestLoadOSCarriesTheRealUserHomeFailureAtEveryHomeDerivedClass
+A06 RED   loader.go  self-minted substitute cause replaces the real one
+                     killed by TestLoadOSCarriesTheRealUserHomeFailureAtEveryHomeDerivedClass
+
+GROUP B - acceptance-criteria gates, narrowing and widening, not delete-only
+B01 RED   validation.go  widen sync.max_parallel_chunks upper bound 32 -> 33
+B02 RED   validation.go  narrow sync.max_parallel_chunks lower bound 1 -> 2
+                         killed by TestConfigurationNumericBoundsAcceptLimitsAndRefusePastLimitsAtProductionEntry
+B03 RED   validation.go  widen terminal.safe_boundary_timeout_seconds 3600 -> 3601
+B04 RED   schema.go      remove DisallowUnknownFields
+B05 RED   validation.go  narrow terminal.external_trust duplicate backend_id rejection
+B06 RED   validation.go  narrow terminal.backend_config duplicate backend_id rejection
+B07 RED   migration.go   drop the owner-only permission clause of the existing-backup
+                         integrity gate (import-preserving form)
+                         killed by TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource
+B08 RED   migration.go   drop the content clause of the same gate (import-preserving
+                         form; the first form died on an unused-import build failure
+                         and was rewritten rather than counted)
+                         killed by TestMigrateRefusesExistingBackupThatIsNotTheExactOwnerOnlySource
+B09 RED   migration.go   rev3 survivor: narrow read-only downgrade to a two-major gap
+                         killed by TestAssessCompatibilityPinsEveryPinnedVersionPairAtTheProductionEntry
+B10 RED   migration.go   narrow the migration downgrade refusal to a two-major gap
+B11 RED   writer.go      drop terminal.safe_boundary_timeout_seconds from currentWire
+                         killed by TestMigrationRetainsEveryConfiguration1MemberOnEveryTarget
+B12 RED   writer.go      drop sync.max_parallel_chunks from currentWire
+                         killed by TestMigrationRetainsEveryConfiguration1MemberOnEveryTarget
+B13 RED   migration.go   delete the per-file fsync in writeTempFile
+                         killed by TestMigrateLeavesTheSourceIntactAtEveryDurableFailurePoint
+B14 RED   migration.go   widen the mutating seam (os.Lstat -> os.Stat)
+                         killed by TestMigrateOSAppliesTheNoFollowMutatingSeamInBothDirections
+B15 RED   loader.go      narrow the read seam (os.Stat -> os.Lstat), i.e. the original F1 defect
+                         killed by TestLoadOSResolvesSymlinksAndStillEnforcesKindsAtProductionEntry
+B16 RED   migration.go   drop the Version1-target clause of ErrMigrationTarget
+B17 SURVIVOR migration.go widen the disclosure vocabulary with an arbitrary new member
+                         ("anything") that no case supplies - see the equivalence note
+B18 RED   migration.go   delete the pre-durable source-kind refusal
+B19 SURVIVOR migration.go narrow the absent-source guard `||` -> `&&` - equivalent, see note
+B20 SURVIVOR migration.go widen the known-reader gate with an arbitrary value ("9.9.9")
+                         that no case supplies - same class as B17, see note
+B21 RED   migration.go   widen the disclosure vocabulary to admit "public", a value the
+                         suite already supplies
+                         killed by TestMigrateRefusesDisclosureChoiceOutsideTheClosedVocabulary
+B22 SURVIVOR validation.go CONTROL: the same arbitrary widening on a sibling closed
+                         vocabulary (directory.mode) also survives
+B23 RED   validation.go  widen the config-side disclosure vocabulary with "everything"
+                         (the value refusal_test.go supplies for that clause)
+
+GROUP C - attack the derived refusal inventory's own self-coverage
+C01 RED   migration.go   bypass literal: build a *MigrationError outside the single
+                         constructor
+                         killed by TestRefusalInventoryDerivesEveryRefusalFormThePackageDeclares
+C02 RED   migration.go   duplicate constructor: a second byte-identical construction
+                         function used at one site
+                         killed by TestRefusalInventoryDerivesEveryRefusalFormThePackageDeclares
+C03 RED   migration.go   synthetic never-exercised refusal site
+                         The harness printed "build/vet failure" because the failure
+                         carries no `--- FAIL` line; reproduced by hand, the real
+                         failure is the package-level audit:
+                           "configuration refusal call sites without an exercised
+                            negative path: migration.go:189"
+C04 RED   migration.go   widen the known-reader gate to admit "0.0.0", the value the
+                         suite supplies
+                         killed by TestAssessCompatibilityRefusesMalformedEnvelopeFacts
+
+GROUP D - attack the subsumption escape hatch in both directions
+D01 RED   loader.go      delete a declared config-refusal-subsumed marker
+                         killed by TestRefusalSubsumptionInventoryIsPinned
+D02 RED   migration.go   add a synthetic never-exercised site AND a self-declared
+                         subsumption marker to silence it - the ratchet refuses the
+                         new marker
+                         killed by TestRefusalSubsumptionInventoryIsPinned
+
+GROUP E - durability invariants
+E01 RED   migration.go   skip the rollback rename after a failed replacement sync
+                         killed by TestMigrateRecoversOriginalAfterPostReplaceDirectorySyncFailureAndRetries
+E02 RED   migration.go   back up the new document instead of the original
+                         killed by TestMigrateOSPerformsOneDurableMigrationAtTheRealProcessEntry
+
+POSITIVE CONTROL
+PC1 GREEN migration.go   comment-only change; stays green as designed, so the harness
+                         is not reddening on the act of editing.
+
+TOTAL: 36 mutants applied. 31 RED, 4 SURVIVOR, 1 positive control GREEN.
+No mutant is counted RED on a Go build failure: A01, B07 and B08 were rewritten
+into compiling forms after their first form died on a compile error, and C03's
+kill was reproduced by hand to identify the real failing gate.
+
+SURVIVOR EQUIVALENCE NOTES (reported as survivors, not folded into RED)
+
+B19 `!snapshot.ConfigPresent() || !decoded` -> `&&`.
+    Equivalent on every reachable state. A successful Load returns either
+    loader.go:275-279 (configuration non-nil AND configPresent true) or
+    loader.go:315-320 (configuration nil AND configPresent false); the two
+    operands are never independently true, so the disjunct is defence in depth
+    over a single reachable condition. Not a finding.
+
+B17 / B20, with control B22.
+    Adding a brand-new member to a closed vocabulary that no case supplies is
+    not observable by any finite sampling suite. The mutants that admit a value
+    the suite DOES supply all die: B21 ("public") and C04 ("0.0.0"). The control
+    B22 shows the identical arbitrary widening survives on a sibling vocabulary
+    (directory.mode) that is not part of this task's delta, so this is the
+    package-wide standard and not a regression introduced here. Killing this
+    class would require deriving the vocabulary from a pinned SPEC literal and
+    asserting set equality with the production list. Recorded as an observation
+    for a future leaf, not as a blocking finding on this one.
+
+REPOSITORY GATES, real exit codes, run by this reviewer at the candidate tree
+  go build ./...                                      = 0
+  go vet ./...                                        = 0
+  gofmt -l .                                          = 0 (empty)
+  go test ./... -cover -count=1                       = 0 (internal/config 93.7%)
+  go test ./... -count=1 (post-sweep)                 = 0
+  go test ./internal/config -race -count=1            = 0
+  go mod verify                                       = 0 (all modules verified)
+  git diff --check                                    = 0
+  tracecheck (global)                                 = 0
+     contracts=60 normative_sections=36 acceptance_cases=35 fixtures=30
+     compatibility_contracts=55
+  tracecheck -section 3.2 6.1 6.2 6.3 6.4 6.5 17.1 17.2 17.4 = 0, assigned_scopes=9
+  go test ./internal/config -count=1 under env -i with HOME= = 0
+
+TRACEABILITY FAIL-CLOSED PROBE
+  Renaming one ownership test declaration to "TestFabricatedOwnerThatDoesNotExist"
+  in internal/traceability/ownership.v0.5.0.json makes tracecheck FAIL on
+  sections 6.3/6.4/6.5/17.1/17.2 with
+    acceptance case "config-durable-migration-os-entry" test owner: declaration
+    "TestFabricatedOwnerThatDoesNotExist" is absent from
+    "internal/config/migration_os_test.go"
+  The ownership file was restored byte-identically afterwards; the worktree tree
+  was re-derived as 613bb21 after every probe.

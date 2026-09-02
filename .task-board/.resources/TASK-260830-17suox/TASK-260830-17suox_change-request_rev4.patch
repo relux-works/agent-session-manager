@@ -1,0 +1,3817 @@
+diff --git a/README.md b/README.md
+index 7815478..6774e65 100644
+--- a/README.md
++++ b/README.md
+@@ -134,7 +134,7 @@ go run ./internal/traceability/cmd/tracecheck \
+   -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4
+ ```
+ 
+-## Configuration Path Loading
++## Configuration Loading and Versioned Schemas
+ 
+ The internal/config package implements the read-only Section 3.2 path-selection
+ boundary used by Section 6.1 configuration loading. LoadOS captures the
+@@ -150,28 +150,57 @@ absolute against the captured working directory before use. XDG, macOS,
+ WSL2/Linux, and native Windows defaults use native path grammar; missing
+ required Linux runtime or Windows profile inputs fail closed.
+ 
+-Load returns isolated TOML bytes and one immutable resolved-root snapshot. A
+-not-yet-created configuration file is accepted only when its parent directory
++Load returns isolated TOML bytes, one immutable resolved-root snapshot, and an
++isolated current-model Configuration when the selected file exists. It dispatches
++strict closed-table readers for Configuration 1.0.0, 2.0.0, and 3.0.0 from the
++pinned catalog; v1/v2 are translated in memory to v3 without changing their
++source bytes. `EncodeCurrent` validates and emits only Configuration 3.0.0.
++Backend-specific v3 settings require an exact caller-supplied settings validator;
++without one, a `backend_config` entry fails closed rather than accepting an
++arbitrary blob. Only an enabled external-trust entry registers its backend for
++selection or backend-specific configuration; disabled entries remain
++round-trippable but cannot authorize activation. An explicit empty
++`transport_policy` is the valid deny-all subset, distinct from omission, whose
++default is both closed transport names.
++
++A not-yet-created configuration file is accepted only when its parent directory
+ exists, and ConfigPresent distinguishes that state from an existing empty
+-file. It does not enumerate environment variables, copy ambient credentials,
+-interpret unknown AX_* names, mutate roots, create files, parse versioned TOML
+-schemas, migrate configuration, advertise doctor/CLI support, or claim a
+-runtime capability. Versioned Configuration 1/2/3 decoding and explicit atomic
+-migration remain owned by separate implementation tasks. Existing selected
++file. Versioned validation applies closed members, scalar and relational bounds,
++unique/sorted registries, SSH host-authentication refusals, directory disclosure
++constraints, and the v3 TerminalBackend trust/config shape from Sections 6 and
++17. Required closed map members preserve the distinction between absence and an
++explicit empty object in both inline (`extensions = {}`) and multiline table
++syntax, and current-version writer output round-trips through the reader. Legacy
++`terminal.backend` accepts exactly `tmux|conpty` before translation.
++The v3 terminal capability vocabulary is derived from the pinned catalog's
++`terminal_backend` family, and the supported reader set is tested as a derived
++property of the pinned Configuration catalog, so neither a new capability nor a
++new Configuration version can silently lack enforcement. Full package tests also
++derive the production refusal-site inventory from source and fail when a new
++configuration refusal has no exercised negative path. An omitted
++`required_capabilities` remains marked as contextual default provenance; this
++package does not invent a platform lane minimum that only activation evidence
++can establish.
++
++The package does not enumerate environment variables, copy ambient credentials,
++interpret unknown AX_* names, mutate roots, create files, perform backup/atomic
++migration, advertise doctor/CLI support, or claim runtime capability or backend
++availability. Durable `ax migrate config` and downgrade diagnostic behavior
++remain separate implementation scope. Existing selected
+ roots are checked for directory kind, while absent roots remain eligible for
+ the later owner-only initialization boundary. An absent config with a missing
+ or non-directory parent, a wrong existing file kind, a read failure, and a root
+ inspection failure remain distinct through `errors.Is`; rendered loader errors
+ omit wrapped OS/filesystem details so selected machine-local paths cannot leak.
+-The traceability registry intentionally does not claim the whole of Section
+-6.1: unknown-key and secret-field refusals belong to the versioned-schema
+-loading entry.
+ 
+ Run the focused tests and assigned-scope traceability gate with:
+ 
+     go test ./internal/config -count=1 -v
+     go test ./internal/config -cover -count=1
+-    go run ./internal/traceability/cmd/tracecheck -section 3.2
++    go run ./internal/traceability/cmd/tracecheck \
++      -section 3.2 \
++      -section 6.1 -section 6.2 -section 6.3 -section 6.4 -section 6.5 \
++      -section 17.1 -section 17.2
+ 
+ ## Canonical JSON and Immutable Object Identities
+ 
+@@ -364,8 +393,9 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
+ | --- | --- | --- | --- |
+ | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
+ | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
+-| Go toolchain | Verify global and assigned-scope specification ownership, validate and fuzz common wire scalars and canonical identities, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4 -section 17.3`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
++| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate and fuzz common wire scalars and canonical identities, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.1 -section 6.2 -section 6.3 -section 6.4 -section 6.5 -section 17.1 -section 17.2`; `go test ./internal/config -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+ | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
++| `github.com/pelletier/go-toml/v2` | Parse and emit TOML while the repository-owned Configuration layer enforces exact versioned closed schemas | Imported by `internal/config.Decode` and `internal/config.EncodeCurrent` at pinned module version `v2.4.3` | Validated Configuration values or TOML bytes in memory; no durable output |
+ | GitHub Actions | Enforce traceability, generated-output, test, vet, and build gates on pull requests and `main` | `.github/workflows/ci.yml` | GitHub-hosted CI check results |
+ | Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
+ | GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |
+diff --git a/go.mod b/go.mod
+index 050e6d0..91758aa 100644
+--- a/go.mod
++++ b/go.mod
+@@ -2,4 +2,7 @@ module github.com/relux-works/agent-session-manager
+ 
+ go 1.25.0
+ 
+-require github.com/gowebpki/jcs v1.0.1
++require (
++	github.com/gowebpki/jcs v1.0.1
++	github.com/pelletier/go-toml/v2 v2.4.3
++)
+diff --git a/go.sum b/go.sum
+index 44bfad4..fb0ce03 100644
+--- a/go.sum
++++ b/go.sum
+@@ -2,6 +2,8 @@ github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8
+ github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+ github.com/gowebpki/jcs v1.0.1 h1:Qjzg8EOkrOTuWP7DqQ1FbYtcpEbeTzUoTN9bptp8FOU=
+ github.com/gowebpki/jcs v1.0.1/go.mod h1:CID1cNZ+sHp1CCpAR8mPf6QRtagFBgPJE0FCUQ6+BrI=
++github.com/pelletier/go-toml/v2 v2.4.3 h1:GTRvJQutkOSftxIFD5xw9aepkYNuPWmVJpffdDPYVpY=
++github.com/pelletier/go-toml/v2 v2.4.3/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
+ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
+ github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+ github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
+diff --git a/internal/config/compatibility_regression_test.go b/internal/config/compatibility_regression_test.go
+new file mode 100644
+index 0000000..1bf7517
+--- /dev/null
++++ b/internal/config/compatibility_regression_test.go
+@@ -0,0 +1,286 @@
++package config
++
++import (
++	"fmt"
++	"reflect"
++	"sort"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++func TestEveryClosedMapMemberRoundTripsAnExplicitEmptyObjectAtProductionEntry(t *testing.T) {
++	t.Parallel()
++
++	type roundTripCase struct {
++		configure func(*Configuration) BackendSettingsValidator
++	}
++	cases := map[string]roundTripCase{
++		"directory_installations[].extensions": {configure: func(configuration *Configuration) BackendSettingsValidator {
++			configuration.DirectoryInstallations[0].Extensions = map[string]any{}
++			return nil
++		}},
++		"directory_enrichment_profiles[].extensions": {configure: func(configuration *Configuration) BackendSettingsValidator {
++			configuration.DirectoryEnrichmentProfiles = []DirectoryEnrichmentProfile{{
++				ProfileID: testDigest, Enabled: true, MaxConcurrency: 1,
++				MetadataPolicy: "local_only", Extensions: map[string]any{},
++			}}
++			return nil
++		}},
++		"directory_peer_disclosure[].extensions": {configure: func(configuration *Configuration) BackendSettingsValidator {
++			configuration.DirectoryPeerDisclosure = []DirectoryPeerDisclosure{{
++				HostID: testPeerID, EnvironmentObservations: "local_only", NativeObservations: "local_only",
++				ManualMetadata: "local_only", GeneratedMetadata: "local_only", JobOperationStatus: "local_only",
++				Extensions: map[string]any{},
++			}}
++			return nil
++		}},
++		"terminal.backend_config[].settings": {configure: func(configuration *Configuration) BackendSettingsValidator {
++			configuration.Terminal.BackendConfig = []BackendConfig{{
++				BackendID: "ax.tmux", ConfigVersion: "1.0.0", Settings: map[string]any{},
++			}}
++			return acceptBackendSettings{}
++		}},
++	}
++
++	derived := closedMapMemberPaths(reflect.TypeFor[rawV3]())
++	declared := make([]string, 0, len(cases))
++	for path := range cases {
++		declared = append(declared, path)
++	}
++	sort.Strings(declared)
++	if !reflect.DeepEqual(declared, derived) {
++		t.Fatalf("empty-object round-trip cases = %v, rawV3 closed map members = %v", declared, derived)
++	}
++
++	for _, path := range derived {
++		path := path
++		t.Run(path, func(t *testing.T) {
++			configuration := validCurrentConfiguration()
++			settings := cases[path].configure(&configuration)
++			context := DecodeContext{RuntimePlatform: scalar.PlatformMacOS, BackendSettings: settings}
++			encoded, err := EncodeCurrent(configuration, context)
++			if err != nil {
++				t.Fatalf("EncodeCurrent(%s empty object) error = %v", path, err)
++			}
++			snapshot, err := loadConfigDocument(encoded, scalar.PlatformMacOS, settings)
++			if err != nil {
++				t.Fatalf("Load(EncodeCurrent(%s empty object)) error = %v\n%s", path, err, encoded)
++			}
++			loaded, ok := snapshot.Configuration()
++			if !ok || loaded.SourceVersion != CurrentVersion {
++				t.Fatalf("Load(EncodeCurrent(%s)).Configuration() = %#v, present=%v", path, loaded, ok)
++			}
++		})
++	}
++}
++
++func TestLoadTreatsInlineAndMultilineEmptyClosedMapsAsPresent(t *testing.T) {
++	t.Parallel()
++
++	prefix := string(minimalValidConfigVersion(scalar.PlatformMacOS, Version2)) + `
++[[directory_installations]]
++installation_id = "` + testDigest + `"
++environment_id = "local"
++provider_id = "codex"
++adapter_id = "codex-local"
++scan_root_authority_ids = ["` + testDigest + `"]
++enabled = true
++`
++	for name, suffix := range map[string]string{
++		"inline object":         "extensions = {}\n",
++		"multiline empty table": "[directory_installations.extensions]\n",
++	} {
++		name, suffix := name, suffix
++		t.Run(name, func(t *testing.T) {
++			if _, err := loadConfigDocument([]byte(prefix+suffix), scalar.PlatformMacOS, nil); err != nil {
++				t.Fatalf("Load(%s empty object) error = %v", name, err)
++			}
++		})
++	}
++}
++
++func TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes(t *testing.T) {
++	t.Parallel()
++
++	for _, version := range pinnedConfigurationVersions(t) {
++		version := version
++		for _, platformCase := range []struct {
++			platform scalar.Platform
++			path     string
++			backend  string
++		}{
++			{platform: scalar.PlatformWindows, path: `D:\Developer\ReluxWorks`, backend: "ax.conpty"},
++			{platform: scalar.PlatformWSL2, path: "/srv/relux", backend: "ax.tmux"},
++		} {
++			platformCase := platformCase
++			t.Run(version+"/"+platformCase.platform.String(), func(t *testing.T) {
++				document := append(minimalValidConfigVersion(platformCase.platform, version), []byte(fmt.Sprintf(`
++[[workspace_roots]]
++logical_root = "relux"
++path = %q
++`, platformCase.path))...)
++				snapshot, err := loadConfigDocument(document, platformCase.platform, nil)
++				if err != nil {
++					t.Fatalf("Load(%s %s native path) error = %v", version, platformCase.platform, err)
++				}
++				loaded, ok := snapshot.Configuration()
++				if !ok || loaded.Value.Terminal.BackendID != platformCase.backend {
++					t.Fatalf("Load(%s %s) backend = %q, present=%v, want %q", version, platformCase.platform, loaded.Value.Terminal.BackendID, ok, platformCase.backend)
++				}
++			})
++		}
++	}
++}
++
++func TestLegacyConPTYTranslationIsPinnedForEveryLegacyReader(t *testing.T) {
++	t.Parallel()
++
++	for _, version := range pinnedConfigurationVersions(t) {
++		if version == CurrentVersion {
++			continue
++		}
++		document := append(minimalValidConfigVersion(scalar.PlatformWindows, version), []byte("\n[terminal]\nbackend = \"conpty\"\n")...)
++		snapshot, err := loadConfigDocument(document, scalar.PlatformWindows, nil)
++		if err != nil {
++			t.Fatalf("Load(%s explicit conpty) error = %v", version, err)
++		}
++		loaded, _ := snapshot.Configuration()
++		if loaded.Value.Terminal.BackendID != "ax.conpty" {
++			t.Fatalf("Load(%s explicit conpty) backend = %q", version, loaded.Value.Terminal.BackendID)
++		}
++	}
++}
++
++func TestPeerWorkspaceRootValidationUsesPeerPlatformAndPinsEveryNestedClause(t *testing.T) {
++	t.Parallel()
++
++	validWindowsPeer := func() Configuration {
++		configuration := validCurrentConfiguration()
++		configuration.Mesh.Peers[0].Platform = scalar.PlatformWindows
++		configuration.Mesh.Peers[0].WorkspaceRoots = []WorkspaceRoot{{LogicalRoot: "relux", Path: `D:\Developer\ReluxWorks`}}
++		return configuration
++	}
++	if _, err := EncodeCurrent(validWindowsPeer(), DecodeContext{RuntimePlatform: scalar.PlatformMacOS}); err != nil {
++		t.Fatalf("EncodeCurrent(native Windows peer root) error = %v", err)
++	}
++
++	tests := []struct {
++		name, clause string
++		mutate       func(*Configuration)
++	}{
++		{name: "peer path grammar", clause: "mesh.peers[0].workspace_roots[0].path", mutate: func(value *Configuration) {
++			value.Mesh.Peers[0].WorkspaceRoots[0].Path = "/srv/relux"
++		}},
++		{name: "peer logical-root grammar", clause: "mesh.peers[0].workspace_roots[0].logical_root", mutate: func(value *Configuration) {
++			value.Mesh.Peers[0].WorkspaceRoots[0].LogicalRoot = "Relux"
++		}},
++		{name: "peer duplicate logical root", clause: "mesh.peers[0].workspace_roots duplicate logical_root", mutate: func(value *Configuration) {
++			value.Mesh.Peers[0].WorkspaceRoots = append(value.Mesh.Peers[0].WorkspaceRoots, value.Mesh.Peers[0].WorkspaceRoots[0])
++		}},
++	}
++	for _, test := range tests {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			configuration := validWindowsPeer()
++			test.mutate(&configuration)
++			_, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++			requireConfigClause(t, err, test.clause)
++		})
++	}
++}
++
++func TestPreviouslyUnpinnedConfigurationBoundsAtProductionEntry(t *testing.T) {
++	t.Parallel()
++
++	t.Run("scan authority minimum", func(t *testing.T) {
++		configuration := validCurrentConfiguration()
++		configuration.DirectoryInstallations[0].ScanRootAuthorityIDs = []string{}
++		_, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++		requireConfigClause(t, err, "directory_installations[0].scan_root_authority_ids")
++	})
++
++	t.Run("logical-root grammar independent of length", func(t *testing.T) {
++		for _, logicalRoot := range []string{"Relux", "1relux"} {
++			configuration := validCurrentConfiguration()
++			configuration.WorkspaceRoots[0].LogicalRoot = logicalRoot
++			_, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++			requireConfigClause(t, err, "workspace_roots[0].logical_root")
++		}
++	})
++
++	t.Run("extension namespace grammar subsumes the three-byte minimum", func(t *testing.T) {
++		at := validCurrentConfiguration()
++		at.DirectoryInstallations[0].Extensions = map[string]any{"a.b": true}
++		if _, err := EncodeCurrent(at, DecodeContext{RuntimePlatform: scalar.PlatformMacOS}); err != nil {
++			t.Fatalf("EncodeCurrent(shortest reverse-DNS extension key) error = %v", err)
++		}
++		past := validCurrentConfiguration()
++		past.DirectoryInstallations[0].Extensions = map[string]any{"ab": true}
++		_, err := EncodeCurrent(past, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++		requireConfigClause(t, err, "directory_installations[0].extensions")
++	})
++
++	t.Run("extension int64 safe-integer bound", func(t *testing.T) {
++		at := validCurrentConfiguration()
++		at.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.number": int64(scalar.MaxSafeInteger)}
++		if _, err := EncodeCurrent(at, DecodeContext{RuntimePlatform: scalar.PlatformMacOS}); err != nil {
++			t.Fatalf("EncodeCurrent(extension int64 at safe limit) error = %v", err)
++		}
++		past := validCurrentConfiguration()
++		past.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.number": int64(scalar.MaxSafeInteger + 1)}
++		_, err := EncodeCurrent(past, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++		requireConfigClause(t, err, "directory_installations[0].extensions")
++	})
++}
++
++func closedMapMemberPaths(root reflect.Type) []string {
++	closedMap := reflect.TypeFor[map[string]any]()
++	var paths []string
++	var visit func(reflect.Type, string)
++	visit = func(value reflect.Type, prefix string) {
++		if value.Kind() == reflect.Pointer {
++			value = value.Elem()
++		}
++		if value.Kind() != reflect.Struct {
++			return
++		}
++		for index := 0; index < value.NumField(); index++ {
++			field := value.Field(index)
++			name := strings.Split(field.Tag.Get("toml"), ",")[0]
++			if name == "" || name == "-" {
++				continue
++			}
++			path := name
++			if prefix != "" {
++				path = prefix + "." + name
++			}
++			fieldType := field.Type
++			if fieldType == closedMap {
++				paths = append(paths, path)
++				continue
++			}
++			if fieldType.Kind() == reflect.Slice && fieldType.Elem().Kind() == reflect.Struct {
++				visit(fieldType.Elem(), path+"[]")
++				continue
++			}
++			visit(fieldType, path)
++		}
++	}
++	visit(root, "")
++	sort.Strings(paths)
++	return paths
++}
++
++func pinnedConfigurationVersions(t *testing.T) []string {
++	t.Helper()
++	for _, contract := range catalog.Current().Contracts {
++		if contract.ID == catalog.ContractID(SchemaID) {
++			return append([]string(nil), contract.Versions...)
++		}
++	}
++	t.Fatal("pinned catalog has no Configuration contract")
++	return nil
++}
+diff --git a/internal/config/loader.go b/internal/config/loader.go
+index 7b20e9d..2ca8d3e 100644
+--- a/internal/config/loader.go
++++ b/internal/config/loader.go
+@@ -1,6 +1,7 @@
+-// Package config resolves the process-lifetime AX path snapshot and reads the
+-// selected configuration document. Versioned TOML decoding and migration are
+-// separate concerns; this package never mutates configuration or root state.
++// Package config resolves the process-lifetime AX path snapshot, strictly
++// decodes Configuration 1.0.0, 2.0.0, or 3.0.0, and translates legacy values
++// into the current in-memory model. It never mutates configuration or roots;
++// explicit durable migration remains a separate concern.
+ package config
+ 
+ import (
+@@ -98,19 +99,21 @@ func (paths ResolvedPaths) All() map[PathClass]ResolvedPath {
+ 
+ // Inputs captures all process inputs read during one resolution.
+ type Inputs struct {
+-	Platform   scalar.Platform
+-	HomeDir    string
+-	TempDir    string
+-	WorkingDir string
+-	LookupEnv  func(string) (string, bool)
+-	Stat       func(string) (fs.FileInfo, error)
+-	ReadFile   func(string) ([]byte, error)
++	Platform        scalar.Platform
++	HomeDir         string
++	TempDir         string
++	WorkingDir      string
++	BackendSettings BackendSettingsValidator
++	LookupEnv       func(string) (string, bool)
++	Stat            func(string) (fs.FileInfo, error)
++	ReadFile        func(string) ([]byte, error)
+ }
+ 
+ // Snapshot contains one immutable path decision and selected TOML document.
+ type Snapshot struct {
+ 	paths         ResolvedPaths
+ 	document      []byte
++	configuration *LoadedConfiguration
+ 	configPresent bool
+ }
+ 
+@@ -128,6 +131,18 @@ func (snapshot Snapshot) ConfigPresent() bool {
+ 	return snapshot.configPresent
+ }
+ 
++// Configuration returns an isolated current-model translation when a selected
++// configuration file existed and passed exact versioned validation.
++func (snapshot Snapshot) Configuration() (LoadedConfiguration, bool) {
++	if snapshot.configuration == nil {
++		return LoadedConfiguration{}, false
++	}
++	return LoadedConfiguration{
++		SourceVersion: snapshot.configuration.SourceVersion,
++		Value:         cloneConfiguration(snapshot.configuration.Value),
++	}, true
++}
++
+ // Error reports a failed class/layer without echoing machine-local values.
+ // Wrapped details remain available to errors.Is/errors.As through Unwrap, but
+ // are deliberately excluded from the rendered message because OS and
+@@ -233,9 +248,22 @@ func Load(inputs Inputs, overrides Overrides) (Snapshot, error) {
+ 			Err:       ErrConfigRead,
+ 		}
+ 	}
++	configuration, err := Decode(document, DecodeContext{
++		RuntimePlatform: inputs.Platform,
++		BackendSettings: inputs.BackendSettings,
++	})
++	if err != nil {
++		return Snapshot{}, &Error{
++			Operation: "decode selected file",
++			Class:     ConfigFile,
++			Source:    selected.Source,
++			Err:       err,
++		}
++	}
+ 	return Snapshot{
+ 		paths:         ResolvedPaths{values: paths.All()},
+ 		document:      append([]byte(nil), document...),
++		configuration: &configuration,
+ 		configPresent: true,
+ 	}, nil
+ }
+diff --git a/internal/config/loader_test.go b/internal/config/loader_test.go
+index b9111c4..607443a 100644
+--- a/internal/config/loader_test.go
++++ b/internal/config/loader_test.go
+@@ -2,6 +2,7 @@ package config
+ 
+ import (
+ 	"errors"
++	"fmt"
+ 	"io/fs"
+ 	"os"
+ 	"path/filepath"
+@@ -28,7 +29,8 @@ func TestLoadAppliesPathPrecedenceAtProductionEntry(t *testing.T) {
+ 		"XDG_CONFIG_HOME":   "/xdg/config",
+ 	}
+ 	files := newFakeFileSystem()
+-	files.regular["/flag/config.toml"] = []byte("schema = \"urn:ax:schema:config\"\n")
++	wantDocument := minimalValidConfig(scalar.PlatformMacOS)
++	files.regular["/flag/config.toml"] = wantDocument
+ 	files.regular["/env/config.toml"] = []byte("wrong = true\n")
+ 
+ 	inputs := fixtureInputs(scalar.PlatformMacOS, environment, files)
+@@ -46,7 +48,7 @@ func TestLoadAppliesPathPrecedenceAtProductionEntry(t *testing.T) {
+ 	assertResolvedPath(t, snapshot.Paths(), CacheRoot, "/Users/test/Library/Caches/ax", SourcePlatformDefault)
+ 	assertResolvedPath(t, snapshot.Paths(), RuntimeRoot, "/env/runtime", SourceEnvironment)
+ 
+-	if got, want := string(snapshot.Document()), "schema = \"urn:ax:schema:config\"\n"; got != want {
++	if got, want := string(snapshot.Document()), string(wantDocument); got != want {
+ 		t.Fatalf("Document() = %q, want %q", got, want)
+ 	}
+ 	if !snapshot.ConfigPresent() {
+@@ -262,7 +264,7 @@ func TestLoadOSCapturesExplicitEnvironmentAtProductionEntry(t *testing.T) {
+ 		t.Fatalf("Mkdir(config directory): %v", err)
+ 	}
+ 	configFile := filepath.Join(configDirectory, "config.toml")
+-	wantDocument := []byte("schema = \"urn:ax:schema:config\"\n")
++	wantDocument := minimalValidConfig(platform)
+ 	if err := os.WriteFile(configFile, wantDocument, 0o600); err != nil {
+ 		t.Fatalf("WriteFile(config): %v", err)
+ 	}
+@@ -307,7 +309,7 @@ func TestLoadOSAppliesExplicitOverridesAtProductionEntry(t *testing.T) {
+ 			if err := os.MkdirAll(filepath.Dir(overrideValue), 0o700); err != nil {
+ 				t.Fatalf("MkdirAll(flag config parent): %v", err)
+ 			}
+-			if err := os.WriteFile(overrideValue, []byte("schema = \"urn:ax:schema:config\"\n"), 0o600); err != nil {
++			if err := os.WriteFile(overrideValue, minimalValidConfig(platform), 0o600); err != nil {
+ 				t.Fatalf("WriteFile(flag config): %v", err)
+ 			}
+ 		} else if err := os.MkdirAll(overrideValue, 0o700); err != nil {
+@@ -922,7 +924,7 @@ func TestLoadRefusesMissingFilesystemFunctions(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	files := newFakeFileSystem()
+-	files.regular["/config/config.toml"] = []byte("schema = \"urn:ax:schema:config\"\n")
++	files.regular["/config/config.toml"] = minimalValidConfig(scalar.PlatformMacOS)
+ 	inputs := fixtureInputs(scalar.PlatformMacOS, map[string]string{
+ 		"AX_CONFIG": "/config/config.toml",
+ 	}, files)
+@@ -955,7 +957,7 @@ func TestLoadIsIdempotentReadOnlyAndReturnsIsolatedSnapshots(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	files := newFakeFileSystem()
+-	files.regular["/config/config.toml"] = []byte("schema = \"urn:ax:schema:config\"\n")
++	files.regular["/config/config.toml"] = minimalValidConfig(scalar.PlatformMacOS)
+ 	inputs := fixtureInputs(scalar.PlatformMacOS, map[string]string{
+ 		"AX_CONFIG": "/config/config.toml",
+ 	}, files)
+@@ -1043,6 +1045,17 @@ func hostPlatform(t *testing.T) scalar.Platform {
+ 	}
+ }
+ 
++func minimalValidConfig(platform scalar.Platform) []byte {
++	return []byte(fmt.Sprintf(
++		"schema = %q\nschema_version = %q\nhost_id = %q\nhost_name = %q\nplatform = %q\n",
++		SchemaID,
++		Version1,
++		"0198f4c8-4a10-7b22-8b3c-1234567890ab",
++		"fixture-host",
++		platform.String(),
++	))
++}
++
+ func mapLookup(values map[string]string) func(string) (string, bool) {
+ 	return func(name string) (string, bool) {
+ 		value, ok := values[name]
+diff --git a/internal/config/refusal_inventory_test.go b/internal/config/refusal_inventory_test.go
+new file mode 100644
+index 0000000..01f2f77
+--- /dev/null
++++ b/internal/config/refusal_inventory_test.go
+@@ -0,0 +1,99 @@
++package config
++
++import (
++	"flag"
++	"fmt"
++	"go/ast"
++	"go/parser"
++	"go/token"
++	"os"
++	"path/filepath"
++	"runtime"
++	"sort"
++	"strings"
++	"sync"
++	"testing"
++)
++
++var exercisedConfigErrorSites sync.Map
++
++func TestMain(main *testing.M) {
++	configError = func(field string, err error) error {
++		_, file, line, ok := runtime.Caller(1)
++		if ok {
++			exercisedConfigErrorSites.Store(fmt.Sprintf("%s:%d", filepath.Base(file), line), struct{}{})
++		}
++		return &DocumentError{Clause: field, Err: err}
++	}
++	code := main.Run()
++	if code == 0 && fullPackageTestRun() {
++		missing, err := missingConfigErrorSites()
++		if err != nil {
++			fmt.Fprintf(os.Stderr, "derive configuration refusal inventory: %v\n", err)
++			code = 1
++		} else if len(missing) != 0 {
++			fmt.Fprintf(os.Stderr, "configuration refusal call sites without an exercised negative path: %s\n", strings.Join(missing, ", "))
++			code = 1
++		}
++	}
++	os.Exit(code)
++}
++
++func fullPackageTestRun() bool {
++	selected := flag.Lookup("test.run")
++	return selected == nil || selected.Value.String() == ""
++}
++
++func missingConfigErrorSites() ([]string, error) {
++	directory, err := os.Getwd()
++	if err != nil {
++		return nil, err
++	}
++	entries, err := os.ReadDir(directory)
++	if err != nil {
++		return nil, err
++	}
++	fileSet := token.NewFileSet()
++	var expected []string
++	for _, entry := range entries {
++		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
++			continue
++		}
++		path := filepath.Join(directory, entry.Name())
++		source, err := os.ReadFile(path)
++		if err != nil {
++			return nil, err
++		}
++		lines := strings.Split(string(source), "\n")
++		parsed, err := parser.ParseFile(fileSet, path, source, 0)
++		if err != nil {
++			return nil, err
++		}
++		ast.Inspect(parsed, func(node ast.Node) bool {
++			call, ok := node.(*ast.CallExpr)
++			if !ok {
++				return true
++			}
++			identifier, ok := call.Fun.(*ast.Ident)
++			if !ok || identifier.Name != "configError" {
++				return true
++			}
++			position := fileSet.Position(call.Pos())
++			line := lines[position.Line-1]
++			if strings.Contains(line, "config-refusal-subsumed:") {
++				return true
++			}
++			expected = append(expected, fmt.Sprintf("%s:%d", entry.Name(), position.Line))
++			return true
++		})
++	}
++
++	var missing []string
++	for _, site := range expected {
++		if _, ok := exercisedConfigErrorSites.Load(site); !ok {
++			missing = append(missing, site)
++		}
++	}
++	sort.Strings(missing)
++	return missing, nil
++}
+diff --git a/internal/config/refusal_test.go b/internal/config/refusal_test.go
+new file mode 100644
+index 0000000..849d490
+--- /dev/null
++++ b/internal/config/refusal_test.go
+@@ -0,0 +1,512 @@
++package config
++
++import (
++	"errors"
++	"sort"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const testPeerID2 = "0198f4c8-9d40-7e55-8e6f-1234567890ab"
++
++func TestLoadRefusesEveryOpenSSHHostAuthenticationBypassSpelling(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name string
++		args string
++	}{
++		{name: "separate equals", args: `["-o", "StrictHostKeyChecking=no"]`},
++		{name: "strict off alias", args: `["-o", "StrictHostKeyChecking=off"]`},
++		{name: "strict off alias combined", args: `["-oStrictHostKeyChecking=off"]`},
++		{name: "separate whitespace", args: `["-o", "StrictHostKeyChecking no"]`},
++		{name: "separator run", args: `["-o", "StrictHostKeyChecking = no"]`},
++		{name: "combined whitespace", args: `["-oStrictHostKeyChecking no"]`},
++		{name: "quoted value", args: `["-o", "StrictHostKeyChecking=\"no\""]`},
++		{name: "known hosts null device", args: `["-o", "UserKnownHostsFile /dev/null"]`},
++		{name: "known hosts none", args: `["-o", "UserKnownHostsFile=none"]`},
++		{name: "known hosts tab separator", args: `["-o", "UserKnownHostsFile\t/dev/null"]`},
++		{name: "combined known hosts", args: `["-oUserKnownHostsFile=/dev/null"]`},
++		{name: "empty global known hosts", args: `["-o", "GlobalKnownHostsFile=\"\""]`},
++		{name: "global known hosts none", args: `["-o", "GlobalKnownHostsFile=none"]`},
++		{name: "global known hosts null device", args: `["-o", "GlobalKnownHostsFile=/dev/null"]`},
++	}
++	for _, test := range tests {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			document := append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[mesh.peers]]
++host_id = "`+testPeerID+`"
++name = "peer"
++endpoint = "peer.example"
++platform = "linux"
++ssh_args = `+test.args+`
++workspace_roots = []
++`)...)
++			_, err := loadConfigDocument(document, scalar.PlatformMacOS, nil)
++			requireConfigClause(t, err, "mesh.peers[0].ssh_args host authentication bypass")
++		})
++	}
++}
++
++func TestLoadClosesLegacyTerminalBackendVocabularyBeforeTranslation(t *testing.T) {
++	t.Parallel()
++
++	for _, version := range []string{Version1, Version2} {
++		version := version
++		t.Run(version, func(t *testing.T) {
++			document := append(minimalValidConfigVersion(scalar.PlatformMacOS, version), []byte("\n[terminal]\nbackend = \"ax.tmux\"\n")...)
++			_, err := loadConfigDocument(document, scalar.PlatformMacOS, nil)
++			requireConfigClause(t, err, "terminal.backend")
++		})
++	}
++}
++
++func TestDecodeEnvelopeRefusalClausesAreIndividuallyPinned(t *testing.T) {
++	t.Parallel()
++
++	valid := minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion)
++	_, err := Decode(valid, DecodeContext{RuntimePlatform: scalar.Platform("darwin")})
++	requireConfigClause(t, err, "platform")
++
++	_, err = Decode([]byte("schema ="), DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++	requireDocumentClause(t, err, ErrConfigDecode, "TOML")
++
++	wrongSchema := replaceRootString(valid, "schema", "urn:ax:schema:not-config")
++	_, err = Decode(wrongSchema, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++	requireConfigClause(t, err, "schema")
++}
++
++func TestTerminalCapabilityClosureIsDerivedFromPinnedCatalog(t *testing.T) {
++	t.Parallel()
++
++	var expected []string
++	for _, capability := range catalog.Current().Capabilities {
++		if capability.Family == catalog.Family("terminal_backend") {
++			expected = append(expected, string(capability.Name))
++		}
++	}
++	sort.Strings(expected)
++	if len(expected) == 0 {
++		t.Fatal("pinned catalog has no terminal_backend capabilities")
++	}
++	if len(terminalCapabilitySet) != len(expected) {
++		t.Fatalf("production terminal capability set has %d members, pinned catalog requires %d", len(terminalCapabilitySet), len(expected))
++	}
++	for _, name := range expected {
++		if _, ok := terminalCapabilitySet[name]; !ok {
++			t.Errorf("pinned terminal capability %q is not enforced by production validation", name)
++		}
++	}
++
++	configuration := validCurrentConfiguration()
++	configuration.Terminal.RequiredCapabilities = expected
++	configuration.Terminal.RequiredCapabilitiesExplicit = true
++	if _, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS}); err != nil {
++		t.Fatalf("EncodeCurrent(all pinned terminal capabilities) error = %v", err)
++	}
++}
++
++func TestLoadRawRequiredMemberRefusalClauses(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name     string
++		document []byte
++		clause   string
++	}{
++		{
++			name:     "root identity",
++			document: []byte("schema = \"urn:ax:schema:config\"\nschema_version = \"3.0.0\"\nhost_id = \"" + testHostID + "\"\nplatform = \"macos\"\n"),
++			clause:   "required root identity",
++		},
++		{
++			name:     "platform vocabulary",
++			document: replaceRootString(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), "platform", "darwin"),
++			clause:   "platform",
++		},
++		{
++			name: "peer required member",
++			document: append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[mesh.peers]]
++host_id = "`+testPeerID+`"
++name = "peer"
++platform = "linux"
++`)...),
++			clause: "mesh.peers[0] required member",
++		},
++		{
++			name: "peer platform vocabulary",
++			document: append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[mesh.peers]]
++host_id = "`+testPeerID+`"
++name = "peer"
++endpoint = "peer.example"
++platform = "darwin"
++`)...),
++			clause: "mesh.peers[0].platform",
++		},
++		{
++			name: "directory installation required member",
++			document: append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[directory_installations]]
++installation_id = "`+testDigest+`"
++`)...),
++			clause: "directory_installations[0] required member",
++		},
++		{
++			name: "directory profile required member",
++			document: append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[directory_enrichment_profiles]]
++profile_id = "`+testDigest+`"
++`)...),
++			clause: "directory_enrichment_profiles[0] required member",
++		},
++		{
++			name: "directory disclosure required member",
++			document: append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[directory_peer_disclosure]]
++host_id = "`+testPeerID+`"
++`)...),
++			clause: "directory_peer_disclosure[0] required member",
++		},
++		{
++			name: "external trust required member",
++			document: append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[terminal.external_trust]]
++backend_id = "com.example.term"
++`)...),
++			clause: "terminal.external_trust[0] required member",
++		},
++		{
++			name: "backend config required member",
++			document: append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[terminal.backend_config]]
++backend_id = "ax.tmux"
++`)...),
++			clause: "terminal.backend_config[0] required member",
++		},
++	}
++	for _, test := range tests {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			_, err := loadConfigDocument(test.document, scalar.PlatformMacOS, nil)
++			requireConfigClause(t, err, test.clause)
++		})
++	}
++}
++
++func TestEncodeCurrentRefusalClausesAreIndividuallyPinned(t *testing.T) {
++	t.Parallel()
++
++	type refusalCase struct {
++		name    string
++		clause  string
++		mutate  func(*Configuration)
++		context DecodeContext
++	}
++	validProfile := func() DirectoryEnrichmentProfile {
++		return DirectoryEnrichmentProfile{ProfileID: testDigest, Enabled: true, MaxConcurrency: 1, MetadataPolicy: "local_only", Extensions: map[string]any{}}
++	}
++	validDisclosure := func() DirectoryPeerDisclosure {
++		return DirectoryPeerDisclosure{
++			HostID: testPeerID, EnvironmentObservations: "local_only", NativeObservations: "local_only",
++			ManualMetadata: "local_only", GeneratedMetadata: "local_only", JobOperationStatus: "local_only", Extensions: map[string]any{},
++		}
++	}
++	tests := []refusalCase{
++		{name: "host UUIDv7", clause: "host_id", mutate: func(value *Configuration) { value.HostID = "not-a-uuid" }},
++		{name: "mesh transport", clause: "mesh.transport", mutate: func(value *Configuration) { value.Mesh.Transport = "quic" }},
++		{name: "mesh payload encryption", clause: "mesh.payload_encryption", mutate: func(value *Configuration) { value.Mesh.PayloadEncryption = "aes256" }},
++		{name: "peer UUIDv7", clause: "mesh.peers[0].host_id", mutate: func(value *Configuration) { value.Mesh.Peers[0].HostID = "not-a-uuid" }},
++		{name: "duplicate peer name", clause: "mesh.peers duplicate name", mutate: func(value *Configuration) {
++			peer := value.Mesh.Peers[0]
++			peer.HostID = testPeerID2
++			value.Mesh.Peers = append(value.Mesh.Peers, peer)
++		}},
++		{name: "duplicate logical root", clause: "workspace_roots duplicate logical_root", mutate: func(value *Configuration) {
++			value.WorkspaceRoots = append(value.WorkspaceRoots, value.WorkspaceRoots[0])
++		}},
++		{name: "plugin directory absolute path", clause: "providers.plugin_dirs", mutate: func(value *Configuration) { value.Providers.PluginDirs = []string{"relative/plugins"} }},
++		{name: "explicit provider trust", clause: "providers.require_explicit_trust", mutate: func(value *Configuration) { value.Providers.RequireExplicitTrust = false }},
++		{name: "directory mode", clause: "directory.mode", mutate: func(value *Configuration) { value.Directory.Mode = "always" }},
++		{name: "directory fresh current maximum", clause: "directory.fresh_current_seconds", mutate: func(value *Configuration) { value.Directory.FreshCurrentSeconds = 86_401 }},
++		{name: "directory metadata policy", clause: "directory.default_metadata_policy", mutate: func(value *Configuration) { value.Directory.DefaultMetadataPolicy = "everything" }},
++		{name: "directory summary choice", clause: "directory.generated_summary_upgrade_choice", mutate: func(value *Configuration) { value.Directory.GeneratedSummaryUpgradeChoice = "everything" }},
++		{name: "directory enrichment digest", clause: "directory.default_enrichment_profile_id", mutate: func(value *Configuration) { value.Directory.DefaultEnrichmentProfileID = "not-a-digest" }},
++		{name: "directory embedding index", clause: "directory.embedding_index", mutate: func(value *Configuration) { value.Directory.EmbeddingIndex = "remote" }},
++		{name: "installation digest", clause: "directory_installations[0].installation_id", mutate: func(value *Configuration) { value.DirectoryInstallations[0].InstallationID = "not-a-digest" }},
++		{name: "duplicate installation", clause: "directory_installations duplicate installation_id", mutate: func(value *Configuration) {
++			value.DirectoryInstallations = append(value.DirectoryInstallations, value.DirectoryInstallations[0])
++		}},
++		{name: "installation provider ID", clause: "directory_installations[0].provider_id", mutate: func(value *Configuration) { value.DirectoryInstallations[0].ProviderID = "INVALID" }},
++		{name: "profile digest", clause: "directory_enrichment_profiles[0].profile_id", mutate: func(value *Configuration) {
++			profile := validProfile()
++			profile.ProfileID = "not-a-digest"
++			value.DirectoryEnrichmentProfiles = []DirectoryEnrichmentProfile{profile}
++		}},
++		{name: "duplicate profile", clause: "directory_enrichment_profiles duplicate profile_id", mutate: func(value *Configuration) {
++			profile := validProfile()
++			value.DirectoryEnrichmentProfiles = []DirectoryEnrichmentProfile{profile, profile}
++		}},
++		{name: "profile concurrency", clause: "directory_enrichment_profiles[0].max_concurrency", mutate: func(value *Configuration) {
++			profile := validProfile()
++			profile.MaxConcurrency = 0
++			value.DirectoryEnrichmentProfiles = []DirectoryEnrichmentProfile{profile}
++		}},
++		{name: "profile metadata policy", clause: "directory_enrichment_profiles[0].metadata_policy", mutate: func(value *Configuration) {
++			profile := validProfile()
++			profile.MetadataPolicy = "everything"
++			value.DirectoryEnrichmentProfiles = []DirectoryEnrichmentProfile{profile}
++		}},
++		{name: "profile extensions", clause: "directory_enrichment_profiles[0].extensions", mutate: func(value *Configuration) {
++			profile := validProfile()
++			profile.Extensions = nil
++			value.DirectoryEnrichmentProfiles = []DirectoryEnrichmentProfile{profile}
++		}},
++		{name: "disclosure UUIDv7", clause: "directory_peer_disclosure[0].host_id", mutate: func(value *Configuration) {
++			disclosure := validDisclosure()
++			disclosure.HostID = "not-a-uuid"
++			value.DirectoryPeerDisclosure = []DirectoryPeerDisclosure{disclosure}
++		}},
++		{name: "duplicate disclosure", clause: "directory_peer_disclosure duplicate host_id", mutate: func(value *Configuration) {
++			disclosure := validDisclosure()
++			value.DirectoryPeerDisclosure = []DirectoryPeerDisclosure{disclosure, disclosure}
++		}},
++		{name: "disclosure environment policy", clause: "directory_peer_disclosure[0].environment_observations", mutate: func(value *Configuration) {
++			disclosure := validDisclosure()
++			disclosure.EnvironmentObservations = "everything"
++			value.DirectoryPeerDisclosure = []DirectoryPeerDisclosure{disclosure}
++		}},
++		{name: "disclosure native policy", clause: "directory_peer_disclosure[0].native_observations", mutate: func(value *Configuration) {
++			disclosure := validDisclosure()
++			disclosure.NativeObservations = "everything"
++			value.DirectoryPeerDisclosure = []DirectoryPeerDisclosure{disclosure}
++		}},
++		{name: "disclosure manual policy", clause: "directory_peer_disclosure[0].manual_metadata", mutate: func(value *Configuration) {
++			disclosure := validDisclosure()
++			disclosure.ManualMetadata = "everything"
++			value.DirectoryPeerDisclosure = []DirectoryPeerDisclosure{disclosure}
++		}},
++		{name: "disclosure generated policy", clause: "directory_peer_disclosure[0].generated_metadata", mutate: func(value *Configuration) {
++			disclosure := validDisclosure()
++			disclosure.GeneratedMetadata = "everything"
++			value.DirectoryPeerDisclosure = []DirectoryPeerDisclosure{disclosure}
++		}},
++		{name: "disclosure job policy", clause: "directory_peer_disclosure[0].job_operation_status", mutate: func(value *Configuration) {
++			disclosure := validDisclosure()
++			disclosure.JobOperationStatus = "everything"
++			value.DirectoryPeerDisclosure = []DirectoryPeerDisclosure{disclosure}
++		}},
++		{name: "disclosure extensions", clause: "directory_peer_disclosure[0].extensions", mutate: func(value *Configuration) {
++			disclosure := validDisclosure()
++			disclosure.Extensions = nil
++			value.DirectoryPeerDisclosure = []DirectoryPeerDisclosure{disclosure}
++		}},
++		{name: "terminal backend ID", clause: "terminal.backend_id", mutate: func(value *Configuration) { value.Terminal.BackendID = "INVALID_ID" }},
++		{name: "capability default provenance", clause: "terminal.required_capabilities default provenance", mutate: func(value *Configuration) {
++			value.Terminal.RequiredCapabilities = []string{"local_attach"}
++			value.Terminal.RequiredCapabilitiesExplicit = false
++		}},
++		{name: "multiple input policy", clause: "terminal.multiple_input_policy", mutate: func(value *Configuration) { value.Terminal.MultipleInputPolicy = "allow_all" }},
++		{name: "terminal transport policy", clause: "terminal.transport_policy", mutate: func(value *Configuration) {
++			value.Terminal.TransportPolicy = []string{"relay"}
++			value.Terminal.TransportPolicyExplicit = true
++		}},
++		{name: "transport default provenance", clause: "terminal.transport_policy default provenance", mutate: func(value *Configuration) {
++			value.Terminal.TransportPolicy = []string{"local_only"}
++			value.Terminal.TransportPolicyExplicit = false
++		}},
++		{name: "conpty platform", clause: "terminal.backend_id unsupported platform", mutate: func(value *Configuration) { value.Terminal.BackendID = "ax.conpty" }},
++		{name: "external backend ID", clause: "terminal.external_trust[0].backend_id", mutate: func(value *Configuration) {
++			value.Terminal.ExternalTrust = []ExternalExecutableTrust{{BackendID: "INVALID_ID", ExecutablePath: "/opt/backend", ExecutableDigest: testDigest, Enabled: true}}
++		}},
++		{name: "external executable absolute path", clause: "terminal.external_trust[0].executable_path", mutate: func(value *Configuration) {
++			value.Terminal.ExternalTrust = []ExternalExecutableTrust{{BackendID: "com.example.term", ExecutablePath: "relative/backend", ExecutableDigest: testDigest, Enabled: true}}
++		}},
++		{name: "external executable digest", clause: "terminal.external_trust[0].executable_digest", mutate: func(value *Configuration) {
++			value.Terminal.ExternalTrust = []ExternalExecutableTrust{{BackendID: "com.example.term", ExecutablePath: "/opt/backend", ExecutableDigest: "not-a-digest", Enabled: true}}
++		}},
++		{name: "unregistered selected backend", clause: "terminal.backend_id is not registered", mutate: func(value *Configuration) { value.Terminal.BackendID = "com.example.term" }},
++		{name: "unregistered backend config", clause: "terminal.backend_config[0].backend_id is not registered", mutate: func(value *Configuration) {
++			value.Terminal.BackendConfig = []BackendConfig{{BackendID: "com.example.term", ConfigVersion: "1.0.0", Settings: map[string]any{}}}
++		}},
++		{name: "duplicate backend config", clause: "terminal.backend_config duplicate backend_id", context: DecodeContext{RuntimePlatform: scalar.PlatformMacOS, BackendSettings: acceptBackendSettings{}}, mutate: func(value *Configuration) {
++			entry := BackendConfig{BackendID: "ax.tmux", ConfigVersion: "1.0.0", Settings: map[string]any{}}
++			value.Terminal.BackendConfig = []BackendConfig{entry, entry}
++		}},
++		{name: "backend config semver", clause: "terminal.backend_config[0].config_version", mutate: func(value *Configuration) {
++			value.Terminal.BackendConfig = []BackendConfig{{BackendID: "ax.tmux", ConfigVersion: "v1", Settings: map[string]any{}}}
++		}},
++		{name: "backend config settings required", clause: "terminal.backend_config[0].settings", mutate: func(value *Configuration) {
++			value.Terminal.BackendConfig = []BackendConfig{{BackendID: "ax.tmux", ConfigVersion: "1.0.0", Settings: nil}}
++		}},
++		{name: "backend settings schema refusal", clause: "terminal.backend_config[0].settings", context: DecodeContext{RuntimePlatform: scalar.PlatformMacOS, BackendSettings: rejectBackendSettings{}}, mutate: func(value *Configuration) {
++			value.Terminal.BackendConfig = []BackendConfig{{BackendID: "ax.tmux", ConfigVersion: "1.0.0", Settings: map[string]any{}}}
++		}},
++	}
++
++	for _, test := range tests {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			configuration := validCurrentConfiguration()
++			test.mutate(&configuration)
++			context := test.context
++			if context.RuntimePlatform == "" {
++				context.RuntimePlatform = scalar.PlatformMacOS
++			}
++			_, err := EncodeCurrent(configuration, context)
++			requireConfigClause(t, err, test.clause)
++		})
++	}
++}
++
++func TestEncodeCurrentPinsPreviouslyCompositeRefusalClauses(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name   string
++		clause string
++		mutate func(*Configuration)
++	}{
++		{name: "host name invalid UTF-8", clause: "host_name", mutate: func(value *Configuration) {
++			value.HostName = string([]byte{0xff})
++		}},
++		{name: "host name control character", clause: "host_name", mutate: func(value *Configuration) {
++			value.HostName = "host\nname"
++		}},
++		{name: "SSH argument invalid UTF-8", clause: "mesh.peers[0].ssh_args", mutate: func(value *Configuration) {
++			value.Mesh.Peers[0].SSHArgs = []string{string([]byte{0xff})}
++		}},
++		{name: "SSH argument NUL", clause: "mesh.peers[0].ssh_args", mutate: func(value *Configuration) {
++			value.Mesh.Peers[0].SSHArgs = []string{"arg\x00value"}
++		}},
++		{name: "extension reverse-DNS namespace", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
++			value.DirectoryInstallations[0].Extensions = map[string]any{"singlelabel": true}
++		}},
++		{name: "extension forbidden root name", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
++			value.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.token": "fixture"}
++		}},
++		{name: "extension forbidden nested name", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
++			value.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.fixture": map[string]any{"endpoint": "fixture"}}
++		}},
++		{name: "extension float", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
++			value.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.fixture": 1.5}
++		}},
++		{name: "extension array depth", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
++			value.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.fixture": []any{[]any{[]any{[]any{[]any{"leaf"}}}}}}
++		}},
++		{name: "duplicate required capability", clause: "terminal.required_capabilities", mutate: func(value *Configuration) {
++			value.Terminal.RequiredCapabilities = []string{"local_attach", "local_attach"}
++			value.Terminal.RequiredCapabilitiesExplicit = true
++		}},
++		{name: "duplicate transport policy", clause: "terminal.transport_policy", mutate: func(value *Configuration) {
++			value.Terminal.TransportPolicy = []string{"local_only", "local_only"}
++			value.Terminal.TransportPolicyExplicit = true
++		}},
++		{name: "duplicate scan authority digest", clause: "directory_installations[0].scan_root_authority_ids", mutate: func(value *Configuration) {
++			value.DirectoryInstallations[0].ScanRootAuthorityIDs = []string{testDigest, testDigest}
++		}},
++		{name: "selected backend ID byte bound", clause: "terminal.backend_id", mutate: func(value *Configuration) {
++			value.Terminal.BackendID = "a." + strings.Repeat("b", 127)
++		}},
++		{name: "external trust backend ID byte bound", clause: "terminal.external_trust[0].backend_id", mutate: func(value *Configuration) {
++			value.Terminal.ExternalTrust = []ExternalExecutableTrust{{BackendID: "a." + strings.Repeat("b", 127), ExecutablePath: "/opt/backend", ExecutableDigest: testDigest, Enabled: true}}
++		}},
++	}
++
++	for _, test := range tests {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			configuration := validCurrentConfiguration()
++			test.mutate(&configuration)
++			_, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++			requireConfigClause(t, err, test.clause)
++		})
++	}
++}
++
++func TestEncodeCurrentRefusesSelectedExternalBackendWhoseOnlyTrustEntryIsDisabled(t *testing.T) {
++	t.Parallel()
++
++	configuration := validCurrentConfiguration()
++	configuration.Terminal.BackendID = "com.example.term"
++	configuration.Terminal.ExternalTrust = []ExternalExecutableTrust{{
++		BackendID: "com.example.term", ExecutablePath: "/opt/example/terminal",
++		ExecutableDigest: testDigest, Enabled: false,
++	}}
++	_, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++	requireConfigClause(t, err, "terminal.backend_id is not registered")
++}
++
++func TestEncodeCurrentPreservesExplicitDenyAllAndDisabledUnselectedTrust(t *testing.T) {
++	t.Parallel()
++
++	configuration := validCurrentConfiguration()
++	configuration.Terminal.TransportPolicy = []string{}
++	configuration.Terminal.TransportPolicyExplicit = true
++	configuration.Terminal.ExternalTrust = []ExternalExecutableTrust{{
++		BackendID: "com.example.term", ExecutablePath: "/opt/example/terminal",
++		ExecutableDigest: testDigest, Enabled: false,
++	}}
++	encoded, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++	if err != nil {
++		t.Fatalf("EncodeCurrent(explicit empty transport policy) error = %v", err)
++	}
++	snapshot, err := loadConfigDocument(encoded, scalar.PlatformMacOS, nil)
++	if err != nil {
++		t.Fatalf("Load(EncodeCurrent(explicit policy and disabled trust)) error = %v", err)
++	}
++	loaded, ok := snapshot.Configuration()
++	if !ok || !loaded.Value.Terminal.TransportPolicyExplicit || len(loaded.Value.Terminal.TransportPolicy) != 0 {
++		t.Fatalf("round-trip transport policy = %#v, present=%v", loaded.Value.Terminal.TransportPolicy, ok)
++	}
++	if len(loaded.Value.Terminal.ExternalTrust) != 1 || loaded.Value.Terminal.ExternalTrust[0].Enabled {
++		t.Fatalf("round-trip external trust = %#v", loaded.Value.Terminal.ExternalTrust)
++	}
++}
++
++func TestEncodeCurrentReportsTOMLFailureForValidatorAcceptedUnencodableSettings(t *testing.T) {
++	t.Parallel()
++
++	configuration := validCurrentConfiguration()
++	configuration.Terminal.BackendConfig = []BackendConfig{{
++		BackendID: "ax.tmux", ConfigVersion: "1.0.0", Settings: map[string]any{"unsupported": make(chan int)},
++	}}
++	_, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS, BackendSettings: acceptBackendSettings{}})
++	requireDocumentClause(t, err, ErrConfigEncode, "TOML")
++}
++
++type acceptBackendSettings struct{}
++
++func (acceptBackendSettings) ValidateBackendSettings(string, string, map[string]any) error {
++	return nil
++}
++
++type rejectBackendSettings struct{}
++
++func (rejectBackendSettings) ValidateBackendSettings(string, string, map[string]any) error {
++	return errors.New("fixture settings rejected")
++}
++
++func requireConfigClause(t *testing.T, err error, clause string) {
++	t.Helper()
++	requireDocumentClause(t, err, ErrConfigValidation, clause)
++}
++
++func requireDocumentClause(t *testing.T, err, identity error, clause string) {
++	t.Helper()
++	if !errors.Is(err, identity) {
++		t.Fatalf("error = %v, want %v at %q", err, identity, clause)
++	}
++	var documentError *DocumentError
++	if !errors.As(err, &documentError) {
++		t.Fatalf("error = %T %v, want DocumentError at %q", err, err, clause)
++	}
++	if documentError.Clause != clause {
++		t.Fatalf("error clause = %q, want %q", documentError.Clause, clause)
++	}
++}
+diff --git a/internal/config/schema.go b/internal/config/schema.go
+new file mode 100644
+index 0000000..a88fde4
+--- /dev/null
++++ b/internal/config/schema.go
+@@ -0,0 +1,538 @@
++package config
++
++import (
++	"bytes"
++	"errors"
++	"reflect"
++	"strings"
++
++	"github.com/pelletier/go-toml/v2"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const (
++	SchemaID       = "urn:ax:schema:config"
++	Version1       = "1.0.0"
++	Version2       = "2.0.0"
++	CurrentVersion = "3.0.0"
++)
++
++var (
++	ErrConfigDecode             = errors.New("configuration document decode failed")
++	ErrConfigValidation         = errors.New("configuration document validation failed")
++	ErrUnsupportedConfigVersion = errors.New("unsupported configuration version")
++	ErrConfigEncode             = errors.New("configuration document encode failed")
++)
++
++// BackendSettingsValidator closes a backend_config.settings object for one
++// exact backend implementation/config version. A nil validator means that no
++// backend-specific settings schemas are registered and therefore every
++// backend_config entry is refused.
++type BackendSettingsValidator interface {
++	ValidateBackendSettings(backendID, configVersion string, settings map[string]any) error
++}
++
++// DecodeContext carries facts that are external to the TOML document but are
++// required by its exact validation rules.
++type DecodeContext struct {
++	RuntimePlatform scalar.Platform
++	BackendSettings BackendSettingsValidator
++}
++
++// LoadedConfiguration is an exact source-version read translated into the
++// current in-memory model. SourceVersion remains diagnostic provenance; Value
++// always has SchemaVersion CurrentVersion.
++type LoadedConfiguration struct {
++	SourceVersion string
++	Value         Configuration
++}
++
++// DocumentError preserves machine-actionable error identity while rendering
++// only a static schema clause. Parser/validator details remain unwrap-able and
++// cannot echo TOML values, paths, endpoints, or other machine-local data.
++type DocumentError struct {
++	Clause string
++	Err    error
++}
++
++func (err *DocumentError) Error() string { return "configuration document rejected at " + err.Clause }
++func (err *DocumentError) Unwrap() error { return err.Err }
++
++// Configuration is the current Configuration 3.0.0 logical model.
++type Configuration struct {
++	Schema                      string
++	SchemaVersion               string
++	HostID                      string
++	HostName                    string
++	Platform                    scalar.Platform
++	Mesh                        Mesh
++	WorkspaceRoots              []WorkspaceRoot
++	Providers                   Providers
++	Sync                        Sync
++	Terminal                    Terminal
++	Service                     Service
++	Restore                     Restore
++	Profiles                    Profiles
++	Directory                   Directory
++	DirectoryInstallations      []DirectoryInstallation
++	DirectoryEnrichmentProfiles []DirectoryEnrichmentProfile
++	DirectoryPeerDisclosure     []DirectoryPeerDisclosure
++}
++
++type Mesh struct {
++	Transport             string
++	SyncIntervalSeconds   uint64
++	ConnectTimeoutSeconds uint64
++	RPCTimeoutSeconds     uint64
++	WorkspaceReplication  bool
++	PayloadEncryption     string
++	Peers                 []Peer
++}
++
++type Peer struct {
++	HostID         string
++	Name           string
++	Endpoint       string
++	Platform       scalar.Platform
++	SSHArgs        []string
++	WorkspaceRoots []WorkspaceRoot
++}
++
++type WorkspaceRoot struct {
++	LogicalRoot string
++	Path        string
++}
++
++type Providers struct {
++	PluginDirs           []string
++	AllowPathPlugins     bool
++	RequireExplicitTrust bool
++}
++
++type Sync struct {
++	ChunkBytes                uint64
++	MaxParallelChunks         uint64
++	StagingRetentionHours     uint64
++	TombstoneMinRetentionDays uint64
++}
++
++type Service struct {
++	Enabled               bool
++	HealthIntervalSeconds uint64
++}
++
++type Restore struct{ AutoResume bool }
++
++type Profiles struct{ Yolo YoloProfile }
++
++type YoloProfile struct{ RequireFirstUseConfirmation bool }
++
++type Directory struct {
++	Enabled                       bool
++	Mode                          string
++	ScanIntervalSeconds           uint64
++	ScanDebounceSeconds           uint64
++	ScanConcurrency               uint64
++	FreshCurrentSeconds           uint64
++	FreshAgingSeconds             uint64
++	FreshStaleSeconds             uint64
++	PlanExpirySeconds             uint64
++	DefaultMetadataPolicy         string
++	GeneratedSummaryUpgradeChoice string
++	DefaultEnrichmentProfileID    string
++	QueryPageDefault              uint64
++	QueryPageMax                  uint64
++	QueryBatchMax                 uint64
++	GrepResultMax                 uint64
++	TranscriptGrepEnabled         bool
++	EmbeddingIndex                string
++	ObservationRetentionDays      uint64
++	JobRetentionDays              uint64
++	OperationRetentionDays        uint64
++	ProvenanceCompaction          bool
++}
++
++type DirectoryInstallation struct {
++	InstallationID       string
++	EnvironmentID        string
++	ProviderID           string
++	AdapterID            string
++	ScanRootAuthorityIDs []string
++	Enabled              bool
++	Extensions           map[string]any
++}
++
++type DirectoryEnrichmentProfile struct {
++	ProfileID      string
++	Enabled        bool
++	MaxConcurrency uint64
++	MetadataPolicy string
++	Extensions     map[string]any
++}
++
++type DirectoryPeerDisclosure struct {
++	HostID                  string
++	EnvironmentObservations string
++	NativeObservations      string
++	ManualMetadata          string
++	GeneratedMetadata       string
++	JobOperationStatus      string
++	Extensions              map[string]any
++}
++
++type Terminal struct {
++	BackendID                    string
++	SafeBoundaryTimeoutSeconds   uint64
++	GracefulStopTimeoutSeconds   uint64
++	RequiredCapabilities         []string
++	RequiredCapabilitiesExplicit bool
++	MultipleInputPolicy          string
++	TransportPolicy              []string
++	TransportPolicyExplicit      bool
++	ExternalTrust                []ExternalExecutableTrust
++	BackendConfig                []BackendConfig
++}
++
++type ExternalExecutableTrust struct {
++	BackendID        string
++	ExecutablePath   string
++	ExecutableDigest string
++	Enabled          bool
++}
++
++type BackendConfig struct {
++	BackendID     string
++	ConfigVersion string
++	Settings      map[string]any
++}
++
++type rawEnvelope struct {
++	Schema        string `toml:"schema"`
++	SchemaVersion string `toml:"schema_version"`
++}
++
++type rawCommon struct {
++	Schema         string             `toml:"schema"`
++	SchemaVersion  string             `toml:"schema_version"`
++	HostID         *string            `toml:"host_id"`
++	HostName       *string            `toml:"host_name"`
++	Platform       *string            `toml:"platform"`
++	Mesh           rawMesh            `toml:"mesh"`
++	WorkspaceRoots []rawWorkspaceRoot `toml:"workspace_roots"`
++	Providers      rawProviders       `toml:"providers"`
++	Sync           rawSync            `toml:"sync"`
++	Service        rawService         `toml:"service"`
++	Restore        rawRestore         `toml:"restore"`
++	Profiles       rawProfiles        `toml:"profiles"`
++}
++
++type rawV1 struct {
++	Schema         string             `toml:"schema"`
++	SchemaVersion  string             `toml:"schema_version"`
++	HostID         *string            `toml:"host_id"`
++	HostName       *string            `toml:"host_name"`
++	Platform       *string            `toml:"platform"`
++	Mesh           rawMesh            `toml:"mesh"`
++	WorkspaceRoots []rawWorkspaceRoot `toml:"workspace_roots"`
++	Providers      rawProviders       `toml:"providers"`
++	Sync           rawSync            `toml:"sync"`
++	Terminal       rawLegacyTerminal  `toml:"terminal"`
++	Service        rawService         `toml:"service"`
++	Restore        rawRestore         `toml:"restore"`
++	Profiles       rawProfiles        `toml:"profiles"`
++}
++
++type rawV2 struct {
++	Schema                      string                          `toml:"schema"`
++	SchemaVersion               string                          `toml:"schema_version"`
++	HostID                      *string                         `toml:"host_id"`
++	HostName                    *string                         `toml:"host_name"`
++	Platform                    *string                         `toml:"platform"`
++	Mesh                        rawMesh                         `toml:"mesh"`
++	WorkspaceRoots              []rawWorkspaceRoot              `toml:"workspace_roots"`
++	Providers                   rawProviders                    `toml:"providers"`
++	Sync                        rawSync                         `toml:"sync"`
++	Terminal                    rawLegacyTerminal               `toml:"terminal"`
++	Service                     rawService                      `toml:"service"`
++	Restore                     rawRestore                      `toml:"restore"`
++	Profiles                    rawProfiles                     `toml:"profiles"`
++	Directory                   rawDirectory                    `toml:"directory"`
++	DirectoryInstallations      []rawDirectoryInstallation      `toml:"directory_installations"`
++	DirectoryEnrichmentProfiles []rawDirectoryEnrichmentProfile `toml:"directory_enrichment_profiles"`
++	DirectoryPeerDisclosure     []rawDirectoryPeerDisclosure    `toml:"directory_peer_disclosure"`
++}
++
++type rawV3 struct {
++	Schema                      string                          `toml:"schema"`
++	SchemaVersion               string                          `toml:"schema_version"`
++	HostID                      *string                         `toml:"host_id"`
++	HostName                    *string                         `toml:"host_name"`
++	Platform                    *string                         `toml:"platform"`
++	Mesh                        rawMesh                         `toml:"mesh"`
++	WorkspaceRoots              []rawWorkspaceRoot              `toml:"workspace_roots"`
++	Providers                   rawProviders                    `toml:"providers"`
++	Sync                        rawSync                         `toml:"sync"`
++	Terminal                    rawTerminal                     `toml:"terminal"`
++	Service                     rawService                      `toml:"service"`
++	Restore                     rawRestore                      `toml:"restore"`
++	Profiles                    rawProfiles                     `toml:"profiles"`
++	Directory                   rawDirectory                    `toml:"directory"`
++	DirectoryInstallations      []rawDirectoryInstallation      `toml:"directory_installations"`
++	DirectoryEnrichmentProfiles []rawDirectoryEnrichmentProfile `toml:"directory_enrichment_profiles"`
++	DirectoryPeerDisclosure     []rawDirectoryPeerDisclosure    `toml:"directory_peer_disclosure"`
++}
++
++type rawMesh struct {
++	Transport             *string   `toml:"transport"`
++	SyncIntervalSeconds   *uint64   `toml:"sync_interval_seconds"`
++	ConnectTimeoutSeconds *uint64   `toml:"connect_timeout_seconds"`
++	RPCTimeoutSeconds     *uint64   `toml:"rpc_timeout_seconds"`
++	WorkspaceReplication  *bool     `toml:"workspace_replication"`
++	PayloadEncryption     *string   `toml:"payload_encryption"`
++	Peers                 []rawPeer `toml:"peers"`
++}
++
++type rawPeer struct {
++	HostID         *string            `toml:"host_id"`
++	Name           *string            `toml:"name"`
++	Endpoint       *string            `toml:"endpoint"`
++	Platform       *string            `toml:"platform"`
++	SSHArgs        []string           `toml:"ssh_args"`
++	WorkspaceRoots []rawWorkspaceRoot `toml:"workspace_roots"`
++}
++
++type rawWorkspaceRoot struct {
++	LogicalRoot *string `toml:"logical_root"`
++	Path        *string `toml:"path"`
++}
++
++type rawProviders struct {
++	PluginDirs           []string `toml:"plugin_dirs"`
++	AllowPathPlugins     *bool    `toml:"allow_path_plugins"`
++	RequireExplicitTrust *bool    `toml:"require_explicit_trust"`
++}
++
++type rawSync struct {
++	ChunkBytes                *uint64 `toml:"chunk_bytes"`
++	MaxParallelChunks         *uint64 `toml:"max_parallel_chunks"`
++	StagingRetentionHours     *uint64 `toml:"staging_retention_hours"`
++	TombstoneMinRetentionDays *uint64 `toml:"tombstone_min_retention_days"`
++}
++
++type rawLegacyTerminal struct {
++	Backend                    *string `toml:"backend"`
++	SafeBoundaryTimeoutSeconds *uint64 `toml:"safe_boundary_timeout_seconds"`
++	GracefulStopTimeoutSeconds *uint64 `toml:"graceful_stop_timeout_seconds"`
++}
++
++type rawTerminal struct {
++	BackendID                  *string                      `toml:"backend_id"`
++	SafeBoundaryTimeoutSeconds *uint64                      `toml:"safe_boundary_timeout_seconds"`
++	GracefulStopTimeoutSeconds *uint64                      `toml:"graceful_stop_timeout_seconds"`
++	RequiredCapabilities       *[]string                    `toml:"required_capabilities"`
++	MultipleInputPolicy        *string                      `toml:"multiple_input_policy"`
++	TransportPolicy            *[]string                    `toml:"transport_policy"`
++	ExternalTrust              []rawExternalExecutableTrust `toml:"external_trust"`
++	BackendConfig              []rawBackendConfig           `toml:"backend_config"`
++}
++
++type rawExternalExecutableTrust struct {
++	BackendID        *string `toml:"backend_id"`
++	ExecutablePath   *string `toml:"executable_path"`
++	ExecutableDigest *string `toml:"executable_digest"`
++	Enabled          *bool   `toml:"enabled"`
++}
++
++type rawBackendConfig struct {
++	BackendID     *string        `toml:"backend_id"`
++	ConfigVersion *string        `toml:"config_version"`
++	Settings      map[string]any `toml:"settings"`
++}
++
++type rawService struct {
++	Enabled               *bool   `toml:"enabled"`
++	HealthIntervalSeconds *uint64 `toml:"health_interval_seconds"`
++}
++
++type rawRestore struct {
++	AutoResume *bool `toml:"auto_resume"`
++}
++
++type rawProfiles struct {
++	Yolo rawYoloProfile `toml:"yolo"`
++}
++
++type rawYoloProfile struct {
++	RequireFirstUseConfirmation *bool `toml:"require_first_use_confirmation"`
++}
++
++type rawDirectory struct {
++	Enabled                       *bool   `toml:"enabled"`
++	Mode                          *string `toml:"mode"`
++	ScanIntervalSeconds           *uint64 `toml:"scan_interval_seconds"`
++	ScanDebounceSeconds           *uint64 `toml:"scan_debounce_seconds"`
++	ScanConcurrency               *uint64 `toml:"scan_concurrency"`
++	FreshCurrentSeconds           *uint64 `toml:"fresh_current_seconds"`
++	FreshAgingSeconds             *uint64 `toml:"fresh_aging_seconds"`
++	FreshStaleSeconds             *uint64 `toml:"fresh_stale_seconds"`
++	PlanExpirySeconds             *uint64 `toml:"plan_expiry_seconds"`
++	DefaultMetadataPolicy         *string `toml:"default_metadata_policy"`
++	GeneratedSummaryUpgradeChoice *string `toml:"generated_summary_upgrade_choice"`
++	DefaultEnrichmentProfileID    *string `toml:"default_enrichment_profile_id"`
++	QueryPageDefault              *uint64 `toml:"query_page_default"`
++	QueryPageMax                  *uint64 `toml:"query_page_max"`
++	QueryBatchMax                 *uint64 `toml:"query_batch_max"`
++	GrepResultMax                 *uint64 `toml:"grep_result_max"`
++	TranscriptGrepEnabled         *bool   `toml:"transcript_grep_enabled"`
++	EmbeddingIndex                *string `toml:"embedding_index"`
++	ObservationRetentionDays      *uint64 `toml:"observation_retention_days"`
++	JobRetentionDays              *uint64 `toml:"job_retention_days"`
++	OperationRetentionDays        *uint64 `toml:"operation_retention_days"`
++	ProvenanceCompaction          *bool   `toml:"provenance_compaction"`
++}
++
++type rawDirectoryInstallation struct {
++	InstallationID       *string        `toml:"installation_id"`
++	EnvironmentID        *string        `toml:"environment_id"`
++	ProviderID           *string        `toml:"provider_id"`
++	AdapterID            *string        `toml:"adapter_id"`
++	ScanRootAuthorityIDs []string       `toml:"scan_root_authority_ids"`
++	Enabled              *bool          `toml:"enabled"`
++	Extensions           map[string]any `toml:"extensions"`
++}
++
++type rawDirectoryEnrichmentProfile struct {
++	ProfileID      *string        `toml:"profile_id"`
++	Enabled        *bool          `toml:"enabled"`
++	MaxConcurrency *uint64        `toml:"max_concurrency"`
++	MetadataPolicy *string        `toml:"metadata_policy"`
++	Extensions     map[string]any `toml:"extensions"`
++}
++
++type rawDirectoryPeerDisclosure struct {
++	HostID                  *string        `toml:"host_id"`
++	EnvironmentObservations *string        `toml:"environment_observations"`
++	NativeObservations      *string        `toml:"native_observations"`
++	ManualMetadata          *string        `toml:"manual_metadata"`
++	GeneratedMetadata       *string        `toml:"generated_metadata"`
++	JobOperationStatus      *string        `toml:"job_operation_status"`
++	Extensions              map[string]any `toml:"extensions"`
++}
++
++func Decode(document []byte, context DecodeContext) (LoadedConfiguration, error) {
++	if _, err := scalar.ParsePlatform(context.RuntimePlatform.String()); err != nil {
++		return LoadedConfiguration{}, configError("platform", ErrConfigValidation)
++	}
++	var envelope rawEnvelope
++	if err := toml.NewDecoder(bytes.NewReader(document)).Decode(&envelope); err != nil {
++		return LoadedConfiguration{}, configError("TOML", errors.Join(ErrConfigDecode, err))
++	}
++	if envelope.Schema != SchemaID {
++		return LoadedConfiguration{}, configError("schema", ErrConfigValidation)
++	}
++
++	var value Configuration
++	var err error
++	switch envelope.SchemaVersion {
++	case Version1:
++		var raw rawV1
++		if err = decodeStrict(document, &raw); err == nil {
++			value, err = translateV1(raw, context)
++		}
++	case Version2:
++		var raw rawV2
++		if err = decodeStrict(document, &raw); err == nil {
++			value, err = translateV2(raw, context)
++		}
++	case CurrentVersion:
++		var raw rawV3
++		if err = decodeStrict(document, &raw); err == nil {
++			value, err = translateV3(raw, context)
++		}
++	default:
++		return LoadedConfiguration{}, configError("schema_version", ErrUnsupportedConfigVersion)
++	}
++	if err != nil {
++		return LoadedConfiguration{}, err
++	}
++	return LoadedConfiguration{SourceVersion: envelope.SchemaVersion, Value: value}, nil
++}
++
++func decodeStrict(document []byte, destination any) error {
++	decoder := toml.NewDecoder(bytes.NewReader(document)).DisallowUnknownFields()
++	if err := decoder.Decode(destination); err != nil {
++		return configError("closed TOML shape", errors.Join(ErrConfigDecode, err))
++	}
++	var shape map[string]any
++	if err := toml.Unmarshal(document, &shape); err != nil {
++		return configError("closed TOML shape", errors.Join(ErrConfigDecode, err)) // config-refusal-subsumed: envelope TOML syntax parse
++	}
++	restorePresentEmptyMaps(reflect.ValueOf(destination), reflect.ValueOf(shape))
++	return nil
++}
++
++// restorePresentEmptyMaps repairs a go-toml decoding ambiguity without
++// weakening required-member validation. go-toml leaves a map field nil for a
++// present but empty table such as [entry.extensions], which is otherwise
++// indistinguishable from an absent required member in the typed value. The
++// generic document shape retains table presence, so this schema-driven walk
++// initializes only map members that were actually present in the source.
++func restorePresentEmptyMaps(destination, source reflect.Value) {
++	destination = indirectValue(destination)
++	source = indirectValue(source)
++	if !destination.IsValid() || !source.IsValid() {
++		return
++	}
++
++	switch destination.Kind() {
++	case reflect.Struct:
++		if source.Kind() != reflect.Map || source.Type().Key().Kind() != reflect.String {
++			return
++		}
++		for index := 0; index < destination.NumField(); index++ {
++			fieldType := destination.Type().Field(index)
++			name := strings.Split(fieldType.Tag.Get("toml"), ",")[0]
++			if name == "" || name == "-" {
++				continue
++			}
++			sourceField := source.MapIndex(reflect.ValueOf(name).Convert(source.Type().Key()))
++			if !sourceField.IsValid() {
++				continue
++			}
++			destinationField := destination.Field(index)
++			unwrappedSource := indirectValue(sourceField)
++			if destinationField.Kind() == reflect.Map {
++				if destinationField.IsNil() && unwrappedSource.IsValid() && unwrappedSource.Kind() == reflect.Map {
++					destinationField.Set(reflect.MakeMap(destinationField.Type()))
++				}
++				continue
++			}
++			restorePresentEmptyMaps(destinationField, sourceField)
++		}
++	case reflect.Slice:
++		if source.Kind() != reflect.Slice {
++			return
++		}
++		limit := destination.Len()
++		if source.Len() < limit {
++			limit = source.Len()
++		}
++		for index := 0; index < limit; index++ {
++			restorePresentEmptyMaps(destination.Index(index), source.Index(index))
++		}
++	}
++}
++
++func indirectValue(value reflect.Value) reflect.Value {
++	for value.IsValid() && (value.Kind() == reflect.Interface || value.Kind() == reflect.Pointer) {
++		if value.IsNil() {
++			return reflect.Value{}
++		}
++		value = value.Elem()
++	}
++	return value
++}
++
++var configError = func(field string, err error) error {
++	return &DocumentError{Clause: field, Err: err}
++}
+diff --git a/internal/config/schema_test.go b/internal/config/schema_test.go
+new file mode 100644
+index 0000000..d6f43e3
+--- /dev/null
++++ b/internal/config/schema_test.go
+@@ -0,0 +1,692 @@
++package config
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"reflect"
++	"sort"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const (
++	testHostID = "0198f4c8-4a10-7b22-8b3c-1234567890ab"
++	testPeerID = "0198f4c8-7d40-7e55-8e6f-1234567890ab"
++	testDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
++)
++
++func TestLoadSupportsEveryPinnedConfigurationVersionAndTranslatesLegacyAtProductionEntry(t *testing.T) {
++	t.Parallel()
++
++	current := catalog.Current()
++	var expected []string
++	for _, contract := range current.Contracts {
++		if contract.ID == catalog.ContractID(SchemaID) {
++			expected = append([]string(nil), contract.Versions...)
++			break
++		}
++	}
++	if len(expected) == 0 {
++		t.Fatal("pinned catalog has no Configuration contract")
++	}
++	fixtures := map[string][]byte{
++		Version1:       minimalValidConfigVersion(scalar.PlatformMacOS, Version1),
++		Version2:       minimalValidConfigVersion(scalar.PlatformMacOS, Version2),
++		CurrentVersion: minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion),
++	}
++	if len(fixtures) != len(expected) {
++		t.Fatalf("reader fixture registry has %d versions, pinned catalog requires %v", len(fixtures), expected)
++	}
++	for _, version := range expected {
++		version := version
++		t.Run(version, func(t *testing.T) {
++			t.Parallel()
++			document, ok := fixtures[version]
++			if !ok {
++				t.Fatalf("pinned Configuration version %s has no production reader fixture", version)
++			}
++			snapshot, err := loadConfigDocument(document, scalar.PlatformMacOS, nil)
++			if err != nil {
++				t.Fatalf("Load(%s) error = %v", version, err)
++			}
++			loaded, ok := snapshot.Configuration()
++			if !ok {
++				t.Fatalf("Load(%s).Configuration() missing", version)
++			}
++			if loaded.SourceVersion != version || loaded.Value.SchemaVersion != CurrentVersion {
++				t.Fatalf("Load(%s) versions = source %q/current %q", version, loaded.SourceVersion, loaded.Value.SchemaVersion)
++			}
++			if got := loaded.Value.Terminal.BackendID; got != "ax.tmux" {
++				t.Fatalf("Load(%s) legacy/current terminal backend = %q, want ax.tmux", version, got)
++			}
++			if loaded.Value.Directory.Mode != "on_demand" || loaded.Value.Directory.DefaultMetadataPolicy != "local_only" {
++				t.Fatalf("Load(%s) did not apply safe current directory defaults: %#v", version, loaded.Value.Directory)
++			}
++		})
++	}
++}
++
++func TestLoadAcceptsExactV2DirectoryAndV3TerminalShapes(t *testing.T) {
++	t.Parallel()
++
++	v2 := string(minimalValidConfigVersion(scalar.PlatformMacOS, Version2)) + `
++[directory]
++enabled = true
++mode = "service"
++scan_interval_seconds = 5
++scan_debounce_seconds = 0
++scan_concurrency = 32
++fresh_current_seconds = 1
++fresh_aging_seconds = 2
++fresh_stale_seconds = 3
++plan_expiry_seconds = 30
++default_metadata_policy = "reference_only"
++generated_summary_upgrade_choice = "local_only"
++default_enrichment_profile_id = "` + testDigest + `"
++query_page_default = 1
++query_page_max = 1
++query_batch_max = 1
++grep_result_max = 1
++transcript_grep_enabled = true
++embedding_index = "local_only"
++observation_retention_days = 30
++job_retention_days = 30
++operation_retention_days = 90
++provenance_compaction = true
++
++[[directory_installations]]
++installation_id = "` + testDigest + `"
++environment_id = "local-installation"
++provider_id = "codex"
++adapter_id = "codex-local"
++scan_root_authority_ids = ["` + testDigest + `"]
++enabled = true
++extensions = { "works.relux.fixture" = { count = 1 } }
++
++[[directory_enrichment_profiles]]
++profile_id = "` + testDigest + `"
++enabled = true
++max_concurrency = 1
++metadata_policy = "local_only"
++extensions = {}
++
++[[directory_peer_disclosure]]
++host_id = "` + testPeerID + `"
++environment_observations = "mesh_sanitized"
++native_observations = "reference_only"
++manual_metadata = "mesh_sanitized"
++generated_metadata = "local_only"
++job_operation_status = "reference_only"
++extensions = {}
++`
++	snapshot, err := loadConfigDocument([]byte(v2), scalar.PlatformMacOS, nil)
++	if err != nil {
++		t.Fatalf("Load(Configuration 2.0.0 exact extension) error = %v", err)
++	}
++	loaded, _ := snapshot.Configuration()
++	if !loaded.Value.Directory.Enabled || len(loaded.Value.DirectoryInstallations) != 1 || len(loaded.Value.DirectoryPeerDisclosure) != 1 {
++		t.Fatalf("v2 directory translation = %#v", loaded.Value)
++	}
++
++	v3 := string(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion)) + `
++[terminal]
++backend_id = "com.example.term"
++safe_boundary_timeout_seconds = 3600
++graceful_stop_timeout_seconds = 600
++required_capabilities = ["durable_disconnect", "local_attach"]
++multiple_input_policy = "explicit_allow"
++transport_policy = ["local_only", "trusted_private_mesh"]
++
++[[terminal.external_trust]]
++backend_id = "com.example.term"
++executable_path = "/opt/example/terminal"
++executable_digest = "` + testDigest + `"
++enabled = true
++
++[[terminal.backend_config]]
++backend_id = "com.example.term"
++config_version = "1.0.0"
++settings = { color = "blue" }
++`
++	snapshot, err = loadConfigDocument([]byte(v3), scalar.PlatformMacOS, exactBackendSettings{})
++	if err != nil {
++		t.Fatalf("Load(Configuration 3.0.0 exact terminal extension) error = %v", err)
++	}
++	loaded, _ = snapshot.Configuration()
++	if loaded.Value.Terminal.BackendID != "com.example.term" || len(loaded.Value.Terminal.BackendConfig) != 1 {
++		t.Fatalf("v3 terminal decode = %#v", loaded.Value.Terminal)
++	}
++}
++
++func TestLoadRefusesUnknownClosedMembersUnsupportedVersionsAndMalformedReads(t *testing.T) {
++	t.Parallel()
++
++	for _, version := range []string{Version1, Version2, CurrentVersion} {
++		version := version
++		t.Run(version+" unknown root", func(t *testing.T) {
++			document := append(minimalValidConfigVersion(scalar.PlatformMacOS, version), []byte("unknown = true\n")...)
++			_, err := loadConfigDocument(document, scalar.PlatformMacOS, nil)
++			if !errors.Is(err, ErrConfigDecode) {
++				t.Fatalf("Load(%s unknown root) error = %v, want ErrConfigDecode", version, err)
++			}
++		})
++	}
++	for name, document := range map[string][]byte{
++		"unsupported major": minimalValidConfigVersion(scalar.PlatformMacOS, "4.0.0"),
++		"unsupported minor": minimalValidConfigVersion(scalar.PlatformMacOS, "3.1.0"),
++		"wrong schema":      []byte("schema = \"urn:ax:schema:not-config\"\nschema_version = \"1.0.0\"\n"),
++		"duplicate member":  append(minimalValidConfigVersion(scalar.PlatformMacOS, Version1), []byte("host_name = \"second\"\n")...),
++		"partial read":      []byte("schema = \"urn:ax:schema:config\"\nschema_version = \"1.0.0\"\nhost_id ="),
++	} {
++		name, document := name, document
++		t.Run(name, func(t *testing.T) {
++			_, err := loadConfigDocument(document, scalar.PlatformMacOS, nil)
++			if err == nil {
++				t.Fatalf("Load(%s) accepted invalid document", name)
++			}
++		})
++	}
++	t.Run("platform differs from runtime probe", func(t *testing.T) {
++		_, err := loadConfigDocument(minimalValidConfigVersion(scalar.PlatformLinux, CurrentVersion), scalar.PlatformMacOS, nil)
++		if !errors.Is(err, ErrConfigValidation) {
++			t.Fatalf("Load(platform mismatch) error = %v, want ErrConfigValidation", err)
++		}
++	})
++	t.Run("built-in backend unsupported on platform", func(t *testing.T) {
++		document := append(minimalValidConfigVersion(scalar.PlatformWindows, CurrentVersion), []byte("\n[terminal]\nbackend_id = \"ax.tmux\"\n")...)
++		_, err := Decode(document, DecodeContext{RuntimePlatform: scalar.PlatformWindows})
++		if !errors.Is(err, ErrConfigValidation) {
++			t.Fatalf("Load(ax.tmux on Windows) error = %v, want ErrConfigValidation", err)
++		}
++	})
++}
++
++func TestDecodeRenderedErrorsNeverEchoRejectedMachineLocalValues(t *testing.T) {
++	t.Parallel()
++
++	const privateValue = "/machine/private/secret-config-root"
++	document := append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte("\n[providers]\nplugin_dirs = [1, \""+privateValue+"\"]\n")...)
++	_, err := Decode(document, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++	if !errors.Is(err, ErrConfigDecode) {
++		t.Fatalf("Decode(malformed private value) error = %v, want ErrConfigDecode", err)
++	}
++	if strings.Contains(err.Error(), privateValue) {
++		t.Fatalf("Decode() rendered rejected machine-local value: %v", err)
++	}
++	var documentError *DocumentError
++	if !errors.As(err, &documentError) || documentError.Clause == "" {
++		t.Fatalf("Decode() error = %T %v, want static DocumentError clause", err, err)
++	}
++}
++
++func TestLoadRefusesSecurityBypassesDuplicatesAndUnknownBackendSettings(t *testing.T) {
++	t.Parallel()
++
++	tests := map[string]string{
++		"host-key bypass": `
++[[mesh.peers]]
++host_id = "` + testPeerID + `"
++name = "peer"
++endpoint = "peer.example"
++platform = "linux"
++ssh_args = ["-o", "StrictHostKeyChecking=no"]
++workspace_roots = []
++`,
++		"duplicate peer identity": `
++[[mesh.peers]]
++host_id = "` + testPeerID + `"
++name = "peer-a"
++endpoint = "a.example"
++platform = "linux"
++[[mesh.peers]]
++host_id = "` + testPeerID + `"
++name = "peer-b"
++endpoint = "b.example"
++platform = "linux"
++`,
++		"unsorted capabilities": `
++[terminal]
++required_capabilities = ["local_attach", "durable_disconnect"]
++`,
++		"duplicate backend trust": `
++[terminal]
++[[terminal.external_trust]]
++backend_id = "com.example.term"
++executable_path = "/opt/a"
++executable_digest = "` + testDigest + `"
++enabled = true
++[[terminal.external_trust]]
++backend_id = "com.example.term"
++executable_path = "/opt/b"
++executable_digest = "` + testDigest + `"
++enabled = true
++`,
++		"unregistered backend settings": `
++[terminal]
++[[terminal.backend_config]]
++backend_id = "ax.tmux"
++config_version = "1.0.0"
++settings = {}
++`,
++	}
++	for name, suffix := range tests {
++		name, suffix := name, suffix
++		t.Run(name, func(t *testing.T) {
++			document := append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(suffix)...)
++			_, err := loadConfigDocument(document, scalar.PlatformMacOS, nil)
++			if !errors.Is(err, ErrConfigValidation) {
++				t.Fatalf("Load(%s) error = %v, want ErrConfigValidation", name, err)
++			}
++		})
++	}
++}
++
++func TestConfigurationNumericBoundsAcceptLimitsAndRefusePastLimitsAtProductionEntry(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name, table, key string
++		min, max         uint64
++	}{
++		{"mesh sync interval", "mesh", "sync_interval_seconds", 5, 86_400},
++		{"mesh connect timeout", "mesh", "connect_timeout_seconds", 1, 300},
++		{"mesh RPC timeout", "mesh", "rpc_timeout_seconds", 10, 3_600},
++		{"parallel chunks", "sync", "max_parallel_chunks", 1, 32},
++		{"staging retention", "sync", "staging_retention_hours", 1, 720},
++		{"tombstone retention", "sync", "tombstone_min_retention_days", 90, 3_650},
++		{"safe boundary timeout", "terminal", "safe_boundary_timeout_seconds", 1, 3_600},
++		{"graceful stop timeout", "terminal", "graceful_stop_timeout_seconds", 1, 600},
++		{"service health interval", "service", "health_interval_seconds", 5, 3_600},
++		{"directory scan interval", "directory", "scan_interval_seconds", 5, 86_400},
++		{"directory scan debounce", "directory", "scan_debounce_seconds", 0, 3_600},
++		{"directory scan concurrency", "directory", "scan_concurrency", 1, 32},
++		{"directory plan expiry", "directory", "plan_expiry_seconds", 30, 3_600},
++		{"directory query batch", "directory", "query_batch_max", 1, 64},
++		{"directory grep result", "directory", "grep_result_max", 1, 10_000},
++		{"directory observation retention", "directory", "observation_retention_days", 30, 3_650},
++		{"directory job retention", "directory", "job_retention_days", 30, 3_650},
++		{"directory operation retention", "directory", "operation_retention_days", 90, 3_650},
++	}
++	for _, test := range tests {
++		test := test
++		t.Run(test.name, func(t *testing.T) {
++			for label, value := range map[string]uint64{"min": test.min, "max": test.max} {
++				document := configWithScalar(test.table, test.key, fmt.Sprint(value))
++				if _, err := loadConfigDocument(document, scalar.PlatformMacOS, nil); err != nil {
++					t.Errorf("%s at %s=%d refused: %v", test.name, label, value, err)
++				}
++			}
++			if test.min > 0 {
++				document := configWithScalar(test.table, test.key, fmt.Sprint(test.min-1))
++				if _, err := loadConfigDocument(document, scalar.PlatformMacOS, nil); !errors.Is(err, ErrConfigValidation) {
++					t.Errorf("%s below min error = %v", test.name, err)
++				}
++			} else {
++				document := configWithScalar(test.table, test.key, "-1")
++				if _, err := loadConfigDocument(document, scalar.PlatformMacOS, nil); err == nil {
++					t.Errorf("%s accepted negative value", test.name)
++				}
++			}
++			document := configWithScalar(test.table, test.key, fmt.Sprint(test.max+1))
++			if _, err := loadConfigDocument(document, scalar.PlatformMacOS, nil); !errors.Is(err, ErrConfigValidation) {
++				t.Errorf("%s above max error = %v", test.name, err)
++			}
++		})
++	}
++
++	for _, value := range []uint64{4_194_303, 4_194_305} {
++		if _, err := loadConfigDocument(configWithScalar("sync", "chunk_bytes", fmt.Sprint(value)), scalar.PlatformMacOS, nil); !errors.Is(err, ErrConfigValidation) {
++			t.Errorf("sync.chunk_bytes=%d error = %v", value, err)
++		}
++	}
++	if _, err := loadConfigDocument(configWithScalar("sync", "chunk_bytes", "4194304"), scalar.PlatformMacOS, nil); err != nil {
++		t.Errorf("sync.chunk_bytes exact constant refused: %v", err)
++	}
++}
++
++func TestConfigurationCharacterAndArrayBoundsCountCharactersAndBytesExactly(t *testing.T) {
++	t.Parallel()
++
++	for label, name := range map[string]string{
++		"64 Unicode characters": strings.Repeat("界", 64),
++		"64 ASCII characters":   strings.Repeat("a", 64),
++	} {
++		document := replaceRootString(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), "host_name", name)
++		if _, err := loadConfigDocument(document, scalar.PlatformMacOS, nil); err != nil {
++			t.Errorf("host_name %s refused: %v", label, err)
++		}
++	}
++	document := replaceRootString(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), "host_name", strings.Repeat("界", 65))
++	if _, err := loadConfigDocument(document, scalar.PlatformMacOS, nil); !errors.Is(err, ErrConfigValidation) {
++		t.Errorf("65-character host_name error = %v", err)
++	}
++	document = replaceRootString(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), "host_name", "")
++	if _, err := loadConfigDocument(document, scalar.PlatformMacOS, nil); !errors.Is(err, ErrConfigValidation) {
++		t.Errorf("empty host_name error = %v", err)
++	}
++
++	peerPrefix := string(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion)) + `
++[[mesh.peers]]
++host_id = "` + testPeerID + `"
++name = "peer"
++endpoint = "x"
++platform = "linux"
++`
++	atArgument := peerPrefix + "ssh_args = [\"" + strings.Repeat("x", 4096) + "\"]\n"
++	if _, err := loadConfigDocument([]byte(atArgument), scalar.PlatformMacOS, nil); err != nil {
++		t.Fatalf("4096-byte SSH argument refused: %v", err)
++	}
++	overArgument := peerPrefix + "ssh_args = [\"" + strings.Repeat("x", 4097) + "\"]\n"
++	if _, err := loadConfigDocument([]byte(overArgument), scalar.PlatformMacOS, nil); !errors.Is(err, ErrConfigValidation) {
++		t.Fatalf("4097-byte SSH argument error = %v", err)
++	}
++
++	var capabilities []string
++	for _, capability := range catalog.Current().Capabilities {
++		if capability.Family == catalog.Family("terminal_backend") {
++			capabilities = append(capabilities, string(capability.Name))
++		}
++	}
++	if len(capabilities) == 0 {
++		t.Fatal("pinned catalog has no terminal_backend capabilities")
++	}
++	sort.Strings(capabilities)
++	configuration := validCurrentConfiguration()
++	configuration.Terminal.RequiredCapabilities = capabilities
++	configuration.Terminal.RequiredCapabilitiesExplicit = true
++	encoded, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++	if err != nil {
++		t.Fatalf("EncodeCurrent(all 16 closed capabilities) error = %v", err)
++	}
++	if _, err := loadConfigDocument(encoded, scalar.PlatformMacOS, nil); err != nil {
++		t.Fatalf("Load(all 16 closed capabilities) error = %v", err)
++	}
++}
++
++func TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections(t *testing.T) {
++	t.Parallel()
++
++	assertCurrentAccepted := func(t *testing.T, configuration Configuration) {
++		t.Helper()
++		encoded, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++		if err != nil {
++			t.Fatalf("EncodeCurrent(at limit) error = %v", err)
++		}
++		if _, err := loadConfigDocument(encoded, scalar.PlatformMacOS, nil); err != nil {
++			t.Fatalf("Load(EncodeCurrent(at limit)) error = %v", err)
++		}
++	}
++	assertCurrentRefused := func(t *testing.T, configuration Configuration) {
++		t.Helper()
++		if _, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS}); !errors.Is(err, ErrConfigValidation) {
++			t.Fatalf("EncodeCurrent(past limit) error = %v, want ErrConfigValidation", err)
++		}
++	}
++
++	t.Run("directory freshness ordering and maxima", func(t *testing.T) {
++		at := validCurrentConfiguration()
++		at.Directory.FreshCurrentSeconds = 86_400
++		at.Directory.FreshAgingSeconds = 604_800
++		at.Directory.FreshStaleSeconds = 31_536_000
++		assertCurrentAccepted(t, at)
++		for name, mutate := range map[string]func(*Configuration){
++			"current max":    func(value *Configuration) { value.Directory.FreshCurrentSeconds = 86_401 },
++			"aging ordering": func(value *Configuration) { value.Directory.FreshAgingSeconds = value.Directory.FreshCurrentSeconds },
++			"aging max": func(value *Configuration) {
++				value.Directory.FreshAgingSeconds = 604_801
++				value.Directory.FreshStaleSeconds = 604_802
++			},
++			"stale ordering": func(value *Configuration) { value.Directory.FreshStaleSeconds = value.Directory.FreshAgingSeconds },
++			"stale max":      func(value *Configuration) { value.Directory.FreshStaleSeconds = 31_536_001 },
++		} {
++			value := validCurrentConfiguration()
++			mutate(&value)
++			t.Run(name, func(t *testing.T) { assertCurrentRefused(t, value) })
++		}
++	})
++
++	t.Run("query page uint53 and ordering", func(t *testing.T) {
++		at := validCurrentConfiguration()
++		at.Directory.QueryPageDefault = scalar.MaxUint53
++		at.Directory.QueryPageMax = scalar.MaxUint53
++		assertCurrentAccepted(t, at)
++		over := validCurrentConfiguration()
++		over.Directory.QueryPageDefault = scalar.MaxUint53 + 1
++		over.Directory.QueryPageMax = scalar.MaxUint53 + 1
++		assertCurrentRefused(t, over)
++		ordered := validCurrentConfiguration()
++		ordered.Directory.QueryPageDefault = 2
++		ordered.Directory.QueryPageMax = 1
++		assertCurrentRefused(t, ordered)
++	})
++
++	t.Run("peer SSH argument count and total bytes", func(t *testing.T) {
++		at := validCurrentConfiguration()
++		at.Mesh.Peers[0].Endpoint = "x"
++		at.Mesh.Peers[0].SSHArgs = make([]string, 16)
++		for index := range at.Mesh.Peers[0].SSHArgs {
++			at.Mesh.Peers[0].SSHArgs[index] = strings.Repeat("x", 4096)
++		}
++		at.Mesh.Peers[0].SSHArgs[0] = strings.Repeat("x", 4095)
++		assertCurrentAccepted(t, at)
++		overBytes := cloneConfiguration(at)
++		overBytes.Mesh.Peers[0].SSHArgs[0] += "x"
++		assertCurrentRefused(t, overBytes)
++		overCount := validCurrentConfiguration()
++		overCount.Mesh.Peers[0].SSHArgs = make([]string, 65)
++		for index := range overCount.Mesh.Peers[0].SSHArgs {
++			overCount.Mesh.Peers[0].SSHArgs[index] = "x"
++		}
++		assertCurrentRefused(t, overCount)
++	})
++
++	t.Run("peer workspace roots and scan authorities", func(t *testing.T) {
++		at := validCurrentConfiguration()
++		at.Mesh.Peers[0].WorkspaceRoots = make([]WorkspaceRoot, 64)
++		for index := range at.Mesh.Peers[0].WorkspaceRoots {
++			at.Mesh.Peers[0].WorkspaceRoots[index] = WorkspaceRoot{LogicalRoot: fmt.Sprintf("r%d", index), Path: fmt.Sprintf("/srv/r%d", index)}
++		}
++		at.DirectoryInstallations[0].ScanRootAuthorityIDs = makeDigests(64)
++		assertCurrentAccepted(t, at)
++		overRoots := cloneConfiguration(at)
++		overRoots.Mesh.Peers[0].WorkspaceRoots = append(overRoots.Mesh.Peers[0].WorkspaceRoots, WorkspaceRoot{LogicalRoot: "overflow", Path: "/srv/overflow"})
++		assertCurrentRefused(t, overRoots)
++		overAuthorities := cloneConfiguration(at)
++		overAuthorities.DirectoryInstallations[0].ScanRootAuthorityIDs = makeDigests(65)
++		assertCurrentRefused(t, overAuthorities)
++	})
++
++	t.Run("character bounds on endpoint logical root path and directory IDs", func(t *testing.T) {
++		at := validCurrentConfiguration()
++		at.Mesh.Peers[0].Name = strings.Repeat("界", 64)
++		at.Mesh.Peers[0].Endpoint = strings.Repeat("界", 1024)
++		at.WorkspaceRoots[0].LogicalRoot = "a" + strings.Repeat("b", 63)
++		at.WorkspaceRoots[0].Path = "/" + strings.Repeat("p", 32_766)
++		at.DirectoryInstallations[0].EnvironmentID = strings.Repeat("界", 64)
++		at.DirectoryInstallations[0].AdapterID = strings.Repeat("界", 64)
++		assertCurrentAccepted(t, at)
++		for name, mutate := range map[string]func(*Configuration){
++			"peer name":      func(value *Configuration) { value.Mesh.Peers[0].Name = strings.Repeat("界", 65) },
++			"endpoint":       func(value *Configuration) { value.Mesh.Peers[0].Endpoint = strings.Repeat("界", 1025) },
++			"logical root":   func(value *Configuration) { value.WorkspaceRoots[0].LogicalRoot = "a" + strings.Repeat("b", 64) },
++			"absolute path":  func(value *Configuration) { value.WorkspaceRoots[0].Path = "/" + strings.Repeat("p", 32_767) },
++			"environment id": func(value *Configuration) { value.DirectoryInstallations[0].EnvironmentID = strings.Repeat("界", 65) },
++			"adapter id":     func(value *Configuration) { value.DirectoryInstallations[0].AdapterID = strings.Repeat("界", 65) },
++		} {
++			value := validCurrentConfiguration()
++			mutate(&value)
++			t.Run(name, func(t *testing.T) { assertCurrentRefused(t, value) })
++		}
++	})
++
++	t.Run("terminal backend ID byte bound", func(t *testing.T) {
++		at := validCurrentConfiguration()
++		backendID := "a." + strings.Repeat("b", 126)
++		at.Terminal.BackendID = backendID
++		at.Terminal.ExternalTrust = []ExternalExecutableTrust{{BackendID: backendID, ExecutablePath: "/opt/backend", ExecutableDigest: testDigest, Enabled: true}}
++		assertCurrentAccepted(t, at)
++		over := cloneConfiguration(at)
++		over.Terminal.BackendID += "b"
++		over.Terminal.ExternalTrust[0].BackendID = over.Terminal.BackendID
++		assertCurrentRefused(t, over)
++	})
++
++	t.Run("extension entry depth and canonical byte bounds", func(t *testing.T) {
++		at := validCurrentConfiguration()
++		at.DirectoryInstallations[0].Extensions = make(map[string]any, 64)
++		for index := 0; index < 64; index++ {
++			at.DirectoryInstallations[0].Extensions[fmt.Sprintf("works.relux.k%d", index)] = int64(index)
++		}
++		assertCurrentAccepted(t, at)
++		overCount := cloneConfiguration(at)
++		overCount.DirectoryInstallations[0].Extensions["works.relux.overflow"] = true
++		assertCurrentRefused(t, overCount)
++
++		depth := validCurrentConfiguration()
++		depth.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.depth": map[string]any{"a": map[string]any{"b": map[string]any{"c": map[string]any{"d": "leaf"}}}}}
++		assertCurrentAccepted(t, depth)
++		overDepth := cloneConfiguration(depth)
++		overDepth.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.depth": map[string]any{"a": map[string]any{"b": map[string]any{"c": map[string]any{"d": map[string]any{"e": "leaf"}}}}}}
++		assertCurrentRefused(t, overDepth)
++
++		bytesAt := validCurrentConfiguration()
++		key := "works.relux.bytes"
++		baseSize, _ := json.Marshal(map[string]any{key: ""})
++		payload := strings.Repeat("x", maxConfigExtensionBytes-len(baseSize))
++		bytesAt.DirectoryInstallations[0].Extensions = map[string]any{key: payload}
++		encodedJSON, _ := json.Marshal(bytesAt.DirectoryInstallations[0].Extensions)
++		if len(encodedJSON) != maxConfigExtensionBytes {
++			t.Fatalf("extension fixture JSON bytes = %d", len(encodedJSON))
++		}
++		assertCurrentAccepted(t, bytesAt)
++		overSize := cloneConfiguration(bytesAt)
++		overSize.DirectoryInstallations[0].Extensions[key] = payload + "x"
++		assertCurrentRefused(t, overSize)
++	})
++
++	t.Run("extension key byte bound", func(t *testing.T) {
++		at := validCurrentConfiguration()
++		at.DirectoryInstallations[0].Extensions = map[string]any{extensionKey(61): true}
++		assertCurrentAccepted(t, at)
++		over := validCurrentConfiguration()
++		over.DirectoryInstallations[0].Extensions = map[string]any{extensionKey(62): true}
++		assertCurrentRefused(t, over)
++	})
++}
++
++func TestEncodeCurrentRoundTripsCurrentVersionAndReturnsIsolatedSnapshots(t *testing.T) {
++	t.Parallel()
++
++	configuration := validCurrentConfiguration()
++	encoded, err := EncodeCurrent(configuration, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++	if err != nil {
++		t.Fatalf("EncodeCurrent() error = %v", err)
++	}
++	if strings.Contains(string(encoded), "schema_version = \"1.0.0\"") || strings.Contains(string(encoded), "backend = \"tmux\"") {
++		t.Fatalf("EncodeCurrent() emitted legacy syntax:\n%s", encoded)
++	}
++	snapshot, err := loadConfigDocument(encoded, scalar.PlatformMacOS, nil)
++	if err != nil {
++		t.Fatalf("Load(EncodeCurrent()) error = %v", err)
++	}
++	loaded, ok := snapshot.Configuration()
++	if !ok || loaded.SourceVersion != CurrentVersion {
++		t.Fatalf("round-trip loaded = %#v, %v", loaded, ok)
++	}
++	first, _ := snapshot.Configuration()
++	first.Value.Mesh.Peers[0].SSHArgs[0] = "mutated"
++	first.Value.DirectoryInstallations[0].Extensions["works.relux.fixture"] = "mutated"
++	second, _ := snapshot.Configuration()
++	if second.Value.Mesh.Peers[0].SSHArgs[0] == "mutated" || reflect.DeepEqual(first.Value.DirectoryInstallations[0].Extensions, second.Value.DirectoryInstallations[0].Extensions) {
++		t.Fatal("Snapshot.Configuration() exposed mutable internal slices/maps")
++	}
++}
++
++type exactBackendSettings struct{}
++
++func (exactBackendSettings) ValidateBackendSettings(backendID, version string, settings map[string]any) error {
++	if backendID != "com.example.term" || version != "1.0.0" || len(settings) != 1 || settings["color"] != "blue" {
++		return errors.New("settings do not match registered com.example.term@1.0.0 shape")
++	}
++	return nil
++}
++
++func loadConfigDocument(document []byte, platform scalar.Platform, settings BackendSettingsValidator) (Snapshot, error) {
++	files := newFakeFileSystem()
++	configPath := "/config/config.toml"
++	environment := map[string]string{"AX_CONFIG": configPath}
++	switch platform {
++	case scalar.PlatformLinux, scalar.PlatformWSL2:
++		environment["XDG_RUNTIME_DIR"] = "/run/user/1000"
++	case scalar.PlatformWindows:
++		configPath = `C:\config\config.toml`
++		environment["AX_CONFIG"] = configPath
++		environment["APPDATA"] = `C:\Users\test\AppData\Roaming`
++		environment["LOCALAPPDATA"] = `C:\Users\test\AppData\Local`
++	}
++	files.regular[configPath] = append([]byte(nil), document...)
++	inputs := fixtureInputs(platform, environment, files)
++	inputs.BackendSettings = settings
++	return Load(inputs, nil)
++}
++
++func minimalValidConfigVersion(platform scalar.Platform, version string) []byte {
++	return []byte(fmt.Sprintf(
++		"schema = %q\nschema_version = %q\nhost_id = %q\nhost_name = %q\nplatform = %q\n",
++		SchemaID, version, testHostID, "fixture-host", platform.String(),
++	))
++}
++
++func configWithScalar(table, key, value string) []byte {
++	return []byte(string(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion)) + "\n[" + table + "]\n" + key + " = " + value + "\n")
++}
++
++func replaceRootString(document []byte, key, value string) []byte {
++	lines := strings.Split(string(document), "\n")
++	for index, line := range lines {
++		if strings.HasPrefix(line, key+" = ") {
++			lines[index] = fmt.Sprintf("%s = %q", key, value)
++			break
++		}
++	}
++	return []byte(strings.Join(lines, "\n"))
++}
++
++func validCurrentConfiguration() Configuration {
++	configuration := Configuration{
++		Schema: SchemaID, SchemaVersion: CurrentVersion, HostID: testHostID,
++		HostName: "fixture-host", Platform: scalar.PlatformMacOS,
++		Mesh: Mesh{
++			Transport: "ssh", SyncIntervalSeconds: 60, ConnectTimeoutSeconds: 10, RPCTimeoutSeconds: 300,
++			WorkspaceReplication: true, PayloadEncryption: "none",
++			Peers: []Peer{{HostID: testPeerID, Name: "peer", Endpoint: "peer.example", Platform: scalar.PlatformLinux, SSHArgs: []string{"-o", "BatchMode=yes"}}},
++		},
++		WorkspaceRoots: []WorkspaceRoot{{LogicalRoot: "relux", Path: "/Users/test/Developer"}},
++		Providers:      Providers{PluginDirs: []string{"/Users/test/.local/libexec/ax/providers"}, AllowPathPlugins: true, RequireExplicitTrust: true},
++		Sync:           Sync{ChunkBytes: 4_194_304, MaxParallelChunks: 4, StagingRetentionHours: 72, TombstoneMinRetentionDays: 90},
++		Terminal:       Terminal{BackendID: "ax.tmux", SafeBoundaryTimeoutSeconds: 300, GracefulStopTimeoutSeconds: 60, MultipleInputPolicy: "deny", TransportPolicy: []string{"local_only", "trusted_private_mesh"}, TransportPolicyExplicit: true},
++		Service:        Service{Enabled: true, HealthIntervalSeconds: 30}, Restore: Restore{AutoResume: false},
++		Profiles: Profiles{Yolo: YoloProfile{RequireFirstUseConfirmation: true}}, Directory: defaultDirectory(),
++		DirectoryInstallations: []DirectoryInstallation{{
++			InstallationID: testDigest, EnvironmentID: "local", ProviderID: "codex", AdapterID: "codex-local",
++			ScanRootAuthorityIDs: []string{testDigest}, Enabled: true, Extensions: map[string]any{"works.relux.fixture": map[string]any{"count": int64(1)}},
++		}},
++	}
++	return configuration
++}
++
++func makeDigests(count int) []string {
++	values := make([]string, count)
++	for index := range values {
++		values[index] = fmt.Sprintf("sha256:%064x", index)
++	}
++	return values
++}
++
++func extensionKey(lastLabelLength int) string {
++	return strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "." + strings.Repeat("d", lastLabelLength)
++}
+diff --git a/internal/config/validation.go b/internal/config/validation.go
+new file mode 100644
+index 0000000..06fe963
+--- /dev/null
++++ b/internal/config/validation.go
+@@ -0,0 +1,1010 @@
++package config
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"regexp"
++	"strings"
++	"unicode"
++	"unicode/utf8"
++
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const maxConfigExtensionBytes = 65_536
++
++var (
++	logicalRootPattern       = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
++	terminalBackendIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
++	semverPattern            = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
++	reverseDNSPattern        = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(?:\.[a-z][a-z0-9-]{0,62})+$`)
++)
++
++var terminalCapabilitySet = func() map[string]struct{} {
++	values := make(map[string]struct{})
++	for _, capability := range catalog.Current().Capabilities {
++		if capability.Family == catalog.Family("terminal_backend") {
++			values[string(capability.Name)] = struct{}{}
++		}
++	}
++	if len(values) == 0 {
++		panic("pinned catalog has no terminal_backend capabilities")
++	}
++	return values
++}()
++
++func translateV1(raw rawV1, context DecodeContext) (Configuration, error) {
++	base, err := translateCommon(rawCommon{
++		Schema: raw.Schema, SchemaVersion: raw.SchemaVersion, HostID: raw.HostID,
++		HostName: raw.HostName, Platform: raw.Platform, Mesh: raw.Mesh,
++		WorkspaceRoots: raw.WorkspaceRoots, Providers: raw.Providers, Sync: raw.Sync,
++		Service: raw.Service, Restore: raw.Restore, Profiles: raw.Profiles,
++	}, context)
++	if err != nil {
++		return Configuration{}, err
++	}
++	if err := validateLegacyTerminalBackend(raw.Terminal.Backend); err != nil {
++		return Configuration{}, err
++	}
++	base.Terminal = translateLegacyTerminal(raw.Terminal, base.Platform)
++	base.Directory = defaultDirectory()
++	if err := validateConfiguration(&base, context); err != nil {
++		return Configuration{}, err
++	}
++	return base, nil
++}
++
++func translateV2(raw rawV2, context DecodeContext) (Configuration, error) {
++	if err := validateRawDirectoryPresence(raw.DirectoryInstallations, raw.DirectoryEnrichmentProfiles, raw.DirectoryPeerDisclosure); err != nil {
++		return Configuration{}, err
++	}
++	base, err := translateCommon(rawCommon{
++		Schema: raw.Schema, SchemaVersion: raw.SchemaVersion, HostID: raw.HostID,
++		HostName: raw.HostName, Platform: raw.Platform, Mesh: raw.Mesh,
++		WorkspaceRoots: raw.WorkspaceRoots, Providers: raw.Providers, Sync: raw.Sync,
++		Service: raw.Service, Restore: raw.Restore, Profiles: raw.Profiles,
++	}, context)
++	if err != nil {
++		return Configuration{}, err
++	}
++	if err := validateLegacyTerminalBackend(raw.Terminal.Backend); err != nil {
++		return Configuration{}, err
++	}
++	base.Terminal = translateLegacyTerminal(raw.Terminal, base.Platform)
++	translateDirectory(&base, raw.Directory, raw.DirectoryInstallations, raw.DirectoryEnrichmentProfiles, raw.DirectoryPeerDisclosure)
++	if err := validateConfiguration(&base, context); err != nil {
++		return Configuration{}, err
++	}
++	return base, nil
++}
++
++func translateV3(raw rawV3, context DecodeContext) (Configuration, error) {
++	if err := validateRawDirectoryPresence(raw.DirectoryInstallations, raw.DirectoryEnrichmentProfiles, raw.DirectoryPeerDisclosure); err != nil {
++		return Configuration{}, err
++	}
++	if err := validateRawTerminalPresence(raw.Terminal); err != nil {
++		return Configuration{}, err
++	}
++	base, err := translateCommon(rawCommon{
++		Schema: raw.Schema, SchemaVersion: raw.SchemaVersion, HostID: raw.HostID,
++		HostName: raw.HostName, Platform: raw.Platform, Mesh: raw.Mesh,
++		WorkspaceRoots: raw.WorkspaceRoots, Providers: raw.Providers, Sync: raw.Sync,
++		Service: raw.Service, Restore: raw.Restore, Profiles: raw.Profiles,
++	}, context)
++	if err != nil {
++		return Configuration{}, err
++	}
++	base.Terminal = translateTerminal(raw.Terminal, base.Platform)
++	translateDirectory(&base, raw.Directory, raw.DirectoryInstallations, raw.DirectoryEnrichmentProfiles, raw.DirectoryPeerDisclosure)
++	if err := validateConfiguration(&base, context); err != nil {
++		return Configuration{}, err
++	}
++	return base, nil
++}
++
++func validateRawDirectoryPresence(installations []rawDirectoryInstallation, profiles []rawDirectoryEnrichmentProfile, disclosures []rawDirectoryPeerDisclosure) error {
++	for index, entry := range installations {
++		if entry.InstallationID == nil || entry.EnvironmentID == nil || entry.ProviderID == nil || entry.AdapterID == nil || entry.ScanRootAuthorityIDs == nil || entry.Enabled == nil || entry.Extensions == nil {
++			return configError(fmt.Sprintf("directory_installations[%d] required member", index), ErrConfigValidation)
++		}
++	}
++	for index, entry := range profiles {
++		if entry.ProfileID == nil || entry.Enabled == nil || entry.MaxConcurrency == nil || entry.MetadataPolicy == nil || entry.Extensions == nil {
++			return configError(fmt.Sprintf("directory_enrichment_profiles[%d] required member", index), ErrConfigValidation)
++		}
++	}
++	for index, entry := range disclosures {
++		if entry.HostID == nil || entry.EnvironmentObservations == nil || entry.NativeObservations == nil || entry.ManualMetadata == nil || entry.GeneratedMetadata == nil || entry.JobOperationStatus == nil || entry.Extensions == nil {
++			return configError(fmt.Sprintf("directory_peer_disclosure[%d] required member", index), ErrConfigValidation)
++		}
++	}
++	return nil
++}
++
++func validateRawTerminalPresence(terminal rawTerminal) error {
++	for index, entry := range terminal.ExternalTrust {
++		if entry.BackendID == nil || entry.ExecutablePath == nil || entry.ExecutableDigest == nil || entry.Enabled == nil {
++			return configError(fmt.Sprintf("terminal.external_trust[%d] required member", index), ErrConfigValidation)
++		}
++	}
++	for index, entry := range terminal.BackendConfig {
++		if entry.BackendID == nil || entry.ConfigVersion == nil || entry.Settings == nil {
++			return configError(fmt.Sprintf("terminal.backend_config[%d] required member", index), ErrConfigValidation)
++		}
++	}
++	return nil
++}
++
++func translateCommon(raw rawCommon, context DecodeContext) (Configuration, error) {
++	if raw.HostID == nil || raw.HostName == nil || raw.Platform == nil {
++		return Configuration{}, configError("required root identity", ErrConfigValidation)
++	}
++	platform, err := scalar.ParsePlatform(*raw.Platform)
++	if err != nil {
++		return Configuration{}, configError("platform", errors.Join(ErrConfigValidation, err))
++	}
++	configuration := Configuration{
++		Schema: SchemaID, SchemaVersion: CurrentVersion,
++		HostID: *raw.HostID, HostName: *raw.HostName, Platform: platform,
++		Mesh: Mesh{
++			Transport:             valueOr(raw.Mesh.Transport, "ssh"),
++			SyncIntervalSeconds:   valueOr(raw.Mesh.SyncIntervalSeconds, uint64(60)),
++			ConnectTimeoutSeconds: valueOr(raw.Mesh.ConnectTimeoutSeconds, uint64(10)),
++			RPCTimeoutSeconds:     valueOr(raw.Mesh.RPCTimeoutSeconds, uint64(300)),
++			WorkspaceReplication:  valueOr(raw.Mesh.WorkspaceReplication, true),
++			PayloadEncryption:     valueOr(raw.Mesh.PayloadEncryption, "none"),
++		},
++		Providers: Providers{
++			AllowPathPlugins:     valueOr(raw.Providers.AllowPathPlugins, true),
++			RequireExplicitTrust: valueOr(raw.Providers.RequireExplicitTrust, true),
++		},
++		Sync: Sync{
++			ChunkBytes:                valueOr(raw.Sync.ChunkBytes, uint64(4_194_304)),
++			MaxParallelChunks:         valueOr(raw.Sync.MaxParallelChunks, uint64(4)),
++			StagingRetentionHours:     valueOr(raw.Sync.StagingRetentionHours, uint64(72)),
++			TombstoneMinRetentionDays: valueOr(raw.Sync.TombstoneMinRetentionDays, uint64(90)),
++		},
++		Service: Service{
++			Enabled:               valueOr(raw.Service.Enabled, true),
++			HealthIntervalSeconds: valueOr(raw.Service.HealthIntervalSeconds, uint64(30)),
++		},
++		Restore:  Restore{AutoResume: valueOr(raw.Restore.AutoResume, false)},
++		Profiles: Profiles{Yolo: YoloProfile{RequireFirstUseConfirmation: valueOr(raw.Profiles.Yolo.RequireFirstUseConfirmation, true)}},
++	}
++	configuration.Mesh.Peers = make([]Peer, len(raw.Mesh.Peers))
++	for index, peer := range raw.Mesh.Peers {
++		if peer.HostID == nil || peer.Name == nil || peer.Endpoint == nil || peer.Platform == nil {
++			return Configuration{}, configError(fmt.Sprintf("mesh.peers[%d] required member", index), ErrConfigValidation)
++		}
++		peerPlatform, parseErr := scalar.ParsePlatform(*peer.Platform)
++		if parseErr != nil {
++			return Configuration{}, configError(fmt.Sprintf("mesh.peers[%d].platform", index), errors.Join(ErrConfigValidation, parseErr))
++		}
++		configuration.Mesh.Peers[index] = Peer{
++			HostID: *peer.HostID, Name: *peer.Name, Endpoint: *peer.Endpoint,
++			Platform: peerPlatform, SSHArgs: cloneStrings(peer.SSHArgs),
++			WorkspaceRoots: translateWorkspaceRoots(peer.WorkspaceRoots),
++		}
++	}
++	configuration.WorkspaceRoots = translateWorkspaceRoots(raw.WorkspaceRoots)
++	configuration.Providers.PluginDirs = cloneStrings(raw.Providers.PluginDirs)
++	return configuration, nil
++}
++
++func translateWorkspaceRoots(raw []rawWorkspaceRoot) []WorkspaceRoot {
++	values := make([]WorkspaceRoot, len(raw))
++	for index, root := range raw {
++		if root.LogicalRoot != nil {
++			values[index].LogicalRoot = *root.LogicalRoot
++		}
++		if root.Path != nil {
++			values[index].Path = *root.Path
++		}
++	}
++	return values
++}
++
++func translateLegacyTerminal(raw rawLegacyTerminal, platform scalar.Platform) Terminal {
++	backend := valueOr(raw.Backend, legacyBackendDefault(platform))
++	if backend == "tmux" {
++		backend = "ax.tmux"
++	} else if backend == "conpty" {
++		backend = "ax.conpty"
++	}
++	return Terminal{
++		BackendID:                  backend,
++		SafeBoundaryTimeoutSeconds: valueOr(raw.SafeBoundaryTimeoutSeconds, uint64(300)),
++		GracefulStopTimeoutSeconds: valueOr(raw.GracefulStopTimeoutSeconds, uint64(60)),
++		MultipleInputPolicy:        "deny",
++		TransportPolicy:            []string{"local_only", "trusted_private_mesh"},
++	}
++}
++
++func validateLegacyTerminalBackend(backend *string) error {
++	if backend != nil && !oneOf(*backend, "tmux", "conpty") {
++		return configError("terminal.backend", ErrConfigValidation)
++	}
++	return nil
++}
++
++func translateTerminal(raw rawTerminal, platform scalar.Platform) Terminal {
++	requiredCapabilities := []string(nil)
++	if raw.RequiredCapabilities != nil {
++		requiredCapabilities = cloneStrings(*raw.RequiredCapabilities)
++	}
++	transportPolicy := []string{"local_only", "trusted_private_mesh"}
++	if raw.TransportPolicy != nil {
++		transportPolicy = cloneStrings(*raw.TransportPolicy)
++	}
++	return Terminal{
++		BackendID:                    valueOr(raw.BackendID, currentBackendDefault(platform)),
++		SafeBoundaryTimeoutSeconds:   valueOr(raw.SafeBoundaryTimeoutSeconds, uint64(300)),
++		GracefulStopTimeoutSeconds:   valueOr(raw.GracefulStopTimeoutSeconds, uint64(60)),
++		RequiredCapabilities:         requiredCapabilities,
++		RequiredCapabilitiesExplicit: raw.RequiredCapabilities != nil,
++		MultipleInputPolicy:          valueOr(raw.MultipleInputPolicy, "deny"),
++		TransportPolicy:              transportPolicy,
++		TransportPolicyExplicit:      raw.TransportPolicy != nil,
++		ExternalTrust:                translateExternalTrust(raw.ExternalTrust),
++		BackendConfig:                translateBackendConfig(raw.BackendConfig),
++	}
++}
++
++func translateExternalTrust(raw []rawExternalExecutableTrust) []ExternalExecutableTrust {
++	values := make([]ExternalExecutableTrust, len(raw))
++	for index, entry := range raw {
++		if entry.BackendID != nil {
++			values[index].BackendID = *entry.BackendID
++		}
++		if entry.ExecutablePath != nil {
++			values[index].ExecutablePath = *entry.ExecutablePath
++		}
++		if entry.ExecutableDigest != nil {
++			values[index].ExecutableDigest = *entry.ExecutableDigest
++		}
++		if entry.Enabled != nil {
++			values[index].Enabled = *entry.Enabled
++		}
++	}
++	return values
++}
++
++func translateBackendConfig(raw []rawBackendConfig) []BackendConfig {
++	values := make([]BackendConfig, len(raw))
++	for index, entry := range raw {
++		if entry.BackendID != nil {
++			values[index].BackendID = *entry.BackendID
++		}
++		if entry.ConfigVersion != nil {
++			values[index].ConfigVersion = *entry.ConfigVersion
++		}
++		values[index].Settings = cloneAnyMap(entry.Settings)
++	}
++	return values
++}
++
++func translateDirectory(configuration *Configuration, raw rawDirectory, installations []rawDirectoryInstallation, profiles []rawDirectoryEnrichmentProfile, disclosures []rawDirectoryPeerDisclosure) {
++	configuration.Directory = Directory{
++		Enabled: valueOr(raw.Enabled, false), Mode: valueOr(raw.Mode, "on_demand"),
++		ScanIntervalSeconds:           valueOr(raw.ScanIntervalSeconds, uint64(300)),
++		ScanDebounceSeconds:           valueOr(raw.ScanDebounceSeconds, uint64(5)),
++		ScanConcurrency:               valueOr(raw.ScanConcurrency, uint64(2)),
++		FreshCurrentSeconds:           valueOr(raw.FreshCurrentSeconds, uint64(120)),
++		FreshAgingSeconds:             valueOr(raw.FreshAgingSeconds, uint64(600)),
++		FreshStaleSeconds:             valueOr(raw.FreshStaleSeconds, uint64(3600)),
++		PlanExpirySeconds:             valueOr(raw.PlanExpirySeconds, uint64(300)),
++		DefaultMetadataPolicy:         valueOr(raw.DefaultMetadataPolicy, "local_only"),
++		GeneratedSummaryUpgradeChoice: valueOr(raw.GeneratedSummaryUpgradeChoice, "unset"),
++		DefaultEnrichmentProfileID:    valueOr(raw.DefaultEnrichmentProfileID, ""),
++		QueryPageDefault:              valueOr(raw.QueryPageDefault, uint64(100)),
++		QueryPageMax:                  valueOr(raw.QueryPageMax, uint64(1000)),
++		QueryBatchMax:                 valueOr(raw.QueryBatchMax, uint64(64)),
++		GrepResultMax:                 valueOr(raw.GrepResultMax, uint64(1000)),
++		TranscriptGrepEnabled:         valueOr(raw.TranscriptGrepEnabled, false),
++		EmbeddingIndex:                valueOr(raw.EmbeddingIndex, "disabled"),
++		ObservationRetentionDays:      valueOr(raw.ObservationRetentionDays, uint64(365)),
++		JobRetentionDays:              valueOr(raw.JobRetentionDays, uint64(180)),
++		OperationRetentionDays:        valueOr(raw.OperationRetentionDays, uint64(365)),
++		ProvenanceCompaction:          valueOr(raw.ProvenanceCompaction, false),
++	}
++	configuration.DirectoryInstallations = make([]DirectoryInstallation, len(installations))
++	for index, entry := range installations {
++		value := &configuration.DirectoryInstallations[index]
++		if entry.InstallationID != nil {
++			value.InstallationID = *entry.InstallationID
++		}
++		if entry.EnvironmentID != nil {
++			value.EnvironmentID = *entry.EnvironmentID
++		}
++		if entry.ProviderID != nil {
++			value.ProviderID = *entry.ProviderID
++		}
++		if entry.AdapterID != nil {
++			value.AdapterID = *entry.AdapterID
++		}
++		value.ScanRootAuthorityIDs = cloneStrings(entry.ScanRootAuthorityIDs)
++		if entry.Enabled != nil {
++			value.Enabled = *entry.Enabled
++		}
++		value.Extensions = cloneAnyMap(entry.Extensions)
++	}
++	configuration.DirectoryEnrichmentProfiles = make([]DirectoryEnrichmentProfile, len(profiles))
++	for index, entry := range profiles {
++		value := &configuration.DirectoryEnrichmentProfiles[index]
++		if entry.ProfileID != nil {
++			value.ProfileID = *entry.ProfileID
++		}
++		if entry.Enabled != nil {
++			value.Enabled = *entry.Enabled
++		}
++		if entry.MaxConcurrency != nil {
++			value.MaxConcurrency = *entry.MaxConcurrency
++		}
++		if entry.MetadataPolicy != nil {
++			value.MetadataPolicy = *entry.MetadataPolicy
++		}
++		value.Extensions = cloneAnyMap(entry.Extensions)
++	}
++	configuration.DirectoryPeerDisclosure = make([]DirectoryPeerDisclosure, len(disclosures))
++	for index, entry := range disclosures {
++		value := &configuration.DirectoryPeerDisclosure[index]
++		if entry.HostID != nil {
++			value.HostID = *entry.HostID
++		}
++		if entry.EnvironmentObservations != nil {
++			value.EnvironmentObservations = *entry.EnvironmentObservations
++		}
++		if entry.NativeObservations != nil {
++			value.NativeObservations = *entry.NativeObservations
++		}
++		if entry.ManualMetadata != nil {
++			value.ManualMetadata = *entry.ManualMetadata
++		}
++		if entry.GeneratedMetadata != nil {
++			value.GeneratedMetadata = *entry.GeneratedMetadata
++		}
++		if entry.JobOperationStatus != nil {
++			value.JobOperationStatus = *entry.JobOperationStatus
++		}
++		value.Extensions = cloneAnyMap(entry.Extensions)
++	}
++}
++
++func defaultDirectory() Directory {
++	configuration := Configuration{}
++	translateDirectory(&configuration, rawDirectory{}, nil, nil, nil)
++	return configuration.Directory
++}
++
++func validateConfiguration(configuration *Configuration, context DecodeContext) error {
++	if _, err := scalar.ParseUUIDv7(configuration.HostID); err != nil {
++		return configError("host_id", errors.Join(ErrConfigValidation, err))
++	}
++	if err := validatePrintableCharacters(configuration.HostName, 1, 64); err != nil {
++		return configError("host_name", err)
++	}
++	if configuration.Platform != context.RuntimePlatform {
++		return configError("platform must match runtime probe", ErrConfigValidation)
++	}
++	if err := validateMesh(configuration); err != nil {
++		return err
++	}
++	if err := validateWorkspaceRoots("workspace_roots", configuration.WorkspaceRoots, configuration.Platform, -1); err != nil {
++		return err
++	}
++	if err := validateProviders(configuration); err != nil {
++		return err
++	}
++	if err := validateSync(configuration.Sync); err != nil {
++		return err
++	}
++	if err := validateDirectory(configuration); err != nil {
++		return err
++	}
++	if err := validateTerminal(configuration, context); err != nil {
++		return err
++	}
++	if !between(configuration.Service.HealthIntervalSeconds, 5, 3600) {
++		return configError("service.health_interval_seconds", ErrConfigValidation)
++	}
++	return nil
++}
++
++func validateMesh(configuration *Configuration) error {
++	mesh := configuration.Mesh
++	if mesh.Transport != "ssh" {
++		return configError("mesh.transport", ErrConfigValidation)
++	}
++	if !between(mesh.SyncIntervalSeconds, 5, 86_400) {
++		return configError("mesh.sync_interval_seconds", ErrConfigValidation)
++	}
++	if !between(mesh.ConnectTimeoutSeconds, 1, 300) {
++		return configError("mesh.connect_timeout_seconds", ErrConfigValidation)
++	}
++	if !between(mesh.RPCTimeoutSeconds, 10, 3_600) {
++		return configError("mesh.rpc_timeout_seconds", ErrConfigValidation)
++	}
++	if mesh.PayloadEncryption != "none" {
++		return configError("mesh.payload_encryption", ErrConfigValidation)
++	}
++	hostIDs, names := map[string]struct{}{}, map[string]struct{}{}
++	for index, peer := range mesh.Peers {
++		prefix := fmt.Sprintf("mesh.peers[%d]", index)
++		if _, err := scalar.ParseUUIDv7(peer.HostID); err != nil {
++			return configError(prefix+".host_id", errors.Join(ErrConfigValidation, err))
++		}
++		if _, exists := hostIDs[peer.HostID]; exists {
++			return configError("mesh.peers duplicate host_id", ErrConfigValidation)
++		}
++		hostIDs[peer.HostID] = struct{}{}
++		if err := validatePrintableCharacters(peer.Name, 1, 64); err != nil {
++			return configError(prefix+".name", err)
++		}
++		if _, exists := names[peer.Name]; exists {
++			return configError("mesh.peers duplicate name", ErrConfigValidation)
++		}
++		names[peer.Name] = struct{}{}
++		if err := validatePrintableCharacters(peer.Endpoint, 1, 1024); err != nil {
++			return configError(prefix+".endpoint", err)
++		}
++		if len(peer.SSHArgs) > 64 {
++			return configError(prefix+".ssh_args", ErrConfigValidation)
++		}
++		totalBytes := len(peer.Endpoint)
++		for _, argument := range peer.SSHArgs {
++			if !utf8.ValidString(argument) || len(argument) < 1 || len(argument) > 4096 || strings.IndexByte(argument, 0) >= 0 {
++				return configError(prefix+".ssh_args", ErrConfigValidation)
++			}
++			totalBytes += len(argument)
++		}
++		if totalBytes > 65_536 {
++			return configError(prefix+" SSH argv bytes", ErrConfigValidation)
++		}
++		if sshHostAuthenticationBypass(peer.SSHArgs) {
++			return configError(prefix+".ssh_args host authentication bypass", ErrConfigValidation)
++		}
++		if err := validateWorkspaceRoots(prefix+".workspace_roots", peer.WorkspaceRoots, peer.Platform, 64); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++func validateWorkspaceRoots(prefix string, roots []WorkspaceRoot, platform scalar.Platform, max int) error {
++	if max >= 0 && len(roots) > max {
++		return configError(prefix, ErrConfigValidation)
++	}
++	seen := map[string]struct{}{}
++	for index, root := range roots {
++		if !logicalRootPattern.MatchString(root.LogicalRoot) {
++			return configError(fmt.Sprintf("%s[%d].logical_root", prefix, index), ErrConfigValidation)
++		}
++		if _, exists := seen[root.LogicalRoot]; exists {
++			return configError(prefix+" duplicate logical_root", ErrConfigValidation)
++		}
++		seen[root.LogicalRoot] = struct{}{}
++		if _, err := scalar.ParseAbsolutePath(platform, root.Path); err != nil {
++			return configError(fmt.Sprintf("%s[%d].path", prefix, index), errors.Join(ErrConfigValidation, err))
++		}
++	}
++	return nil
++}
++
++func validateProviders(configuration *Configuration) error {
++	for _, directory := range configuration.Providers.PluginDirs {
++		if _, err := scalar.ParseAbsolutePath(configuration.Platform, directory); err != nil {
++			return configError("providers.plugin_dirs", errors.Join(ErrConfigValidation, err))
++		}
++	}
++	if !configuration.Providers.RequireExplicitTrust {
++		return configError("providers.require_explicit_trust", ErrConfigValidation)
++	}
++	return nil
++}
++
++func validateSync(value Sync) error {
++	if value.ChunkBytes != 4_194_304 {
++		return configError("sync.chunk_bytes", ErrConfigValidation)
++	}
++	if !between(value.MaxParallelChunks, 1, 32) {
++		return configError("sync.max_parallel_chunks", ErrConfigValidation)
++	}
++	if !between(value.StagingRetentionHours, 1, 720) {
++		return configError("sync.staging_retention_hours", ErrConfigValidation)
++	}
++	if !between(value.TombstoneMinRetentionDays, 90, 3_650) {
++		return configError("sync.tombstone_min_retention_days", ErrConfigValidation)
++	}
++	return nil
++}
++
++func validateDirectory(configuration *Configuration) error {
++	directory := configuration.Directory
++	if !oneOf(directory.Mode, "on_demand", "service") {
++		return configError("directory.mode", ErrConfigValidation)
++	}
++	if !between(directory.ScanIntervalSeconds, 5, 86_400) {
++		return configError("directory.scan_interval_seconds", ErrConfigValidation)
++	}
++	if !between(directory.ScanDebounceSeconds, 0, 3_600) {
++		return configError("directory.scan_debounce_seconds", ErrConfigValidation)
++	}
++	if !between(directory.ScanConcurrency, 1, 32) {
++		return configError("directory.scan_concurrency", ErrConfigValidation)
++	}
++	if !between(directory.FreshCurrentSeconds, 1, 86_400) {
++		return configError("directory.fresh_current_seconds", ErrConfigValidation)
++	}
++	if directory.FreshAgingSeconds <= directory.FreshCurrentSeconds || directory.FreshAgingSeconds > 604_800 {
++		return configError("directory.fresh_aging_seconds", ErrConfigValidation)
++	}
++	if directory.FreshStaleSeconds <= directory.FreshAgingSeconds || directory.FreshStaleSeconds > 31_536_000 {
++		return configError("directory.fresh_stale_seconds", ErrConfigValidation)
++	}
++	if !between(directory.PlanExpirySeconds, 30, 3_600) {
++		return configError("directory.plan_expiry_seconds", ErrConfigValidation)
++	}
++	if !metadataPolicy(directory.DefaultMetadataPolicy) {
++		return configError("directory.default_metadata_policy", ErrConfigValidation)
++	}
++	if !oneOf(directory.GeneratedSummaryUpgradeChoice, "unset", "local_only", "mesh_sanitized", "reference_only") {
++		return configError("directory.generated_summary_upgrade_choice", ErrConfigValidation)
++	}
++	if directory.DefaultEnrichmentProfileID != "" {
++		if _, err := scalar.ParseDigest(directory.DefaultEnrichmentProfileID); err != nil {
++			return configError("directory.default_enrichment_profile_id", errors.Join(ErrConfigValidation, err))
++		}
++	}
++	if !between(directory.QueryPageDefault, 1, scalar.MaxUint53) || !between(directory.QueryPageMax, 1, scalar.MaxUint53) || directory.QueryPageDefault > directory.QueryPageMax {
++		return configError("directory query page bounds", ErrConfigValidation)
++	}
++	if !between(directory.QueryBatchMax, 1, 64) {
++		return configError("directory.query_batch_max", ErrConfigValidation)
++	}
++	if !between(directory.GrepResultMax, 1, 10_000) {
++		return configError("directory.grep_result_max", ErrConfigValidation)
++	}
++	if !oneOf(directory.EmbeddingIndex, "disabled", "local_only") {
++		return configError("directory.embedding_index", ErrConfigValidation)
++	}
++	if !between(directory.ObservationRetentionDays, 30, 3_650) {
++		return configError("directory.observation_retention_days", ErrConfigValidation)
++	}
++	if !between(directory.JobRetentionDays, 30, 3_650) {
++		return configError("directory.job_retention_days", ErrConfigValidation)
++	}
++	if !between(directory.OperationRetentionDays, 90, 3_650) {
++		return configError("directory.operation_retention_days", ErrConfigValidation)
++	}
++	installationIDs := map[string]struct{}{}
++	for index, entry := range configuration.DirectoryInstallations {
++		prefix := fmt.Sprintf("directory_installations[%d]", index)
++		if _, err := scalar.ParseDigest(entry.InstallationID); err != nil {
++			return configError(prefix+".installation_id", errors.Join(ErrConfigValidation, err))
++		}
++		if _, exists := installationIDs[entry.InstallationID]; exists {
++			return configError("directory_installations duplicate installation_id", ErrConfigValidation)
++		}
++		installationIDs[entry.InstallationID] = struct{}{}
++		if err := validatePrintableCharacters(entry.EnvironmentID, 1, 64); err != nil {
++			return configError(prefix+".environment_id", err)
++		}
++		if _, err := scalar.ParseProviderID(entry.ProviderID); err != nil {
++			return configError(prefix+".provider_id", errors.Join(ErrConfigValidation, err))
++		}
++		if err := validatePrintableCharacters(entry.AdapterID, 1, 64); err != nil {
++			return configError(prefix+".adapter_id", err)
++		}
++		if err := validateSortedUniqueDigests(entry.ScanRootAuthorityIDs, 1, 64); err != nil {
++			return configError(prefix+".scan_root_authority_ids", err)
++		}
++		if err := validateExtensions(entry.Extensions); err != nil {
++			return configError(prefix+".extensions", err)
++		}
++	}
++	profileIDs := map[string]struct{}{}
++	for index, entry := range configuration.DirectoryEnrichmentProfiles {
++		prefix := fmt.Sprintf("directory_enrichment_profiles[%d]", index)
++		if _, err := scalar.ParseDigest(entry.ProfileID); err != nil {
++			return configError(prefix+".profile_id", errors.Join(ErrConfigValidation, err))
++		}
++		if _, exists := profileIDs[entry.ProfileID]; exists {
++			return configError("directory_enrichment_profiles duplicate profile_id", ErrConfigValidation)
++		}
++		profileIDs[entry.ProfileID] = struct{}{}
++		if !between(entry.MaxConcurrency, 1, 32) {
++			return configError(prefix+".max_concurrency", ErrConfigValidation)
++		}
++		if !metadataPolicy(entry.MetadataPolicy) {
++			return configError(prefix+".metadata_policy", ErrConfigValidation)
++		}
++		if err := validateExtensions(entry.Extensions); err != nil {
++			return configError(prefix+".extensions", err)
++		}
++	}
++	disclosureIDs := map[string]struct{}{}
++	for index, entry := range configuration.DirectoryPeerDisclosure {
++		prefix := fmt.Sprintf("directory_peer_disclosure[%d]", index)
++		if _, err := scalar.ParseUUIDv7(entry.HostID); err != nil {
++			return configError(prefix+".host_id", errors.Join(ErrConfigValidation, err))
++		}
++		if _, exists := disclosureIDs[entry.HostID]; exists {
++			return configError("directory_peer_disclosure duplicate host_id", ErrConfigValidation)
++		}
++		disclosureIDs[entry.HostID] = struct{}{}
++		for field, policy := range map[string]string{
++			"environment_observations": entry.EnvironmentObservations, "native_observations": entry.NativeObservations,
++			"manual_metadata": entry.ManualMetadata, "generated_metadata": entry.GeneratedMetadata,
++			"job_operation_status": entry.JobOperationStatus,
++		} {
++			if !metadataPolicy(policy) {
++				return configError(prefix+"."+field, ErrConfigValidation)
++			}
++		}
++		if err := validateExtensions(entry.Extensions); err != nil {
++			return configError(prefix+".extensions", err)
++		}
++	}
++	return nil
++}
++
++func validateTerminal(configuration *Configuration, context DecodeContext) error {
++	terminal := configuration.Terminal
++	if !terminalBackendIDPattern.MatchString(terminal.BackendID) || len(terminal.BackendID) > 128 {
++		return configError("terminal.backend_id", ErrConfigValidation)
++	}
++	if !between(terminal.SafeBoundaryTimeoutSeconds, 1, 3_600) {
++		return configError("terminal.safe_boundary_timeout_seconds", ErrConfigValidation)
++	}
++	if !between(terminal.GracefulStopTimeoutSeconds, 1, 600) {
++		return configError("terminal.graceful_stop_timeout_seconds", ErrConfigValidation)
++	}
++	if err := validateSortedUniqueClosed(terminal.RequiredCapabilities, terminalCapabilitySet); err != nil {
++		return configError("terminal.required_capabilities", err)
++	}
++	if !terminal.RequiredCapabilitiesExplicit && len(terminal.RequiredCapabilities) != 0 {
++		return configError("terminal.required_capabilities default provenance", ErrConfigValidation)
++	}
++	if !oneOf(terminal.MultipleInputPolicy, "deny", "explicit_allow") {
++		return configError("terminal.multiple_input_policy", ErrConfigValidation)
++	}
++	if err := validateSortedUniqueClosed(terminal.TransportPolicy, map[string]struct{}{"local_only": {}, "trusted_private_mesh": {}}); err != nil {
++		return configError("terminal.transport_policy", err)
++	}
++	if !terminal.TransportPolicyExplicit && !equalStrings(terminal.TransportPolicy, []string{"local_only", "trusted_private_mesh"}) {
++		return configError("terminal.transport_policy default provenance", ErrConfigValidation)
++	}
++	if terminal.BackendID == "ax.tmux" && configuration.Platform == scalar.PlatformWindows {
++		return configError("terminal.backend_id unsupported platform", ErrConfigValidation)
++	}
++	if terminal.BackendID == "ax.conpty" && configuration.Platform != scalar.PlatformWindows {
++		return configError("terminal.backend_id unsupported platform", ErrConfigValidation)
++	}
++	registered := map[string]struct{}{"ax.tmux": {}, "ax.conpty": {}}
++	trustIDs := map[string]struct{}{}
++	for index, entry := range terminal.ExternalTrust {
++		prefix := fmt.Sprintf("terminal.external_trust[%d]", index)
++		if !terminalBackendIDPattern.MatchString(entry.BackendID) || len(entry.BackendID) > 128 {
++			return configError(prefix+".backend_id", ErrConfigValidation)
++		}
++		if _, exists := trustIDs[entry.BackendID]; exists {
++			return configError("terminal.external_trust duplicate backend_id", ErrConfigValidation)
++		}
++		trustIDs[entry.BackendID] = struct{}{}
++		if entry.Enabled {
++			registered[entry.BackendID] = struct{}{}
++		}
++		if _, err := scalar.ParseAbsolutePath(configuration.Platform, entry.ExecutablePath); err != nil {
++			return configError(prefix+".executable_path", errors.Join(ErrConfigValidation, err))
++		}
++		if _, err := scalar.ParseDigest(entry.ExecutableDigest); err != nil {
++			return configError(prefix+".executable_digest", errors.Join(ErrConfigValidation, err))
++		}
++	}
++	if _, ok := registered[terminal.BackendID]; !ok {
++		return configError("terminal.backend_id is not registered", ErrConfigValidation)
++	}
++	configIDs := map[string]struct{}{}
++	for index, entry := range terminal.BackendConfig {
++		prefix := fmt.Sprintf("terminal.backend_config[%d]", index)
++		if _, ok := registered[entry.BackendID]; !ok {
++			return configError(prefix+".backend_id is not registered", ErrConfigValidation)
++		}
++		if _, exists := configIDs[entry.BackendID]; exists {
++			return configError("terminal.backend_config duplicate backend_id", ErrConfigValidation)
++		}
++		configIDs[entry.BackendID] = struct{}{}
++		if !semverPattern.MatchString(entry.ConfigVersion) {
++			return configError(prefix+".config_version", ErrConfigValidation)
++		}
++		if entry.Settings == nil {
++			return configError(prefix+".settings", ErrConfigValidation)
++		}
++		if context.BackendSettings == nil {
++			return configError(prefix+" has no registered settings schema", ErrConfigValidation)
++		}
++		if err := context.BackendSettings.ValidateBackendSettings(entry.BackendID, entry.ConfigVersion, cloneAnyMap(entry.Settings)); err != nil {
++			return configError(prefix+".settings", errors.Join(ErrConfigValidation, err))
++		}
++	}
++	return nil
++}
++
++func validateExtensions(extensions map[string]any) error {
++	if extensions == nil {
++		return ErrConfigValidation
++	}
++	if len(extensions) > 64 {
++		return ErrConfigValidation
++	}
++	for key, value := range extensions {
++		// reverseDNSPattern itself makes a.b the shortest accepted namespace,
++		// so the three-byte minimum is structurally subsumed by that grammar.
++		if len(key) > 253 || !reverseDNSPattern.MatchString(key) || hasForbiddenConfigName(key) {
++			return ErrConfigValidation
++		}
++		if err := validateExtensionValue(value, 0); err != nil {
++			return err
++		}
++	}
++	encoded, err := json.Marshal(extensions)
++	if err != nil || len(encoded) > maxConfigExtensionBytes {
++		return ErrConfigValidation
++	}
++	return nil
++}
++
++func validateExtensionValue(value any, depth int) error {
++	switch typed := value.(type) {
++	case nil, bool, string:
++		return nil
++	case int64:
++		if typed < -scalar.MaxSafeInteger || typed > scalar.MaxSafeInteger {
++			return ErrConfigValidation
++		}
++		return nil
++	case uint64:
++		if typed > scalar.MaxUint53 {
++			return ErrConfigValidation
++		}
++		return nil
++	case float64, float32:
++		return ErrConfigValidation
++	case []any:
++		if depth >= 4 {
++			return ErrConfigValidation
++		}
++		for _, item := range typed {
++			if err := validateExtensionValue(item, depth+1); err != nil {
++				return err
++			}
++		}
++		return nil
++	case map[string]any:
++		if depth >= 4 {
++			return ErrConfigValidation
++		}
++		for key, item := range typed {
++			if hasForbiddenConfigName(key) {
++				return ErrConfigValidation
++			}
++			if err := validateExtensionValue(item, depth+1); err != nil {
++				return err
++			}
++		}
++		return nil
++	default:
++		return ErrConfigValidation
++	}
++}
++
++func validateSortedUniqueDigests(values []string, min, max int) error {
++	if len(values) < min || len(values) > max {
++		return ErrConfigValidation
++	}
++	for index, value := range values {
++		if _, err := scalar.ParseDigest(value); err != nil {
++			return errors.Join(ErrConfigValidation, err)
++		}
++		if index > 0 && values[index-1] >= value {
++			return ErrConfigValidation
++		}
++	}
++	return nil
++}
++
++func validateSortedUniqueClosed(values []string, allowed map[string]struct{}) error {
++	for index, value := range values {
++		if _, ok := allowed[value]; !ok {
++			return ErrConfigValidation
++		}
++		if index > 0 && values[index-1] >= value {
++			return ErrConfigValidation
++		}
++	}
++	return nil
++}
++
++func validatePrintableCharacters(value string, min, max int) error {
++	if !utf8.ValidString(value) {
++		return ErrConfigValidation
++	}
++	count := utf8.RuneCountInString(value)
++	if count < min || count > max {
++		return ErrConfigValidation
++	}
++	for _, character := range value {
++		if unicode.IsControl(character) || !unicode.IsPrint(character) {
++			return ErrConfigValidation
++		}
++	}
++	return nil
++}
++
++func sshHostAuthenticationBypass(arguments []string) bool {
++	options := make([]string, 0, len(arguments))
++	for index := 0; index < len(arguments); index++ {
++		argument := arguments[index]
++		if argument == "-o" && index+1 < len(arguments) {
++			index++
++			options = append(options, arguments[index])
++			continue
++		}
++		if strings.HasPrefix(argument, "-o") && len(argument) > 2 {
++			options = append(options, argument[2:])
++		}
++	}
++	for _, option := range options {
++		name, value := parseSSHConfigOption(option)
++		if name == "stricthostkeychecking" && oneOf(value, "no", "off") {
++			return true
++		}
++		if name == "userknownhostsfile" && sshKnownHostsDisabled(value) {
++			return true
++		}
++		if name == "globalknownhostsfile" && sshKnownHostsDisabled(value) {
++			return true
++		}
++	}
++	return false
++}
++
++func sshKnownHostsDisabled(value string) bool {
++	return oneOf(value, "", "none", "/dev/null", "nul")
++}
++
++func parseSSHConfigOption(option string) (string, string) {
++	option = strings.TrimSpace(option)
++	separator := strings.IndexFunc(option, func(character rune) bool { return character == '=' || unicode.IsSpace(character) })
++	if separator < 0 {
++		return strings.ToLower(option), ""
++	}
++	name := strings.ToLower(strings.TrimSpace(option[:separator]))
++	remainder := strings.TrimLeftFunc(option[separator:], func(character rune) bool { return character == '=' || unicode.IsSpace(character) })
++	value := strings.ToLower(strings.TrimSpace(remainder))
++	if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
++		value = strings.TrimSpace(value[1 : len(value)-1])
++	}
++	return name, value
++}
++
++func hasForbiddenConfigName(value string) bool {
++	normalized := strings.ToLower(strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(value))
++	for _, part := range strings.Split(normalized, "_") {
++		if oneOf(part, "secret", "secrets", "token", "tokens", "password", "passwords", "credential", "credentials", "auth", "environment", "env", "endpoint") {
++			return true
++		}
++	}
++	return false
++}
++
++func metadataPolicy(value string) bool {
++	return oneOf(value, "local_only", "mesh_sanitized", "reference_only")
++}
++func oneOf(value string, allowed ...string) bool {
++	for _, candidate := range allowed {
++		if value == candidate {
++			return true
++		}
++	}
++	return false
++}
++func between(value, min, max uint64) bool { return value >= min && value <= max }
++func legacyBackendDefault(platform scalar.Platform) string {
++	if platform == scalar.PlatformWindows {
++		return "conpty"
++	}
++	return "tmux"
++}
++func currentBackendDefault(platform scalar.Platform) string {
++	if platform == scalar.PlatformWindows {
++		return "ax.conpty"
++	}
++	return "ax.tmux"
++}
++func valueOr[T any](value *T, fallback T) T {
++	if value == nil {
++		return fallback
++	}
++	return *value
++}
++func cloneStrings(values []string) []string { return append([]string(nil), values...) }
++
++func equalStrings(left, right []string) bool {
++	if len(left) != len(right) {
++		return false
++	}
++	for index := range left {
++		if left[index] != right[index] {
++			return false
++		}
++	}
++	return true
++}
++
++func cloneAnyMap(value map[string]any) map[string]any {
++	if value == nil {
++		return nil
++	}
++	cloned := make(map[string]any, len(value))
++	for key, item := range value {
++		cloned[key] = cloneAny(item)
++	}
++	return cloned
++}
++
++func cloneAny(value any) any {
++	switch typed := value.(type) {
++	case map[string]any:
++		return cloneAnyMap(typed)
++	case []any:
++		cloned := make([]any, len(typed))
++		for index, item := range typed {
++			cloned[index] = cloneAny(item)
++		}
++		return cloned
++	case []string:
++		return cloneStrings(typed)
++	default:
++		return typed
++	}
++}
++
++func cloneConfiguration(value Configuration) Configuration {
++	cloned := value
++	cloned.WorkspaceRoots = append([]WorkspaceRoot(nil), value.WorkspaceRoots...)
++	cloned.Providers.PluginDirs = cloneStrings(value.Providers.PluginDirs)
++	cloned.Mesh.Peers = make([]Peer, len(value.Mesh.Peers))
++	for index, peer := range value.Mesh.Peers {
++		cloned.Mesh.Peers[index] = peer
++		cloned.Mesh.Peers[index].SSHArgs = cloneStrings(peer.SSHArgs)
++		cloned.Mesh.Peers[index].WorkspaceRoots = append([]WorkspaceRoot(nil), peer.WorkspaceRoots...)
++	}
++	cloned.Terminal.RequiredCapabilities = cloneStrings(value.Terminal.RequiredCapabilities)
++	cloned.Terminal.TransportPolicy = cloneStrings(value.Terminal.TransportPolicy)
++	cloned.Terminal.ExternalTrust = append([]ExternalExecutableTrust(nil), value.Terminal.ExternalTrust...)
++	cloned.Terminal.BackendConfig = make([]BackendConfig, len(value.Terminal.BackendConfig))
++	for index, entry := range value.Terminal.BackendConfig {
++		cloned.Terminal.BackendConfig[index] = entry
++		cloned.Terminal.BackendConfig[index].Settings = cloneAnyMap(entry.Settings)
++	}
++	cloned.DirectoryInstallations = make([]DirectoryInstallation, len(value.DirectoryInstallations))
++	for index, entry := range value.DirectoryInstallations {
++		cloned.DirectoryInstallations[index] = entry
++		cloned.DirectoryInstallations[index].ScanRootAuthorityIDs = cloneStrings(entry.ScanRootAuthorityIDs)
++		cloned.DirectoryInstallations[index].Extensions = cloneAnyMap(entry.Extensions)
++	}
++	cloned.DirectoryEnrichmentProfiles = make([]DirectoryEnrichmentProfile, len(value.DirectoryEnrichmentProfiles))
++	for index, entry := range value.DirectoryEnrichmentProfiles {
++		cloned.DirectoryEnrichmentProfiles[index] = entry
++		cloned.DirectoryEnrichmentProfiles[index].Extensions = cloneAnyMap(entry.Extensions)
++	}
++	cloned.DirectoryPeerDisclosure = make([]DirectoryPeerDisclosure, len(value.DirectoryPeerDisclosure))
++	for index, entry := range value.DirectoryPeerDisclosure {
++		cloned.DirectoryPeerDisclosure[index] = entry
++		cloned.DirectoryPeerDisclosure[index].Extensions = cloneAnyMap(entry.Extensions)
++	}
++	return cloned
++}
+diff --git a/internal/config/writer.go b/internal/config/writer.go
+new file mode 100644
+index 0000000..0e8fbf8
+--- /dev/null
++++ b/internal/config/writer.go
+@@ -0,0 +1,124 @@
++package config
++
++import (
++	"bytes"
++	"errors"
++
++	"github.com/pelletier/go-toml/v2"
++)
++
++// EncodeCurrent validates and emits Configuration 3.0.0 TOML. It never writes
++// a file or rewrites a legacy document; durable migration is a separate owner.
++func EncodeCurrent(configuration Configuration, context DecodeContext) ([]byte, error) {
++	configuration.Schema = SchemaID
++	configuration.SchemaVersion = CurrentVersion
++	if err := validateConfiguration(&configuration, context); err != nil {
++		return nil, errors.Join(ErrConfigEncode, err)
++	}
++	raw := currentWire(configuration)
++	var output bytes.Buffer
++	encoder := toml.NewEncoder(&output)
++	if err := encoder.Encode(raw); err != nil {
++		return nil, configError("TOML", errors.Join(ErrConfigEncode, err))
++	}
++	return output.Bytes(), nil
++}
++
++func currentWire(configuration Configuration) rawV3 {
++	raw := rawV3{
++		Schema: SchemaID, SchemaVersion: CurrentVersion,
++		HostID: pointer(configuration.HostID), HostName: pointer(configuration.HostName),
++		Platform: pointer(configuration.Platform.String()),
++		Mesh: rawMesh{
++			Transport: pointer(configuration.Mesh.Transport), SyncIntervalSeconds: pointer(configuration.Mesh.SyncIntervalSeconds),
++			ConnectTimeoutSeconds: pointer(configuration.Mesh.ConnectTimeoutSeconds), RPCTimeoutSeconds: pointer(configuration.Mesh.RPCTimeoutSeconds),
++			WorkspaceReplication: pointer(configuration.Mesh.WorkspaceReplication), PayloadEncryption: pointer(configuration.Mesh.PayloadEncryption),
++		},
++		WorkspaceRoots: wireWorkspaceRoots(configuration.WorkspaceRoots),
++		Providers: rawProviders{
++			PluginDirs: cloneStrings(configuration.Providers.PluginDirs), AllowPathPlugins: pointer(configuration.Providers.AllowPathPlugins),
++			RequireExplicitTrust: pointer(configuration.Providers.RequireExplicitTrust),
++		},
++		Sync: rawSync{
++			ChunkBytes: pointer(configuration.Sync.ChunkBytes), MaxParallelChunks: pointer(configuration.Sync.MaxParallelChunks),
++			StagingRetentionHours: pointer(configuration.Sync.StagingRetentionHours), TombstoneMinRetentionDays: pointer(configuration.Sync.TombstoneMinRetentionDays),
++		},
++		Terminal: rawTerminal{
++			BackendID: pointer(configuration.Terminal.BackendID), SafeBoundaryTimeoutSeconds: pointer(configuration.Terminal.SafeBoundaryTimeoutSeconds),
++			GracefulStopTimeoutSeconds: pointer(configuration.Terminal.GracefulStopTimeoutSeconds),
++			MultipleInputPolicy:        pointer(configuration.Terminal.MultipleInputPolicy),
++		},
++		Service:  rawService{Enabled: pointer(configuration.Service.Enabled), HealthIntervalSeconds: pointer(configuration.Service.HealthIntervalSeconds)},
++		Restore:  rawRestore{AutoResume: pointer(configuration.Restore.AutoResume)},
++		Profiles: rawProfiles{Yolo: rawYoloProfile{RequireFirstUseConfirmation: pointer(configuration.Profiles.Yolo.RequireFirstUseConfirmation)}},
++		Directory: rawDirectory{
++			Enabled: pointer(configuration.Directory.Enabled), Mode: pointer(configuration.Directory.Mode),
++			ScanIntervalSeconds: pointer(configuration.Directory.ScanIntervalSeconds), ScanDebounceSeconds: pointer(configuration.Directory.ScanDebounceSeconds),
++			ScanConcurrency: pointer(configuration.Directory.ScanConcurrency), FreshCurrentSeconds: pointer(configuration.Directory.FreshCurrentSeconds),
++			FreshAgingSeconds: pointer(configuration.Directory.FreshAgingSeconds), FreshStaleSeconds: pointer(configuration.Directory.FreshStaleSeconds),
++			PlanExpirySeconds: pointer(configuration.Directory.PlanExpirySeconds), DefaultMetadataPolicy: pointer(configuration.Directory.DefaultMetadataPolicy),
++			GeneratedSummaryUpgradeChoice: pointer(configuration.Directory.GeneratedSummaryUpgradeChoice), DefaultEnrichmentProfileID: pointer(configuration.Directory.DefaultEnrichmentProfileID),
++			QueryPageDefault: pointer(configuration.Directory.QueryPageDefault), QueryPageMax: pointer(configuration.Directory.QueryPageMax),
++			QueryBatchMax: pointer(configuration.Directory.QueryBatchMax), GrepResultMax: pointer(configuration.Directory.GrepResultMax),
++			TranscriptGrepEnabled: pointer(configuration.Directory.TranscriptGrepEnabled), EmbeddingIndex: pointer(configuration.Directory.EmbeddingIndex),
++			ObservationRetentionDays: pointer(configuration.Directory.ObservationRetentionDays), JobRetentionDays: pointer(configuration.Directory.JobRetentionDays),
++			OperationRetentionDays: pointer(configuration.Directory.OperationRetentionDays), ProvenanceCompaction: pointer(configuration.Directory.ProvenanceCompaction),
++		},
++	}
++	if configuration.Terminal.RequiredCapabilitiesExplicit {
++		values := cloneStrings(configuration.Terminal.RequiredCapabilities)
++		raw.Terminal.RequiredCapabilities = &values
++	}
++	if configuration.Terminal.TransportPolicyExplicit {
++		values := cloneStrings(configuration.Terminal.TransportPolicy)
++		raw.Terminal.TransportPolicy = &values
++	}
++	raw.Mesh.Peers = make([]rawPeer, len(configuration.Mesh.Peers))
++	for index, peer := range configuration.Mesh.Peers {
++		raw.Mesh.Peers[index] = rawPeer{
++			HostID: pointer(peer.HostID), Name: pointer(peer.Name), Endpoint: pointer(peer.Endpoint), Platform: pointer(peer.Platform.String()),
++			SSHArgs: cloneStrings(peer.SSHArgs), WorkspaceRoots: wireWorkspaceRoots(peer.WorkspaceRoots),
++		}
++	}
++	raw.Terminal.ExternalTrust = make([]rawExternalExecutableTrust, len(configuration.Terminal.ExternalTrust))
++	for index, entry := range configuration.Terminal.ExternalTrust {
++		raw.Terminal.ExternalTrust[index] = rawExternalExecutableTrust{
++			BackendID: pointer(entry.BackendID), ExecutablePath: pointer(entry.ExecutablePath), ExecutableDigest: pointer(entry.ExecutableDigest), Enabled: pointer(entry.Enabled),
++		}
++	}
++	raw.Terminal.BackendConfig = make([]rawBackendConfig, len(configuration.Terminal.BackendConfig))
++	for index, entry := range configuration.Terminal.BackendConfig {
++		raw.Terminal.BackendConfig[index] = rawBackendConfig{BackendID: pointer(entry.BackendID), ConfigVersion: pointer(entry.ConfigVersion), Settings: cloneAnyMap(entry.Settings)}
++	}
++	raw.DirectoryInstallations = make([]rawDirectoryInstallation, len(configuration.DirectoryInstallations))
++	for index, entry := range configuration.DirectoryInstallations {
++		raw.DirectoryInstallations[index] = rawDirectoryInstallation{
++			InstallationID: pointer(entry.InstallationID), EnvironmentID: pointer(entry.EnvironmentID), ProviderID: pointer(entry.ProviderID), AdapterID: pointer(entry.AdapterID),
++			ScanRootAuthorityIDs: cloneStrings(entry.ScanRootAuthorityIDs), Enabled: pointer(entry.Enabled), Extensions: cloneAnyMap(entry.Extensions),
++		}
++	}
++	raw.DirectoryEnrichmentProfiles = make([]rawDirectoryEnrichmentProfile, len(configuration.DirectoryEnrichmentProfiles))
++	for index, entry := range configuration.DirectoryEnrichmentProfiles {
++		raw.DirectoryEnrichmentProfiles[index] = rawDirectoryEnrichmentProfile{
++			ProfileID: pointer(entry.ProfileID), Enabled: pointer(entry.Enabled), MaxConcurrency: pointer(entry.MaxConcurrency), MetadataPolicy: pointer(entry.MetadataPolicy), Extensions: cloneAnyMap(entry.Extensions),
++		}
++	}
++	raw.DirectoryPeerDisclosure = make([]rawDirectoryPeerDisclosure, len(configuration.DirectoryPeerDisclosure))
++	for index, entry := range configuration.DirectoryPeerDisclosure {
++		raw.DirectoryPeerDisclosure[index] = rawDirectoryPeerDisclosure{
++			HostID: pointer(entry.HostID), EnvironmentObservations: pointer(entry.EnvironmentObservations), NativeObservations: pointer(entry.NativeObservations),
++			ManualMetadata: pointer(entry.ManualMetadata), GeneratedMetadata: pointer(entry.GeneratedMetadata), JobOperationStatus: pointer(entry.JobOperationStatus), Extensions: cloneAnyMap(entry.Extensions),
++		}
++	}
++	return raw
++}
++
++func wireWorkspaceRoots(values []WorkspaceRoot) []rawWorkspaceRoot {
++	raw := make([]rawWorkspaceRoot, len(values))
++	for index, value := range values {
++		raw[index] = rawWorkspaceRoot{LogicalRoot: pointer(value.LogicalRoot), Path: pointer(value.Path)}
++	}
++	return raw
++}
++
++func pointer[T any](value T) *T { return &value }
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index db5433e..7b4ac98 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=30 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
++	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=32 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+ 	}
+@@ -54,7 +54,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=30 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
++	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=32 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+ 	}
+@@ -73,15 +73,19 @@ func TestRunAssignedConfigPathSectionUsesScopedImplementationOwner(t *testing.T)
+ 	}
+ }
+ 
+-func TestRunDoesNotOverclaimWholeConfigLoadingSection(t *testing.T) {
++func TestRunAssignedVersionedConfigSectionsUseScopedImplementationOwners(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	repositoryRoot := filepath.Join("..", "..", "..", "..")
+-	var output bytes.Buffer
+-	err := run([]string{"-root", repositoryRoot, "-section", "6.1"}, &output)
+-	want := `assigned section "6.1" binding "section:6.1" has no scoped implementation owner`
+-	if err == nil || !strings.Contains(err.Error(), want) || output.Len() != 0 {
+-		t.Fatalf("run(-section 6.1) error = %v output = %q, want refusal %q", err, output.String(), want)
++	for _, section := range []string{"6.1", "6.2", "6.3", "6.4", "6.5", "17.1", "17.2"} {
++		var output bytes.Buffer
++		if err := run([]string{"-root", repositoryRoot, "-section", section}, &output); err != nil {
++			t.Errorf("run(-section %s) error = %v", section, err)
++			continue
++		}
++		if !strings.Contains(output.String(), "assigned_scopes=1") {
++			t.Errorf("run(-section %s) output = %q, want assigned_scopes=1", section, output.String())
++		}
+ 	}
+ }
+ 
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 11ba796..3898f83 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -146,6 +146,96 @@
+         }
+       ]
+     },
++    {
++      "id": "config-versioned-readers",
++      "production": {
++        "path": "internal/config/loader.go",
++        "declaration": "Load"
++      },
++      "tests": [
++        {
++          "path": "internal/config/schema_test.go",
++          "declaration": "TestLoadSupportsEveryPinnedConfigurationVersionAndTranslatesLegacyAtProductionEntry"
++        },
++        {
++          "path": "internal/config/schema_test.go",
++          "declaration": "TestLoadAcceptsExactV2DirectoryAndV3TerminalShapes"
++        },
++        {
++          "path": "internal/config/schema_test.go",
++          "declaration": "TestLoadRefusesUnknownClosedMembersUnsupportedVersionsAndMalformedReads"
++        },
++        {
++          "path": "internal/config/schema_test.go",
++          "declaration": "TestLoadRefusesSecurityBypassesDuplicatesAndUnknownBackendSettings"
++        },
++        {
++          "path": "internal/config/schema_test.go",
++          "declaration": "TestConfigurationNumericBoundsAcceptLimitsAndRefusePastLimitsAtProductionEntry"
++        },
++        {
++          "path": "internal/config/schema_test.go",
++          "declaration": "TestConfigurationCharacterAndArrayBoundsCountCharactersAndBytesExactly"
++        },
++        {
++          "path": "internal/config/schema_test.go",
++          "declaration": "TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections"
++        },
++        {
++          "path": "internal/config/compatibility_regression_test.go",
++          "declaration": "TestEveryClosedMapMemberRoundTripsAnExplicitEmptyObjectAtProductionEntry"
++        },
++        {
++          "path": "internal/config/compatibility_regression_test.go",
++          "declaration": "TestLoadTreatsInlineAndMultilineEmptyClosedMapsAsPresent"
++        },
++        {
++          "path": "internal/config/compatibility_regression_test.go",
++          "declaration": "TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes"
++        },
++        {
++          "path": "internal/config/compatibility_regression_test.go",
++          "declaration": "TestLegacyConPTYTranslationIsPinnedForEveryLegacyReader"
++        },
++        {
++          "path": "internal/config/compatibility_regression_test.go",
++          "declaration": "TestPeerWorkspaceRootValidationUsesPeerPlatformAndPinsEveryNestedClause"
++        },
++        {
++          "path": "internal/config/compatibility_regression_test.go",
++          "declaration": "TestPreviouslyUnpinnedConfigurationBoundsAtProductionEntry"
++        }
++      ]
++    },
++    {
++      "id": "config-current-writer",
++      "production": {
++        "path": "internal/config/writer.go",
++        "declaration": "EncodeCurrent"
++      },
++      "tests": [
++        {
++          "path": "internal/config/schema_test.go",
++          "declaration": "TestEncodeCurrentRoundTripsCurrentVersionAndReturnsIsolatedSnapshots"
++        },
++        {
++          "path": "internal/config/schema_test.go",
++          "declaration": "TestCurrentEntriesProveRelationalCollectionAndNestedBoundsInBothDirections"
++        },
++        {
++          "path": "internal/config/compatibility_regression_test.go",
++          "declaration": "TestEveryClosedMapMemberRoundTripsAnExplicitEmptyObjectAtProductionEntry"
++        },
++        {
++          "path": "internal/config/compatibility_regression_test.go",
++          "declaration": "TestPeerWorkspaceRootValidationUsesPeerPlatformAndPinsEveryNestedClause"
++        },
++        {
++          "path": "internal/config/compatibility_regression_test.go",
++          "declaration": "TestPreviouslyUnpinnedConfigurationBoundsAtProductionEntry"
++        }
++      ]
++    },
+     {
+       "id": "catalog-v050-exact",
+       "production": {
+@@ -655,6 +745,48 @@
+       "production": {"path": "internal/config/loader.go", "declaration": "ResolvePaths"},
+       "acceptance_cases": ["AC-PATH-001"]
+     },
++    {
++      "kind": "section_binding",
++      "keys": ["section:6.1"],
++      "production": {"path": "internal/config/loader.go", "declaration": "Load"},
++      "acceptance_cases": ["config-versioned-readers"]
++    },
++    {
++      "kind": "section_binding",
++      "keys": ["section:6.2"],
++      "production": {"path": "internal/config/schema.go", "declaration": "Decode"},
++      "acceptance_cases": ["config-versioned-readers"]
++    },
++    {
++      "kind": "section_binding",
++      "keys": ["section:6.3"],
++      "production": {"path": "internal/config/validation.go", "declaration": "validateConfiguration"},
++      "acceptance_cases": ["config-versioned-readers", "config-current-writer"]
++    },
++    {
++      "kind": "section_binding",
++      "keys": ["section:6.4"],
++      "production": {"path": "internal/config/validation.go", "declaration": "translateV2"},
++      "acceptance_cases": ["config-versioned-readers"]
++    },
++    {
++      "kind": "section_binding",
++      "keys": ["section:6.5"],
++      "production": {"path": "internal/config/validation.go", "declaration": "translateV3"},
++      "acceptance_cases": ["config-versioned-readers", "config-current-writer"]
++    },
++    {
++      "kind": "section_binding",
++      "keys": ["section:17.1"],
++      "production": {"path": "internal/config/schema.go", "declaration": "Decode"},
++      "acceptance_cases": ["config-versioned-readers"]
++    },
++    {
++      "kind": "section_binding",
++      "keys": ["section:17.2"],
++      "production": {"path": "internal/config/writer.go", "declaration": "EncodeCurrent"},
++      "acceptance_cases": ["config-versioned-readers", "config-current-writer"]
++    },
+     {
+       "kind": "section_binding",
+       "keys": ["section:4.C"],
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 1d84e60..3faf121 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -39,7 +39,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "f2e50b03eedbe510c04d864a81e4b2702932ca81965f8d4fa0d71f556a28a512"
++	reviewedOwnershipCanonicalSHA256 = "dde31415b72aa47c121af9698be593ec82e4787bc07393b3b17e8cce6c0b12b1"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index dd64b28..8c9d7c3 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -27,7 +27,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              60,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        30,
++		AcceptanceCases:        32,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 	}
