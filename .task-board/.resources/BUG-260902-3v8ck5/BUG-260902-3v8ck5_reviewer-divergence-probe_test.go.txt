@@ -1,0 +1,44 @@
+package canonicaljson
+
+import (
+	"encoding/json"
+	"testing"
+	"unicode/utf8"
+)
+
+// Reviewer probe: enumerate the complete set of runes whose encoding/json
+// length differs from the RFC 8785 canonical length. The change under review
+// claims that set is exactly {<, >, &, U+2028, U+2029}.
+func TestReviewerDivergenceSetIsComplete(t *testing.T) {
+	divergent := map[rune]int{}
+	for r := rune(0); r <= 0x10FFFF; r++ {
+		if r >= 0xD800 && r <= 0xDFFF {
+			continue
+		}
+		if !utf8.ValidRune(r) {
+			continue
+		}
+		value := []any{string(r)}
+		escaped, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("marshal U+%04X: %v", r, err)
+		}
+		canonical, err := Canonicalize(escaped)
+		if err != nil {
+			t.Fatalf("canonicalize U+%04X: %v", r, err)
+		}
+		if len(escaped) != len(canonical) {
+			divergent[r] = len(escaped) - len(canonical)
+		}
+	}
+	t.Logf("divergent rune count = %d", len(divergent))
+	for _, r := range []rune{'<', '>', '&', 0x2028, 0x2029} {
+		if _, ok := divergent[r]; !ok {
+			t.Errorf("expected U+%04X to diverge, it did not", r)
+		}
+		delete(divergent, r)
+	}
+	for r, d := range divergent {
+		t.Errorf("UNEXPECTED divergent rune U+%04X (delta %d) not covered by the fixture table", r, d)
+	}
+}

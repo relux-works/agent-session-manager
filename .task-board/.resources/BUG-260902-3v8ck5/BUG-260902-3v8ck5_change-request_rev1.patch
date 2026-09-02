@@ -1,0 +1,714 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index c1dc5e2..9ad5187 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,18 @@
+ 
+ ## 2026-09-02
+ 
++### 2122 — A byte bound measured on Go's escaped encoding is a bound nobody declared
++
++- ROOT CAUSE: `validateSessionLaunchPlan` and `internal/config`'s `validateExtensions` both measured a declared 65,536-byte bound with `len(json.Marshal(value))`. `encoding/json` rewrites each of the single bytes `<`, `>` and `&` into a six-character escape, and U+2028/U+2029 from three canonical bytes into six, so the bound in force was up to 6x tighter than the pinned one and was a property of `encoding/json` rather than of the specification. It failed closed — nothing oversized was admitted — but a CONFORMING document was refused, and the third site, `validateExtensionsObject`, already measured canonical bytes. One repository carried both the defect and its fix.
++- FINDING: `SetEscapeHTML(false)` alone does NOT fix it. `encoding/json` escapes U+2028 and U+2029 regardless of that setting, so only the RFC 8785 transform makes the measurement independent of the encoder. Probed directly: `["<"]` is 5 canonical bytes and 10 marshalled; `[U+2028]` is 7 canonical and 10 marshalled.
++- FIX: `internal/canonicaljson/declared_byte_bounds.go` — `CanonicalByteLength` (encode with `SetEscapeHTML(false)`, then `Canonicalize`) is the one measurement, and `canonicalByteBound(name, value, maximum)` is the one refusal gate. `closed_shapes.go:284` and `closed_shapes.go:1794` call the gate; `internal/config/validation.go:763` calls the measurement. `internal/config` now imports `internal/canonicaljson`; no cycle, canonicaljson imports only `catalog` and `scalar`.
++- FINDING: `canonicalByteBound`'s signature (`name string` + `maximum int`) matches the derived bound-helper shape in `declared_bounds_test.go`, so both byte bounds became first-class derived obligations automatically. Two `boundaryConstraintCase` entries now claim them, and changing either literal reddens the derivation gate as well as the new tests. Sharing the gate was chosen for deduplication; wiring into the derived-obligation inventory was a free consequence of the existing scanner, not a hand-registered one.
++- DECISION: folding both call sites onto `canonicalByteBound` instead of leaving `if err != nil { ... }` inline at each. The inline shape measured 64 uncovered statements in `internal/canonicaljson` against a baseline of 63 (97.143% vs 97.179%), because each call site carried its own unreachable measure-error guard. The shared gate carries one, and the final tree is 63 uncovered / 97.185% — coverage slightly above baseline rather than below it.
++- EVIDENCE: 8 mutants, 8 killed. M1 (`CanonicalByteLength` returns the marshalled length) reddens all four canonicaljson tests and both config tests. M2-M5 narrow and widen each canonicaljson bound by one; M6-M7 do the same to `maxConfigExtensionBytes`; M8 restores the escaped measurement at the config site alone. Narrow/widen mutants matter here because a delete-only mutant proves the gate exists and says nothing about where it sits. Transcript: `BUG-260902-3v8ck5_mutation-sweep.log`.
++- NOTE: the tests are built from characters whose two encodings differ, plus one encoding-neutral ASCII control row that shares the same fixture machinery. Every row asserts the accepted at-limit document is OVER the bound when measured the escaped way — that assertion, not the acceptance, is what kills the mutant. Fixture sizes are verified through `Canonicalize`, not through the helper under test, and the limit is a local SPEC literal, never `maxConfigExtensionBytes`.
++- SCOPE: `internal/canonicaljson/declared_byte_bounds.go`, `internal/canonicaljson/closed_shapes.go`, `internal/canonicaljson/canonical_byte_bound_measurement_test.go`, `internal/canonicaljson/boundary_constraints_test.go`, `internal/canonicaljson/refusal_guards_test.go`, `internal/config/validation.go`, `internal/config/extension_canonical_byte_bound_test.go`
++- STATUS: BUG-260902-3v8ck5 on `task-board/story/STORY-260902-2rngvr`, uncommitted candidate at checkpoint `f20aeec`; canonicaljson 97.2% and every other package unchanged against a detached-worktree baseline at the same commit; `go build ./...`, `go vet ./...`, `gofmt -l internal/`, `go test ./... -cover -count=1`, global tracecheck, `go generate ./internal/catalog`, `cataloggen -check` and all five seeded fuzz targets exit 0; handed off to review.
++
+ ### 2030 — A read that did not finish is not a mismatch, and quarantine cannot tell the difference on its own
+ 
+ - FINDING: `PutBlob` routed EVERY non-`ErrUnsafeOwnership` inspection error to `quarantineExisting`. `inspectExisting` returned raw `os.Open`, `io.Copy` and `Close` errors, so at the decision point an EMFILE or a transient I/O error was indistinguishable from a hash mismatch. A flaky read on the existing digest-path entry permanently moved a VALID immutable object out of the namespace. SPEC.md:819-820 authorizes quarantine for "a hash mismatch or representation disagreement" only, and a read that never completed proves neither.
+diff --git a/internal/canonicaljson/boundary_constraints_test.go b/internal/canonicaljson/boundary_constraints_test.go
+index c247cd8..697b4ae 100644
+--- a/internal/canonicaljson/boundary_constraints_test.go
++++ b/internal/canonicaljson/boundary_constraints_test.go
+@@ -69,7 +69,8 @@ func declaredBoundaryConstraintCases() []boundaryConstraintCase {
+ 			overLimit: func() map[string]any { return sessionRecordWithArgv(repeatedValues("x", 129)) },
+ 		},
+ 		{
+-			name:      "launch argv encoded size 65536 bytes",
++			name:      "launch argv canonical size 65536 bytes",
++			claims:    []boundObligation{{key: "validateSessionLaunchPlan|canonicalByteBound|Session Record Launch Plan argv|-..65536", direction: boundMaximum}},
+ 			selfField: SelfRecordID,
+ 			atLimit: func() map[string]any {
+ 				return sessionRecordWithArgv(encodedArgvBoundary(4_092))
+@@ -78,6 +79,17 @@ func declaredBoundaryConstraintCases() []boundaryConstraintCase {
+ 				return sessionRecordWithArgv(encodedArgvBoundary(4_093))
+ 			},
+ 		},
++		{
++			name:      "extensions object canonical size 65536 bytes",
++			claims:    []boundObligation{{key: "validateExtensionsObject|canonicalByteBound|extensions object|-..65536", direction: boundMaximum}},
++			selfField: SelfRecordID,
++			atLimit: func() map[string]any {
++				return genericExtensionIdentityObject(extensionsObjectOfCanonicalBytes(65_536))
++			},
++			overLimit: func() map[string]any {
++				return genericExtensionIdentityObject(extensionsObjectOfCanonicalBytes(65_537))
++			},
++		},
+ 		{
+ 			name:      "launch env_names count 64",
+ 			claims:    []boundObligation{{key: "validateSessionLaunchPlan|requireArray|env_names|-..64", direction: boundMaximum}},
+@@ -472,6 +484,15 @@ func sessionRecordWithArgv(argv []any) map[string]any {
+ 	return object
+ }
+ 
++// extensionsObjectOfCanonicalBytes returns a one-member extensions object whose
++// canonical encoding is exactly target bytes. A canonical one-member object is
++// "{" plus the quoted key, ":", the quoted value and "}", so its length is the
++// key length plus the value length plus seven.
++func extensionsObjectOfCanonicalBytes(target int) map[string]any {
++	const key = "works.relux.bytes"
++	return map[string]any{key: strings.Repeat("x", target-len(key)-7)}
++}
++
+ func encodedArgvBoundary(lastLength int) []any {
+ 	argv := make([]any, 16)
+ 	for index := range 15 {
+diff --git a/internal/canonicaljson/canonical_byte_bound_measurement_test.go b/internal/canonicaljson/canonical_byte_bound_measurement_test.go
+new file mode 100644
+index 0000000..5beaa56
+--- /dev/null
++++ b/internal/canonicaljson/canonical_byte_bound_measurement_test.go
+@@ -0,0 +1,267 @@
++package canonicaljson
++
++import (
++	"fmt"
++	"strings"
++	"testing"
++)
++
++// This file is the measurement gate for the declared byte bounds.
++//
++// The failure it exists to prevent: a bound declared in bytes was measured on
++// Go's HTML-escaped JSON encoding rather than on canonical bytes. encoding/json
++// rewrites each of the single bytes <, > and & into a six-character escape and
++// U+2028 and U+2029 from three bytes into six, so a conforming document built
++// from those characters measured up to six times its canonical size and was
++// refused. The bound in force was a property of encoding/json, not the pinned
++// limit, and the two call sites in this repository disagreed about what a byte
++// is. Nothing reddened, because every fixture was made of characters whose two
++// encodings happen to have the same length.
++//
++// The cases below are therefore built from characters whose two encodings
++// differ, and each one asserts that the escaped measurement of the accepted
++// document is over the limit. That assertion is what makes a mutant restoring
++// the escaped measurement fail here rather than pass.
++
++// specificationDeclaredByteMaximum is the byte bound that
++// relux-works/agent-session-manager-spec@v0.5.0 Section 6 and Section 10.1 fix
++// for the Session Record Launch Plan argv and for an extensions object. It is
++// written here as the specification literal, independently of the production
++// constant, so widening the implementation cannot widen this proof with it.
++const specificationDeclaredByteMaximum = 65_536
++
++// argvElementMaxBytes is the per-element byte bound the Launch Plan declares.
++// The fixtures stay inside it so an over-limit case is refused by the encoded
++// size bound under test rather than by the element bound.
++const argvElementMaxBytes = 4_096
++
++// canonicalElementOverhead is the canonical cost of one array element or one
++// object member beyond its own content: two quote bytes plus the separator or
++// bracket byte that precedes it.
++const canonicalElementOverhead = 3
++
++// measurementFiller is one character used to fill a boundary fixture, together
++// with the number of canonical bytes it occupies. expands records whether Go's
++// default JSON encoding is longer than the canonical form for that character,
++// which is the difference this gate exists to detect.
++type measurementFiller struct {
++	name           string
++	text           string
++	canonicalWidth int
++	expands        bool
++}
++
++func measurementFillers() []measurementFiller {
++	return []measurementFiller{
++		{name: "less than", text: "<", canonicalWidth: 1, expands: true},
++		{name: "greater than", text: ">", canonicalWidth: 1, expands: true},
++		{name: "ampersand", text: "&", canonicalWidth: 1, expands: true},
++		{name: "line separator", text: string(rune(0x2028)), canonicalWidth: 3, expands: true},
++		{name: "paragraph separator", text: string(rune(0x2029)), canonicalWidth: 3, expands: true},
++		// The control row: an encoding-neutral character. It shares the whole
++		// fixture machinery with the rows above, so if it passed while they
++		// failed, the fixtures would not be the reason.
++		{name: "encoding neutral ASCII", text: "x", canonicalWidth: 1, expands: false},
++	}
++}
++
++// TestMeasurementFillerWidthsAreTheCanonicalOnes pins the widths the fixture
++// arithmetic below relies on, so a wrong width cannot silently produce a
++// fixture that misses the boundary it claims to sit on.
++func TestMeasurementFillerWidthsAreTheCanonicalOnes(t *testing.T) {
++	t.Parallel()
++
++	for _, filler := range measurementFillers() {
++		t.Run(filler.name, func(t *testing.T) {
++			t.Parallel()
++
++			canonical, err := Canonicalize(mustJSON(t, []any{filler.text}))
++			if err != nil {
++				t.Fatalf("Canonicalize(single %s element) error = %v", filler.name, err)
++			}
++			want := 1 + filler.canonicalWidth + canonicalElementOverhead
++			if len(canonical) != want {
++				t.Fatalf("canonical bytes for a single %s element = %d, want %d", filler.name, len(canonical), want)
++			}
++			escaped := len(mustJSON(t, []any{filler.text}))
++			if expands := escaped > len(canonical); expands != filler.expands {
++				t.Fatalf("%s escaped encoding is %d bytes and canonical is %d; expands = %t, want %t",
++					filler.name, escaped, len(canonical), expands, filler.expands)
++			}
++		})
++	}
++}
++
++// TestLaunchPlanArgvByteBoundIsMeasuredOnCanonicalBytes drives both public
++// identity entries with a Session Record whose Launch Plan argv sits exactly on
++// the declared bound, and then one canonical byte past it.
++func TestLaunchPlanArgvByteBoundIsMeasuredOnCanonicalBytes(t *testing.T) {
++	t.Parallel()
++
++	for _, filler := range measurementFillers() {
++		t.Run(filler.name, func(t *testing.T) {
++			t.Parallel()
++
++			atLimit := argvWithCanonicalBytes(t, filler, specificationDeclaredByteMaximum)
++			assertCanonicalBytes(t, atLimit, specificationDeclaredByteMaximum)
++			assertEscapedMeasurementWouldRefuse(t, filler, atLimit)
++			assertIdentityEntriesAcceptShape(t, mustJSON(t, sessionRecordWithArgv(atLimit)), SelfRecordID)
++
++			overLimit := argvWithCanonicalBytes(t, filler, specificationDeclaredByteMaximum+1)
++			assertCanonicalBytes(t, overLimit, specificationDeclaredByteMaximum+1)
++			input := mustJSON(t, sessionRecordWithArgv(overLimit))
++			assertIdentityEntriesRefuseShape(t, input, SelfRecordID)
++			assertRefusedByCanonicalByteBound(t, input, "canonical Session Record Launch Plan argv is")
++		})
++	}
++}
++
++// TestExtensionsObjectByteBoundIsMeasuredOnCanonicalBytes is the same proof for
++// the other declared byte bound in this package.
++func TestExtensionsObjectByteBoundIsMeasuredOnCanonicalBytes(t *testing.T) {
++	t.Parallel()
++
++	for _, filler := range measurementFillers() {
++		t.Run(filler.name, func(t *testing.T) {
++			t.Parallel()
++
++			atLimit := extensionsWithCanonicalBytes(t, filler, specificationDeclaredByteMaximum)
++			assertCanonicalBytes(t, atLimit, specificationDeclaredByteMaximum)
++			assertEscapedMeasurementWouldRefuse(t, filler, atLimit)
++			assertIdentityEntriesAcceptShape(t, mustJSON(t, genericExtensionIdentityObject(atLimit)), SelfRecordID)
++
++			overLimit := extensionsWithCanonicalBytes(t, filler, specificationDeclaredByteMaximum+1)
++			assertCanonicalBytes(t, overLimit, specificationDeclaredByteMaximum+1)
++			input := mustJSON(t, genericExtensionIdentityObject(overLimit))
++			assertIdentityEntriesRefuseShape(t, input, SelfRecordID)
++			assertRefusedByCanonicalByteBound(t, input, "canonical extensions object is")
++		})
++	}
++}
++
++// TestCanonicalByteLengthIgnoresHTMLAndLineSeparatorEscaping pins the shared
++// helper itself: it must report canonical bytes for a value whose escaped
++// encoding is longer.
++func TestCanonicalByteLengthIgnoresHTMLAndLineSeparatorEscaping(t *testing.T) {
++	t.Parallel()
++
++	for _, filler := range measurementFillers() {
++		t.Run(filler.name, func(t *testing.T) {
++			t.Parallel()
++
++			value := []any{strings.Repeat(filler.text, 1_000)}
++			want := 1 + filler.canonicalWidth*1_000 + canonicalElementOverhead
++			measured, err := CanonicalByteLength(value)
++			if err != nil {
++				t.Fatalf("CanonicalByteLength(%s) error = %v", filler.name, err)
++			}
++			if measured != want {
++				t.Fatalf("CanonicalByteLength(%s) = %d, want %d canonical bytes", filler.name, measured, want)
++			}
++			if escaped := len(mustJSON(t, value)); filler.expands && escaped <= measured {
++				t.Fatalf("%s fixture does not separate the two measurements: escaped = %d, canonical = %d",
++					filler.name, escaped, measured)
++			}
++		})
++	}
++}
++
++// assertEscapedMeasurementWouldRefuse is the mutant assertion. It requires the
++// accepted at-limit document to be over the declared bound when measured the
++// way the defect measured it, so restoring an escaped measurement at either
++// call site turns this accepted document into a refused one.
++func assertEscapedMeasurementWouldRefuse(t *testing.T, filler measurementFiller, value any) {
++	t.Helper()
++
++	escaped := len(mustJSON(t, value))
++	switch {
++	case filler.expands && escaped <= specificationDeclaredByteMaximum:
++		t.Fatalf("%s at-limit fixture encodes to %d escaped bytes, which is inside the %d bound; "+
++			"the fixture cannot tell a canonical measurement from an escaped one",
++			filler.name, escaped, specificationDeclaredByteMaximum)
++	case !filler.expands && escaped != specificationDeclaredByteMaximum:
++		t.Fatalf("%s at-limit fixture encodes to %d escaped bytes, want %d; the control row must be "+
++			"encoding neutral", filler.name, escaped, specificationDeclaredByteMaximum)
++	}
++}
++
++// assertRefusedByCanonicalByteBound requires the one-past document to be
++// refused by the byte bound itself, naming the canonical size it measured, not
++// by some other gate that happens to fire on the same fixture.
++func assertRefusedByCanonicalByteBound(t *testing.T, input []byte, prefix string) {
++	t.Helper()
++
++	want := fmt.Sprintf("%s %d bytes, maximum is %d",
++		prefix, specificationDeclaredByteMaximum+1, specificationDeclaredByteMaximum)
++	_, _, err := CalculateObjectIdentity(input)
++	if err == nil || !strings.Contains(err.Error(), want) {
++		t.Fatalf("CalculateObjectIdentity(one past the bound) error = %v, want a refusal containing %q", err, want)
++	}
++}
++
++// assertCanonicalBytes measures the fixture through the RFC 8785 entry point
++// rather than through the bound helper, so a fixture cannot agree with a broken
++// measurement and call itself at the limit.
++func assertCanonicalBytes(t *testing.T, value any, want int) {
++	t.Helper()
++
++	canonical, err := Canonicalize(mustJSON(t, value))
++	if err != nil {
++		t.Fatalf("Canonicalize(boundary fixture) error = %v", err)
++	}
++	if len(canonical) != want {
++		t.Fatalf("boundary fixture is %d canonical bytes, want exactly %d", len(canonical), want)
++	}
++}
++
++// argvWithCanonicalBytes builds an argv whose canonical encoding is exactly
++// target bytes and whose elements all stay inside the per-element bound.
++//
++// A canonical array of strings is "[" plus the quoted elements joined by
++// commas plus "]", so its length is 1 + the sum over elements of the element's
++// canonical content plus canonicalElementOverhead.
++func argvWithCanonicalBytes(t *testing.T, filler measurementFiller, target int) []any {
++	t.Helper()
++
++	// Two spare bytes per element leave room for the encoding-neutral padding a
++	// last element may need to land on an exact byte count.
++	fillerCount := (argvElementMaxBytes - 2) / len(filler.text)
++	fullElement := filler.canonicalWidth*fillerCount + canonicalElementOverhead
++
++	argv := make([]any, 0, 128)
++	remaining := target - 1
++	for remaining > fullElement+canonicalElementOverhead {
++		argv = append(argv, strings.Repeat(filler.text, fillerCount))
++		remaining -= fullElement
++	}
++	argv = append(argv, fillerString(filler, remaining-canonicalElementOverhead))
++
++	for index, element := range argv {
++		if size := len(element.(string)); size < 1 || size > argvElementMaxBytes {
++			t.Fatalf("argv[%d] fixture is %d bytes, outside the declared 1..%d element bound", index, size, argvElementMaxBytes)
++		}
++	}
++	if len(argv) < 1 || len(argv) > 128 {
++		t.Fatalf("argv fixture has %d elements, outside the declared 1..128 bound", len(argv))
++	}
++	return argv
++}
++
++// extensionsWithCanonicalBytes builds a single-member extensions object whose
++// canonical encoding is exactly target bytes. A canonical one-member object is
++// "{" plus the quoted key, ":", the quoted value and "}", which is the key
++// length plus the value length plus seven.
++func extensionsWithCanonicalBytes(t *testing.T, filler measurementFiller, target int) map[string]any {
++	t.Helper()
++
++	const key = "works.relux.bytes"
++	return map[string]any{key: fillerString(filler, target-len(key)-7)}
++}
++
++// fillerString returns a string whose canonical encoding is exactly size bytes,
++// built from filler and padded with encoding-neutral ASCII when the filler's
++// width does not divide size.
++func fillerString(filler measurementFiller, size int) string {
++	return strings.Repeat(filler.text, size/filler.canonicalWidth) +
++		strings.Repeat("x", size%filler.canonicalWidth)
++}
+diff --git a/internal/canonicaljson/closed_shapes.go b/internal/canonicaljson/closed_shapes.go
+index 95c6449..75836b7 100644
+--- a/internal/canonicaljson/closed_shapes.go
++++ b/internal/canonicaljson/closed_shapes.go
+@@ -281,12 +281,8 @@ func validateSessionLaunchPlan(object map[string]any) error {
+ 			return invalidIdentity("Session Record Launch Plan argv[%d] must contain 1..4096 UTF-8 bytes", index)
+ 		}
+ 	}
+-	encodedArgv, err := json.Marshal(argv)
+-	if err != nil {
+-		return invalidIdentity("serialize Session Record Launch Plan argv: %v", err)
+-	}
+-	if len(encodedArgv) > 65_536 {
+-		return invalidIdentity("Session Record Launch Plan argv encodes to %d bytes, maximum is 65536", len(encodedArgv))
++	if err := canonicalByteBound("Session Record Launch Plan argv", argv, 65_536); err != nil {
++		return err
+ 	}
+ 	if _, err := requireUUIDv7(object, "cwd_workspace_id"); err != nil {
+ 		return err
+@@ -1795,18 +1791,7 @@ func validateExtensionsObject(extensions map[string]any) error {
+ 		}
+ 	}
+ 
+-	encoded, err := json.Marshal(extensions)
+-	if err != nil {
+-		return invalidIdentity("serialize extensions object: %v", err)
+-	}
+-	canonical, err := Canonicalize(encoded)
+-	if err != nil {
+-		return invalidIdentity("canonicalize extensions object: %v", err)
+-	}
+-	if len(canonical) > 65_536 {
+-		return invalidIdentity("canonical extensions object is %d bytes, maximum is 65536", len(canonical))
+-	}
+-	return nil
++	return canonicalByteBound("extensions object", extensions, 65_536)
+ }
+ 
+ func validateExtensionValue(value any, depth int) error {
+diff --git a/internal/canonicaljson/declared_byte_bounds.go b/internal/canonicaljson/declared_byte_bounds.go
+new file mode 100644
+index 0000000..ca10a45
+--- /dev/null
++++ b/internal/canonicaljson/declared_byte_bounds.go
+@@ -0,0 +1,59 @@
++package canonicaljson
++
++import (
++	"bytes"
++	"encoding/json"
++)
++
++// CanonicalByteLength reports how many bytes value occupies once encoded in its
++// RFC 8785 canonical form. It is the one measurement every declared byte bound
++// in this implementation is taken through, here and in the configuration
++// package, so that two call sites cannot disagree about what a byte is.
++//
++// Every declared byte bound in the specification bounds canonical bytes.
++// Measuring len(json.Marshal(value)) instead measures Go's HTML-escaped
++// encoding, which is not the canonical form: encoding/json rewrites each of the
++// single bytes <, > and & into a six-character \u00XX escape, so a document
++// built from those characters measures up to six times its canonical size.
++// U+2028 and U+2029 inflate from three canonical bytes to six the same way.
++// Under an escaped measurement the bound actually in force is a property
++// of encoding/json rather than the pinned limit, and a conforming document is
++// refused for being too large.
++//
++// Disabling HTML escaping alone is not the fix, because encoding/json escapes
++// U+2028 and U+2029 regardless of that setting. The canonical transform is what
++// makes the measurement independent of the encoder; SetEscapeHTML(false) only
++// keeps the intermediate encoding from inflating before it is re-parsed.
++func CanonicalByteLength(value any) (int, error) {
++	canonical, err := canonicalEncoding(value)
++	if err != nil {
++		return 0, err
++	}
++	return len(canonical), nil
++}
++
++// canonicalEncoding encodes value and returns its RFC 8785 canonical bytes.
++func canonicalEncoding(value any) ([]byte, error) {
++	var buffer bytes.Buffer
++	encoder := json.NewEncoder(&buffer)
++	encoder.SetEscapeHTML(false)
++	if err := encoder.Encode(value); err != nil {
++		return nil, err
++	}
++	return Canonicalize(bytes.TrimSuffix(buffer.Bytes(), []byte("\n")))
++}
++
++// canonicalByteBound refuses value when its canonical encoding is larger than
++// maximum bytes, and names the subject in the refusal. Both declared byte
++// bounds in this package go through it, so neither can drift into measuring the
++// escaped encoding on its own.
++func canonicalByteBound(name string, value any, maximum int) error {
++	measured, err := CanonicalByteLength(value)
++	if err != nil {
++		return invalidIdentity("measure canonical %s: %v", name, err)
++	}
++	if measured > maximum {
++		return invalidIdentity("canonical %s is %d bytes, maximum is %d", name, measured, maximum)
++	}
++	return nil
++}
+diff --git a/internal/canonicaljson/refusal_guards_test.go b/internal/canonicaljson/refusal_guards_test.go
+index 85108db..6d09c65 100644
+--- a/internal/canonicaljson/refusal_guards_test.go
++++ b/internal/canonicaljson/refusal_guards_test.go
+@@ -170,9 +170,12 @@ var unreachableRefusalSites = map[string]unreachableRefusal{
+ 	"canonical.go|Canonicalize|return nil, invalidJSON(\"serialize logical JSON value: %v\", err)|#0":                                           decodedValueRefusal,
+ 	"canonical.go|calculatePreparedObjectIdentity|return scalar.Digest{}, \"\", invalidIdentity(\"serialize omit-self object: %v\", err)|#0":    decodedValueRefusal,
+ 	"canonical.go|calculatePreparedObjectIdentity|return scalar.Digest{}, \"\", invalidIdentity(\"canonicalize omit-self object: %v\", err)|#0": decodedValueRefusal,
+-	"closed_shapes.go|validateExtensionsObject|return invalidIdentity(\"serialize extensions object: %v\", err)|#0":                             decodedValueRefusal,
+-	"closed_shapes.go|validateExtensionsObject|return invalidIdentity(\"canonicalize extensions object: %v\", err)|#0":                          decodedValueRefusal,
+-	"closed_shapes.go|validateSessionLaunchPlan|return invalidIdentity(\"serialize Session Record Launch Plan argv: %v\", err)|#0":              decodedValueRefusal,
++	// Both declared byte bounds are measured through CanonicalByteLength, so its
++	// error paths and the one the shared bound gate wraps them in carry the same
++	// reason as the call sites that reach them.
++	"declared_byte_bounds.go|CanonicalByteLength|return 0, err|#0":                                                  decodedValueRefusal,
++	"declared_byte_bounds.go|canonicalEncoding|return nil, err|#0":                                                  decodedValueRefusal,
++	"declared_byte_bounds.go|canonicalByteBound|return invalidIdentity(\"measure canonical %s: %v\", name, err)|#0": decodedValueRefusal,
+ 	// VerifyObjectIdentity propagates only the two calculatePreparedObjectIdentity
+ 	// refusals above; its own prepare-error propagation is proven.
+ 	"canonical.go|VerifyObjectIdentity|return scalar.Digest{}, \"\", err|#1": decodedValueRefusal,
+diff --git a/internal/config/extension_canonical_byte_bound_test.go b/internal/config/extension_canonical_byte_bound_test.go
+new file mode 100644
+index 0000000..999057d
+--- /dev/null
++++ b/internal/config/extension_canonical_byte_bound_test.go
+@@ -0,0 +1,206 @@
++package config
++
++import (
++	"encoding/json"
++	"errors"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// This file proves that the configuration extension byte bound is measured on
++// canonical bytes at the production reader and writer.
++//
++// The defect it exists to prevent: the bound was measured on Go's HTML-escaped
++// JSON encoding, which rewrites each of the single bytes <, > and & into a
++// six-character escape and U+2028 and U+2029 from three bytes into six. A
++// conforming extension object built from those characters measured up to six
++// times its canonical size and was refused, and this package's measurement
++// disagreed with the canonicaljson one for the same declared limit. Every
++// existing fixture was made of characters whose two encodings have the same
++// length, so nothing reddened.
++
++// specificationExtensionCanonicalMaxBytes is the byte bound that
++// relux-works/agent-session-manager-spec@v0.5.0 Section 6 fixes for an
++// extensions object, written as the specification literal rather than read from
++// maxConfigExtensionBytes, so widening the implementation constant cannot widen
++// this proof with it.
++const specificationExtensionCanonicalMaxBytes = 65_536
++
++// extensionBoundKey is the single extensions member the fixtures below carry.
++// A canonical one-member object is "{" plus the quoted key, ":", the quoted
++// value and "}", so its length is the key length plus the value length plus
++// seven.
++const extensionBoundKey = "works.relux.bytes"
++
++// extensionMeasurementFiller is one fill character with the number of canonical
++// bytes it occupies and whether Go's default JSON encoding inflates it.
++type extensionMeasurementFiller struct {
++	name           string
++	text           string
++	canonicalWidth int
++	expands        bool
++}
++
++func extensionMeasurementFillers() []extensionMeasurementFiller {
++	return []extensionMeasurementFiller{
++		{name: "less than", text: "<", canonicalWidth: 1, expands: true},
++		{name: "greater than", text: ">", canonicalWidth: 1, expands: true},
++		{name: "ampersand", text: "&", canonicalWidth: 1, expands: true},
++		{name: "line separator", text: string(rune(0x2028)), canonicalWidth: 3, expands: true},
++		{name: "paragraph separator", text: string(rune(0x2029)), canonicalWidth: 3, expands: true},
++		// The control row: an encoding-neutral character sharing the same
++		// fixture machinery as the rows above.
++		{name: "encoding neutral ASCII", text: "x", canonicalWidth: 1, expands: false},
++	}
++}
++
++// TestConfigurationExtensionByteBoundIsMeasuredOnCanonicalBytes drives the
++// production writer and the production reader with an extensions object that
++// sits exactly on the declared bound, and then one canonical byte past it.
++func TestConfigurationExtensionByteBoundIsMeasuredOnCanonicalBytes(t *testing.T) {
++	t.Parallel()
++
++	for _, filler := range extensionMeasurementFillers() {
++		t.Run(filler.name, func(t *testing.T) {
++			t.Parallel()
++
++			atLimit := extensionsWithCanonicalBytes(t, filler, specificationExtensionCanonicalMaxBytes)
++			assertEscapedExtensionMeasurementWouldRefuse(t, filler, atLimit)
++
++			accepted := configurationWithExtensions(atLimit)
++			document, err := EncodeCurrent(accepted, DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
++			if err != nil {
++				t.Fatalf("EncodeCurrent(extensions at the declared bound) error = %v, want acceptance", err)
++			}
++			if _, err := loadConfigDocument(document, scalar.PlatformMacOS, nil); err != nil {
++				t.Fatalf("Load(extensions at the declared bound) error = %v, want acceptance", err)
++			}
++
++			overLimit := extensionsWithCanonicalBytes(t, filler, specificationExtensionCanonicalMaxBytes+1)
++			refused := configurationWithExtensions(overLimit)
++			if _, err := EncodeCurrent(refused, DecodeContext{RuntimePlatform: scalar.PlatformMacOS}); !errors.Is(err, ErrConfigValidation) {
++				t.Fatalf("EncodeCurrent(one canonical byte past the bound) error = %v, want ErrConfigValidation", err)
++			}
++			if _, err := loadConfigDocument(oneBytePastDocument(t, document), scalar.PlatformMacOS, nil); !errors.Is(err, ErrConfigValidation) {
++				t.Fatalf("Load(one canonical byte past the bound) error = %v, want ErrConfigValidation", err)
++			}
++		})
++	}
++}
++
++// TestConfigurationAndIdentityBoundsShareOneMeasurement pins the shared helper
++// as the one both packages use, so the two sites cannot drift apart again.
++func TestConfigurationAndIdentityBoundsShareOneMeasurement(t *testing.T) {
++	t.Parallel()
++
++	for _, filler := range extensionMeasurementFillers() {
++		t.Run(filler.name, func(t *testing.T) {
++			t.Parallel()
++
++			extensions := extensionsWithCanonicalBytes(t, filler, specificationExtensionCanonicalMaxBytes)
++			measured, err := canonicaljson.CanonicalByteLength(extensions)
++			if err != nil {
++				t.Fatalf("CanonicalByteLength(%s extensions) error = %v", filler.name, err)
++			}
++			if measured != specificationExtensionCanonicalMaxBytes {
++				t.Fatalf("CanonicalByteLength(%s extensions) = %d, want %d",
++					filler.name, measured, specificationExtensionCanonicalMaxBytes)
++			}
++			if err := validateExtensions(extensions); err != nil {
++				t.Fatalf("validateExtensions(%s extensions at the bound) error = %v, want acceptance", filler.name, err)
++			}
++		})
++	}
++}
++
++// assertEscapedExtensionMeasurementWouldRefuse is the mutant assertion: the
++// accepted at-limit object must be over the bound when measured the way the
++// defect measured it, so restoring an escaped measurement reddens this test.
++func assertEscapedExtensionMeasurementWouldRefuse(t *testing.T, filler extensionMeasurementFiller, extensions map[string]any) {
++	t.Helper()
++
++	escaped := len(mustMarshalExtensions(t, extensions))
++	switch {
++	case filler.expands && escaped <= specificationExtensionCanonicalMaxBytes:
++		t.Fatalf("%s at-limit fixture encodes to %d escaped bytes, which is inside the %d bound; "+
++			"the fixture cannot tell a canonical measurement from an escaped one",
++			filler.name, escaped, specificationExtensionCanonicalMaxBytes)
++	case !filler.expands && escaped != specificationExtensionCanonicalMaxBytes:
++		t.Fatalf("%s at-limit fixture encodes to %d escaped bytes, want %d; the control row must be "+
++			"encoding neutral", filler.name, escaped, specificationExtensionCanonicalMaxBytes)
++	}
++}
++
++// oneBytePastDocument appends one encoding-neutral byte inside the extension
++// value of an already encoded document, so the production reader is driven with
++// a document exactly one canonical byte past the declared bound. Editing the
++// encoded document is what reaches the reader at all: the writer refuses the
++// over-limit configuration before it can produce one.
++func oneBytePastDocument(t *testing.T, document []byte) []byte {
++	t.Helper()
++
++	lines := strings.Split(string(document), "\n")
++	edited := 0
++	for index, line := range lines {
++		if !strings.Contains(line, extensionBoundKey) {
++			continue
++		}
++		closing := strings.LastIndexByte(line, '\'')
++		if closing < 0 {
++			t.Fatalf("extension line %q does not end in a TOML literal string", line)
++		}
++		lines[index] = line[:closing] + "x" + line[closing:]
++		edited++
++	}
++	if edited != 1 {
++		t.Fatalf("edited %d extension value lines, want exactly 1", edited)
++	}
++	return []byte(strings.Join(lines, "\n"))
++}
++
++// extensionsWithCanonicalBytes builds a single-member extensions object whose
++// canonical encoding is exactly target bytes.
++func extensionsWithCanonicalBytes(t *testing.T, filler extensionMeasurementFiller, target int) map[string]any {
++	t.Helper()
++
++	size := target - len(extensionBoundKey) - 7
++	value := strings.Repeat(filler.text, size/filler.canonicalWidth) +
++		strings.Repeat("x", size%filler.canonicalWidth)
++	extensions := map[string]any{extensionBoundKey: value}
++	if measured := canonicalExtensionBytes(t, extensions); measured != target {
++		t.Fatalf("boundary fixture is %d canonical bytes, want exactly %d", measured, target)
++	}
++	return extensions
++}
++
++// canonicalExtensionBytes measures the fixture through the RFC 8785 entry point
++// rather than through the bound helper under test, so a fixture cannot agree
++// with a broken measurement and call itself at the limit.
++func canonicalExtensionBytes(t *testing.T, extensions map[string]any) int {
++	t.Helper()
++
++	canonical, err := canonicaljson.Canonicalize(mustMarshalExtensions(t, extensions))
++	if err != nil {
++		t.Fatalf("Canonicalize(boundary fixture) error = %v", err)
++	}
++	return len(canonical)
++}
++
++func mustMarshalExtensions(t *testing.T, extensions map[string]any) []byte {
++	t.Helper()
++
++	encoded, err := json.Marshal(extensions)
++	if err != nil {
++		t.Fatalf("json.Marshal(extensions) error = %v", err)
++	}
++	return encoded
++}
++
++func configurationWithExtensions(extensions map[string]any) Configuration {
++	value := validCurrentConfiguration()
++	value.DirectoryInstallations[0].Extensions = extensions
++	return value
++}
+diff --git a/internal/config/validation.go b/internal/config/validation.go
+index e7505f9..d964092 100644
+--- a/internal/config/validation.go
++++ b/internal/config/validation.go
+@@ -1,7 +1,6 @@
+ package config
+ 
+ import (
+-	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"regexp"
+@@ -9,6 +8,7 @@ import (
+ 	"unicode"
+ 	"unicode/utf8"
+ 
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
+ 	"github.com/relux-works/agent-session-manager/internal/catalog"
+ 	"github.com/relux-works/agent-session-manager/internal/scalar"
+ )
+@@ -757,8 +757,11 @@ func validateExtensions(extensions map[string]any) error {
+ 			return err
+ 		}
+ 	}
+-	encoded, err := json.Marshal(extensions)
+-	if err != nil || len(encoded) > maxConfigExtensionBytes {
++	// The bound is on canonical bytes, so it is measured through the one shared
++	// canonical measurement rather than through Go's HTML-escaped encoding. See
++	// canonicaljson.CanonicalByteLength.
++	canonicalBytes, err := canonicaljson.CanonicalByteLength(extensions)
++	if err != nil || canonicalBytes > maxConfigExtensionBytes {
+ 		return ErrConfigValidation
+ 	}
+ 	return nil
