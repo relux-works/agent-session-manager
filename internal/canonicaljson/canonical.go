@@ -19,6 +19,23 @@ import (
 
 const maxSafeInteger int64 = 9007199254740991
 
+// maxNestingDepth bounds how many JSON containers (objects or arrays) may be
+// open at once in any document that reaches decodeValue, which is the shared
+// strict decode path behind Canonicalize, CalculateObjectIdentity, and
+// VerifyObjectIdentity. Without it, one recursion frame per nesting level lets
+// an untrusted peer object exhaust the goroutine stack, and Go reports that as
+// a fatal runtime error that recover cannot intercept.
+//
+// Rationale for 256: the deepest normative closed shape is the Transfer
+// Manifest submodule tree at its 16-level maximum, which nests roughly 40
+// containers including the identity envelope, and open extensions are bounded
+// at 4 levels, so 256 leaves more than sixfold headroom over any accepted AX
+// object. It is also far below encoding/json's 10,000-level Unmarshal cap and
+// the unbounded recursion inside the JCS re-parse, so this typed refusal is
+// always the first gate a deep document meets, and the decode stack stays at
+// a few hundred small frames regardless of input size.
+const maxNestingDepth = 256
+
 var (
 	// ErrInvalidJSON reports input outside the RFC 8785 I-JSON surface.
 	ErrInvalidJSON = errors.New("invalid canonical JSON input")
@@ -317,7 +334,7 @@ func decodeStrict(input []byte) (any, error) {
 
 	decoder := json.NewDecoder(bytes.NewReader(input))
 	decoder.UseNumber()
-	value, err := decodeValue(decoder)
+	value, err := decodeValue(decoder, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +347,10 @@ func decodeStrict(input []byte) (any, error) {
 	return value, nil
 }
 
-func decodeValue(decoder *json.Decoder) (any, error) {
+// decodeValue decodes one logical JSON value. depth counts the containers
+// already open around this value, so the top-level value is decoded at depth 0
+// and a container at depth maxNestingDepth-1 is the last one allowed to open.
+func decodeValue(decoder *json.Decoder, depth int) (any, error) {
 	token, err := decoder.Token()
 	if err != nil {
 		return nil, invalidJSON("decode JSON token: %v", err)
@@ -338,6 +358,9 @@ func decodeValue(decoder *json.Decoder) (any, error) {
 	delimiter, ok := token.(json.Delim)
 	if !ok {
 		return token, nil
+	}
+	if depth >= maxNestingDepth {
+		return nil, invalidJSON("nesting depth %d exceeds maximum %d", depth+1, maxNestingDepth)
 	}
 
 	switch delimiter {
@@ -355,7 +378,7 @@ func decodeValue(decoder *json.Decoder) (any, error) {
 			if _, duplicate := object[name]; duplicate {
 				return nil, invalidJSON("duplicate object member %q", name)
 			}
-			value, err := decodeValue(decoder)
+			value, err := decodeValue(decoder, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -369,7 +392,7 @@ func decodeValue(decoder *json.Decoder) (any, error) {
 	case '[':
 		array := make([]any, 0)
 		for decoder.More() {
-			value, err := decodeValue(decoder)
+			value, err := decodeValue(decoder, depth+1)
 			if err != nil {
 				return nil, err
 			}

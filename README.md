@@ -313,6 +313,17 @@ pinned constraint row fails the focused suite. Manifest entry destination-case
 collision detection uses a linear Unicode simple-fold set; a production-entry
 regression covers the declared 65,536-entry maximum inside the encoded identity
 size cap.
+The shared strict decoder behind `Canonicalize` and both identity entries
+enforces a declared 256-container nesting bound: a document that opens a 257th
+nested object or array is refused with the typed `ErrInvalidJSON` error before
+any recursion can exhaust the goroutine stack, which Go otherwise reports as an
+uncatchable fatal runtime error. The bound leaves more than sixfold headroom
+over the deepest normative closed shape (the 16-level submodule tree) and stays
+far below encoding/json's 10,000-level cap, so it is always the first gate a
+deep peer object meets. The suite pins the literal value, proves accept-at-limit
+and refuse-past-limit at every public entry in array, object, and mixed
+container shapes, and replays the original 2,000,000-byte nested-array crash
+input as a typed refusal.
 Every open `extensions` map is validated against the Section 1.6 reverse-DNS
 key, member-count, nesting-depth, and canonical-size rules before either entry
 attests it. Declared `string[n..m]` bounds count Unicode characters rather than
