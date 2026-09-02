@@ -1,0 +1,472 @@
+From 94da5a0696a646b59d858e8f2420f41c1bc27c4b Mon Sep 17 00:00:00 2001
+From: Ivan Oparin <oparin@me.com>
+Date: Wed, 2 Sep 2026 14:53:35 +0400
+Subject: [PATCH] BUG-260902-3ru6vw: admit extension keys by the reverse-DNS
+ grammar alone
+
+hasForbiddenConfigName refused any extension key, and any nested extension
+object key at any depth, whose dot- or dash-separated part was one of secret,
+token, password, credential, auth, environment, env or endpoint. The pinned
+v0.5.0 specification states no such rule.
+
+SPEC.md:345-347 defines an extension key as "3-253 lowercase ASCII characters,
+contains at least one dot, and has dot-separated labels matching
+[a-z][a-z0-9-]{0,62}" and reserves no label. SPEC.md:347-349 constrains an
+ExtensionValue object only as "string-keyed object with maximum nesting depth
+4", so the nested-key arm had no source at all.
+
+The rule also failed as secret detection, which is what its label list implied:
+it inspected zero values, so com.example.deploy = "AKIA..." passed while
+works.relux.env-tools, com.example.auth-manager and io.example.endpoint-list --
+namespaces this organisation owns -- were refused. The three clauses Section 6
+does state are value or field-declaration rules and are enforced where they
+apply: SPEC.md:2596-2597 by the closed schema a backend implementation version
+registers, SPEC.md:2562-2563 by the closed table shape decodeStrict decodes
+with DisallowUnknownFields, and SPEC.md:2344-2345 explicitly permits a config
+field to name a machine-local environment variable or credential profile.
+
+Remove the blacklist and both call sites, and remove the two refusal cases that
+pinned it rather than the rule itself. Add extension_key_admission_test.go,
+which drives the production Load entry: legitimate reverse-DNS keys carrying
+every previously blacklisted label are admitted and round-trip, nested keys
+named endpoint/token/password are preserved as data, the grammar, the 253-byte
+key bound and the depth-4 bound stay negative-tested, and the two retained
+value/field-declaration gates are pinned.
+
+Record the finding in LOGBOOK.md: the failure shape worth keeping is that a
+refusal test pinned an invented constraint through a review loop, so reviewing
+a refusal now means quoting its declaring specification line first.
+---
+ LOGBOOK.md                                    |  46 +++
+ README.md                                     |  20 ++
+ .../config/extension_key_admission_test.go    | 261 ++++++++++++++++++
+ internal/config/refusal_test.go               |   6 -
+ internal/config/validation.go                 |  26 +-
+ 5 files changed, 338 insertions(+), 21 deletions(-)
+ create mode 100644 internal/config/extension_key_admission_test.go
+
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 6bbe661..5c250aa 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -17,3 +17,49 @@
+ - FINDING: registering new evidence tests in `internal/traceability/ownership.v0.5.0.json` requires repinning `reviewedOwnershipCanonicalSHA256` in `internal/traceability/traceability.go:42`; tracecheck fails closed on the projection digest until the repin is reviewed.
+ - SCOPE: `internal/canonicaljson/canonical.go`, `internal/canonicaljson/nesting_depth_test.go`, `internal/canonicaljson/testdata/constraint-enumeration.md`, `internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/nesting-depth-over-limit`, `internal/traceability/ownership.v0.5.0.json`, `internal/traceability/traceability.go`, `README.md`.
+ - STATUS: fixed in STORY-260902-3os1kh workspace (trunk 48db30b descendant); canonicaljson coverage 87.1% -> 87.2%; handed off to review.
++
++## 2026-09-02 — BUG-260902-3ru6vw: a name blacklist is not secret detection
++
++`hasForbiddenConfigName` refused any `extensions` key, and any nested extension
++object key at any depth, containing a `secret`/`token`/`password`/`credential`/
++`auth`/`environment`/`env`/`endpoint` part. The pinned v0.5.0 spec states no
++such rule: `SPEC.md:345-347` defines an extension key as the reverse-DNS grammar
++and reserves no label, and `SPEC.md:347-349` constrains an ExtensionValue object
++only to string keys within nesting depth 4, so the nested-key arm had no source
++at all.
++
++The finding worth keeping is the failure shape, not the deletion. The rule read
++like secret exclusion and was presumably written for `SPEC.md:2596-2597`
++("secret, token, endpoint credential ... is forbidden") — but that clause is
++scoped to a terminal backend-config `settings` object two sentences earlier, and
++the implementation applied it to key *names* in a different section. It
++inspected zero values, so `com.example.deploy = "AKIA..."` passed while
++`works.relux.env-tools` and `com.example.auth-manager` — namespaces this
++organisation owns — were refused. It was pure false-positive surface with no
++true-positive capability.
++
++It survived a review loop because `refusal_test.go` pinned it: the loop
++hardened the invented constraint instead of asking which spec line declared it.
++A refusal test asserts a gate is reachable; it says nothing about whether the
++gate should exist. Reviewing a refusal now means quoting its declaring spec line
++before accepting its test.
++
++The two clauses that do exist were already enforced where they apply, and both
++are now pinned by a test rather than left implicit. `SPEC.md:2596-2597` is
++enforced by the closed `BackendSettingsValidator` schema a backend
++implementation version registers. `SPEC.md:2562-2563` ("No v2 table accepts a
++secret, endpoint credential, model token, auth root, or arbitrary environment
++passthrough") — the §6.4 clause an earlier review cited when it demanded
++coverage for the blacklist — is enforced by the closed table shape
++`decodeStrict` decodes with `DisallowUnknownFields`, which is a field-declaration
++rule, not a key-spelling rule. `SPEC.md:2344-2345` draws the same line for
++values and goes further: "Secret values MUST NOT be accepted in config fields; a
++provider MAY name a machine-local environment variable or credential profile."
++The specification explicitly permits a config field to *name* a credential
++profile, which is exactly what the removed rule refused.
++
++Same class as BUG-260902-beqfwr (`ssh_args` name blacklist -> derived
++admission): where the pinned spec is silent, be permissive; where it names an
++equivalence class, derive admission rather than enumerate refusals.
++
++- STATUS: BUG-260902-3ru6vw, one signed commit on `task-board/story/STORY-260902-suxwmp` (forked from trunk `6f77719`); `internal/config` coverage 93.7%, identical to the pre-change measurement taken from a `git archive HEAD` copy of the same tree; `go build ./...`, `go vet ./...`, `gofmt -l ./internal`, `go test ./... -count=1`, `go test ./... -cover -count=1`, full and assigned-scope `tracecheck`, and `cataloggen -check` all exit 0; seven single-clause mutants (re-added key blacklist, re-added nested-key blacklist, dropped grammar gate, widened 253-byte key bound, widened depth bound, dropped the registered backend-settings schema call, dropped `DisallowUnknownFields`) each redden their own cases and nothing else; handed off to review. No commit hash is named here: this entry ships in the commit it would describe, so the hash cannot be known when it is written.
+diff --git a/README.md b/README.md
+index ec47c22..1af2af0 100644
+--- a/README.md
++++ b/README.md
+@@ -252,6 +252,26 @@ mutating path fails closed: a selected file that is not itself a regular file is
+ refused with `ErrConfigNotRegular` before any backup, staging file, or
+ replacement is written, and the refusal leaves the directory exactly as it was.
+ 
++Section 6 states one rule for an `extensions` key: it is a reverse-DNS key of
++3-253 lowercase ASCII characters with at least one dot and dot-separated labels
++matching `[a-z][a-z0-9-]{0,62}`. No label is reserved, so `validateExtensions`
++admits or refuses a key by that grammar and the 253-byte bound alone, and an
++`ExtensionValue` object is constrained only to string keys within nesting depth
++4. A reverse-DNS namespace this organisation owns — `works.relux.env-tools`,
++`com.example.auth-manager`, `io.example.endpoint-list` — therefore loads, and a
++nested key named `endpoint` or `token` is preserved as data. Reading a name as
++evidence about a value is not secret detection: the only "secret, token,
++endpoint credential" clause in Section 6 governs a terminal backend-config
++`settings` object, and it is enforced where it applies, by the closed schema a
++backend implementation version registers, which refuses any settings object it
++did not declare. Section 6.4's "no v2 table accepts a secret, endpoint
++credential, model token, auth root, or arbitrary environment passthrough" is
++likewise a field-declaration rule, enforced by the closed table shape
++`decodeStrict` decodes with `DisallowUnknownFields`; Section 6.1 states the
++value rule and its permission together, forbidding secret *values* in config
++fields while allowing a provider to name a machine-local environment variable or
++credential profile.
++
+ Run the focused tests and assigned-scope traceability gate with:
+ 
+     go test ./internal/config -count=1 -v
+diff --git a/internal/config/extension_key_admission_test.go b/internal/config/extension_key_admission_test.go
+new file mode 100644
+index 0000000..fc25600
+--- /dev/null
++++ b/internal/config/extension_key_admission_test.go
+@@ -0,0 +1,261 @@
++package config
++
++import (
++	"errors"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// installationDocumentWithExtensions builds a document whose only interesting
++// content is one directory installation carrying the given inline extensions
++// table, so every case below is decided by the production loadConfigDocument
++// entry and its directory_installations[0].extensions gate.
++func installationDocumentWithExtensions(inlineTable string) []byte {
++	return append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[directory_installations]]
++installation_id = "`+testDigest+`"
++environment_id = "local"
++provider_id = "codex"
++adapter_id = "codex-local"
++scan_root_authority_ids = ["`+testDigest+`"]
++enabled = true
++extensions = `+inlineTable+`
++`)...)
++}
++
++func requireExtensionsAdmitted(t *testing.T, inlineTable string) Snapshot {
++	t.Helper()
++	snapshot, err := loadConfigDocument(installationDocumentWithExtensions(inlineTable), scalar.PlatformMacOS, nil)
++	if err != nil {
++		t.Fatalf("extensions %s refused: %v", inlineTable, err)
++	}
++	return snapshot
++}
++
++func requireExtensionsRefused(t *testing.T, inlineTable string) {
++	t.Helper()
++	_, err := loadConfigDocument(installationDocumentWithExtensions(inlineTable), scalar.PlatformMacOS, nil)
++	requireConfigClause(t, err, "directory_installations[0].extensions")
++}
++
++// TestExtensionKeyAdmissionIsDecidedByTheReverseDNSGrammarAlone pins the
++// admission rule to the only key rule the pinned specification states.
++//
++// SPEC.md:345-347 (v0.5.0, SPEC.md SHA-256
++// 562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a):
++//
++//	"A reverse-DNS key is 3-253 lowercase ASCII characters, contains at least
++//	one dot, and has dot-separated labels matching [a-z][a-z0-9-]{0,62}."
++//
++// The specification reserves no label, so a key is admitted or refused only by
++// that grammar. A previous implementation refused any key whose dot- or
++// dash-separated part was one of secret, token, password, credential, auth,
++// environment, env or endpoint. That rule appears nowhere in the pinned
++// specification and made reverse-DNS namespaces this organisation legitimately
++// owns unusable. Narrowing the gate back to any name blacklist fails here.
++func TestExtensionKeyAdmissionIsDecidedByTheReverseDNSGrammarAlone(t *testing.T) {
++	t.Parallel()
++
++	admitted := []string{
++		// Every label the removed blacklist refused, in a key the grammar accepts.
++		"works.relux.env-tools",
++		"works.relux.env",
++		"works.relux.environment",
++		"com.example.auth-manager",
++		"com.example.auth",
++		"io.example.endpoint-list",
++		"io.example.endpoint",
++		"works.relux.secret-rotation-policy",
++		"works.relux.secrets",
++		"com.example.token-budget",
++		"com.example.tokens",
++		"net.example.password-policy-docs",
++		"net.example.passwords",
++		"org.example.credential-realm-name",
++		"org.example.credentials",
++		// The blacklist normalised dots too, so a whole namespace was unusable.
++		"env.example.tool",
++		"auth.example.tool",
++		// Grammar edges that must stay admitted.
++		"a.b",
++		"a1.b-c",
++		strings.Repeat("z", 63) + ".b",
++	}
++	for _, key := range admitted {
++		key := key
++		t.Run("admits "+key, func(t *testing.T) {
++			t.Parallel()
++			snapshot := requireExtensionsAdmitted(t, `{ "`+key+`" = true }`)
++			loaded, ok := snapshot.Configuration()
++			if !ok {
++				t.Fatalf("Snapshot.Configuration() absent for admitted key %q", key)
++			}
++			if value, present := loaded.Value.DirectoryInstallations[0].Extensions[key]; !present || value != true {
++				t.Fatalf("extension %q loaded as %#v, present=%v", key, value, present)
++			}
++		})
++	}
++}
++
++// TestExtensionKeyRefusalStillEnforcesTheReverseDNSGrammar is the negative half
++// of the admission rule above: each key here violates SPEC.md:345-347 and must
++// be refused through the production entry. Widening the gate to accept any of
++// them fails this test.
++func TestExtensionKeyRefusalStillEnforcesTheReverseDNSGrammar(t *testing.T) {
++	t.Parallel()
++
++	refused := map[string]string{
++		"single label has no dot":                 "singlelabel",
++		"uppercase is not lowercase":              "works.Relux.fixture",
++		"underscore is not in the label alphabet": "works.relux_fixture",
++		"label may not start with a digit":        "works.1relux.fixture",
++		"label may not start with a dash":         "works.-relux.fixture",
++		"empty trailing label":                    "works.relux.",
++		"empty leading label":                     ".relux.fixture",
++		"non-ASCII is outside the alphabet":       "works.relüx.fixture",
++		"label longer than 63 characters":         "works." + strings.Repeat("b", 64),
++	}
++	for name, key := range refused {
++		name, key := name, key
++		t.Run("refuses "+name, func(t *testing.T) {
++			t.Parallel()
++			requireExtensionsRefused(t, `{ "`+key+`" = true }`)
++		})
++	}
++
++	t.Run("refuses a key longer than 253 bytes", func(t *testing.T) {
++		t.Parallel()
++		// extensionKey(61) is 253 bytes and admitted; one byte more is refused.
++		requireExtensionsAdmitted(t, `{ "`+extensionKey(61)+`" = true }`)
++		if len(extensionKey(61)) != 253 {
++			t.Fatalf("fixture key length = %d, want the SPEC bound 253", len(extensionKey(61)))
++		}
++		requireExtensionsRefused(t, `{ "`+extensionKey(62)+`" = true }`)
++	})
++}
++
++// TestExtensionValueObjectKeysAreAdmittedAsData pins that the pinned
++// specification imposes no naming rule inside an extension value.
++//
++// SPEC.md:347-349: "ExtensionValue is JSON null, boolean, a common-model
++// integer, string, array, or string-keyed object with maximum nesting depth 4".
++//
++// "string-keyed" is the whole constraint on a nested key. The removed
++// implementation additionally refused nested keys named secret, token,
++// password, credential, auth, environment, env or endpoint at any depth, which
++// the specification never states. Only the depth bound is a real gate here, and
++// the second half of this test proves it still holds.
++func TestExtensionValueObjectKeysAreAdmittedAsData(t *testing.T) {
++	t.Parallel()
++
++	admitted := []string{
++		`{ "works.relux.fixture" = { endpoint = "https://example.invalid" } }`,
++		`{ "works.relux.fixture" = { token = "fixture" } }`,
++		`{ "works.relux.fixture" = { password = "fixture" } }`,
++		`{ "works.relux.fixture" = { credential = "fixture" } }`,
++		`{ "works.relux.fixture" = { auth = "fixture" } }`,
++		`{ "works.relux.fixture" = { env = "fixture" } }`,
++		`{ "works.relux.fixture" = { environment = "fixture" } }`,
++		`{ "works.relux.fixture" = { secret = "fixture" } }`,
++		// Nested at every depth the specification still allows.
++		`{ "works.relux.fixture" = { a = { endpoint = "fixture" } } }`,
++		`{ "works.relux.fixture" = { a = { b = { token = "fixture" } } } }`,
++		// A key shape that is not reverse-DNS at all is still a legal nested key.
++		`{ "works.relux.fixture" = { "Mixed Case Label" = "fixture" } }`,
++	}
++	for _, table := range admitted {
++		table := table
++		t.Run("admits "+table, func(t *testing.T) {
++			t.Parallel()
++			requireExtensionsAdmitted(t, table)
++		})
++	}
++
++	t.Run("still refuses object nesting past depth 4", func(t *testing.T) {
++		t.Parallel()
++		requireExtensionsAdmitted(t, `{ "works.relux.fixture" = { a = { b = { c = { d = "leaf" } } } } }`)
++		requireExtensionsRefused(t, `{ "works.relux.fixture" = { a = { b = { c = { d = { e = "leaf" } } } } } }`)
++	})
++}
++
++// TestExtensionAdmissionDoesNotClaimSecretDetection records the fact that
++// removing the name blacklist removes no secret gate, because the blacklist was
++// never one: it inspected zero values.
++//
++// The only "secret, token, endpoint credential" clause in the pinned
++// specification is SPEC.md:2596-2597, and it is scoped to a terminal
++// backend-config settings object, not to extension keys:
++//
++//	"An arbitrary blob, raw command/argv, secret, token, endpoint credential,
++//	unrestricted environment, or environment passthrough is forbidden."
++//
++// That clause is enforced where it applies, by the closed registered settings
++// schema at validation.go validateTerminal, which refuses any settings object a
++// backend implementation version did not register. This test pins both halves:
++// an extension value carrying credential-shaped text loads as opaque data, and
++// an unregistered backend settings object is still refused.
++func TestExtensionAdmissionDoesNotClaimSecretDetection(t *testing.T) {
++	t.Parallel()
++
++	t.Run("extension values are opaque data, not scanned", func(t *testing.T) {
++		t.Parallel()
++		// The removed blacklist admitted exactly this key while refusing
++		// works.relux.env-tools, which is why it was never secret detection.
++		requireExtensionsAdmitted(t, `{ "com.example.deploy" = "AKIAIOSFODNN7EXAMPLE" }`)
++	})
++
++	t.Run("SPEC.md:2562-2563 stays enforced by the closed v2 table shape", func(t *testing.T) {
++		t.Parallel()
++		// The §6.4 clause an earlier review cited when it demanded coverage for
++		// the removed name blacklist reads, verbatim:
++		//
++		//	"No v2 table accepts a secret, endpoint credential, model token,
++		//	auth root, or arbitrary environment passthrough."
++		//
++		// It governs which fields a v2 table declares, not how an extension key
++		// is spelled, and SPEC.md:2344-2345 makes the same distinction for
++		// values while explicitly permitting a field to *name* a credential
++		// profile: "Secret values MUST NOT be accepted in config fields; a
++		// provider MAY name a machine-local environment variable or credential
++		// profile." Both are enforced structurally, by the closed table shape
++		// schema.go decodes with DisallowUnknownFields: an undeclared member of
++		// directory_installations cannot carry a credential at all.
++		document := append(minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion), []byte(`
++[[directory_installations]]
++installation_id = "`+testDigest+`"
++environment_id = "local"
++provider_id = "codex"
++adapter_id = "codex-local"
++scan_root_authority_ids = ["`+testDigest+`"]
++enabled = true
++extensions = {}
++api_token = "AKIAIOSFODNN7EXAMPLE"
++`)...)
++		// The same document without api_token loads, so the closed shape is the
++		// only thing left to refuse it and the refusal cannot be attributed to
++		// an unrelated missing member.
++		requireExtensionsAdmitted(t, `{}`)
++		_, err := loadConfigDocument(document, scalar.PlatformMacOS, nil)
++		if err == nil {
++			t.Fatal("undeclared directory_installations member api_token loaded, want refusal")
++		}
++		if !errors.Is(err, ErrConfigDecode) {
++			t.Fatalf("api_token refused with %v, want the closed-shape ErrConfigDecode clause", err)
++		}
++	})
++
++	t.Run("SPEC.md:2596-2597 stays enforced by the registered settings schema", func(t *testing.T) {
++		t.Parallel()
++		configuration := validCurrentConfiguration()
++		configuration.Terminal.BackendConfig = []BackendConfig{{
++			BackendID: "ax.tmux", ConfigVersion: "1.0.0",
++			Settings: map[string]any{"endpoint_credential": "AKIAIOSFODNN7EXAMPLE"},
++		}}
++		_, err := EncodeCurrent(configuration, DecodeContext{
++			RuntimePlatform: scalar.PlatformMacOS, BackendSettings: rejectBackendSettings{},
++		})
++		requireConfigClause(t, err, "terminal.backend_config[0].settings")
++	})
++}
+diff --git a/internal/config/refusal_test.go b/internal/config/refusal_test.go
+index 849d490..3108893 100644
+--- a/internal/config/refusal_test.go
++++ b/internal/config/refusal_test.go
+@@ -387,12 +387,6 @@ func TestEncodeCurrentPinsPreviouslyCompositeRefusalClauses(t *testing.T) {
+ 		{name: "extension reverse-DNS namespace", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
+ 			value.DirectoryInstallations[0].Extensions = map[string]any{"singlelabel": true}
+ 		}},
+-		{name: "extension forbidden root name", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
+-			value.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.token": "fixture"}
+-		}},
+-		{name: "extension forbidden nested name", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
+-			value.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.fixture": map[string]any{"endpoint": "fixture"}}
+-		}},
+ 		{name: "extension float", clause: "directory_installations[0].extensions", mutate: func(value *Configuration) {
+ 			value.DirectoryInstallations[0].Extensions = map[string]any{"works.relux.fixture": 1.5}
+ 		}},
+diff --git a/internal/config/validation.go b/internal/config/validation.go
+index 06fe963..2b6dac1 100644
+--- a/internal/config/validation.go
++++ b/internal/config/validation.go
+@@ -740,9 +740,14 @@ func validateExtensions(extensions map[string]any) error {
+ 		return ErrConfigValidation
+ 	}
+ 	for key, value := range extensions {
++		// SPEC.md:345-347 defines an extension key as exactly this grammar:
++		// "A reverse-DNS key is 3-253 lowercase ASCII characters, contains at
++		// least one dot, and has dot-separated labels matching
++		// [a-z][a-z0-9-]{0,62}". It declares no reserved or forbidden label,
++		// so no name is refused beyond that grammar and the byte bound.
+ 		// reverseDNSPattern itself makes a.b the shortest accepted namespace,
+ 		// so the three-byte minimum is structurally subsumed by that grammar.
+-		if len(key) > 253 || !reverseDNSPattern.MatchString(key) || hasForbiddenConfigName(key) {
++		if len(key) > 253 || !reverseDNSPattern.MatchString(key) {
+ 			return ErrConfigValidation
+ 		}
+ 		if err := validateExtensionValue(value, 0); err != nil {
+@@ -786,10 +791,11 @@ func validateExtensionValue(value any, depth int) error {
+ 		if depth >= 4 {
+ 			return ErrConfigValidation
+ 		}
+-		for key, item := range typed {
+-			if hasForbiddenConfigName(key) {
+-				return ErrConfigValidation
+-			}
++		// SPEC.md:347-349 constrains an ExtensionValue object only as
++		// "string-keyed object with maximum nesting depth 4". The pinned spec
++		// imposes no naming rule inside an extension value, so nested keys are
++		// admitted as data and only the depth bound is enforced here.
++		for _, item := range typed {
+ 			if err := validateExtensionValue(item, depth+1); err != nil {
+ 				return err
+ 			}
+@@ -890,16 +896,6 @@ func parseSSHConfigOption(option string) (string, string) {
+ 	return name, value
+ }
+ 
+-func hasForbiddenConfigName(value string) bool {
+-	normalized := strings.ToLower(strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(value))
+-	for _, part := range strings.Split(normalized, "_") {
+-		if oneOf(part, "secret", "secrets", "token", "tokens", "password", "passwords", "credential", "credentials", "auth", "environment", "env", "endpoint") {
+-			return true
+-		}
+-	}
+-	return false
+-}
+-
+ func metadataPolicy(value string) bool {
+ 	return oneOf(value, "local_only", "mesh_sanitized", "reference_only")
+ }
+-- 
+2.50.1 (Apple Git-155)
+
