@@ -1,0 +1,1218 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 9ad5187..84c2337 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,34 @@
+ 
+ ## 2026-09-02
+ 
++### 2237 — A fault suite that only proves the call failed proves the cheap half
++
++- FINDING (review round 2, blocking): seven fault boundaries were pinned at 2204, but only three carried a recovery half. Staged mode drift, both FIFO shard cases and BOTH quarantine-ENOSPC subtests asserted the failure state and stopped. Anything can fail; what a durability suite exists to establish is what a later run can still do. Both quarantine-ENOSPC cases are full-disk cases, so this was a direct miss against the front-loaded rule that full-disk and short-write cases must show the store is left recoverable.
++- FINDING: `README.md` then described all seven as sharing four properties — digest path absent, no staged residue, nothing manufactured into quarantine, retry installs the declared bytes. Four of the seven did not carry all four, and for the existing-quarantine-denied case two of the four are FALSE BY DESIGN and the tests correctly assert the opposite: the corrupt object stays at the digest path and the candidate IS preserved in quarantine. The very next sentence stated that correct behavior, so the section contradicted itself across two adjacent sentences. This is the capability-claim-that-does-not-reproduce shape; a later contributor would read recovery-after-fault as pinned at boundaries where nothing reddens if it breaks.
++- DECISION: took the stronger fix rather than narrowing the prose. Recovery halves added to all five under-covered cases plus the symlinked-shard case, and the README quantifier rewritten so the quarantine-move-denied outcome is stated SEPARATELY instead of folded into a list whose properties it contradicts.
++- DECISION: the two quarantine-ENOSPC recoveries have a different SHAPE and the tests now say so at the case. A candidate that was never a valid object cannot install on retry, so its recovery is that it is preserved as evidence exactly as it would have been without the fault. A corrupt existing object is deliberately left at the digest path, so its recovery is what the NEXT run does with it still there.
++- FINDING: that next run was entirely unpinned. It reaches `resolveExistingEntry` with a `blobMismatch` verdict, quarantines BOTH artifacts, frees the digest path, and a third run then installs. So a denied quarantine move defers the cleanup rather than stranding the digest path — worth knowing, and nothing established it before.
++- EVIDENCE: 5 mutants, 5 killed, transcript in `TASK-260830-3qrfjp_recovery-mutation-evidence.log`. The three that matter each leave the FAULTED first half of the case passing and die only at a line added in this round. M5 moves the existing artifact but never reports its path (`object_store_fault_test.go:490`). M6 quarantines the mismatched candidate but never reports its path (`:434`). M4 classifies a genuine ABSENCE as an unsafe entry and is killed by all six retry halves at `:247`, `:291`, `:366` (both subtests), and `object_store_fault_unix_test.go:109`, `:147` — the absence-versus-failure-to-read distinction, seen from the recovery side.
++- NOTE: the `assertQuarantineIsEmpty` added to the group-accessible-shard case is a state assertion backing a README claim, not a gate proof; that refusal returns before anything is staged, so no natural mutant can put something in quarantine there. Recorded rather than presented as mutation-tested.
++- SCOPE: `README.md`, `LOGBOOK.md`, `internal/localstore/object_store_fault_test.go`, `internal/localstore/object_store_fault_unix_test.go`. No production file touched this round; `object_store.go`, `projection.go`, `projection_test.go` and `projection_fault_test.go` are unchanged from the reviewed candidate.
++- STATUS: `internal/localstore` unchanged at 86.6%, 90 top-level tests and 130 subtests — this round added assertions to existing cases, not new cases. gofmt, `go build ./...`, `go vet ./...`, `go test ./... -count=1`, `-race -count=1`, `-cover -count=1`, both cross-compile targets, global tracecheck, `cataloggen -check` and `git diff --check` all exit 0.
++
++### 2204 — A write that did not finish is not a mismatch either, and it was being quarantined as one
++
++- FINDING: `PutBlob` folded the staged-LENGTH comparison into the same condition as the two source-IDENTITY comparisons: `info.Size() < 0 || uint64(info.Size()) != actualSize || actualSize != expectedSize || actualDigest != expected`. The identity terms compare what the source produced against what the caller declared, which is the SPEC.md Section 3.2 quarantine trigger. The length term compares what the copy ACCEPTED against what the filesystem KEPT, which proves nothing about the source bytes at all. This is the exact write-side mirror of the read-side defect recorded at 2030 today, in the same function, and it survived that fix.
++- FINDING: on a delayed-allocation filesystem (ext4, XFS, APFS) ENOSPC surfaces at writeback, not at the accepting write. So the disagreement is reachable with NO error raised on either side: `io.Copy` reports the full length, the hasher agrees with the declared digest, and only `fstat` disagrees.
++- ROOT CAUSE of the consequence: a fragment was installed into quarantine and reported with `PutResult.Digest`/`Size` describing bytes no artifact on disk held — the digest of the full source attached to a truncated file. An incident record built from that result would name a digest that does not match the quarantined bytes. Second consequence: a full volume made the store write MORE data, into quarantine, on the volume whose exhaustion caused the fault.
++- FIX: `internal/localstore/object_store.go:219` — the condition is split. A staged-length disagreement returns `ErrDurability` with no quarantine path and a zero `PutResult`; the fragment is discarded by the existing deferred cleanup. `README.md` now says "size or digest mismatches OF THE SOURCE BYTES" are quarantined.
++- DECISION: write-side faults are driven through the PRE-EXISTING `storeOperations.syncFile` seam, not a new one. fsync is where a real ENOSPC is discovered, so a failure raised there and a length that changed by stat time are the two shapes the condition actually takes. No new production seam was added to the object store.
++- FINDING: `PRAGMA max_page_count` pinned to the database's current page count makes SQLite raise a genuine `SQLITE_FULL` (code 13, "database or disk is full") from inside a transaction — no filesystem, no root, no RAM disk. The limit lives on the CONNECTION, not in the file (verified: reopening reports 4294967294), so the constraint vanishes when the failed open closes it and the recovery half of each case runs unconstrained. One test-only field, `projectionHooks.afterDatabaseOpen`, reaches that connection.
++- FINDING: a full volume must NOT be classified as corruption. The corruption path quarantines the index and rebuilds it from scratch, which writes more data onto the volume that just ran out of room. It is correct today; nothing pinned it before.
++- FINDING: the directory fixture at the digest path REACHED the regularity clause in `inspectExisting` but did not isolate it — remove the clause and `os.Open` succeeds, `io.Copy` fails EISDIR, the unreadable verdict still refuses. A FIFO at exactly mode 0600 isolates it and bounds availability: with the clause removed `PutBlob` HANGS on a pipe with no writer. Confirmed by mutant M4, which failed with "PutBlob did not return within 20s" rather than a wrong value.
++- EVIDENCE: 9 mutants, 9 killed. M1 (delete the length term) installs a TRUNCATED file into the immutable namespace and returns `error = <nil>`. M2 narrows `!=` to `<`: the short case still passes and the over-long case admits — the class-coverage proof a delete-only mutant cannot give. M3 re-merges the branch and the refusal comes back as `ErrIntegrityMismatch` with a quarantined fragment. M7 wraps rebuild inserts as `ErrProjectionCorrupt`; M8 routes a failed rebuild through the quarantine path and reddens with "index-recovery holds 1 directories"; M9 drops the migration rollback and the NEXT open fails `SQLITE_BUSY` on the leaked transaction. Transcript: `TASK-260830-3qrfjp_mutation-evidence.log`.
++- NOTE: real filesystem exhaustion is deliberately not driven. A RAM disk or loopback image is a machine-mutating, non-deterministic side effect and is refused by the repository's deterministic-test rule; the seam and the page limit reproduce the same error values on the same code paths.
++- FINDING: the symlink dimension had a hole one level above the leaf. The pre-existing symlink test replaces the digest path, which `inspectExisting` classifies. Replacing the SHARD DIRECTORY is decided much earlier, by the owner-only child-tree walk, and mutant M6 shows what that walk is holding: with it replaced by a plain `MkdirAll`, `PutBlob` returns `error = <nil>` and installs the immutable object OUTSIDE the AX data root, through the symlink.
++- SCOPE: `README.md`, `LOGBOOK.md`, `internal/localstore/object_store.go`, `internal/localstore/projection.go`, `internal/localstore/projection_test.go`, `internal/localstore/object_store_fault_test.go`, `internal/localstore/object_store_fault_unix_test.go`, `internal/localstore/projection_fault_test.go`
++- STATUS: TASK-260830-3qrfjp on `task-board/story/STORY-260902-2ni6i3`, uncommitted candidate at checkpoint `c067365`; `internal/localstore` 85.6% -> 86.6% and 80 -> 90 tests, every other package unchanged; all 18 configured spawn validation commands exit 0, including `go test ./... -race -count=1`, five seeded fuzz targets, both cross-compile targets and global tracecheck; handed off to review.
++
+ ### 2122 — A byte bound measured on Go's escaped encoding is a bound nobody declared
+ 
+ - ROOT CAUSE: `validateSessionLaunchPlan` and `internal/config`'s `validateExtensions` both measured a declared 65,536-byte bound with `len(json.Marshal(value))`. `encoding/json` rewrites each of the single bytes `<`, `>` and `&` into a six-character escape, and U+2028/U+2029 from three canonical bytes into six, so the bound in force was up to 6x tighter than the pinned one and was a property of `encoding/json` rather than of the specification. It failed closed — nothing oversized was admitted — but a CONFORMING document was refused, and the third site, `validateExtensionsObject`, already measured canonical bytes. One repository carried both the defect and its fix.
+diff --git a/README.md b/README.md
+index 76d2745..210ba4e 100644
+--- a/README.md
++++ b/README.md
+@@ -865,11 +865,11 @@ Windows storage support.
+ same-directory temporary file, fsyncs it, verifies the declared uint53 size and
+ SHA-256, performs an OS-native atomic no-replace rename, then fsyncs the shard
+ directory. An identical retry verifies and reuses the existing inode. Size or
+-digest mismatches are installed create-new under the exact quarantined digest
+-path with a UUIDv7 leaf. Oversized input is read and quarantined only through
+-the bounded declared-size-plus-one diagnostic prefix. A corrupt existing digest
+-path causes both candidates to be quarantined and the immutable namespace to
+-refuse the write.
++digest mismatches of the source bytes are installed create-new under the exact
++quarantined digest path with a UUIDv7 leaf. Oversized input is read and
++quarantined only through the bounded declared-size-plus-one diagnostic prefix. A
++corrupt existing digest path causes both candidates to be quarantined and the
++immutable namespace to refuse the write.
+ 
+ Quarantining an entry that already occupies a digest path requires a proof.
+ `verifyBlobContent` is the one classifier both `PutBlob` and the projection
+@@ -882,6 +882,50 @@ disagreement. `storeOperations.openExisting` and `projectionHooks.openBlob` are
+ the injected read seams that drive that path in tests, and the two paths are
+ asserted to reach the same classification rather than assumed to.
+ 
++The same rule applies to the write side, and it is a separate refusal rather
++than a variant of the mismatch. When the length the filesystem kept disagrees
++with the byte count the staged copy accepted, the write did not complete and
++therefore proves nothing about the source bytes: `PutBlob` reports a durability
++failure and the partial candidate is discarded rather than quarantined as
++disagreeing evidence. Quarantining it would misattribute the fault to a source
++that may have been valid, and would consume more of the space whose exhaustion
++typically caused it. That comparison is the only thing between a partially
++written file and the immutable namespace when the declared digest and the copied
++length still agree with the caller, so it is pinned in both directions: a
++fixture that keeps less than the copy accepted and one that keeps more.
++
++Full and failing volumes are driven at every boundary of the durable write. The
++source that stops producing, the volume that refuses the accepting write, the
++volume that discovers exhaustion at writeback, the staged file whose mode
++drifted before installation, and the shard directory that is group-accessible, a
++symlink, or not a directory at all are each refused with the immutable digest
++path left absent, no staged residue beside live objects, nothing manufactured
++into quarantine, and a retry after the fault clears installing the exact
++declared bytes.
++
++The quarantine move that cannot itself be written is a separate outcome, stated
++separately because the artifact the move was refused for is precisely the one
++that must not vanish. When the mismatched candidate cannot be moved, nothing is
++installed and nothing is quarantined, and once the volume has room that same
++candidate is preserved as evidence exactly as it would have been without the
++fault — recovering from the fault does not relax the verdict that produced it.
++When the candidate was preserved but the corrupt object already occupying the
++digest path could not be moved, that object deliberately stays where it is and
++the caller is told which artifact was preserved and which was not. A later run
++then reads it, proves the disagreement, quarantines both artifacts, and installs
++the declared bytes, so the denied move defers the cleanup rather than stranding
++the digest path. A quarantine that failed is never reported as one that
++succeeded.
++
++A digest path replaced by a special file bounds availability as well as safety.
++The regularity clause is driven with a FIFO created at exactly mode `0600`,
++which is not a symlink, belongs to the effective user and already carries
++owner-only bits, so every preceding check passes and that clause is the only
++thing that can refuse; with it removed `os.Open` blocks indefinitely on a FIFO
++that has no writer, so the case asserts a bounded return rather than hanging.
++The refusal moves the entry nowhere, because an unsafe shape is not a proven
++mismatch.
++
+ `OpenProjection` scans the immutable raw-blob namespace, re-verifies every byte
+ against its digest path, and rebuilds `<state>/index.sqlite` in deterministic
+ digest order. That order is owned by one comparator and asserted against the
+@@ -893,7 +937,16 @@ The integrity gate derives SQLite-created internal indexes by applying that
+ catalog to a clean in-memory database, then compares every `sqlite_master` row;
+ no object kind or `sqlite_` name prefix is filtered out of verification.
+ Migrations and full row replacement run in transactions, with injected
+-pre-commit failures proving rollback to the prior usable index. Connections use
++pre-commit failures proving rollback to the prior usable index. A full volume is
++driven as the engine failure it actually is rather than as a substituted error
++value: `PRAGMA max_page_count` pinned to the database's current size makes
++SQLite raise `SQLITE_FULL` from inside the migration and the rebuild
++transactions. Exhaustion is classified as a migration or rebuild failure and
++never as corruption, so the index is not quarantined and rebuilt on a volume
++that just ran out of room; the prior usable index keeps its inode, its rows and
++its recorded object count, no `index-recovery` directory appears, and the next
++open on a volume with room migrates and rebuilds as if the refused one had never
++run. Connections use
+ WAL journal mode, `synchronous=FULL`, foreign keys, defensive mode that refuses
+ `sqlite_master` writes on the live connection, and a bounded busy timeout;
+ an owner-only `index.sqlite.lock` serializes cold open, migration, rebuild, and
+diff --git a/internal/localstore/object_store.go b/internal/localstore/object_store.go
+index 8dff4ee..e78e7fb 100644
+--- a/internal/localstore/object_store.go
++++ b/internal/localstore/object_store.go
+@@ -216,7 +216,23 @@ func (store *ObjectStore) PutBlob(expected scalar.Digest, expectedSize uint64, s
+ 		return PutResult{}, fmt.Errorf("%w: calculate staged digest: %v", ErrDurability, err)
+ 	}
+ 	actualSize := uint64(written)
+-	if info.Size() < 0 || uint64(info.Size()) != actualSize || actualSize != expectedSize || actualDigest != expected {
++	// A staged write that did not durably keep what the copy accepted proves
++	// nothing about the source bytes. A volume that fills discovers ENOSPC at
++	// writeback rather than at the accepting write, so the byte count the copy
++	// reported and the length the filesystem kept can disagree without either
++	// side raising an error. That is a durability failure, the exact mirror of
++	// the rule verifyBlobContent owns for reads: an operation that did not
++	// complete is never a proven mismatch. The partial candidate is discarded
++	// by the deferred cleanup instead of being quarantined as disagreeing
++	// evidence, because quarantining it would both misattribute the fault and
++	// consume more of the space that just ran out. The negative length term is
++	// unreachable through os.FileInfo and is stated for the same reason the
++	// projection states it: the comparison below is unsigned.
++	if info.Size() < 0 || uint64(info.Size()) != actualSize {
++		return PutResult{}, fmt.Errorf("%w: staged write kept %d of %d accepted bytes",
++			ErrDurability, info.Size(), actualSize)
++	}
++	if actualSize != expectedSize || actualDigest != expected {
+ 		quarantinePath, quarantineErr := store.quarantineStaged(expected, stagedPath)
+ 		if quarantineErr != nil {
+ 			return PutResult{}, fmt.Errorf("%w: mismatch and quarantine failed: %v", ErrDurability, quarantineErr)
+diff --git a/internal/localstore/object_store_fault_test.go b/internal/localstore/object_store_fault_test.go
+new file mode 100644
+index 0000000..053451f
+--- /dev/null
++++ b/internal/localstore/object_store_fault_test.go
+@@ -0,0 +1,559 @@
++package localstore
++
++import (
++	"bytes"
++	"errors"
++	"io"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"runtime"
++	"strings"
++	"syscall"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// The cases in this file drive PutBlob against the filesystem faults a full or
++// failing volume actually produces, rather than against the sentinel-shaped
++// inputs the entry point validates before it touches the disk. Three properties
++// are under test at every one of those boundaries, because a durable write that
++// gives up has to give up completely:
++//
++//   - the immutable digest path stays absent, so no truncated or unverified
++//     object is ever reachable as an installed object;
++//   - the shard directory keeps no staged residue, so a repeated failure cannot
++//     accumulate partial candidates next to live objects;
++//   - a retry once the fault clears installs the exact declared bytes, so the
++//     refusal is recoverable rather than terminal.
++//
++// The last property is what separates a refusal from a loss, so every case
++// carries it — but two of them carry it in a different shape, and each says so
++// at the case itself. A candidate whose quarantine move was denied is not a
++// valid object, so its recovery is that the same candidate is preserved as
++// evidence once the volume has room. A corrupt object whose move was denied is
++// deliberately left at the digest path, so its recovery is what the next run
++// does with it still sitting there.
++//
++// storeOperations.syncFile is the seam every write-side fault is driven
++// through. That is not an accident of convenience: fsync is where a volume with
++// delayed allocation actually discovers it is full, so a failure raised there,
++// and a length that changed by the time the staged file is stat'd, are the two
++// shapes a real ENOSPC takes on ext4, XFS and APFS.
++
++// stagedIdentityFault is a durability fault that is invisible to both the copy
++// and the hasher: the bytes the source produced are exactly the declared bytes
++// and the digest agrees, but what the filesystem kept does not. It exists to
++// isolate the staged-length comparison in PutBlob, which no other clause in
++// that condition can decide.
++type stagedIdentityFault struct {
++	name       string
++	keptLength func(declared int64) int64
++}
++
++// TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch pins the staged
++// length comparison in PutBlob. Both fixtures leave the declared digest and the
++// copied byte count in complete agreement with the caller's declaration, so the
++// two identity terms that follow cannot refuse and the length term is the only
++// thing standing between a partially written file and the immutable namespace.
++//
++// Narrowing rather than deleting is what the second case buys: a comparison
++// weakened from "the kept length differs" to "the kept length is short" still
++// refuses the truncation and admits the over-long file, which is the same class
++// of durability fault seen from the other side.
++//
++// The refusal is a durability failure and not an integrity mismatch, and the
++// test asserts that distinction directly. A write that did not complete proves
++// nothing about the source bytes, so quarantining the fragment would record it
++// as disagreeing evidence about a source that may have been perfectly valid,
++// and would consume more of the space whose exhaustion caused the fault.
++func TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	content := []byte("bytes the volume did not keep")
++	digest := scalar.SHA256Digest(content)
++	faults := []stagedIdentityFault{
++		{name: "volume kept less than the copy accepted", keptLength: func(declared int64) int64 { return declared - 1 }},
++		{name: "volume kept more than the copy accepted", keptLength: func(declared int64) int64 { return declared + 1 }},
++	}
++	for _, fault := range faults {
++		t.Run(fault.name, func(t *testing.T) {
++			store := openTestStore(t)
++			target := requireDigestPath(t, store.objects, digest)
++			operations := defaultStoreOperations()
++			operations.syncFile = func(file *os.File) error {
++				if err := file.Sync(); err != nil {
++					return err
++				}
++				return file.Truncate(fault.keptLength(int64(len(content))))
++			}
++			store.operations = operations
++
++			result, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++			if !errors.Is(err, ErrDurability) {
++				t.Fatalf("PutBlob(%s) error = %v, want %v", fault.name, err, ErrDurability)
++			}
++			if errors.Is(err, ErrIntegrityMismatch) || errors.Is(err, ErrImmutableConflict) {
++				t.Fatalf("PutBlob(%s) error = %v, want an incomplete write reported as durability, not as proven disagreement", fault.name, err)
++			}
++			if !strings.Contains(err.Error(), "staged write kept") {
++				t.Fatalf("PutBlob(%s) error = %v, want the staged-length clause", fault.name, err)
++			}
++			if result != (PutResult{}) {
++				t.Fatalf("PutBlob(%s) result = %+v, want no reported identity for bytes that never landed", fault.name, result)
++			}
++			if _, statErr := os.Lstat(target); !errors.Is(statErr, fs.ErrNotExist) {
++				t.Fatalf("PutBlob(%s) digest path stat error = %v, want absent", fault.name, statErr)
++			}
++			assertNoStagedFiles(t, filepath.Dir(target))
++			assertQuarantineIsEmpty(t, store)
++
++			store.operations = defaultStoreOperations()
++			retry, retryErr := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++			if retryErr != nil || !retry.Installed || retry.Path != target {
++				t.Fatalf("PutBlob(retry after %s) result/error = %+v/%v, want the declared bytes installed", fault.name, retry, retryErr)
++			}
++			assertFileBytes(t, target, content)
++		})
++	}
++}
++
++// TestPutBlobRefusesFullVolumeFaultsOnEverySideOfTheStagedWrite drives the two
++// error-raising directions of the staged copy — the source stops producing and
++// the volume stops accepting — plus the writeback failure a filesystem with
++// delayed allocation raises at fsync rather than at the write that filled it.
++//
++// syscall.ENOSPC is used as the injected cause rather than an anonymous error
++// so the cases read as the condition they model. PutBlob deliberately does not
++// republish that cause: ErrDurability is the contract, and the assertions below
++// only require the sentinel and a recoverable retry.
++func TestPutBlobRefusesFullVolumeFaultsOnEverySideOfTheStagedWrite(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	content := []byte("payload that needs a volume with room")
++	digest := scalar.SHA256Digest(content)
++	tests := []struct {
++		name    string
++		source  func() io.Reader
++		prepare func(*storeOperations)
++	}{
++		{
++			name: "source stops producing part way through the copy",
++			source: func() io.Reader {
++				return io.MultiReader(bytes.NewReader(content[:4]), failingReader{err: syscall.ENOSPC})
++			},
++		},
++		{
++			name:   "volume refuses the accepting write",
++			source: func() io.Reader { return bytes.NewReader(content) },
++			prepare: func(operations *storeOperations) {
++				operations.syncFile = func(*os.File) error { return syscall.ENOSPC }
++			},
++		},
++		{
++			name:   "volume discovers exhaustion at writeback",
++			source: func() io.Reader { return bytes.NewReader(content) },
++			prepare: func(operations *storeOperations) {
++				operations.syncFile = func(file *os.File) error {
++					_ = file.Sync()
++					return &os.PathError{Op: "fsync", Path: file.Name(), Err: syscall.ENOSPC}
++				}
++			},
++		},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			store := openTestStore(t)
++			target := requireDigestPath(t, store.objects, digest)
++			operations := defaultStoreOperations()
++			if test.prepare != nil {
++				test.prepare(&operations)
++			}
++			store.operations = operations
++
++			result, err := store.PutBlob(digest, uint64(len(content)), test.source())
++			if !errors.Is(err, ErrDurability) {
++				t.Fatalf("PutBlob(%s) error = %v, want %v", test.name, err, ErrDurability)
++			}
++			if result != (PutResult{}) {
++				t.Fatalf("PutBlob(%s) result = %+v, want no mutation reported", test.name, result)
++			}
++			if _, statErr := os.Lstat(target); !errors.Is(statErr, fs.ErrNotExist) {
++				t.Fatalf("PutBlob(%s) digest path stat error = %v, want absent", test.name, statErr)
++			}
++			assertNoStagedFiles(t, filepath.Dir(target))
++			assertQuarantineIsEmpty(t, store)
++
++			store.operations = defaultStoreOperations()
++			retry, retryErr := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++			if retryErr != nil || !retry.Installed {
++				t.Fatalf("PutBlob(retry after %s) result/error = %+v/%v, want a recoverable install", test.name, retry, retryErr)
++			}
++			assertFileBytes(t, target, content)
++		})
++	}
++}
++
++// TestPutBlobRefusesStagedModeDriftBeforeInstallingIt pins the owner-only check
++// PutBlob applies to the file it staged itself. The fixture changes the mode
++// after the bytes are written and flushed, which is the window an out-of-band
++// writer or a permissive inherited ACL has, and it changes nothing else: the
++// staged file still holds exactly the declared bytes, so no length or identity
++// clause can refuse and the owner-only gate is the only thing that can.
++func TestPutBlobRefusesStagedModeDriftBeforeInstallingIt(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	store := openTestStore(t)
++	content := []byte("correct bytes at the wrong mode")
++	digest := scalar.SHA256Digest(content)
++	target := requireDigestPath(t, store.objects, digest)
++	operations := defaultStoreOperations()
++	operations.syncFile = func(file *os.File) error {
++		if err := file.Sync(); err != nil {
++			return err
++		}
++		return os.Chmod(file.Name(), 0o644)
++	}
++	store.operations = operations
++
++	result, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++	if !errors.Is(err, ErrDurability) {
++		t.Fatalf("PutBlob(group-readable staged file) error = %v, want %v", err, ErrDurability)
++	}
++	if !strings.Contains(err.Error(), "staged blob") || !strings.Contains(err.Error(), "mode is 0644") {
++		t.Fatalf("PutBlob(group-readable staged file) error = %v, want the staged owner-only clause", err)
++	}
++	if result != (PutResult{}) {
++		t.Fatalf("PutBlob(group-readable staged file) result = %+v, want no mutation reported", result)
++	}
++	if _, statErr := os.Lstat(target); !errors.Is(statErr, fs.ErrNotExist) {
++		t.Fatalf("world-readable candidate reached the immutable namespace: stat error = %v", statErr)
++	}
++	assertNoStagedFiles(t, filepath.Dir(target))
++	assertQuarantineIsEmpty(t, store)
++
++	// The out-of-band writer stops interfering. Nothing the refusal did may
++	// have left the digest path unusable for the write it just declined.
++	store.operations = defaultStoreOperations()
++	retry, retryErr := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++	if retryErr != nil || !retry.Installed || retry.Path != target {
++		t.Fatalf("PutBlob(retry after staged mode drift cleared) result/error = %+v/%v, want the declared bytes installed", retry, retryErr)
++	}
++	assertFileBytes(t, target, content)
++}
++
++// TestPutBlobRefusesGroupAccessibleObjectShardBeforeStagingAnything drives the
++// owner-only directory gate that runs before os.CreateTemp. A shard whose mode
++// drifted must stop the write while it is still a no-op, because a staged file
++// created inside a group-accessible directory is readable by another user for
++// as long as it exists there.
++func TestPutBlobRefusesGroupAccessibleObjectShardBeforeStagingAnything(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	store := openTestStore(t)
++	content := []byte("candidate for a shard that drifted")
++	digest := scalar.SHA256Digest(content)
++	target := requireDigestPath(t, store.objects, digest)
++	shardRoot := filepath.Join(store.objects, "sha256")
++	if err := os.Chmod(shardRoot, 0o750); err != nil {
++		t.Fatal(err)
++	}
++
++	result, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++	if !errors.Is(err, ErrDurability) {
++		t.Fatalf("PutBlob(group-accessible shard root) error = %v, want %v", err, ErrDurability)
++	}
++	if !strings.Contains(err.Error(), "create object shard") {
++		t.Fatalf("PutBlob(group-accessible shard root) error = %v, want the shard creation clause", err)
++	}
++	if result != (PutResult{}) {
++		t.Fatalf("PutBlob(group-accessible shard root) result = %+v, want no mutation reported", result)
++	}
++	if entries, readErr := os.ReadDir(shardRoot); readErr != nil || len(entries) != 0 {
++		t.Fatalf("shard root entries/error = %v/%v, want nothing staged beneath an unsafe directory", entries, readErr)
++	}
++	assertQuarantineIsEmpty(t, store)
++
++	if err := os.Chmod(shardRoot, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	retry, retryErr := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++	if retryErr != nil || !retry.Installed || retry.Path != target {
++		t.Fatalf("PutBlob(retry after shard repair) result/error = %+v/%v, want a recoverable install", retry, retryErr)
++	}
++	assertFileBytes(t, target, content)
++}
++
++// TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt closes the symlink
++// dimension one level above the digest path. The existing symlink case in
++// object_store_test.go replaces the leaf, which inspectExisting classifies; this
++// one replaces the directory the staged file would be created in, which is
++// decided much earlier by the owner-only child-tree walk. A store that followed
++// it would create the staged file, and then the immutable object, outside the
++// AX-owned data root entirely.
++//
++// The two shards are driven separately because they are refused at different
++// steps of the same walk, and a fixture at one says nothing about the other.
++func TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	content := []byte("candidate for a shard that points elsewhere")
++	digest := scalar.SHA256Digest(content)
++	tests := []struct {
++		name  string
++		shard func(*ObjectStore) string
++	}{
++		{"digest root", func(store *ObjectStore) string { return filepath.Join(store.objects, "sha256") }},
++		{"digest shard", func(store *ObjectStore) string {
++			return filepath.Join(store.objects, "sha256", digest.Hex()[:2])
++		}},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			store := openTestStore(t)
++			shard := test.shard(store)
++			external := filepath.Join(t.TempDir(), "external")
++			if err := os.Mkdir(external, 0o700); err != nil {
++				t.Fatal(err)
++			}
++			if err := os.RemoveAll(shard); err != nil {
++				t.Fatal(err)
++			}
++			if err := os.MkdirAll(filepath.Dir(shard), 0o700); err != nil {
++				t.Fatal(err)
++			}
++			if err := os.Symlink(external, shard); err != nil {
++				t.Fatal(err)
++			}
++
++			result, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++			if !errors.Is(err, ErrDurability) {
++				t.Fatalf("PutBlob(symlinked %s) error = %v, want %v", test.name, err, ErrDurability)
++			}
++			if !strings.Contains(err.Error(), "create object shard") {
++				t.Fatalf("PutBlob(symlinked %s) error = %v, want the shard creation clause", test.name, err)
++			}
++			if result != (PutResult{}) {
++				t.Fatalf("PutBlob(symlinked %s) result = %+v, want no mutation reported", test.name, result)
++			}
++			info, statErr := os.Lstat(shard)
++			if statErr != nil || info.Mode()&os.ModeSymlink == 0 {
++				t.Fatalf("symlinked %s was replaced or followed: info/error = %v/%v", test.name, info, statErr)
++			}
++			entries, readErr := os.ReadDir(external)
++			if readErr != nil || len(entries) != 0 {
++				t.Fatalf("symlink target entries/error = %v/%v, want nothing written outside the data root", entries, readErr)
++			}
++			assertQuarantineIsEmpty(t, store)
++
++			if err := os.Remove(shard); err != nil {
++				t.Fatal(err)
++			}
++			target := requireDigestPath(t, store.objects, digest)
++			retry, retryErr := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++			if retryErr != nil || !retry.Installed || retry.Path != target {
++				t.Fatalf("PutBlob(retry after symlinked %s was removed) result/error = %+v/%v, want the declared bytes installed",
++					test.name, retry, retryErr)
++			}
++			assertFileBytes(t, target, content)
++		})
++	}
++}
++
++// TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact covers the
++// second-order fault: the volume is too full to accept the quarantine copy of
++// the evidence a refusal just produced. Both quarantine movers are driven, and
++// each is isolated from the other by the source path the injected installer
++// refuses, because the candidate is always moved before the existing entry and
++// a failure on the first would otherwise mask the second.
++//
++// The property being pinned is that a failed quarantine never becomes a silent
++// deletion. Neither the immutable namespace nor the caller may end up believing
++// an artifact was preserved when it was not.
++//
++// Each subtest then establishes that the refusal was a deferral and not a
++// stall, which for a full volume is the half that matters: anything can fail,
++// and what a durability suite has to show is what a later run can still do.
++// The recovery differs in shape between the two because the artifact left
++// behind differs. A candidate that was never a valid object cannot install on
++// retry, so its recovery is that it is preserved as evidence exactly as it
++// would have been without the fault. A corrupt existing object is deliberately
++// left at the digest path, so its recovery is what the next run does with it
++// still there.
++func TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	content := []byte("valid")
++	corrupt := []byte("corrupt existing object")
++
++	t.Run("candidate quarantine cannot be written", func(t *testing.T) {
++		store := openTestStore(t)
++		declared := scalar.SHA256Digest([]byte("something else entirely"))
++		target := requireDigestPath(t, store.objects, declared)
++		store.operations = quarantineDenyingOperations(store, func(string) bool { return true })
++
++		result, err := store.PutBlob(declared, uint64(len(content)), bytes.NewReader(content))
++		if !errors.Is(err, ErrDurability) {
++			t.Fatalf("PutBlob(mismatch on a full volume) error = %v, want %v", err, ErrDurability)
++		}
++		if !strings.Contains(err.Error(), "mismatch and quarantine failed") {
++			t.Fatalf("PutBlob(mismatch on a full volume) error = %v, want the quarantine failure clause", err)
++		}
++		if result != (PutResult{}) {
++			t.Fatalf("PutBlob(mismatch on a full volume) result = %+v, want no quarantine path claimed", result)
++		}
++		if _, statErr := os.Lstat(target); !errors.Is(statErr, fs.ErrNotExist) {
++			t.Fatalf("unverified candidate reached the immutable namespace: stat error = %v", statErr)
++		}
++		assertNoStagedFiles(t, filepath.Dir(target))
++		assertQuarantineIsEmpty(t, store)
++
++		// Room returns. The same mismatched candidate must now be preserved as
++		// evidence exactly as it would have been had the volume never filled,
++		// and it still must not reach the immutable namespace: recovering from
++		// the fault may not also relax the verdict that produced it.
++		store.operations = defaultStoreOperations()
++		retry, retryErr := store.PutBlob(declared, uint64(len(content)), bytes.NewReader(content))
++		if !errors.Is(retryErr, ErrIntegrityMismatch) {
++			t.Fatalf("PutBlob(retry once quarantine has room) error = %v, want %v", retryErr, ErrIntegrityMismatch)
++		}
++		if retry.QuarantinePath == "" {
++			t.Fatalf("PutBlob(retry once quarantine has room) result = %+v, want the mismatched candidate preserved", retry)
++		}
++		assertFileBytes(t, retry.QuarantinePath, content)
++		if _, statErr := os.Lstat(target); !errors.Is(statErr, fs.ErrNotExist) {
++			t.Fatalf("retry installed an unverified candidate: stat error = %v", statErr)
++		}
++		assertNoStagedFiles(t, filepath.Dir(target))
++	})
++
++	t.Run("existing quarantine cannot be written", func(t *testing.T) {
++		store := openTestStore(t)
++		digest := scalar.SHA256Digest(content)
++		target := requireDigestPath(t, store.objects, digest)
++		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.WriteFile(target, corrupt, 0o600); err != nil {
++			t.Fatal(err)
++		}
++		// Only the existing object's move is denied. The candidate is moved
++		// first and must still succeed, so the failure observed below can only
++		// be the second mover's.
++		store.operations = quarantineDenyingOperations(store, func(source string) bool { return source == target })
++
++		result, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++		if !errors.Is(err, ErrImmutableConflict) {
++			t.Fatalf("PutBlob(corrupt existing on a full volume) error = %v, want %v", err, ErrImmutableConflict)
++		}
++		if !strings.Contains(err.Error(), "existing quarantine failed") {
++			t.Fatalf("PutBlob(corrupt existing on a full volume) error = %v, want the existing quarantine failure clause", err)
++		}
++		if result.QuarantinePath == "" {
++			t.Fatalf("PutBlob(corrupt existing on a full volume) result = %+v, want the candidate reported as preserved", result)
++		}
++		assertFileBytes(t, result.QuarantinePath, content)
++		if result.ExistingQuarantinePath != "" {
++			t.Fatalf("PutBlob(corrupt existing on a full volume) claimed existing quarantine at %q that was never written", result.ExistingQuarantinePath)
++		}
++		assertFileBytes(t, target, corrupt)
++
++		// The corrupt object was deliberately left at the digest path, so the
++		// recovery here is not a retry of the same call succeeding but what a
++		// later run does with it still in place. It must read it, prove the
++		// disagreement, and preserve both artifacts. That path is what keeps a
++		// denied move from stranding the digest path permanently, and nothing
++		// else in the suite pins it.
++		firstCandidate := result.QuarantinePath
++		store.operations = defaultStoreOperations()
++		second, secondErr := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++		if !errors.Is(secondErr, ErrImmutableConflict) {
++			t.Fatalf("PutBlob(later run over the corrupt object) error = %v, want %v", secondErr, ErrImmutableConflict)
++		}
++		if !strings.Contains(secondErr.Error(), "existing digest path failed verification") {
++			t.Fatalf("PutBlob(later run over the corrupt object) error = %v, want the completed-disagreement clause", secondErr)
++		}
++		if second.QuarantinePath == "" || second.ExistingQuarantinePath == "" {
++			t.Fatalf("PutBlob(later run over the corrupt object) result = %+v, want both artifacts preserved", second)
++		}
++		assertFileBytes(t, second.QuarantinePath, content)
++		assertFileBytes(t, second.ExistingQuarantinePath, corrupt)
++		// The artifact the first run did preserve is untouched by the second.
++		assertFileBytes(t, firstCandidate, content)
++		if _, statErr := os.Lstat(target); !errors.Is(statErr, fs.ErrNotExist) {
++			t.Fatalf("corrupt object remains at the digest path after its quarantine succeeded: stat error = %v", statErr)
++		}
++		assertNoStagedFiles(t, filepath.Dir(target))
++
++		// With the conflict cleared by that quarantine, the declared bytes
++		// finally install. The store returned to a usable state on its own.
++		third, thirdErr := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++		if thirdErr != nil || !third.Installed || third.Path != target {
++			t.Fatalf("PutBlob(run after the conflict cleared) result/error = %+v/%v, want the declared bytes installed", third, thirdErr)
++		}
++		assertFileBytes(t, target, content)
++	})
++}
++
++// failingReader is a source that stops producing bytes with a chosen cause.
++type failingReader struct{ err error }
++
++func (reader failingReader) Read([]byte) (int, error) { return 0, reader.err }
++
++// quarantineDenyingOperations returns production operations whose installer
++// refuses exactly the quarantine moves the predicate selects, with the error a
++// full volume raises. Every other install, including the atomic no-replace
++// rename into the immutable namespace, remains the production implementation.
++func quarantineDenyingOperations(store *ObjectStore, deny func(source string) bool) storeOperations {
++	operations := defaultStoreOperations()
++	install := operations.install
++	operations.install = func(source, destination string) error {
++		if strings.HasPrefix(destination, store.quarantine+string(os.PathSeparator)) && deny(source) {
++			return &os.LinkError{Op: "rename", Old: source, New: destination, Err: syscall.ENOSPC}
++		}
++		return install(source, destination)
++	}
++	return operations
++}
++
++func requireDigestPath(t *testing.T, root string, digest scalar.Digest) string {
++	t.Helper()
++	path, err := nativeDigestPath(root, digest)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return path
++}
++
++// assertQuarantineIsEmpty proves a refusal moved nothing into quarantine. It is
++// the counterpart of the quarantine assertions in object_store_test.go: those
++// prove a proven mismatch is preserved, and this proves an unproven one is not
++// manufactured into evidence.
++func assertQuarantineIsEmpty(t *testing.T, store *ObjectStore) {
++	t.Helper()
++	err := filepath.WalkDir(store.quarantine, func(path string, entry fs.DirEntry, err error) error {
++		if err != nil {
++			return err
++		}
++		if !entry.IsDir() {
++			t.Errorf("quarantine holds %q after a refusal that proved nothing about the source bytes", path)
++		}
++		return nil
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++}
+diff --git a/internal/localstore/object_store_fault_unix_test.go b/internal/localstore/object_store_fault_unix_test.go
+new file mode 100644
+index 0000000..3008763
+--- /dev/null
++++ b/internal/localstore/object_store_fault_unix_test.go
+@@ -0,0 +1,151 @@
++//go:build darwin || linux
++
++package localstore
++
++import (
++	"bytes"
++	"errors"
++	"os"
++	"path/filepath"
++	"strings"
++	"syscall"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// The regularity clause in inspectExisting is already reached by the directory
++// fixture in object_store_test.go, but a directory does not isolate it: with
++// the clause removed, os.Open succeeds and the read fails with EISDIR, so the
++// unreadable verdict decides the outcome and the object store still refuses.
++// That fixture therefore proves the clause exists, and proves nothing about the
++// class of entries it has to cover.
++//
++// A FIFO at exactly mode 0600 is the fixture that does. It is not a symlink, it
++// belongs to the effective user and it already carries owner-only bits, so
++// every preceding check passes and the shape clause is the only thing that can
++// refuse. It also bounds availability rather than only safety: with the clause
++// removed, openBlobFile blocks indefinitely on a FIFO that has no writer, so a
++// digest path an attacker or a crashed tool replaced with one would hang the
++// writer instead of refusing it. The case therefore asserts a bounded return.
++
++const putBlobOpenBound = 20 * time.Second
++
++// putBlobResult carries a bounded PutBlob outcome back to the test goroutine.
++type putBlobResult struct {
++	result PutResult
++	err    error
++}
++
++// putBlobBounded drives the real PutBlob entry point and fails instead of
++// hanging when it does not return. fifos names any FIFO fixture whose blocked
++// reader must be released so the leaked goroutine cannot outlive the failure.
++func putBlobBounded(
++	t *testing.T, store *ObjectStore, digest scalar.Digest, size uint64, content []byte, fifos ...string,
++) putBlobResult {
++	t.Helper()
++	done := make(chan putBlobResult, 1)
++	go func() {
++		result, err := store.PutBlob(digest, size, bytes.NewReader(content))
++		done <- putBlobResult{result: result, err: err}
++	}()
++	select {
++	case outcome := <-done:
++		return outcome
++	case <-time.After(putBlobOpenBound):
++		for _, fifo := range fifos {
++			if file, err := os.OpenFile(fifo, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
++				_ = file.Close()
++			}
++		}
++		t.Fatalf("PutBlob did not return within %s: the shape clause under test is the only bound on this write", putBlobOpenBound)
++		return putBlobResult{}
++	}
++}
++
++// TestPutBlobRefusesSpecialFileAtDigestPathWithoutOpeningOrMovingIt pins the
++// regularity clause of inspectExisting with an isolated FIFO fixture, and pins
++// the consequence that clause is allowed to have. A special file is an unsafe
++// entry, not a proven mismatch, so it may not be moved out of the immutable
++// namespace: only a completed, disagreeing read authorizes that.
++func TestPutBlobRefusesSpecialFileAtDigestPathWithoutOpeningOrMovingIt(t *testing.T) {
++	store := openTestStore(t)
++	content := []byte("candidate for a digest path that is not a file")
++	digest := scalar.SHA256Digest(content)
++	target := requireDigestPath(t, store.objects, digest)
++	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	mkfifoFixture(t, target)
++
++	outcome := putBlobBounded(t, store, digest, uint64(len(content)), content, target)
++	if !errors.Is(outcome.err, ErrImmutableConflict) {
++		t.Fatalf("PutBlob(fifo digest path) error = %v, want %v", outcome.err, ErrImmutableConflict)
++	}
++	if !strings.Contains(outcome.err.Error(), "target is not a regular file") {
++		t.Fatalf("PutBlob(fifo digest path) error = %v, want the digest-path regularity clause", outcome.err)
++	}
++	if outcome.result.QuarantinePath == "" {
++		t.Fatalf("PutBlob(fifo digest path) result = %+v, want the refused candidate preserved", outcome.result)
++	}
++	assertFileBytes(t, outcome.result.QuarantinePath, content)
++	if outcome.result.ExistingQuarantinePath != "" {
++		t.Fatalf("unsafe digest-path entry was moved to %q on a verdict that proved nothing", outcome.result.ExistingQuarantinePath)
++	}
++	info, err := os.Lstat(target)
++	if err != nil || info.Mode()&os.ModeNamedPipe == 0 {
++		t.Fatalf("digest path after refusal: info/error = %v/%v, want the FIFO left exactly in place", info, err)
++	}
++	assertNoStagedFiles(t, filepath.Dir(target))
++
++	// An operator removes the entry the store refused to touch. The refusal
++	// must have left the digest path usable, not merely left it alone.
++	if err := os.Remove(target); err != nil {
++		t.Fatal(err)
++	}
++	retry, retryErr := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++	if retryErr != nil || !retry.Installed || retry.Path != target {
++		t.Fatalf("PutBlob(retry after the FIFO digest path was cleared) result/error = %+v/%v, want the declared bytes installed",
++			retry, retryErr)
++	}
++	assertFileBytes(t, target, content)
++}
++
++// TestPutBlobRefusesSpecialFileAtObjectShardBeforeStagingAnything drives the
++// same class one level up the tree. A shard replaced by a FIFO must stop the
++// write before os.CreateTemp is reached, because there is no directory to stage
++// into and a writer that followed it would block on a pipe instead.
++func TestPutBlobRefusesSpecialFileAtObjectShardBeforeStagingAnything(t *testing.T) {
++	store := openTestStore(t)
++	content := []byte("candidate for a shard that is not a directory")
++	digest := scalar.SHA256Digest(content)
++	target := requireDigestPath(t, store.objects, digest)
++	shard := mkfifoFixture(t, filepath.Dir(target))
++
++	outcome := putBlobBounded(t, store, digest, uint64(len(content)), content, shard)
++	if !errors.Is(outcome.err, ErrDurability) {
++		t.Fatalf("PutBlob(fifo object shard) error = %v, want %v", outcome.err, ErrDurability)
++	}
++	if !strings.Contains(outcome.err.Error(), "create object shard") {
++		t.Fatalf("PutBlob(fifo object shard) error = %v, want the shard creation clause", outcome.err)
++	}
++	if outcome.result != (PutResult{}) {
++		t.Fatalf("PutBlob(fifo object shard) result = %+v, want no mutation reported", outcome.result)
++	}
++	info, err := os.Lstat(shard)
++	if err != nil || info.Mode()&os.ModeNamedPipe == 0 {
++		t.Fatalf("object shard after refusal: info/error = %v/%v, want the FIFO left exactly in place", info, err)
++	}
++	assertQuarantineIsEmpty(t, store)
++
++	if err := os.Remove(shard); err != nil {
++		t.Fatal(err)
++	}
++	retry, retryErr := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content))
++	if retryErr != nil || !retry.Installed || retry.Path != target {
++		t.Fatalf("PutBlob(retry after the FIFO shard was cleared) result/error = %+v/%v, want the declared bytes installed",
++			retry, retryErr)
++	}
++	assertFileBytes(t, target, content)
++}
+diff --git a/internal/localstore/projection.go b/internal/localstore/projection.go
+index 2f0d1c5..456da67 100644
+--- a/internal/localstore/projection.go
++++ b/internal/localstore/projection.go
+@@ -102,6 +102,12 @@ type projectionHooks struct {
+ 	// this path exactly as it is on the object-store path, instead of being
+ 	// argued from the shared classifier alone.
+ 	openBlob blobOpener
++	// afterDatabaseOpen runs on the configured index connection before any
++	// migration or rebuild statement. It exists so a test can constrain that
++	// exact connection and make SQLite itself raise SQLITE_FULL from inside the
++	// rebuild transaction, which is the only way to observe a real full-volume
++	// engine failure rather than a substituted error value.
++	afterDatabaseOpen func(context.Context, *sql.DB) error
+ }
+ 
+ // projectionRefusal and projectionOwnershipRefusal are the two refusal funnels
+@@ -191,7 +197,7 @@ func openProjection(ctx context.Context, paths ResolvedPaths, hooks projectionHo
+ 		return nil, ProjectionRecovery{}, fmt.Errorf("%w: acquire index lock: %w", ErrProjection, err)
+ 	}
+ 	defer lock.release()
+-	projection, openErr := openProjectionDatabase(ctx, indexPath)
++	projection, openErr := openProjectionDatabase(ctx, indexPath, hooks)
+ 	recovery := ProjectionRecovery{Rebuilt: true, ObjectCount: len(objects)}
+ 	if openErr != nil && errors.Is(openErr, ErrProjectionCorrupt) {
+ 		recoveryDirectory, recoveryErr := quarantineProjectionFiles(state.Value.String(), indexPath)
+@@ -200,7 +206,7 @@ func openProjection(ctx context.Context, paths ResolvedPaths, hooks projectionHo
+ 		}
+ 		recovery.RecoveredCorruption = true
+ 		recovery.RecoveryDirectory = recoveryDirectory
+-		projection, openErr = openProjectionDatabase(ctx, indexPath)
++		projection, openErr = openProjectionDatabase(ctx, indexPath, hooks)
+ 	}
+ 	if openErr != nil {
+ 		return nil, ProjectionRecovery{}, openErr
+@@ -224,7 +230,7 @@ func openProjection(ctx context.Context, paths ResolvedPaths, hooks projectionHo
+ 		}
+ 		recovery.RecoveredCorruption = true
+ 		recovery.RecoveryDirectory = recoveryDirectory
+-		projection, openErr = openProjectionDatabase(ctx, indexPath)
++		projection, openErr = openProjectionDatabase(ctx, indexPath, hooks)
+ 		if openErr != nil {
+ 			return nil, ProjectionRecovery{}, openErr
+ 		}
+@@ -246,7 +252,7 @@ func openProjection(ctx context.Context, paths ResolvedPaths, hooks projectionHo
+ 	return projection, recovery, nil
+ }
+ 
+-func openProjectionDatabase(ctx context.Context, path string) (*Projection, error) {
++func openProjectionDatabase(ctx context.Context, path string, hooks projectionHooks) (*Projection, error) {
+ 	if err := prepareProjectionFile(path); err != nil {
+ 		return nil, fmt.Errorf("%w: prepare index: %w", ErrProjection, err)
+ 	}
+@@ -288,6 +294,12 @@ func openProjectionDatabase(ctx context.Context, path string) (*Projection, erro
+ 		_ = db.Close()
+ 		return nil, err
+ 	}
++	if hooks.afterDatabaseOpen != nil {
++		if err := hooks.afterDatabaseOpen(ctx, db); err != nil {
++			_ = db.Close()
++			return nil, fmt.Errorf("%w: after database open: %w", ErrProjection, err)
++		}
++	}
+ 	// Defence in depth against SQLite's own umask when it creates -wal/-shm:
+ 	// refusing here fails before the rebuild transaction writes any row. Every
+ 	// state that reaches this call also reaches the post-rebuild
+diff --git a/internal/localstore/projection_fault_test.go b/internal/localstore/projection_fault_test.go
+new file mode 100644
+index 0000000..74e2eb0
+--- /dev/null
++++ b/internal/localstore/projection_fault_test.go
+@@ -0,0 +1,253 @@
++package localstore
++
++import (
++	"bytes"
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"runtime"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// The projection rollback cases in projection_test.go inject a chosen error at
++// a commit boundary, which proves the transaction boundaries hold but says
++// nothing about how the implementation classifies a failure the engine raises
++// on its own. A full volume is exactly such a failure, and it is the one whose
++// misclassification is expensive: SQLITE_FULL routed to the corruption path
++// would quarantine a perfectly valid index and then try to rebuild it from
++// scratch, writing more data onto the volume that just ran out of room.
++//
++// These cases therefore make SQLite itself raise SQLITE_FULL. PRAGMA
++// max_page_count pinned to the database's current size makes every page the
++// statement needs unavailable, and SQLite reports that with the same result
++// code and the same "database or disk is full" message a genuinely exhausted
++// filesystem produces. The limit lives on the connection rather than in the
++// file, so the constraint disappears the moment the failed open closes it and
++// the recovery half of each case runs against an unconstrained database.
++
++// exhaustProjectionVolume pins the index connection to its current page count.
++// Any statement that needs to grow the database then fails with SQLITE_FULL.
++func exhaustProjectionVolume(ctx context.Context, db *sql.DB) error {
++	var pageCount int
++	if err := db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pageCount); err != nil {
++		return err
++	}
++	var applied int
++	if err := db.QueryRowContext(ctx, fmt.Sprintf("PRAGMA max_page_count = %d", pageCount)).Scan(&applied); err != nil {
++		return err
++	}
++	if applied != pageCount {
++		return fmt.Errorf("max_page_count = %d, want the current size %d", applied, pageCount)
++	}
++	return nil
++}
++
++// TestOpenProjectionRebuildOnFullVolumeRollsBackWithoutQuarantiningTheIndex
++// drives OpenProjection against an index whose volume cannot grow, with more
++// authoritative objects than the existing rows can be replaced in place.
++//
++// Three properties are asserted, and each fails differently if the engine error
++// were classified as corruption instead of as a rebuild failure: the sentinel
++// would be ErrProjectionCorrupt, an index-recovery directory would appear under
++// the state root, and the prior usable index would have been moved out from
++// under the caller rather than left intact.
++func TestOpenProjectionRebuildOnFullVolumeRollsBackWithoutQuarantiningTheIndex(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	ctx := context.Background()
++	store := openTestStore(t)
++	paths := store.resolvedPathsForTest(t)
++	state, _ := paths.Path(PathState)
++	stateRoot := state.Value.String()
++	indexPath := filepath.Join(stateRoot, projectionFilename)
++
++	established := putTestBlobs(t, store, "established", 1)
++	projection, _, err := OpenProjection(ctx, paths)
++	if err != nil {
++		t.Fatalf("OpenProjection(established index) error = %v", err)
++	}
++	if err := projection.Close(); err != nil {
++		t.Fatal(err)
++	}
++	before := requireProjectionIndexIdentity(t, indexPath)
++
++	// Enough additional objects that replacing the single existing row cannot
++	// be absorbed by the pages the deletion frees.
++	all := append(established, putTestBlobs(t, store, "growth", 150)...)
++
++	_, recovery, err := openProjection(ctx, paths, projectionHooks{afterDatabaseOpen: exhaustProjectionVolume})
++	if !errors.Is(err, ErrProjectionRebuild) {
++		t.Fatalf("openProjection(full volume) error = %v, want %v", err, ErrProjectionRebuild)
++	}
++	if errors.Is(err, ErrProjectionCorrupt) || errors.Is(err, ErrProjectionIncompatible) {
++		t.Fatalf("openProjection(full volume) error = %v, want a full volume classified as a rebuild failure, not as corruption", err)
++	}
++	if !strings.Contains(err.Error(), "disk is full") {
++		t.Fatalf("openProjection(full volume) error = %v, want the SQLITE_FULL cause preserved in the report", err)
++	}
++	if recovery != (ProjectionRecovery{}) {
++		t.Fatalf("openProjection(full volume) recovery = %+v, want no recovery claimed", recovery)
++	}
++	assertNoProjectionRecoveryDirectory(t, stateRoot)
++	if after := requireProjectionIndexIdentity(t, indexPath); !os.SameFile(before, after) {
++		t.Fatal("the prior usable index was replaced by a rebuild that never committed")
++	}
++	requireProjectionRowCount(t, ctx, indexPath, 1)
++
++	recovered, recovery, err := OpenProjection(ctx, paths)
++	if err != nil {
++		t.Fatalf("OpenProjection(after the volume recovered) error = %v", err)
++	}
++	defer recovered.Close()
++	if recovery.RecoveredCorruption {
++		t.Fatalf("OpenProjection(after the volume recovered) recovery = %+v, want no corruption recovery", recovery)
++	}
++	objects, err := recovered.Objects(ctx)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(objects) != len(all) {
++		t.Fatalf("recovered Objects() count = %d, want every authoritative object %d", len(objects), len(all))
++	}
++}
++
++// TestOpenProjectionMigrationOnFullVolumeLeavesNoPartialSchemaBehind drives the
++// same exhaustion at the earlier boundary, where the index file exists but
++// carries no schema at all. The migration statements cannot allocate a page, so
++// the property under test is idempotent recovery: the refused open must leave
++// nothing half-created, and the next open on a volume with room must migrate
++// and rebuild as if the first had never run.
++func TestOpenProjectionMigrationOnFullVolumeLeavesNoPartialSchemaBehind(t *testing.T) {
++	if runtime.GOOS == "windows" {
++		t.Skip("native Windows owner-DACL implementation is a later platform task")
++	}
++
++	ctx := context.Background()
++	store := openTestStore(t)
++	paths := store.resolvedPathsForTest(t)
++	state, _ := paths.Path(PathState)
++	stateRoot := state.Value.String()
++	indexPath := filepath.Join(stateRoot, projectionFilename)
++	objects := putTestBlobs(t, store, "migration", 3)
++
++	_, _, err := openProjection(ctx, paths, projectionHooks{afterDatabaseOpen: exhaustProjectionVolume})
++	if !errors.Is(err, ErrProjectionMigration) {
++		t.Fatalf("openProjection(full volume at migration) error = %v, want %v", err, ErrProjectionMigration)
++	}
++	if errors.Is(err, ErrProjectionCorrupt) || errors.Is(err, ErrProjectionIncompatible) {
++		t.Fatalf("openProjection(full volume at migration) error = %v, want a full volume classified as a migration failure", err)
++	}
++	if !strings.Contains(err.Error(), "disk is full") {
++		t.Fatalf("openProjection(full volume at migration) error = %v, want the SQLITE_FULL cause preserved in the report", err)
++	}
++	assertNoProjectionRecoveryDirectory(t, stateRoot)
++
++	db := openRawProjection(t, indexPath)
++	var version int
++	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
++		t.Fatal(err)
++	}
++	if version != 0 {
++		t.Fatalf("rolled-back migration user_version = %d, want the unmigrated 0", version)
++	}
++	var declared int
++	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master").Scan(&declared); err != nil {
++		t.Fatal(err)
++	}
++	if declared != 0 {
++		t.Fatalf("rolled-back migration left %d schema objects, want none", declared)
++	}
++	if err := db.Close(); err != nil {
++		t.Fatal(err)
++	}
++
++	projection, recovery, err := OpenProjection(ctx, paths)
++	if err != nil {
++		t.Fatalf("OpenProjection(after the volume recovered) error = %v", err)
++	}
++	defer projection.Close()
++	if recovery.RecoveredCorruption {
++		t.Fatalf("OpenProjection(after the volume recovered) recovery = %+v, want no corruption recovery", recovery)
++	}
++	indexed, err := projection.Objects(ctx)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(indexed) != len(objects) {
++		t.Fatalf("recovered Objects() count = %d, want every authoritative object %d", len(indexed), len(objects))
++	}
++}
++
++// putTestBlobs installs count distinct verified blobs through the production
++// object-store entry point and returns their digests. The label keeps separate
++// calls in one test from producing the same content, and therefore the same
++// immutable object, twice.
++func putTestBlobs(t *testing.T, store *ObjectStore, label string, count int) []scalar.Digest {
++	t.Helper()
++	digests := make([]scalar.Digest, 0, count)
++	for index := 0; index < count; index++ {
++		content := []byte(fmt.Sprintf("full volume authoritative object %s/%d", label, index))
++		digest := scalar.SHA256Digest(content)
++		if _, err := store.PutBlob(digest, uint64(len(content)), bytes.NewReader(content)); err != nil {
++			t.Fatalf("PutBlob(fixture %d) error = %v", index, err)
++		}
++		digests = append(digests, digest)
++	}
++	return digests
++}
++
++func requireProjectionIndexIdentity(t *testing.T, indexPath string) os.FileInfo {
++	t.Helper()
++	info, err := os.Lstat(indexPath)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return info
++}
++
++func requireProjectionRowCount(t *testing.T, ctx context.Context, indexPath string, want int) {
++	t.Helper()
++	db := openRawProjection(t, indexPath)
++	defer db.Close()
++	var count int
++	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM immutable_objects").Scan(&count); err != nil {
++		t.Fatal(err)
++	}
++	if count != want {
++		t.Fatalf("index row count = %d, want the prior usable %d", count, want)
++	}
++	var metadata int
++	if err := db.QueryRowContext(ctx, "SELECT object_count FROM projection_metadata WHERE id = 1").Scan(&metadata); err != nil {
++		t.Fatal(err)
++	}
++	if metadata != want {
++		t.Fatalf("index metadata object_count = %d, want the prior usable %d", metadata, want)
++	}
++}
++
++// assertNoProjectionRecoveryDirectory proves a failure was not routed to the
++// quarantine-and-rebuild path. That path is the correct response to corruption
++// and the wrong response to a full volume, where it would consume more of the
++// space whose exhaustion caused the failure.
++func assertNoProjectionRecoveryDirectory(t *testing.T, stateRoot string) {
++	t.Helper()
++	entries, err := os.ReadDir(filepath.Join(stateRoot, "index-recovery"))
++	if errors.Is(err, fs.ErrNotExist) {
++		return
++	}
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(entries) != 0 {
++		t.Fatalf("index-recovery holds %d directories: the index was quarantined for a fault that is not corruption", len(entries))
++	}
++}
+diff --git a/internal/localstore/projection_test.go b/internal/localstore/projection_test.go
+index cb2bd4f..d5ec619 100644
+--- a/internal/localstore/projection_test.go
++++ b/internal/localstore/projection_test.go
+@@ -1736,7 +1736,7 @@ func TestOpenProjectionRecoversPageCorruptionDetectableOnlyByQuickCheck(t *testi
+ 	}
+ 	// Naming the production call site: openProjectionDatabase is what
+ 	// openProjection calls, and quick_check is the clause that refuses here.
+-	opened, openErr := openProjectionDatabase(ctx, indexPath)
++	opened, openErr := openProjectionDatabase(ctx, indexPath, projectionHooks{})
+ 	if opened != nil {
+ 		_ = opened.db.Close()
+ 	}

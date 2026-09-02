@@ -1,0 +1,65 @@
+TASK-260830-3qrfjp — recovery-half mutation evidence (review round 2)
+date: 2026-09-02T18:36:49Z  host GOOS: darwin  tree: c067365 + uncommitted candidate
+
+Each mutant is applied to the production file in this worktree, the named test is
+run SCOPED with -run so only that test can kill it, then the file is restored from a
+byte-for-byte backup and the restore is verified by sha256.
+
+M5/M6/M4 are the ones that matter for this round: each leaves the FAULTED first half
+of its case passing and is killed only by an assertion added in this round, whose line
+number is shown. M1/M2 are whole-test binds that die at pre-existing lines.
+
+==============================================================
+MUTANT M5 existing artifact moved but its path never reported to the caller
+  scoped mask : TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact/existing_quarantine_cannot_be_written
+  exit code   : 1  (KILLED)
+  restored ok : yes
+  observed failure lines:
+            object_store_fault_test.go:490: PutBlob(later run over the corrupt object) result = {Digest:sha256:ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3 Size:5 Path:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact3455466516/001/data/objects/sha256/ec/654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3 Installed:false QuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact3455466516/001/data/quarantine/sha256/ec/654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3/01a06368-d884-75d2-88e9-dc5dbd5f1daf ExistingQuarantinePath:}, want both artifacts preserved
+    --- FAIL: TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact (0.08s)
+        --- FAIL: TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact/existing_quarantine_cannot_be_written (0.08s)
+==============================================================
+MUTANT M6 mismatched candidate quarantined but its path never reported to the caller
+  scoped mask : TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact/candidate_quarantine_cannot_be_written
+  exit code   : 1  (KILLED)
+  restored ok : yes
+  observed failure lines:
+            object_store_fault_test.go:434: PutBlob(retry once quarantine has room) result = {Digest:sha256:ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3 Size:5 Path: Installed:false QuarantinePath: ExistingQuarantinePath:}, want the mismatched candidate preserved
+    --- FAIL: TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact (0.08s)
+        --- FAIL: TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact/candidate_quarantine_cannot_be_written (0.08s)
+==============================================================
+MUTANT M4 a genuine absence classified as an unsafe entry (absence vs failure-to-read)
+  scoped mask : TestPutBlobRefusesSpecialFileAtDigestPathWithoutOpeningOrMovingIt|TestPutBlobRefusesSpecialFileAtObjectShardBeforeStagingAnything|TestPutBlobRefusesStagedModeDriftBeforeInstallingIt|TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt|TestPutBlobRefusesGroupAccessibleObjectShardBeforeStagingAnything
+  exit code   : 1  (KILLED)
+  restored ok : yes
+  observed failure lines:
+        object_store_fault_test.go:247: PutBlob(retry after staged mode drift cleared) result/error = {Digest:sha256:46b56bcf061a1dc8e3699527030f82434039c3f2690248939118bb951c6c06a5 Size:31 Path:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesStagedModeDriftBeforeInstallingIt1998253166/001/data/objects/sha256/46/b56bcf061a1dc8e3699527030f82434039c3f2690248939118bb951c6c06a5 Installed:false QuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesStagedModeDriftBeforeInstallingIt1998253166/001/data/quarantine/sha256/46/b56bcf061a1dc8e3699527030f82434039c3f2690248939118bb951c6c06a5/01a06368-dfb3-7b13-b3de-db9535002749 ExistingQuarantinePath:}/AX immutable object conflict: unsafe digest-path entry: mutant, want the declared bytes installed
+        object_store_fault_test.go:291: PutBlob(retry after shard repair) result/error = {Digest:sha256:1ff0ea70bb8e4ba656a4808bbac6b52071b0cefbd8a21786eef5254997a1a512 Size:34 Path:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesGroupAccessibleObjectShardBeforeStagingAnythin2676199480/001/data/objects/sha256/1f/f0ea70bb8e4ba656a4808bbac6b52071b0cefbd8a21786eef5254997a1a512 Installed:false QuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesGroupAccessibleObjectShardBeforeStagingAnythin2676199480/001/data/quarantine/sha256/1f/f0ea70bb8e4ba656a4808bbac6b52071b0cefbd8a21786eef5254997a1a512/01a06368-dff8-7eb2-bc6b-d8aa5140d7dd ExistingQuarantinePath:}/AX immutable object conflict: unsafe digest-path entry: mutant, want a recoverable install
+            object_store_fault_test.go:366: PutBlob(retry after symlinked digest root was removed) result/error = {Digest:sha256:9a8ba2b4c8746fca0e9495004ab31ca8383db24d1b2e6bbdc32b1e5946b901cf Size:43 Path:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingItdigest_1753550030/001/data/objects/sha256/9a/8ba2b4c8746fca0e9495004ab31ca8383db24d1b2e6bbdc32b1e5946b901cf Installed:false QuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingItdigest_1753550030/001/data/quarantine/sha256/9a/8ba2b4c8746fca0e9495004ab31ca8383db24d1b2e6bbdc32b1e5946b901cf/01a06368-e044-746f-8c45-2008f13c65fd ExistingQuarantinePath:}/AX immutable object conflict: unsafe digest-path entry: mutant, want the declared bytes installed
+            object_store_fault_test.go:366: PutBlob(retry after symlinked digest shard was removed) result/error = {Digest:sha256:9a8ba2b4c8746fca0e9495004ab31ca8383db24d1b2e6bbdc32b1e5946b901cf Size:43 Path:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingItdigest_3884685016/001/data/objects/sha256/9a/8ba2b4c8746fca0e9495004ab31ca8383db24d1b2e6bbdc32b1e5946b901cf Installed:false QuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingItdigest_3884685016/001/data/quarantine/sha256/9a/8ba2b4c8746fca0e9495004ab31ca8383db24d1b2e6bbdc32b1e5946b901cf/01a06368-e092-79de-beb5-0fa3b67081bb ExistingQuarantinePath:}/AX immutable object conflict: unsafe digest-path entry: mutant, want the declared bytes installed
+        object_store_fault_unix_test.go:109: PutBlob(retry after the FIFO digest path was cleared) result/error = {Digest:sha256:3c6ab6929aafa54a33c9e2b10cdbc84214ff583645ace92163512f33364cd193 Size:46 Path:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesSpecialFileAtDigestPathWithoutOpeningOrMovingI3116756301/001/data/objects/sha256/3c/6ab6929aafa54a33c9e2b10cdbc84214ff583645ace92163512f33364cd193 Installed:false QuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesSpecialFileAtDigestPathWithoutOpeningOrMovingI3116756301/001/data/quarantine/sha256/3c/6ab6929aafa54a33c9e2b10cdbc84214ff583645ace92163512f33364cd193/01a06368-e0d7-7ae6-ad6f-516df2942ab5 ExistingQuarantinePath:}/AX immutable object conflict: unsafe digest-path entry: mutant, want the declared bytes installed
+        object_store_fault_unix_test.go:147: PutBlob(retry after the FIFO shard was cleared) result/error = {Digest:sha256:57a18f3c00b9d1753f91e8c6f4238ac371c00bafda3e890b6aca208b6ca972ce Size:45 Path:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesSpecialFileAtObjectShardBeforeStagingAnything577680992/001/data/objects/sha256/57/a18f3c00b9d1753f91e8c6f4238ac371c00bafda3e890b6aca208b6ca972ce Installed:false QuarantinePath:/var/folders/cz/jqbthtks55zbkpcdkfyk4bl80000gp/T/TestPutBlobRefusesSpecialFileAtObjectShardBeforeStagingAnything577680992/001/data/quarantine/sha256/57/a18f3c00b9d1753f91e8c6f4238ac371c00bafda3e890b6aca208b6ca972ce/01a06368-e11c-7087-b88b-7d0cba088a4a ExistingQuarantinePath:}/AX immutable object conflict: unsafe digest-path entry: mutant, want the declared bytes installed
+    --- FAIL: TestPutBlobRefusesStagedModeDriftBeforeInstallingIt (0.07s)
+    --- FAIL: TestPutBlobRefusesGroupAccessibleObjectShardBeforeStagingAnything (0.07s)
+    --- FAIL: TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt (0.16s)
+        --- FAIL: TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt/digest_root (0.08s)
+        --- FAIL: TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt/digest_shard (0.08s)
+    --- FAIL: TestPutBlobRefusesSpecialFileAtDigestPathWithoutOpeningOrMovingIt (0.07s)
+==============================================================
+MUTANT M1 existing quarantine reported but the object never moved
+  scoped mask : TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact/existing_quarantine_cannot_be_written
+  exit code   : 1  (KILLED)
+  restored ok : yes
+  observed failure lines:
+            object_store_fault_test.go:463: PutBlob(corrupt existing on a full volume) error = AX immutable object conflict: existing digest path failed verification: digest path declares sha256:ec654fac9599f62e79e2706abef23dfb7c07c08185aa86db4d8695f0b718d1b3 at 5 bytes but contains sha256:0b0e341523c2a7d8f947ec65db0d414e08c3b5c9424f673f73bce280c165f7c4 at 23 bytes, want the existing quarantine failure clause
+    --- FAIL: TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact (0.07s)
+        --- FAIL: TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact/existing_quarantine_cannot_be_written (0.07s)
+==============================================================
+MUTANT M2 mismatch gate narrowed to size only, dropping the digest term
+  scoped mask : TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact/candidate_quarantine_cannot_be_written
+  exit code   : 1  (KILLED)
+  restored ok : yes
+  observed failure lines:
+            object_store_fault_test.go:410: PutBlob(mismatch on a full volume) error = <nil>, want AX durable object installation failed
+    --- FAIL: TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact (0.07s)
+        --- FAIL: TestPutBlobReportsQuarantineFailuresWithoutLosingEitherArtifact/candidate_quarantine_cannot_be_written (0.07s)

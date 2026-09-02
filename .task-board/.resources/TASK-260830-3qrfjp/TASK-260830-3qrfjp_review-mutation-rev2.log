@@ -1,0 +1,89 @@
+TASK-260830-3qrfjp reviewer round 2 — mutation transcript
+Candidate tree 292c8cba6cf08837e8e92d32e6724b91d443cc08 (CR rev 2)
+Worktree .temp/STORY-260902-2ni6i3/worktree, darwin/arm64, go1.25.5
+
+Pre-flight: every one of the 8 changed paths compared with
+`git hash-object <path>` against `git rev-parse 292c8cba:<path>` — all OK.
+Mutants applied with python in-place edits, reverted by `cp` from
+.temp/TASK-260830-3qrfjp/review-backup/ (never `git checkout`).
+
+--- A1: delete the staged-length clause (object_store.go) -----------------
+--- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch (0.11s)
+    --- FAIL: .../volume_kept_less_than_the_copy_accepted (0.05s)
+        object_store_fault_test.go:97: PutBlob(...) error = <nil>, want AX durable object installation failed
+    --- FAIL: .../volume_kept_more_than_the_copy_accepted (0.06s)
+        object_store_fault_test.go:97: PutBlob(...) error = <nil>, want AX durable object installation failed
+KILLED. error = <nil> means a truncated file was installed into the immutable namespace.
+
+--- A2: narrow `!= actualSize` to `< actualSize` --------------------------
+--- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch (0.11s)
+    --- FAIL: .../volume_kept_more_than_the_copy_accepted (0.05s)
+        object_store_fault_test.go:97: PutBlob(...) error = <nil>, want AX durable object installation failed
+KILLED. Short case still refuses; over-long case admits. Class coverage proved by narrowing.
+
+--- A3: restore the pre-change merged condition ---------------------------
+--- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch (0.13s)
+    --- FAIL: .../volume_kept_less_than_the_copy_accepted (0.07s)
+        object_store_fault_test.go:97: ... error = AX blob size or digest mismatch: declared and staged identity differ, want AX durable object installation failed
+    --- FAIL: .../volume_kept_more_than_the_copy_accepted (0.06s)
+        object_store_fault_test.go:97: ... error = AX blob size or digest mismatch: declared and staged identity differ, want AX durable object installation failed
+KILLED. The durability-vs-mismatch reclassification is pinned.
+
+--- B1: inspectExisting regularity clause narrowed to symlink-only --------
+--- FAIL: TestPutBlobRefusesSpecialFileAtDigestPathWithoutOpeningOrMovingIt (20.05s)
+    object_store_fault_unix_test.go:82: PutBlob did not return within 20s: the shape clause under test is the only bound on this write
+    testing.go:1369: TempDir RemoveAll cleanup: ... quarantine: directory not empty
+KILLED by the bound, not by a wrong value. The README availability claim reproduces exactly.
+
+--- C1: remove ModeSymlink term from verifyOwnerDirectoryInfo (paths.go) --
+ok  github.com/relux-works/agent-session-manager/internal/localstore  0.741s
+NOT KILLED — and correct: os.Lstat already reports IsDir()==false for a symlink,
+so the term is redundant with the preceding !info.IsDir(). Not a test gap.
+Recorded rather than counted.
+
+--- C2: ensureOwnerDirectory uses os.Stat instead of os.Lstat ------------
+--- FAIL: TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt (0.11s)
+    --- FAIL: .../digest_root (0.06s)
+        object_store_fault_test.go:342: PutBlob(symlinked digest root) error = <nil>, want AX durable object installation failed
+    --- FAIL: .../digest_shard (0.05s)
+        object_store_fault_test.go:342: PutBlob(symlinked digest shard) error = <nil>, want AX durable object installation failed
+KILLED. This is the real bypass: the immutable object is installed outside the AX data root.
+
+--- D1: rebuildProjection commits instead of rolling back -----------------
+ok  github.com/relux-works/agent-session-manager/internal/localstore  2.643s
+NEUTERED, not a test gap: on an exhausted volume the commit itself raises
+SQLITE_FULL, so the mutant cannot express itself. Reported, not counted.
+
+--- D2: route a failed rebuild through the corruption quarantine path -----
+--- FAIL: TestOpenProjectionRebuildOnFullVolumeRollsBackWithoutQuarantiningTheIndex (2.07s)
+    projection_fault_test.go:100: index-recovery holds 1 directories: the index was quarantined for a fault that is not corruption
+KILLED. The full-volume-is-not-corruption classification is pinned.
+
+--- E1: migration DDL runs outside the transaction ------------------------
+FAIL after 180s — deadlocks on the MaxOpenConns(1) pool while the tx holds the
+only connection. Fails, but not a clean mutant. Reported, not counted.
+
+--- F1: remove the deferred os.Remove(stagedPath) -------------------------
+--- FAIL: TestPutBlobReportsIncompleteExistingReadAsDurabilityAndMovesNothing (4 subtests)
+        blob_inspection_test.go:133: staged file remains after PutBlob: .ax-object-stage-*
+--- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch (2 subtests)
+        object_store_fault_test.go:111: staged file remains after PutBlob: .ax-object-stage-*
+--- FAIL: TestPutBlobRefusesFullVolumeFaultsOnEverySideOfTheStagedWrite (3 subtests)
+        object_store_fault_test.go:189: staged file remains after PutBlob: .ax-object-stage-*
+KILLED at 11 assertion sites, 5 of them added by this candidate.
+
+--- F2: classify a genuine absence as an unsafe entry ---------------------
+18 failing (sub)tests. The ones that matter are this candidate's recovery halves:
+    object_store_fault_test.go:291: PutBlob(retry after shard repair) ... Installed:false ...
+        AX immutable object conflict: unsafe digest-path entry: ... target is not a regular file,
+        want a recoverable install
+    object_store_fault_unix_test.go:109: PutBlob(retry after the FIFO digest path was cleared)
+        ... Installed:false ... want the declared bytes installed
+KILLED at object_store_fault_test.go:247/291/366 and object_store_fault_unix_test.go:109/147.
+The round-1 finding closes here: the retry halves are load-bearing.
+
+--- Post-mutation integrity ----------------------------------------------
+internal/localstore/object_store.go candidate=e78e7fb1... now=e78e7fb1...
+internal/localstore/projection.go   candidate=456da67b... now=456da67b...
+internal/localstore/paths.go        unchanged (git diff --quiet: yes)
+git status --short matches the pre-review state exactly.

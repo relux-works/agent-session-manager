@@ -1,0 +1,133 @@
+==============================================================================
+M1 drop the staged-length term entirely
+  file: internal/localstore/object_store.go
+  test: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch
+  go test exit code: 1  -> KILLED
+    === RUN   TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch
+    === RUN   TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_less_than_the_copy_accepted
+    object_store_fault_test.go:89: PutBlob(volume kept less than the copy accepted) error = <nil>, want AX durable object installation failed
+    === RUN   TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_more_than_the_copy_accepted
+    object_store_fault_test.go:89: PutBlob(volume kept more than the copy accepted) error = <nil>, want AX durable object installation failed
+    --- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch (0.10s)
+    --- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_less_than_the_copy_accepted (0.05s)
+    --- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_more_than_the_copy_accepted (0.05s)
+    FAIL
+    FAIL	github.com/relux-works/agent-session-manager/internal/localstore	0.519s
+    FAIL
+
+==============================================================================
+M2 narrow the staged-length term to short writes only
+  file: internal/localstore/object_store.go
+  test: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch
+  go test exit code: 1  -> KILLED
+    === RUN   TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch
+    === RUN   TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_less_than_the_copy_accepted
+    === RUN   TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_more_than_the_copy_accepted
+    object_store_fault_test.go:89: PutBlob(volume kept more than the copy accepted) error = <nil>, want AX durable object installation failed
+    --- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch (0.12s)
+    --- PASS: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_less_than_the_copy_accepted (0.07s)
+    --- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_more_than_the_copy_accepted (0.05s)
+    FAIL
+    FAIL	github.com/relux-works/agent-session-manager/internal/localstore	0.527s
+    FAIL
+
+==============================================================================
+M3 classify the incomplete write as a proven mismatch again
+  file: internal/localstore/object_store.go
+  test: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch
+  go test exit code: 1  -> KILLED
+    === RUN   TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch
+    === RUN   TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_less_than_the_copy_accepted
+    object_store_fault_test.go:89: PutBlob(volume kept less than the copy accepted) error = AX blob size or digest mismatch: declared and staged identity differ, want AX durable object installation failed
+    === RUN   TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_more_than_the_copy_accepted
+    object_store_fault_test.go:89: PutBlob(volume kept more than the copy accepted) error = AX blob size or digest mismatch: declared and staged identity differ, want AX durable object installation failed
+    --- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch (0.12s)
+    --- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_less_than_the_copy_accepted (0.06s)
+    --- FAIL: TestPutBlobRefusesShortStagedWriteAsDurabilityNotMismatch/volume_kept_more_than_the_copy_accepted (0.06s)
+    FAIL
+    FAIL	github.com/relux-works/agent-session-manager/internal/localstore	0.582s
+    FAIL
+
+==============================================================================
+M4 drop the digest-path regularity clause
+  file: internal/localstore/object_store.go
+  test: TestPutBlobRefusesSpecialFileAtDigestPathWithoutOpeningOrMovingIt
+  go test exit code: 1  -> KILLED
+    === RUN   TestPutBlobRefusesSpecialFileAtDigestPathWithoutOpeningOrMovingIt
+    object_store_fault_unix_test.go:82: PutBlob did not return within 20s: the shape clause under test is the only bound on this write
+    --- FAIL: TestPutBlobRefusesSpecialFileAtDigestPathWithoutOpeningOrMovingIt (20.05s)
+    FAIL
+    FAIL	github.com/relux-works/agent-session-manager/internal/localstore	20.443s
+    FAIL
+
+==============================================================================
+M5 drop the staged owner-only check
+  file: internal/localstore/object_store.go
+  test: TestPutBlobRefusesStagedModeDriftBeforeInstallingIt
+  go test exit code: 1  -> KILLED
+    === RUN   TestPutBlobRefusesStagedModeDriftBeforeInstallingIt
+    object_store_fault_test.go:220: PutBlob(group-readable staged file) error = <nil>, want AX durable object installation failed
+    --- FAIL: TestPutBlobRefusesStagedModeDriftBeforeInstallingIt (0.06s)
+    FAIL
+    FAIL	github.com/relux-works/agent-session-manager/internal/localstore	0.494s
+    FAIL
+
+==============================================================================
+M6 replace the owner-only shard gate with a plain MkdirAll
+  file: internal/localstore/object_store.go
+  test: TestPutBlobRefusesGroupAccessibleObjectShardBeforeStagingAnything|TestPutBlobRefusesSpecialFileAtObjectShardBeforeStagingAnything|TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt
+  go test exit code: 1  -> KILLED
+    === RUN   TestPutBlobRefusesGroupAccessibleObjectShardBeforeStagingAnything
+    object_store_fault_test.go:256: PutBlob(group-accessible shard root) error = <nil>, want AX durable object installation failed
+    --- FAIL: TestPutBlobRefusesGroupAccessibleObjectShardBeforeStagingAnything (0.05s)
+    === RUN   TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt
+    === RUN   TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt/digest_root
+    object_store_fault_test.go:324: PutBlob(symlinked digest root) error = <nil>, want AX durable object installation failed
+    === RUN   TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt/digest_shard
+    object_store_fault_test.go:324: PutBlob(symlinked digest shard) error = <nil>, want AX durable object installation failed
+    --- FAIL: TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt (0.11s)
+    --- FAIL: TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt/digest_root (0.05s)
+    --- FAIL: TestPutBlobRefusesSymlinkedObjectShardWithoutFollowingIt/digest_shard (0.06s)
+    === RUN   TestPutBlobRefusesSpecialFileAtObjectShardBeforeStagingAnything
+    --- PASS: TestPutBlobRefusesSpecialFileAtObjectShardBeforeStagingAnything (0.04s)
+    FAIL
+    FAIL	github.com/relux-works/agent-session-manager/internal/localstore	0.676s
+    FAIL
+
+==============================================================================
+M7 report a full volume as index corruption
+  file: internal/localstore/projection.go
+  test: TestOpenProjectionRebuildOnFullVolumeRollsBackWithoutQuarantiningTheIndex
+  go test exit code: 1  -> KILLED
+    === RUN   TestOpenProjectionRebuildOnFullVolumeRollsBackWithoutQuarantiningTheIndex
+    projection_fault_test.go:89: openProjection(full volume) error = AX SQLite projection is corrupt: insert sha256:2c1f5e1c2f77edbab9aa26ae96bdceae4751f8b2ed98fc4bfc22e6a841ba8a72: database or disk is full (13), want AX SQLite projection rebuild failed
+    --- FAIL: TestOpenProjectionRebuildOnFullVolumeRollsBackWithoutQuarantiningTheIndex (2.17s)
+    FAIL
+    FAIL	github.com/relux-works/agent-session-manager/internal/localstore	2.582s
+    FAIL
+
+==============================================================================
+M8 route a failed rebuild through the corruption quarantine path
+  file: internal/localstore/projection.go
+  test: TestOpenProjectionRebuildOnFullVolumeRollsBackWithoutQuarantiningTheIndex
+  go test exit code: 1  -> KILLED
+    === RUN   TestOpenProjectionRebuildOnFullVolumeRollsBackWithoutQuarantiningTheIndex
+    projection_fault_test.go:100: index-recovery holds 1 directories: the index was quarantined for a fault that is not corruption
+    --- FAIL: TestOpenProjectionRebuildOnFullVolumeRollsBackWithoutQuarantiningTheIndex (1.91s)
+    FAIL
+    FAIL	github.com/relux-works/agent-session-manager/internal/localstore	2.335s
+    FAIL
+
+==============================================================================
+M9 drop the migration transaction rollback
+  file: internal/localstore/projection.go
+  test: TestOpenProjectionMigrationOnFullVolumeLeavesNoPartialSchemaBehind
+  go test exit code: 1  -> KILLED
+    === RUN   TestOpenProjectionMigrationOnFullVolumeLeavesNoPartialSchemaBehind
+    projection_fault_test.go:175: OpenProjection(after the volume recovered) error = AX SQLite projection migration failed: create table "projection_metadata": database is locked (5) (SQLITE_BUSY)
+    --- FAIL: TestOpenProjectionMigrationOnFullVolumeLeavesNoPartialSchemaBehind (0.25s)
+    FAIL
+    FAIL	github.com/relux-works/agent-session-manager/internal/localstore	0.657s
+    FAIL
+
+production sources restored
