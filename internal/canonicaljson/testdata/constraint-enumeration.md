@@ -14,9 +14,9 @@ boundary is pinned directly and both public entries are proven to refuse the ove
 representation before attestation rather than being reported as accepting it.
 `TestConstraintEnumerationMatchesRequireExactMembers` derives the member set from
 the production `requireExactMembers` argument lists and requires an exact one-to-one
-artifact row, so a new, removed, or renamed member fails the suite. “Type-only” means the
+artifact row, so a new, removed, or renamed member fails the suite. **Type-only** means the
 pinned SPEC gives that member no additional constraint beyond the stated JSON/common type;
-that row quotes the bare type text verbatim. “Presence-only” means the pinned SPEC names a
+that row quotes the bare type text verbatim. **Presence-only** means the pinned SPEC names a
 required member without declaring its JSON type or a local constraint; the identity gate
 therefore proves presence through the exact-member check and deliberately infers nothing
 from its name or from a similarly named member in another schema. The row table covers each member's declared
@@ -34,355 +34,454 @@ Records: their exact top-level member gate already refuses absence, and
 refused unconditionally after the common envelope check, so relaxing only the shared
 required-object lookup cannot create an attested identity.
 
+## How the Pinned SPEC declaration column is checked
+
+The `Pinned SPEC declaration` column is compared against the specification
+itself, not against this implementation. The document compared against is the
+byte-exact `SPEC.md` embedded in `internal/specdoc`, accepted only when its
+SHA-256 equals `internal/specpin.DocumentSHA256`; a substituted, edited,
+truncated, or unreadable document is refused rather than compared against, so a
+swapped specification cannot confirm a row.
+
+Each cell is one or more entries joined by `; `. An entry has one of two forms:
+
+- `L<line>` followed by the excerpt in curly quotes quotes the pinned document
+  verbatim. The quoted text MUST occur in the pinned document and MUST begin on
+  that exact 1-based `SPEC.md` line.
+- `L<line> paraphrase: <text>` deliberately restates the pinned declaration in
+  this artifact's words instead of quoting it. It MUST still name the exact
+  line it paraphrases, and the raw text of that line MUST contain the member
+  name, so a paraphrase cannot float free of the document.
+
+Every row MUST anchor its own member: at least one entry either quotes text
+containing the member name or paraphrases a line whose raw text contains it. A
+row whose quote is absent from the pinned document, begins on a different line,
+or never names its member reddens
+`TestConstraintEnumerationSpecExcerptsQuoteThePinnedSpecification`.
+
+A citation that lands on a body row of a Markdown table MUST land on the row
+that declares what it cites. Either the row's first cell names the member — the
+per-member `Field` tables — or it names the identifier under which the pinned
+document declares this shape, which `constraintRowDeclaringIdentifiers` pins per
+shape and `TestEveryConstraintEnumerationDeclaringIdentifierIsExercised` asserts
+exactly. The clause anchor cannot do this on its own: Section 10.4 declares
+seven Git types one per table row, so `GitIndex.format` could quote
+GitObjectPack's `format:git_pack_v2` — verbatim, at the cited line, in the right
+clause, containing the member name — while production enforces `git_index`.
+Seven shipped rows did exactly that and the suite stayed green.
+`TestDeclaringRowAnchorRefusesEverySiblingRowOfTheGitTable` plants all fourteen
+sibling retargets the table admits, in both directions, and requires each to be
+refused by the sibling's name. The two exemptions are listed in
+`constraintRowTableAnchorExemptions` with their reason and are asserted used.
+
+Two formatting rules, and no others, apply before comparison:
+
+1. **Whitespace.** Every run of ASCII whitespace in both the quote and the
+   pinned document collapses to one space, and leading/trailing whitespace is
+   dropped. Letter case, punctuation, digits, and inline `<code>` markup are
+   compared exactly, so a quote cannot drift into unrelated text. A whitespace
+   run that crosses a **hard boundary** collapses to an unmatchable block
+   separator instead of a space. Two boundaries are hard: a **blank line**, so a
+   quote cannot stitch the tail of one block to the head of the next — the end
+   of a table to the paragraph after it, or a heading to its body — and the
+   newline between two **adjacent table rows**, because a table row is a
+   complete line by construction, so no honest excerpt spans two of them while a
+   stitched one imports the next member's constraint. Whitespace collapsing
+   alone used to admit both, and the halves of such a stitch are individually
+   verbatim, so nothing else would have caught them. What the rule still
+   forgives, deliberately, is the newline inside one block: the specification's
+   hard line wrapping, table indentation, and the newline between two adjacent
+   list items or two adjacent lines of one paragraph.
+2. **Escaped pipe.** Inside a quote, the two characters `\|` stand for one
+   literal `|` in the pinned document, because an unescaped `|` would end this
+   artifact's own Markdown table cell. Nothing else is decoded: the pinned
+   document's own `&#124;` entities are compared literally, exactly as it
+   writes them.
+
+Curly quotation marks in this artifact are reserved for verbatim pinned
+specification text. `TestArtifactQuotesAreVerbatimPinnedSpecificationText`
+requires every curly-quoted span in this file, inside the row table and outside
+it, to occur in the pinned document.
+
+### The clause anchor, and what the check still does not prove
+
+A quote can be verbatim, correctly located, and about a different schema.
+Retargeting `ManifestEntry.file.size` from its own Section 10.4 row to
+BlobChunk's Section 10.2 `size:uint53[1..4194304]` — real text, real line, and a
+bound `ManifestEntry.file` does not carry — satisfied every rule above.
+
+So each shape also pins the numbered `SPEC.md` clauses its citations may come
+from, and every entry's line must resolve to one of them. The clause of a line
+is the nearest enclosing numbered heading; an unnumbered subheading does not
+open a clause of its own. The pinned shape set is asserted exactly against this
+table, so a new shape has to declare its clause rather than inherit a free pass.
+`TestClauseAnchorRefusesEveryForeignSectionForOneRow` plants a verbatim line
+from each of the eleven other clauses into one row and requires all eleven to be
+refused, while the shipped row still passes.
+
+Two shapes pin two clauses. `Session Record 1.0.0` and `Session Record 2.0.0 and
+3.0.0` cite Section 2.1 as well as 5.1, because the document's own name-grammar
+pointer leads to a section containing no grammar and the grammar is written in
+the 2.1 Terms table. Quoting both is what keeps that indirection visible.
+
+**The residual limit.** The anchor is a clause, not a shape. Ten shapes are
+declared in Section 10.4 and two in 10.2, so a citation retargeted *within* a
+clause — `ManifestEntry.file` quoting a `GitIndexEntry` row — is still admitted.
+The member anchor is a substring test, so a member name embedded in another
+schema's identifier satisfies it too. "Quotes this shape's clause" is what the
+gate now proves; "quotes this shape's declaration" is not. The `environment_id`
+finding recorded below sits inside that gap: both of its lines are in Section
+7.8, and it was reached by reading the document, not by this gate.
+
 | Shape | Member | Enforced constraint | Production call site | Pinned SPEC declaration |
 | --- | --- | --- | --- | --- |
-| `Lease Record` | `schema` | Exact Lease schema identifier. | `validateLeaseRecord` | “Exact Lease Record schema identifier” |
-| `Lease Record` | `schema_version` | Exact version 1.0.0. | `validateLeaseRecord` | “1.0.0” |
-| `Lease Record` | `record_id` | Canonical digest self identity. | `validateLeaseRecord` | “Canonical Lease Record digest” |
-| `Lease Record` | `subject_id` | UUIDv7 equal to session ID. | `validateLeaseRecord` | “Equal to” |
-| `Lease Record` | `lease_id` | UUIDv4 fencing token. | `validateLeaseRecord` | “UUIDv4” |
-| `Lease Record` | `session_id` | UUIDv7 lease scope. | `validateLeaseRecord` | “Lease scope” |
-| `Lease Record` | `epoch` | Positive uint53; the declared epoch-one and successor nullability rules are enforced, and no reason is inferred from the epoch. | `validateLeaseRecord` | “Starts at 1; never decreases” |
-| `Lease Record` | `holder_host_id` | UUIDv7 proposed owner. | `validateLeaseRecord` | “Proposed owner” |
-| `Lease Record` | `predecessor_lease_id` | UUIDv4 or null; non-null is required after epoch one, and an epoch-one `create` lease must carry null. | `validateLeaseRecord` | “Null only at epoch 1”; “An epoch-1 <code>create</code> lease MUST have a null predecessor” |
-| `Lease Record` | `reason` | Closed four-member reason enum. Section 5.3 declares no coupling from the epoch to the reason, so no epoch-one-implies-`create` or `create`-implies-epoch-one rule is enforced. | `validateLeaseRecord` | “<code>create</code>, <code>graceful_takeover</code>, <code>force_takeover</code>, <code>recovery</code>” |
-| `Lease Record` | `checkpoint_id` | Digest, and null only for an epoch-one `create` lease; every other epoch and reason combination requires a non-null checkpoint. | `validateLeaseRecord` | “Null only for epoch-1 <code>create</code>; otherwise the validated materialized handoff base” |
-| `Lease Record` | `issued_by_host_id` | UUIDv7 initiator. | `validateLeaseRecord` | “Initiator” |
-| `Lease Record` | `created_by_host_id` | UUIDv7 equal to issuer. | `validateLeaseRecord` | “MUST equal” |
-| `Lease Record` | `created_at` | Timestamp, diagnostic only. | `validateLeaseRecord` | “Diagnostic only” |
-| `Lease Record` | `extensions` | Required reverse-DNS extension object. | `validateLeaseRecord` | “Reverse-DNS extension keys only” |
-| `Checkpoint Record` | `schema` | Exact Checkpoint schema identifier. | `validateCheckpointRecord` | “Exact Checkpoint schema identifier” |
-| `Checkpoint Record` | `schema_version` | Exact version 1.0.0. | `validateCheckpointRecord` | “1.0.0” |
-| `Checkpoint Record` | `checkpoint_id` | Canonical digest self identity. | `validateCheckpointRecord` | “Canonical object digest” |
-| `Checkpoint Record` | `subject_id` | UUIDv7 equal to session ID. | `validateCheckpointRecord` | “Equal to” |
-| `Checkpoint Record` | `session_id` | UUIDv7 existing Session Record reference. | `validateCheckpointRecord` | “Existing Session Record” |
-| `Checkpoint Record` | `lease_epoch` | Positive uint53. | `validateCheckpointRecord` | “Greater than zero and equal to the referenced winning lease” |
-| `Checkpoint Record` | `lease_id` | UUIDv4 fencing token. | `validateCheckpointRecord` | “UUIDv4” |
-| `Checkpoint Record` | `safe_boundary` | Required closed Safe Boundary Evidence. | `validateCheckpointRecord` | “Safe Boundary Evidence” |
-| `Checkpoint Record` | `event_heads` | Sorted unique digest array with 1..64 entries. | `validateCheckpointRecord` | “sorted unique digest[1..64]” |
-| `Checkpoint Record` | `workspace_manifest_id` | Required digest. | `validateCheckpointRecord` | “Workspace-group Transfer Manifest root” |
-| `Checkpoint Record` | `provider_manifest_id` | Nullable digest; exactly one persistence reference is non-null. | `validateCheckpointRecord` | “Direct native-store/provider snapshot only” |
-| `Checkpoint Record` | `task_board_bundle_id` | Nullable digest; exactly one persistence reference is non-null. | `validateCheckpointRecord` | “Task-board path only” |
-| `Checkpoint Record` | `created_by_host_id` | UUIDv7 current holder. | `validateCheckpointRecord` | “Current lease holder” |
-| `Checkpoint Record` | `created_at` | Timestamp, diagnostic only. | `validateCheckpointRecord` | “Diagnostic only” |
-| `Checkpoint Record` | `status` | Exact validated literal. | `validateCheckpointRecord` | “Literal” |
-| `Checkpoint Record` | `extensions` | Required reverse-DNS extension object. | `validateCheckpointRecord` | “Reverse-DNS extension keys only” |
-| `Safe Boundary Evidence` | `provider_id` | Provider ID grammar. | `validateSafeBoundaryEvidence` | “provider-id” |
-| `Safe Boundary Evidence` | `provider_version` | String of 1..128 characters. | `validateSafeBoundaryEvidence` | “string[1..128]” |
-| `Safe Boundary Evidence` | `evidence` | Closed five-member evidence enum. | `validateSafeBoundaryEvidence` | “accepted_test” |
-| `Safe Boundary Evidence` | `input_blocked` | Boolean required true for publication. | `validateSafeBoundaryEvidence` | “input_blocked:boolean” |
-| `Safe Boundary Evidence` | `foreground_idle` | Boolean required true for publication. | `validateSafeBoundaryEvidence` | “foreground_idle:boolean” |
-| `Safe Boundary Evidence` | `background_idle` | Boolean required true for publication. | `validateSafeBoundaryEvidence` | “background_idle:boolean” |
-| `Safe Boundary Evidence` | `open_processes` | uint53 required zero for publication. | `validateSafeBoundaryEvidence` | “open_processes:uint53” |
-| `Safe Boundary Evidence` | `open_database_handles` | uint53 required zero for publication. | `validateSafeBoundaryEvidence` | “open_database_handles:uint53” |
-| `Provider Identity Record` | `schema` | Exact Provider Identity schema identifier. | `validateProviderIdentityRecord` | “Exact Provider Identity schema identifier” |
-| `Provider Identity Record` | `schema_version` | Exact version 1.0.0. | `validateProviderIdentityRecord` | “1.0.0” |
-| `Provider Identity Record` | `record_id` | Canonical digest self identity. | `validateProviderIdentityRecord` | “Canonical object digest” |
-| `Provider Identity Record` | `subject_id` | UUIDv7 equal to session ID. | `validateProviderIdentityRecord` | “Equal to” |
-| `Provider Identity Record` | `session_id` | UUIDv7 logical session. | `validateProviderIdentityRecord` | “Existing logical session” |
-| `Provider Identity Record` | `provider_id` | Provider ID grammar. | `validateProviderIdentityRecord` | “provider-id” |
-| `Provider Identity Record` | `provider_version` | String of 1..128 characters. | `validateProviderIdentityRecord` | “string[1..128]” |
-| `Provider Identity Record` | `provider_version_range` | String of 1..256 characters. | `validateProviderIdentityRecord` | “string[1..256]” |
-| `Provider Identity Record` | `native_session_id` | String of 1..512 characters. | `validateProviderIdentityRecord` | “string[1..512]” |
-| `Provider Identity Record` | `identity_kind` | Closed five-member identity enum. | `validateProviderIdentityRecord` | “enum” |
-| `Provider Identity Record` | `logical_workspace_id` | UUIDv7 workspace reference. | `validateProviderIdentityRecord` | “UUIDv7” |
-| `Provider Identity Record` | `backend_realm_fingerprint` | Nullable digest; Antigravity backend conversation requires non-null. | `validateProviderIdentityRecord` | “digest or null” |
-| `Provider Identity Record` | `opaque_identity` | Closed provider-data map of 0..32 bounded string values. | `validateProviderIdentityRecord` | “map(provider-identity-key,string[1..1024])[0..32]” |
-| `Provider Identity Record` | `created_by_host_id` | UUIDv7 identifying host. | `validateProviderIdentityRecord` | “Identifying owner host” |
-| `Provider Identity Record` | `created_at` | Timestamp, diagnostic only. | `validateProviderIdentityRecord` | “Diagnostic only” |
-| `Provider Identity Record` | `extensions` | Required reverse-DNS extension object. | `validateProviderIdentityRecord` | “Reverse-DNS extension keys only” |
-| `Workspace Group Record` | `schema` | Exact Workspace Group schema identifier. | `validateWorkspaceGroupRecord` | “urn:ax:schema:workspace-group” |
-| `Workspace Group Record` | `schema_version` | Exact version 1.0.0. | `validateWorkspaceGroupRecord` | “1.0.0” |
-| `Workspace Group Record` | `record_id` | Canonical digest self identity. | `validateWorkspaceGroupRecord` | “record_id:digest” |
-| `Workspace Group Record` | `subject_id` | UUIDv7 equal to workspace group ID. | `validateWorkspaceGroupRecord` | “subject_id:UUIDv7” |
-| `Workspace Group Record` | `workspace_group_id` | UUIDv7 equal to subject ID. | `validateWorkspaceGroupRecord` | “workspace_group_id:UUIDv7” |
-| `Workspace Group Record` | `display_name` | String of 1..128 characters. | `validateWorkspaceGroupRecord` | “display_name:string[1..128]” |
-| `Workspace Group Record` | `members` | Closed WorkspaceMember array of 1..256 entries sorted by ID. | `validateWorkspaceGroupRecord` | “members:WorkspaceMember[1..256]” |
-| `Workspace Group Record` | `created_by_host_id` | UUIDv7 creator. | `validateWorkspaceGroupRecord` | “created_by_host_id:UUIDv7” |
-| `Workspace Group Record` | `created_at` | Timestamp. | `validateWorkspaceGroupRecord` | “created_at:timestamp” |
-| `Workspace Group Record` | `extensions` | Required reverse-DNS extension object. | `validateWorkspaceGroupRecord` | “extensions:object” |
-| `Session Event` | `schema` | Exact Session Event schema identifier. | `validateSessionEvent` | “urn:ax:schema:session-event” |
-| `Session Event` | `schema_version` | Exact selected version 1.0.0 through 4.0.0. | `validateSessionEvent` | “schema_version” |
-| `Session Event` | `event_id` | Canonical digest self identity. | `validateSessionEvent` | “event_id” |
-| `Session Event` | `subject_id` | UUIDv7 equal to session ID. | `validateSessionEvent` | “subject_id” |
-| `Session Event` | `session_id` | UUIDv7 equal to subject ID. | `validateSessionEvent` | “session_id” |
-| `Session Event` | `event_type` | Version-selected catalog event name; v1 unknown types remain inert and retainable. | `validateSessionEvent` | “event_type” |
-| `Session Event` | `created_by_host_id` | UUIDv7 author host. | `validateSessionEvent` | “created_by_host_id” |
-| `Session Event` | `lease_epoch` | Positive uint53. | `validateSessionEvent` | “lease_epoch” |
-| `Session Event` | `lease_id` | UUIDv4 winning lease token. | `validateSessionEvent` | “lease_id” |
-| `Session Event` | `lease_sequence` | Positive uint53 starting at one. | `validateSessionEvent` | “uint53 starting at 1” |
-| `Session Event` | `predecessors` | Non-empty sorted digest array. | `validateSessionEvent` | “sorted array of one or more record/event digests” |
-| `Session Event` | `created_at` | Timestamp. | `validateSessionEvent` | “created_at” |
-| `Session Event` | `payload` | Closed version-selected tagged union for registered types. | `validateSessionEvent` | “closed tagged union” |
-| `Session Event` | `extensions` | Required reverse-DNS extension object. | `validateSessionEvent` | “extensions” |
-| `Blob Descriptor` | `blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | “digest” |
-| `Blob Descriptor` | `chunks` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | “BlobChunk[0..32768]; empty exactly when size is zero and exact coverage otherwise” |
-| `Blob Descriptor` | `descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | “digest; canonical object digest” |
-| `Blob Descriptor` | `media_type` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | “string[1..255]; lowercase ASCII type/subtype without parameters” |
-| `Blob Descriptor` | `schema` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | “string; exact urn:ax:schema:blob” |
-| `Blob Descriptor` | `schema_version` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | “string; exact 1.0.0” |
-| `Blob Descriptor` | `size` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | “uint53” |
-| `BlobChunk` | `chunk_id` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | “digest” |
-| `BlobChunk` | `index` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | “uint32; starts at zero and increases by one” |
-| `BlobChunk` | `offset` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | “uint53; contiguous from zero” |
-| `BlobChunk` | `size` | Enforced exactly as declared before identity calculation or verification; `TestTrailingBlobChunkSizeMinimumReachesBothIdentityEntries` pins a trailing zero-size chunk at the exact refusal clause through both public entries. | `validateBlobDescriptor` | “uint53[1..4194304]; every non-final chunk is exactly 4194304” |
-| `GitFeatures` | `case_sensitive` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | “boolean” |
-| `GitFeatures` | `filemode` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | “boolean” |
-| `GitFeatures` | `lfs_required` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | “boolean” |
-| `GitFeatures` | `object_format` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | “enum sha1 or sha256” |
-| `GitFeatures` | `precompose_unicode` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | “boolean” |
-| `GitFeatures` | `required_filter_names` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | “sorted unique string[0..64]” |
-| `GitFeatures` | `sparse_checkout` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | “boolean; tags sparse pattern digest pair” |
-| `GitFeatures` | `sparse_patterns_blob_descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | “digest or null” |
-| `GitFeatures` | `sparse_patterns_blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | “digest or null” |
-| `GitFeatures` | `symlinks` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | “boolean” |
-| `GitHead` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateGitHead` | “enum branch, detached, or unborn” |
-| `GitHead` | `oid` | Enforced exactly as declared before identity calculation or verification. | `validateGitHead` | “git-oid or null; tagged by mode and matching object format” |
-| `GitHead` | `ref` | Enforced exactly as declared before identity calculation or verification. | `validateGitHead` | “git-ref or null; tagged by mode and unborn uses refs/heads/” |
-| `GitIndex` | `blob_descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndex` | “digest” |
-| `GitIndex` | `blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndex` | “digest” |
-| `GitIndex` | `entries` | Production enforces 0..65536 and a direct boundary test pins accept-at-65536/refuse-at-65537. Public-entry acceptance at 65536 is not claimed: the required closed entries encode above 5,242,880 bytes and `prepareObjectIdentity` refuses the object first. | `validateGitIndex` | “GitIndexEntry[0..65536]; sorted by path then stage” |
-| `GitIndex` | `entry_count` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndex` | “uint53; equals entries length” |
-| `GitIndex` | `format` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndex` | “exact git_index” |
-| `GitIndex` | `version` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndex` | “enum 2, 3, or 4” |
-| `GitIndexEntry` | `assume_unchanged` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | “boolean” |
-| `GitIndexEntry` | `fsmonitor_valid` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | “boolean” |
-| `GitIndexEntry` | `intent_to_add` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | “boolean” |
-| `GitIndexEntry` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | “uint32” |
-| `GitIndexEntry` | `oid` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | “git-oid; matches object format” |
-| `GitIndexEntry` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | “path” |
-| `GitIndexEntry` | `skip_worktree` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | “boolean” |
-| `GitIndexEntry` | `stage` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | “uint8[0..3]” |
-| `GitObjectPack` | `blob_descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | “digest” |
-| `GitObjectPack` | `blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | “digest” |
-| `GitObjectPack` | `format` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | “exact git_pack_v2” |
-| `GitObjectPack` | `inventory_blob_descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | “digest” |
-| `GitObjectPack` | `inventory_blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | “digest” |
-| `GitObjectPack` | `object_count` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | “uint53” |
-| `GitObjectPack` | `object_format` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | “enum sha1 or sha256” |
-| `GitRemote` | `fetch_url` | Enforced exactly as declared before identity calculation or verification. | `validateGitRemote` | “sanitized-git-URL” |
-| `GitRemote` | `name` | Enforced exactly as declared before identity calculation or verification. | `validateGitRemote` | “string[1..128]; remotes sorted by name with no duplicate” |
-| `GitRemote` | `push_url` | Enforced exactly as declared before identity calculation or verification. | `validateGitRemote` | “sanitized-git-URL or null” |
-| `GitSubmodule` | `agent_project_config_paths` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “sorted unique path[0..256] or null” |
-| `GitSubmodule` | `features` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “GitFeatures or null” |
-| `GitSubmodule` | `gitlink_oid` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “git-oid; equals containing stage-0 mode-160000 entry” |
-| `GitSubmodule` | `head` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “GitHead or null” |
-| `GitSubmodule` | `index` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “GitIndex or null” |
-| `GitSubmodule` | `initialized` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “boolean; tags all following state members” |
-| `GitSubmodule` | `object_pack` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “GitObjectPack or null” |
-| `GitSubmodule` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “path; no sibling destination-case collision” |
-| `GitSubmodule` | `repo_relative_cwd` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “dot or path or null” |
-| `GitSubmodule` | `repository_identity` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “string[1..256]; recursion acyclic by identity” |
-| `GitSubmodule` | `sanitized_url` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “sanitized-git-URL” |
-| `GitSubmodule` | `submodules` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “GitSubmodule[0..256] or null; depth at most 16 and total at most 256” |
-| `GitSubmodule` | `upstream_ref` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “git-ref or null” |
-| `GitSubmodule` | `working_tree_manifest_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | “digest or null” |
-| `ManifestEntry.directory` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “uint32[0..4095]” |
-| `ManifestEntry.directory` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “path” |
-| `ManifestEntry.directory` | `type` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “exact directory” |
-| `ManifestEntry.file` | `blob_descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “digest” |
-| `ManifestEntry.file` | `blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “digest” |
-| `ManifestEntry.file` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “uint32[0..4095]” |
-| `ManifestEntry.file` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “path” |
-| `ManifestEntry.file` | `size` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “uint53” |
-| `ManifestEntry.file` | `type` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “exact file” |
-| `ManifestEntry.hardlink` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “uint32[0..4095]” |
-| `ManifestEntry.hardlink` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “path” |
-| `ManifestEntry.hardlink` | `target_path` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “path; names an earlier file entry with the same mode” |
-| `ManifestEntry.hardlink` | `type` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “exact hardlink” |
-| `ManifestEntry.symlink` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “uint32[0..4095]” |
-| `ManifestEntry.symlink` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “path” |
-| `ManifestEntry.symlink` | `target` | Enforced exactly as declared before identity calculation or verification; `TestSymlinkTargetLowerBoundReachesBothIdentityEntries` pins accept-at-one and refuse-below-one through both public entries. | `validateManifestEntries` | “string[1..4096]; lexically remains within materialization root” |
-| `ManifestEntry.symlink` | `type` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | “exact symlink” |
-| `MigrationProvenance` | `object_id` | Enforced exactly as declared before identity calculation or verification. | `validateMigrationExtensionObject` | “digest” |
-| `MigrationProvenance` | `schema_id` | Type-only: requires a valid UTF-8 JSON string and deliberately adds no non-empty or length rule. | `validateMigrationExtensionObject` | “string” |
-| `MigrationProvenance` | `schema_version` | Enforced exactly as declared before identity calculation or verification. | `validateMigrationExtensionObject` | “canonical semver” |
-| `Session Record 1.0.0` | `created_at` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “timestamp; diagnostic time” |
-| `Session Record 1.0.0` | `created_by_host_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “UUIDv7; allowlisted host at creation” |
-| `Session Record 1.0.0` | `execution_profile` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “enum standard or yolo” |
-| `Session Record 1.0.0` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “object; required, reverse-DNS keys only” |
-| `Session Record 1.0.0` | `fork_provenance` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “Fork Provenance or null; object exactly when created by fork” |
-| `Session Record 1.0.0` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “enum direct or task_board” |
-| `Session Record 1.0.0` | `launch_plan` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “Launch Plan; closed, sanitized and secret-free” |
-| `Session Record 1.0.0` | `name` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “string; Section 2.1 grammar [A-Za-z0-9][A-Za-z0-9._-]{0,63} and 1–64 characters” |
-| `Session Record 1.0.0` | `provider_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “string; lowercase plugin ID” |
-| `Session Record 1.0.0` | `record_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “digest; canonical object digest” |
-| `Session Record 1.0.0` | `schema` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “string; exact schema identifier” |
-| `Session Record 1.0.0` | `schema_version` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “semver; exact 1.0.0” |
-| `Session Record 1.0.0` | `session_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “UUIDv7; globally unique” |
-| `Session Record 1.0.0` | `subject_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “UUIDv7; equal to session_id” |
-| `Session Record 1.0.0` | `task_board` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “Task-board Reference or null; object exactly when kind is task_board” |
-| `Session Record 1.0.0` | `workspace_group_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | “UUIDv7; required” |
-| `Session Record 2.0.0 and 3.0.0` | `created_at` | Enforced through the common immutable Record Envelope before identity calculation or verification. | `validateSessionRecordWithDerivation` | “timestamp; diagnostic time” |
-| `Session Record 2.0.0 and 3.0.0` | `created_by_host_id` | Enforced through the common immutable Record Envelope before identity calculation or verification. | `validateSessionRecordWithDerivation` | “UUIDv7; allowlisted host at creation” |
-| `Session Record 2.0.0 and 3.0.0` | `derivation_provenance` | Required closed provenance union; v2 admits three tags and v3 admits those three plus native adoption. | `validateSessionRecordWithDerivation` | “required closed derivation provenance; v3 closed creation union” |
-| `Session Record 2.0.0 and 3.0.0` | `execution_profile` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | “enum standard or yolo” |
-| `Session Record 2.0.0 and 3.0.0` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | “object; required, reverse-DNS keys only” |
-| `Session Record 2.0.0 and 3.0.0` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | “enum direct or task_board” |
-| `Session Record 2.0.0 and 3.0.0` | `launch_plan` | Enforced by the shared immutable Session Record creation shape. | `validateSessionRecordWithDerivation` | “Launch Plan; closed, sanitized and secret-free” |
-| `Session Record 2.0.0 and 3.0.0` | `name` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | “string; Section 2.1 grammar [A-Za-z0-9][A-Za-z0-9._-]{0,63} and 1–64 characters” |
-| `Session Record 2.0.0 and 3.0.0` | `provider_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | “provider ID allocated at creation and immutable” |
-| `Session Record 2.0.0 and 3.0.0` | `record_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | “digest; canonical object digest” |
-| `Session Record 2.0.0 and 3.0.0` | `schema` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | “string; exact Session Record schema identifier” |
-| `Session Record 2.0.0 and 3.0.0` | `schema_version` | Enforced as exact 2.0.0 or exact 3.0.0 at the version-selected validator. | `validateSessionRecordWithDerivation` | “independently closed 2.0.0 and 3.0.0 variants” |
-| `Session Record 2.0.0 and 3.0.0` | `session_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | “UUIDv7; newly allocated and globally unique” |
-| `Session Record 2.0.0 and 3.0.0` | `subject_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | “UUIDv7; equal to session_id” |
-| `Session Record 2.0.0 and 3.0.0` | `task_board` | Enforced by the shared immutable Session Record creation shape. | `validateSessionRecordWithDerivation` | “Task-board Reference or null; orthogonal authority” |
-| `Session Record 2.0.0 and 3.0.0` | `workspace_group_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | “UUIDv7; required” |
-| `Session Record origin provenance` | `creation_operation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionOriginProvenance` | “UUIDv7” |
-| `Session Record origin provenance` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionOriginProvenance` | “reverse-DNS extensions” |
-| `Session Record origin provenance` | `kind` | Enforced exactly as declared before identity calculation or verification; the per-variant exact-string check is defensively redundant with the `validateSessionDerivationProvenance` switch dispatch that exclusively selects this validator. | `validateSessionOriginProvenance` | “exact origin” |
-| `Session Record same-provider-fork provenance` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | “reverse-DNS extensions” |
-| `Session Record same-provider-fork provenance` | `kind` | Enforced exactly as declared before identity calculation or verification; the per-variant exact-string check is defensively redundant with the `validateSessionDerivationProvenance` switch dispatch that exclusively selects this validator. | `validateSessionSameProviderForkProvenance` | “exact same_provider_fork” |
-| `Session Record same-provider-fork provenance` | `operation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | “UUIDv7” |
-| `Session Record same-provider-fork provenance` | `provider_fork_mode` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | “native, supported_import, or task_board_clone” |
-| `Session Record same-provider-fork provenance` | `source_checkpoint_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | “digest” |
-| `Session Record same-provider-fork provenance` | `source_profile_event_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | “digest or null” |
-| `Session Record same-provider-fork provenance` | `source_session_id` | Enforced as UUIDv7 distinct from the new target Session ID. | `validateSessionSameProviderForkProvenance` | “source_session_id UUIDv7; fork creates a new logical session” |
-| `Session Record same-provider-fork provenance` | `source_workspace_group_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | “UUIDv7” |
-| `Session Record cross-environment-clone provenance` | `bundle_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | “UUIDv7” |
-| `Session Record cross-environment-clone provenance` | `canonical_session_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | “digest” |
-| `Session Record cross-environment-clone provenance` | `capture_manifest_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | “digest” |
-| `Session Record cross-environment-clone provenance` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | “reverse-DNS extensions” |
-| `Session Record cross-environment-clone provenance` | `kind` | Enforced exactly as declared before identity calculation or verification; the per-variant exact-string check is defensively redundant with the `validateSessionDerivationProvenance` switch dispatch that exclusively selects this validator. | `validateSessionCrossEnvironmentCloneProvenance` | “exact cross_environment_clone” |
-| `Session Record cross-environment-clone provenance` | `migration_checkpoint_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | “digest” |
-| `Session Record cross-environment-clone provenance` | `operation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | “UUIDv7” |
-| `Session Record cross-environment-clone provenance` | `previous_lineage_receipt_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | “digest or null” |
-| `Session Record cross-environment-clone provenance` | `projection_plan_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | “digest” |
-| `Session Record cross-environment-clone provenance` | `source_checkpoint_id` | Enforced as digest or null with the four-way AX-source nullability rule. | `validateSessionCrossEnvironmentCloneProvenance` | “digest or null; non-null exactly for ax_session” |
-| `Session Record cross-environment-clone provenance` | `source_environment` | Enforced as an exact closed EnvironmentTuple. | `validateSessionCrossEnvironmentCloneProvenance` | “EnvironmentTuple” |
-| `Session Record cross-environment-clone provenance` | `source_kind` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | “ax_session or external_native” |
-| `Session Record cross-environment-clone provenance` | `source_native_session_id` | Enforced as 1–512 printable non-control Unicode characters, matching the pinned sanitization requirement; accept-at and refuse-past boundaries drive both public entries. The minimum-one check is subsumed by `requireString`, which refuses the empty string before `requirePrintableBoundedString` counts characters. | `validateSessionCrossEnvironmentCloneProvenance` | “sanitized non-authoritative source native session ID; string[1..512]” |
-| `Session Record cross-environment-clone provenance` | `source_profile_event_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | “digest or null” |
-| `Session Record cross-environment-clone provenance` | `source_provider_identity_record_id` | Enforced as digest or null with the four-way AX-source nullability rule. | `validateSessionCrossEnvironmentCloneProvenance` | “digest or null; non-null exactly for ax_session” |
-| `Session Record cross-environment-clone provenance` | `source_session_id` | Enforced as UUIDv7 or null, distinct from target, with the four-way AX-source nullability rule. | `validateSessionCrossEnvironmentCloneProvenance` | “UUIDv7 or null; non-null exactly for ax_session” |
-| `Session Record cross-environment-clone provenance` | `source_session_record_id` | Enforced as digest or null with the four-way AX-source nullability rule. | `validateSessionCrossEnvironmentCloneProvenance` | “digest or null; non-null exactly for ax_session” |
-| `Session Record cross-environment-clone provenance` | `source_snapshot_digest` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | “digest” |
-| `Session Record cross-environment-clone provenance` | `target_environment` | Enforced as an exact closed EnvironmentTuple. | `validateSessionCrossEnvironmentCloneProvenance` | “EnvironmentTuple” |
-| `Session Record native-adoption provenance` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | “reverse-DNS extensions” |
-| `Session Record native-adoption provenance` | `kind` | Enforced exactly as declared before identity calculation or verification; the per-variant exact-string check is defensively redundant with the `validateSessionDerivationProvenance` switch dispatch that exclusively selects this validator. | `validateSessionNativeAdoptionProvenance` | “exact native_adoption” |
-| `Session Record native-adoption provenance` | `operation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | “UUIDv7” |
-| `Session Record native-adoption provenance` | `source_environment` | Enforced as an exact closed EnvironmentTuple. | `validateSessionNativeAdoptionProvenance` | “EnvironmentTuple” |
-| `Session Record native-adoption provenance` | `source_head_digest` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | “digest” |
-| `Session Record native-adoption provenance` | `source_host_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | “UUIDv7” |
-| `Session Record native-adoption provenance` | `source_instance_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | “digest” |
-| `Session Record native-adoption provenance` | `source_observation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | “digest” |
-| `Session Record native-adoption provenance` | `target_provider_id` | Enforced equal to the immutable target Session Record provider. Provider-ID grammar is subsumed by `validateSessionRecordCommon`, which rejects a malformed record `provider_id` before this equality gate; a different malformed target is refused by the equality gate. | `validateSessionNativeAdoptionProvenance` | “provider-id; target provider allocated at creation” |
-| `EnvironmentTuple` | `adapter_version` | Presence-only, by the recorded SemVer decision below. The pinned EnvironmentTuple declaration supplies no JSON type and no format; the SemVer word belongs to the Session Adapter Manifest row of a different schema and is not inferred across schemas by field-name similarity. | `validateEnvironmentTuple` | “store_schema_fingerprint, and adapter_version” |
-| `EnvironmentTuple` | `architecture` | Enforced exactly as declared before identity calculation or verification. | `validateEnvironmentTuple` | “amd64 or arm64” |
-| `EnvironmentTuple` | `environment_id` | Enforced against the exact environment ID grammar. | `validateEnvironmentTuple` | “[a-z][a-z0-9.-]{0,63}” |
-| `EnvironmentTuple` | `environment_version` | Presence-only. The pinned EnvironmentTuple declaration supplies no JSON type or bound; the `string[1..128]` bound belongs to the distinct Environment Observation schema and is not inferred here. | `validateEnvironmentTuple` | “environment_version” |
-| `EnvironmentTuple` | `platform` | Enforced against the complete generated AX platform scalar vocabulary. | `validateEnvironmentTuple` | “linux, macos, windows, or wsl2” |
-| `EnvironmentTuple` | `store_schema_fingerprint` | Presence-only. The pinned EnvironmentTuple declaration supplies no JSON type or format; in particular, identity validation does not infer a digest from the member name. | `validateEnvironmentTuple` | “store_schema_fingerprint” |
-| `Session Record Board Goal` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardGoal` | “object; reverse-DNS extension keys only” |
-| `Session Record Board Goal` | `goal_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardGoal` | “string[1..128]; public goal reference” |
-| `Session Record Board Goal` | `revision` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardGoal` | “uint53 greater than zero” |
-| `Session Record Board Goal` | `schema` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardGoal` | “string; exact board-goal-v2” |
-| `Session Record Board Identity` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardIdentity` | “object; reverse-DNS extension keys only” |
-| `Session Record Board Identity` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardIdentity` | “enum local or remote” |
-| `Session Record Board Identity` | `logical_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardIdentity` | “string[1..128]; [A-Za-z0-9][A-Za-z0-9._:-]{0,127}” |
-| `Session Record Board Identity` | `remote_url` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardIdentity` | “absolute HTTPS URL or null; tagged by kind and no userinfo, query, or fragment” |
-| `Session Record Fork Provenance` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | “object; reverse-DNS extension keys only” |
-| `Session Record Fork Provenance` | `operation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | “UUIDv7” |
-| `Session Record Fork Provenance` | `provider_fork_mode` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | “enum native, supported_import, or task_board_clone” |
-| `Session Record Fork Provenance` | `source_checkpoint_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | “digest” |
-| `Session Record Fork Provenance` | `source_session_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | “UUIDv7” |
-| `Session Record Fork Provenance` | `source_workspace_group_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | “UUIDv7” |
-| `Session Record Launch Plan` | `argv` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | “array<string>[1..128]; each 1–4096 UTF-8 bytes and total encoded argv at most 65536 bytes” |
-| `Session Record Launch Plan` | `contains_secrets` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | “boolean; MUST be false” |
-| `Session Record Launch Plan` | `cwd_relative` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | “string; dot or Section 1.6 path” |
-| `Session Record Launch Plan` | `cwd_workspace_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | “UUIDv7; names one workspace in the record workspace group” |
-| `Session Record Launch Plan` | `env_literals` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | “map(environment-name,string)[0..64]; values at most 4096 UTF-8 bytes and keys disjoint from env_names” |
-| `Session Record Launch Plan` | `env_names` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | “array<string>[0..64]; sorted unique environment names” |
-| `Session Record Launch Plan` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | “object; reverse-DNS extension keys only” |
-| `Session Record Task-board Reference` | `board` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | “Board Identity; closed shape” |
-| `Session Record Task-board Reference` | `board_goal` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | “Board Goal or null; non-null for primary_owner” |
-| `Session Record Task-board Reference` | `bridge_protocol_version` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | “semver; exact 1.0.0” |
-| `Session Record Task-board Reference` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | “object; reverse-DNS extension keys only” |
-| `Session Record Task-board Reference` | `launch_mode` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | “enum primary_owner or tracked_prompt” |
-| `Session Record Task-board Reference` | `manager_session_ref` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | “string or null; MUST be null in immutable creation record” |
-| `Session Record Task-board Reference` | `native_goal_binding` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | “enum bound, prompt, or none; bound exactly for primary_owner” |
-| `Session Record Task-board Reference` | `task_element_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | “string; 1–128 printable non-control UTF-8 bytes” |
-| `Transfer Manifest` | `base_checkpoint_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “digest or null” |
-| `Transfer Manifest` | `child_manifest_ids` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “sorted unique digest[0..1024]” |
-| `Transfer Manifest` | `created_at` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “timestamp” |
-| `Transfer Manifest` | `created_by_host_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “UUIDv7” |
-| `Transfer Manifest` | `entries` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “ManifestEntry[0..65536]; strictly bytewise sorted with no destination-case collision” |
-| `Transfer Manifest` | `excluded_classes` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “sorted unique string[0..128]” |
-| `Transfer Manifest` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “object; reverse-DNS extension keys only” |
-| `Transfer Manifest` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “enum workspace_group, workspace_tree, provider, task_board, or composite” |
-| `Transfer Manifest` | `manifest_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “digest; canonical object digest” |
-| `Transfer Manifest` | `provider_identity_record_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “digest or null; non-null only for provider” |
-| `Transfer Manifest` | `schema` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “string; exact Transfer Manifest schema identifier” |
-| `Transfer Manifest` | `schema_version` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “semver; exact 1.0.0” |
-| `Transfer Manifest` | `subject_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “UUIDv7; scope selected by kind” |
-| `Transfer Manifest` | `task_board_bundle_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “digest or null; non-null only for task_board” |
-| `Transfer Manifest` | `workspace_snapshot` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | “WorkspaceSnapshot or null; non-null only for workspace_group” |
-| `WorkspaceSnapshot` | `members` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshot` | “WorkspaceSnapshotMember[1..256]; strict workspace-ID order and no destination-case-colliding group paths” |
-| `WorkspaceSnapshot` | `workspace_group_id` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshot` | “UUIDv7; equals manifest subject” |
-| `WorkspaceSnapshotMember.git` | `agent_project_config_paths` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “sorted unique path[0..256]” |
-| `WorkspaceSnapshotMember.git` | `features` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “GitFeatures” |
-| `WorkspaceSnapshotMember.git` | `group_relative_path` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “path” |
-| `WorkspaceSnapshotMember.git` | `head` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “GitHead” |
-| `WorkspaceSnapshotMember.git` | `index` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “GitIndex” |
-| `WorkspaceSnapshotMember.git` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “exact git” |
-| `WorkspaceSnapshotMember.git` | `materialization_policy` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “enum shared_checkout or separate_worktree” |
-| `WorkspaceSnapshotMember.git` | `object_pack` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “GitObjectPack” |
-| `WorkspaceSnapshotMember.git` | `remotes` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “GitRemote[1..16]; sorted by name with no duplicate” |
-| `WorkspaceSnapshotMember.git` | `repo_relative_cwd` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “dot or path” |
-| `WorkspaceSnapshotMember.git` | `repository_identity` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “string[1..256]” |
-| `WorkspaceSnapshotMember.git` | `submodules` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “GitSubmodule[0..256]” |
-| `WorkspaceSnapshotMember.git` | `upstream_ref` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “git-ref or null” |
-| `WorkspaceSnapshotMember.git` | `working_tree_manifest_id` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “digest” |
-| `WorkspaceSnapshotMember.git` | `workspace_id` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “UUIDv7” |
-| `WorkspaceSnapshotMember.managed_tree` | `agent_project_config_paths` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “sorted unique path[0..256]” |
-| `WorkspaceSnapshotMember.managed_tree` | `group_relative_path` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “path” |
-| `WorkspaceSnapshotMember.managed_tree` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “exact managed_tree” |
-| `WorkspaceSnapshotMember.managed_tree` | `materialization_policy` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “enum shared_tree or separate_copy” |
-| `WorkspaceSnapshotMember.managed_tree` | `repo_relative_cwd` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “dot or path” |
-| `WorkspaceSnapshotMember.managed_tree` | `tree_identity` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “string[1..256]” |
-| `WorkspaceSnapshotMember.managed_tree` | `tree_manifest_id` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “digest” |
-| `WorkspaceSnapshotMember.managed_tree` | `workspace_id` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | “UUIDv7” |
-| `WorkspaceMember.git` | `workspace_id` | UUIDv7. | `validateWorkspaceMember` | “workspace_id:UUIDv7” |
-| `WorkspaceMember.managed_tree` | `workspace_id` | UUIDv7. | `validateWorkspaceMember` | “workspace_id:UUIDv7” |
-| `WorkspaceMember.git` | `group_relative_path` | Relative path; absolute, parent-escaping, and non-canonical forms are refused. | `validateWorkspaceMember` | “group_relative_path:path” |
-| `WorkspaceMember.managed_tree` | `group_relative_path` | Relative path; absolute, parent-escaping, and non-canonical forms are refused. | `validateWorkspaceMember` | “group_relative_path:path” |
-| `WorkspaceMember.git` | `repo_relative_cwd` | Literal `.` or a relative path. | `validateWorkspaceMember` | “repo_relative_cwd:.&#124;path” |
-| `WorkspaceMember.managed_tree` | `repo_relative_cwd` | Literal `.` or a relative path. | `validateWorkspaceMember` | “repo_relative_cwd:.&#124;path” |
-| `WorkspaceMember.git` | `agent_project_config_paths` | Sorted unique relative paths, 0..256 entries. | `validateWorkspaceMember` | “agent_project_config_paths:sorted unique path[0..256]” |
-| `WorkspaceMember.managed_tree` | `agent_project_config_paths` | Sorted unique relative paths, 0..256 entries. | `validateWorkspaceMember` | “agent_project_config_paths:sorted unique path[0..256]” |
-| `WorkspaceMember.git` | `kind` | Exact tag selecting the git member set. | `validateWorkspaceMember` | “kind:git” |
-| `WorkspaceMember.git` | `repository_identity` | 1..256 Unicode characters and refused when it is an absolute path. | `validateWorkspaceMember` | “repository_identity:string[1..256]” |
-| `WorkspaceMember.git` | `sanitized_remote_urls` | Sorted unique sanitized Git URLs, 1..16 entries; password, token, query, fragment, and machine-local file forms are refused. | `validateWorkspaceMember` | “sanitized_remote_urls:sorted unique sanitized-git-URL[1..16]” |
-| `WorkspaceMember.git` | `materialization_policy` | Enum shared_checkout or separate_worktree. | `validateWorkspaceMember` | “materialization_policy:shared_checkout&#124;separate_worktree” |
-| `WorkspaceMember.managed_tree` | `kind` | Exact tag selecting the managed_tree member set. | `validateWorkspaceMember` | “kind:managed_tree” |
-| `WorkspaceMember.managed_tree` | `tree_identity` | 1..256 Unicode characters and refused when it is an absolute path. | `validateWorkspaceMember` | “tree_identity:string[1..256]” |
-| `WorkspaceMember.managed_tree` | `materialization_policy` | Enum shared_tree or separate_copy. | `validateWorkspaceMember` | “materialization_policy:shared_tree&#124;separate_copy” |
-| `Observation Event` | `schema` | Exact Observation schema identifier. | `validateObservationEvent` | “string &#124; Exact Observation schema identifier” |
-| `Observation Event` | `schema_version` | Exact version 1.0.0. | `validateObservationEvent` | “semver &#124; Exact 1.0.0” |
-| `Observation Event` | `stream_id` | UUIDv7. | `validateObservationEvent` | “UUIDv7 &#124; Stable per host installation; changing it starts a new explicitly separate stream” |
-| `Observation Event` | `sequence` | uint53 greater than zero. | `validateObservationEvent` | “uint53 &#124; Starts at 1 and increases by exactly one before each durable append” |
-| `Observation Event` | `timestamp` | Canonical AX timestamp. | `validateObservationEvent` | “timestamp &#124; Observation time; not authority” |
-| `Observation Event` | `level` | Enum debug, info, warn, or error. | `validateObservationEvent` | “enum &#124; debug, info, warn, or error” |
-| `Observation Event` | `event` | 3..128 Unicode characters matching the declared observation-name grammar. | `validateObservationEvent` | “observation-name &#124; [a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,7}, 3–128 characters” |
-| `Observation Event` | `operation_id` | UUIDv7 or null. | `validateObservationEvent` | “UUIDv7 or null &#124; Required null when no operation exists” |
-| `Observation Event` | `session_id` | UUIDv7 or null. | `validateObservationEvent` | “UUIDv7 or null &#124; Required null for non-session events” |
-| `Observation Event` | `host_id` | UUIDv7. | `validateObservationEvent` | “UUIDv7 &#124; Emitting host” |
-| `Observation Event` | `peer_host_id` | UUIDv7 or null. | `validateObservationEvent` | “UUIDv7 or null &#124; Required null when no peer participates” |
-| `Observation Event` | `phase` | 1..128 Unicode characters in lower_snake_case, or null. | `validateObservationEvent` | “string[1..128] or null &#124; Stable lower-snake-case phase or null” |
-| `Observation Event` | `result` | Enum started, success, partial, failure, or cancelled. | `validateObservationEvent` | “enum &#124; started, success, partial, failure, or cancelled” |
-| `Observation Event` | `duration_ms` | uint53 or null; a started result requires null. | `validateObservationEvent` | “uint53 or null &#124; Null for a point/start event; otherwise elapsed milliseconds” |
-| `Observation Event` | `counts` | Closed ObservationCounts object or null. | `validateObservationEvent` | “ObservationCounts or null &#124; Closed aggregate below” |
-| `Observation Event` | `object_ids` | Sorted unique digests, 0..4096 entries. | `validateObservationEvent` | “sorted unique digest[0..4096] &#124; Redacted object identities only” |
-| `Observation Event` | `error_code` | 1..128 Unicode characters or null; non-null exactly for partial and failure. | `validateObservationEvent` | “string[1..128] or null &#124; Stable Section 15 code when result is partial/failure” |
-| `Observation Event` | `extensions` | Present object member. | `validateObservationEvent` | “object &#124; Reverse-DNS extension keys only; no payload content” |
-| `ObservationCounts` | `records` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | “records:uint53” |
-| `ObservationCounts` | `events` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | “events:uint53” |
-| `ObservationCounts` | `manifests` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | “manifests:uint53” |
-| `ObservationCounts` | `blobs` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | “blobs:uint53” |
-| `ObservationCounts` | `chunks` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | “chunks:uint53” |
-| `ObservationCounts` | `bytes` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | “bytes:uint53” |
-| `ObservationCounts` | `retries` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | “retries:uint53” |
+| `Lease Record` | `schema` | Exact Lease schema identifier. | `validateLeaseRecord` | L1899 “\| <code>schema</code> \| string \| Exact Lease Record schema identifier \|” |
+| `Lease Record` | `schema_version` | Exact version 1.0.0. | `validateLeaseRecord` | L1900 “\| <code>schema_version</code> \| semver \| Exact <code>1.0.0</code> \|” |
+| `Lease Record` | `record_id` | Canonical digest self identity. | `validateLeaseRecord` | L1901 “\| <code>record_id</code> \| digest \| Canonical Lease Record digest \|” |
+| `Lease Record` | `subject_id` | UUIDv7 equal to session ID. | `validateLeaseRecord` | L1902 “\| <code>subject_id</code> \| UUIDv7 \| Equal to <code>session_id</code> \|” |
+| `Lease Record` | `lease_id` | UUIDv4 fencing token. | `validateLeaseRecord` | L1903 “\| <code>lease_id</code> \| UUIDv4 \| Cryptographically random unique fencing token \|” |
+| `Lease Record` | `session_id` | UUIDv7 lease scope. | `validateLeaseRecord` | L1904 “\| <code>session_id</code> \| UUIDv7 \| Lease scope \|” |
+| `Lease Record` | `epoch` | Positive uint53; the declared epoch-one and successor nullability rules are enforced, and no reason is inferred from the epoch. | `validateLeaseRecord` | L1905 “\| <code>epoch</code> \| uint53 \| Starts at 1; never decreases \|” |
+| `Lease Record` | `holder_host_id` | UUIDv7 proposed owner. | `validateLeaseRecord` | L1906 “\| <code>holder_host_id</code> \| UUIDv7 \| Proposed owner \|” |
+| `Lease Record` | `predecessor_lease_id` | UUIDv4 or null; non-null is required after epoch one, and an epoch-one `create` lease must carry null. | `validateLeaseRecord` | L1907 “\| <code>predecessor_lease_id</code> \| UUIDv4 or null \| Null only at epoch 1 \|” |
+| `Lease Record` | `reason` | Closed four-member reason enum. Section 5.3 declares no coupling from the epoch to the reason, so no epoch-one-implies-`create` or `create`-implies-epoch-one rule is enforced. | `validateLeaseRecord` | L1908 “\| <code>reason</code> \| enum \| <code>create</code>, <code>graceful_takeover</code>, <code>force_takeover</code>, <code>recovery</code> \|” |
+| `Lease Record` | `checkpoint_id` | Digest, and null only for an epoch-one `create` lease; every other epoch and reason combination requires a non-null checkpoint. | `validateLeaseRecord` | L1909 “\| <code>checkpoint_id</code> \| digest or null \| Null only for epoch-1 <code>create</code>; otherwise the validated materialized handoff base \|” |
+| `Lease Record` | `issued_by_host_id` | UUIDv7 initiator. | `validateLeaseRecord` | L1910 “\| <code>issued_by_host_id</code> \| UUIDv7 \| Initiator \|” |
+| `Lease Record` | `created_by_host_id` | UUIDv7 equal to issuer. | `validateLeaseRecord` | L1911 “\| <code>created_by_host_id</code> \| UUIDv7 \| MUST equal <code>issued_by_host_id</code> \|” |
+| `Lease Record` | `created_at` | Timestamp, diagnostic only. | `validateLeaseRecord` | L1912 “\| <code>created_at</code> \| timestamp \| Diagnostic only \|” |
+| `Lease Record` | `extensions` | Required reverse-DNS extension object. | `validateLeaseRecord` | L1913 “\| <code>extensions</code> \| object \| Reverse-DNS extension keys only \|” |
+| `Checkpoint Record` | `schema` | Exact Checkpoint schema identifier. | `validateCheckpointRecord` | L1974 “\| <code>schema</code> \| string \| Exact Checkpoint schema identifier \|” |
+| `Checkpoint Record` | `schema_version` | Exact version 1.0.0. | `validateCheckpointRecord` | L1975 “\| <code>schema_version</code> \| semver \| Exact <code>1.0.0</code> \|” |
+| `Checkpoint Record` | `checkpoint_id` | Canonical digest self identity. | `validateCheckpointRecord` | L1976 “\| <code>checkpoint_id</code> \| digest \| Canonical object digest \|” |
+| `Checkpoint Record` | `subject_id` | UUIDv7 equal to session ID. | `validateCheckpointRecord` | L1977 “\| <code>subject_id</code> \| UUIDv7 \| Equal to <code>session_id</code> \|” |
+| `Checkpoint Record` | `session_id` | UUIDv7 existing Session Record reference. | `validateCheckpointRecord` | L1978 “\| <code>session_id</code> \| UUIDv7 \| Existing Session Record \|” |
+| `Checkpoint Record` | `lease_epoch` | Positive uint53. | `validateCheckpointRecord` | L1979 “\| <code>lease_epoch</code> \| uint53 \| Greater than zero and equal to the referenced winning lease \|” |
+| `Checkpoint Record` | `lease_id` | UUIDv4 fencing token. | `validateCheckpointRecord` | L1980 “\| <code>lease_id</code> \| UUIDv4 \| Equal to that lease's fencing token \|” |
+| `Checkpoint Record` | `safe_boundary` | Required closed Safe Boundary Evidence. | `validateCheckpointRecord` | L1981 “\| <code>safe_boundary</code> \| Safe Boundary Evidence \| Closed shape below \|” |
+| `Checkpoint Record` | `event_heads` | Sorted unique digest array with 1..64 entries. | `validateCheckpointRecord` | L1982 “\| <code>event_heads</code> \| sorted unique digest[1..64] \| Authoritative event DAG heads immediately before this object \|” |
+| `Checkpoint Record` | `workspace_manifest_id` | Required digest. | `validateCheckpointRecord` | L1983 “\| <code>workspace_manifest_id</code> \| digest \| Workspace-group Transfer Manifest root \|” |
+| `Checkpoint Record` | `provider_manifest_id` | Nullable digest; exactly one persistence reference is non-null. | `validateCheckpointRecord` | L1984 “\| <code>provider_manifest_id</code> \| digest or null \| Direct native-store/provider snapshot only \|” |
+| `Checkpoint Record` | `task_board_bundle_id` | Nullable digest; exactly one persistence reference is non-null. | `validateCheckpointRecord` | L1985 “\| <code>task_board_bundle_id</code> \| digest or null \| Task-board path only \|” |
+| `Checkpoint Record` | `created_by_host_id` | UUIDv7 current holder. | `validateCheckpointRecord` | L1986 “\| <code>created_by_host_id</code> \| UUIDv7 \| Current lease holder \|” |
+| `Checkpoint Record` | `created_at` | Timestamp, diagnostic only. | `validateCheckpointRecord` | L1987 “\| <code>created_at</code> \| timestamp \| Diagnostic only \|” |
+| `Checkpoint Record` | `status` | Exact validated literal. | `validateCheckpointRecord` | L1988 “\| <code>status</code> \| enum \| Literal <code>validated</code> \|” |
+| `Checkpoint Record` | `extensions` | Required reverse-DNS extension object. | `validateCheckpointRecord` | L1989 “\| <code>extensions</code> \| object \| Reverse-DNS extension keys only \|” |
+| `Safe Boundary Evidence` | `provider_id` | Provider ID grammar. | `validateSafeBoundaryEvidence` | L1992 “<code>provider_id:provider-id</code>” |
+| `Safe Boundary Evidence` | `provider_version` | String of 1..128 characters. | `validateSafeBoundaryEvidence` | L1993 “<code>provider_version:string[1..128]</code>” |
+| `Safe Boundary Evidence` | `evidence` | Closed five-member evidence enum. | `validateSafeBoundaryEvidence` | L1994 “<code>evidence:provider_api\|provider_event\|managed_pty\|task_board_bridge\|accepted_test</code>” |
+| `Safe Boundary Evidence` | `input_blocked` | Boolean required true for publication. | `validateSafeBoundaryEvidence` | L1995 “<code>input_blocked:boolean</code>” |
+| `Safe Boundary Evidence` | `foreground_idle` | Boolean required true for publication. | `validateSafeBoundaryEvidence` | L1995 “<code>foreground_idle:boolean</code>” |
+| `Safe Boundary Evidence` | `background_idle` | Boolean required true for publication. | `validateSafeBoundaryEvidence` | L1996 “<code>background_idle:boolean</code>” |
+| `Safe Boundary Evidence` | `open_processes` | uint53 required zero for publication. | `validateSafeBoundaryEvidence` | L1996 “<code>open_processes:uint53</code>” |
+| `Safe Boundary Evidence` | `open_database_handles` | uint53 required zero for publication. | `validateSafeBoundaryEvidence` | L1997 “<code>open_database_handles:uint53</code>” |
+| `Provider Identity Record` | `schema` | Exact Provider Identity schema identifier. | `validateProviderIdentityRecord` | L2077 “\| <code>schema</code> \| string \| Exact Provider Identity schema identifier \|” |
+| `Provider Identity Record` | `schema_version` | Exact version 1.0.0. | `validateProviderIdentityRecord` | L2078 “\| <code>schema_version</code> \| semver \| Exact <code>1.0.0</code> \|” |
+| `Provider Identity Record` | `record_id` | Canonical digest self identity. | `validateProviderIdentityRecord` | L2079 “\| <code>record_id</code> \| digest \| Canonical object digest \|” |
+| `Provider Identity Record` | `subject_id` | UUIDv7 equal to session ID. | `validateProviderIdentityRecord` | L2080 “\| <code>subject_id</code> \| UUIDv7 \| Equal to <code>session_id</code> \|” |
+| `Provider Identity Record` | `session_id` | UUIDv7 logical session. | `validateProviderIdentityRecord` | L2081 “\| <code>session_id</code> \| UUIDv7 \| Existing logical session \|” |
+| `Provider Identity Record` | `provider_id` | Provider ID grammar. | `validateProviderIdentityRecord` | L2082 “\| <code>provider_id</code> \| provider-id \| Must equal the Session Record provider \|” |
+| `Provider Identity Record` | `provider_version` | String of 1..128 characters. | `validateProviderIdentityRecord` | L2083 “\| <code>provider_version</code> \| string[1..128] \| Exact probed version \|” |
+| `Provider Identity Record` | `provider_version_range` | String of 1..256 characters. | `validateProviderIdentityRecord` | L2084 “\| <code>provider_version_range</code> \| string[1..256] \| Adapter compatibility range used for this identity \|” |
+| `Provider Identity Record` | `native_session_id` | String of 1..512 characters. | `validateProviderIdentityRecord` | L2085 “\| <code>native_session_id</code> \| string[1..512] \| Opaque provider handle; never interpreted by core \|” |
+| `Provider Identity Record` | `identity_kind` | Closed five-member identity enum. | `validateProviderIdentityRecord` | L2086 “\| <code>identity_kind</code> \| enum \| <code>session_uuid</code>, <code>session_path_or_id</code>, <code>backend_conversation_uuid</code>, <code>task_board_managed</code>, or <code>provider_defined</code> \|” |
+| `Provider Identity Record` | `logical_workspace_id` | UUIDv7 workspace reference. | `validateProviderIdentityRecord` | L2087 “\| <code>logical_workspace_id</code> \| UUIDv7 \| Member of the Session Record workspace group \|” |
+| `Provider Identity Record` | `backend_realm_fingerprint` | Nullable digest; Antigravity backend conversation requires non-null. | `validateProviderIdentityRecord` | L2088 “\| <code>backend_realm_fingerprint</code> \| digest or null \| Non-secret fingerprint; non-null when backend/account realm is a resume precondition \|” |
+| `Provider Identity Record` | `opaque_identity` | Closed provider-data map of 0..32 bounded string values. | `validateProviderIdentityRecord` | L2089 “\| <code>opaque_identity</code> \| map(provider-identity-key,string[1..1024])[0..32] \| Explicit adapter data map defined below \|” |
+| `Provider Identity Record` | `created_by_host_id` | UUIDv7 identifying host. | `validateProviderIdentityRecord` | L2090 “\| <code>created_by_host_id</code> \| UUIDv7 \| Identifying owner host \|” |
+| `Provider Identity Record` | `created_at` | Timestamp, diagnostic only. | `validateProviderIdentityRecord` | L2091 “\| <code>created_at</code> \| timestamp \| Diagnostic only \|” |
+| `Provider Identity Record` | `extensions` | Required reverse-DNS extension object. | `validateProviderIdentityRecord` | L2092 “\| <code>extensions</code> \| object \| Reverse-DNS extension keys only \|” |
+| `Workspace Group Record` | `schema` | Exact Workspace Group schema identifier. | `validateWorkspaceGroupRecord` | L2138 “Its closed top-level shape contains exactly <code>schema</code>, <code>schema_version</code>” |
+| `Workspace Group Record` | `schema_version` | Exact version 1.0.0. | `validateWorkspaceGroupRecord` | L2139 “<code>schema_version</code>, <code>record_id:digest</code>” |
+| `Workspace Group Record` | `record_id` | Canonical digest self identity. | `validateWorkspaceGroupRecord` | L2140 “<code>record_id:digest</code>” |
+| `Workspace Group Record` | `subject_id` | UUIDv7 equal to workspace group ID. | `validateWorkspaceGroupRecord` | L2140 “<code>subject_id:UUIDv7</code>” |
+| `Workspace Group Record` | `workspace_group_id` | UUIDv7 equal to subject ID. | `validateWorkspaceGroupRecord` | L2141 “<code>workspace_group_id:UUIDv7</code>” |
+| `Workspace Group Record` | `display_name` | String of 1..128 characters. | `validateWorkspaceGroupRecord` | L2142 “<code>display_name:string[1..128]</code>” |
+| `Workspace Group Record` | `members` | Closed WorkspaceMember array of 1..256 entries sorted by ID. | `validateWorkspaceGroupRecord` | L2143 “<code>members:WorkspaceMember[1..256]</code>” |
+| `Workspace Group Record` | `created_by_host_id` | UUIDv7 creator. | `validateWorkspaceGroupRecord` | L2144 “<code>created_by_host_id:UUIDv7</code>” |
+| `Workspace Group Record` | `created_at` | Timestamp. | `validateWorkspaceGroupRecord` | L2144 “<code>created_at:timestamp</code>” |
+| `Workspace Group Record` | `extensions` | Required reverse-DNS extension object. | `validateWorkspaceGroupRecord` | L2145 “<code>extensions:object</code>” |
+| `Session Event` | `schema` | Exact Session Event schema identifier. | `validateSessionEvent` | L1733 “The exact top-level shape also requires <code>schema</code>, <code>schema_version</code>, and <code>extensions</code>” |
+| `Session Event` | `schema_version` | Exact selected version 1.0.0 through 4.0.0. | `validateSessionEvent` | L1734 “<code>schema_version</code>, and <code>extensions</code>; no other top-level member is permitted” |
+| `Session Event` | `event_id` | Canonical digest self identity. | `validateSessionEvent` | L1722 “Required fields are <code>event_id</code> digest” |
+| `Session Event` | `subject_id` | UUIDv7 equal to session ID. | `validateSessionEvent` | L1722 “<code>subject_id</code> and <code>session_id</code> with the same UUID” |
+| `Session Event` | `session_id` | UUIDv7 equal to subject ID. | `validateSessionEvent` | L1723 “<code>session_id</code> with the same UUID” |
+| `Session Event` | `event_type` | Version-selected catalog event name; v1 unknown types remain inert and retainable. | `validateSessionEvent` | L1724 “<code>event_type</code>, <code>created_by_host_id</code>” |
+| `Session Event` | `created_by_host_id` | UUIDv7 author host. | `validateSessionEvent` | L1724 “<code>created_by_host_id</code>, <code>lease_epoch</code>” |
+| `Session Event` | `lease_epoch` | Positive uint53. | `validateSessionEvent` | L1725 “<code>lease_epoch</code>, <code>lease_id</code>” |
+| `Session Event` | `lease_id` | UUIDv4 winning lease token. | `validateSessionEvent` | L1725 “<code>lease_id</code>, and <code>lease_sequence</code>” |
+| `Session Event` | `lease_sequence` | Positive uint53 starting at one. | `validateSessionEvent` | L1726 “<code>lease_sequence</code> as a uint53 starting at 1 for each lease” |
+| `Session Event` | `predecessors` | Non-empty sorted digest array. | `validateSessionEvent` | L1728 “<code>predecessors</code> as a sorted array of one or more record/event digests” |
+| `Session Event` | `created_at` | Timestamp. | `validateSessionEvent` | L1729 “<code>created_at</code>, and <code>payload</code>” |
+| `Session Event` | `payload` | Closed version-selected tagged union for registered types. | `validateSessionEvent` | L1764 “The <code>payload</code> object is a closed tagged union selected by <code>event_type</code>” |
+| `Session Event` | `extensions` | Required reverse-DNS extension object. | `validateSessionEvent` | L1734 “and <code>extensions</code>; no other top-level member is permitted” |
+| `Blob Descriptor` | `blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | L4617 “<code>blob_id:digest</code>” |
+| `Blob Descriptor` | `chunks` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | L4619 “<code>chunks:BlobChunk[0..32768]</code>” |
+| `Blob Descriptor` | `descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | L4617 “<code>descriptor_id:digest</code>” |
+| `Blob Descriptor` | `media_type` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | L4618 “<code>media_type:string[1..255]</code>” |
+| `Blob Descriptor` | `schema` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | L4615 “The descriptor is closed and contains exactly <code>schema</code>”; L4610 “Every transferred blob has a Blob Descriptor with schema <code>urn:ax:schema:blob</code>” |
+| `Blob Descriptor` | `schema_version` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | L4615 “contains exactly <code>schema</code>, <code>schema_version</code>”; L4611 “<code>urn:ax:schema:blob</code> version <code>1.0.0</code>” |
+| `Blob Descriptor` | `size` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | L4618 “<code>size:uint53</code>” |
+| `BlobChunk` | `chunk_id` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | L4622 “<code>chunk_id:digest</code>” |
+| `BlobChunk` | `index` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | L4621 “<code>index:uint32</code>” |
+| `BlobChunk` | `offset` | Enforced exactly as declared before identity calculation or verification. | `validateBlobDescriptor` | L4621 “<code>offset:uint53</code>” |
+| `BlobChunk` | `size` | Enforced exactly as declared before identity calculation or verification; `TestTrailingBlobChunkSizeMinimumReachesBothIdentityEntries` pins a trailing zero-size chunk at the exact refusal clause through both public entries. | `validateBlobDescriptor` | L4622 “<code>size:uint53[1..4194304]</code>” |
+| `GitFeatures` | `case_sensitive` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | L4793 “<code>case_sensitive:boolean</code>” |
+| `GitFeatures` | `filemode` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | L4793 “<code>filemode:boolean</code>” |
+| `GitFeatures` | `lfs_required` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | L4793 “<code>lfs_required:boolean</code>” |
+| `GitFeatures` | `object_format` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | L4793 “<code>object_format:sha1&#124;sha256</code>” |
+| `GitFeatures` | `precompose_unicode` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | L4793 “<code>precompose_unicode:boolean</code>” |
+| `GitFeatures` | `required_filter_names` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | L4793 “<code>required_filter_names:sorted unique string[0..64]</code>” |
+| `GitFeatures` | `sparse_checkout` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | L4793 “<code>sparse_checkout:boolean</code>” |
+| `GitFeatures` | `sparse_patterns_blob_descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | L4793 “<code>sparse_patterns_blob_descriptor_id:digest&#124;null</code>” |
+| `GitFeatures` | `sparse_patterns_blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | L4793 “<code>sparse_patterns_blob_id:digest&#124;null</code>” |
+| `GitFeatures` | `symlinks` | Enforced exactly as declared before identity calculation or verification. | `validateGitFeatures` | L4793 “<code>symlinks:boolean</code>” |
+| `GitHead` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateGitHead` | L4788 “<code>mode:branch&#124;detached&#124;unborn</code>” |
+| `GitHead` | `oid` | Enforced exactly as declared before identity calculation or verification. | `validateGitHead` | L4788 “<code>oid:git-oid&#124;null</code>” |
+| `GitHead` | `ref` | Enforced exactly as declared before identity calculation or verification. | `validateGitHead` | L4788 “<code>ref:git-ref&#124;null</code>” |
+| `GitIndex` | `blob_descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndex` | L4790 “<code>blob_descriptor_id:digest</code>” |
+| `GitIndex` | `blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndex` | L4790 “<code>blob_id:digest</code>” |
+| `GitIndex` | `entries` | Production enforces 0..65536 and a direct boundary test pins accept-at-65536/refuse-at-65537. Public-entry acceptance at 65536 is not claimed: the required closed entries encode above 5,242,880 bytes and `prepareObjectIdentity` refuses the object first. | `validateGitIndex` | L4790 “<code>entries:GitIndexEntry[0..65536]</code>” |
+| `GitIndex` | `entry_count` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndex` | L4790 “<code>entry_count:uint53</code>” |
+| `GitIndex` | `format` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndex` | L4790 “<code>format:git_index</code>” |
+| `GitIndex` | `version` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndex` | L4790 “<code>version:2&#124;3&#124;4</code>” |
+| `GitIndexEntry` | `assume_unchanged` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | L4791 “<code>assume_unchanged:boolean</code>” |
+| `GitIndexEntry` | `fsmonitor_valid` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | L4791 “<code>fsmonitor_valid:boolean</code>” |
+| `GitIndexEntry` | `intent_to_add` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | L4791 “<code>intent_to_add:boolean</code>” |
+| `GitIndexEntry` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | L4791 “<code>mode:uint32</code>” |
+| `GitIndexEntry` | `oid` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | L4791 “<code>oid:git-oid</code>” |
+| `GitIndexEntry` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | L4791 “<code>path:path</code>” |
+| `GitIndexEntry` | `skip_worktree` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | L4791 “<code>skip_worktree:boolean</code>” |
+| `GitIndexEntry` | `stage` | Enforced exactly as declared before identity calculation or verification. | `validateGitIndexEntry` | L4791 “<code>stage:uint8[0..3]</code>” |
+| `GitObjectPack` | `blob_descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | L4789 “<code>blob_descriptor_id:digest</code>” |
+| `GitObjectPack` | `blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | L4789 “<code>blob_id:digest</code>” |
+| `GitObjectPack` | `format` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | L4789 “<code>format:git_pack_v2</code>” |
+| `GitObjectPack` | `inventory_blob_descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | L4789 “<code>inventory_blob_descriptor_id:digest</code>” |
+| `GitObjectPack` | `inventory_blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | L4789 “<code>inventory_blob_id:digest</code>” |
+| `GitObjectPack` | `object_count` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | L4789 “<code>object_count:uint53</code>” |
+| `GitObjectPack` | `object_format` | Enforced exactly as declared before identity calculation or verification. | `validateGitObjectPack` | L4789 “<code>object_format:sha1&#124;sha256</code>” |
+| `GitRemote` | `fetch_url` | Enforced exactly as declared before identity calculation or verification. | `validateGitRemote` | L4787 “<code>fetch_url:sanitized-git-URL</code>” |
+| `GitRemote` | `name` | Enforced exactly as declared before identity calculation or verification. | `validateGitRemote` | L4787 “<code>name:string[1..128]</code>” |
+| `GitRemote` | `push_url` | Enforced exactly as declared before identity calculation or verification. | `validateGitRemote` | L4787 “<code>push_url:sanitized-git-URL&#124;null</code>” |
+| `GitSubmodule` | `agent_project_config_paths` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>agent_project_config_paths:sorted unique path[0..256]&#124;null</code>” |
+| `GitSubmodule` | `features` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>features:GitFeatures&#124;null</code>” |
+| `GitSubmodule` | `gitlink_oid` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>gitlink_oid:git-oid</code>” |
+| `GitSubmodule` | `head` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>head:GitHead&#124;null</code>” |
+| `GitSubmodule` | `index` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>index:GitIndex&#124;null</code>” |
+| `GitSubmodule` | `initialized` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>initialized:boolean</code>” |
+| `GitSubmodule` | `object_pack` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>object_pack:GitObjectPack&#124;null</code>” |
+| `GitSubmodule` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>path:path</code>” |
+| `GitSubmodule` | `repo_relative_cwd` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>repo_relative_cwd:.&#124;path&#124;null</code>” |
+| `GitSubmodule` | `repository_identity` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>repository_identity:string[1..256]</code>” |
+| `GitSubmodule` | `sanitized_url` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>sanitized_url:sanitized-git-URL</code>” |
+| `GitSubmodule` | `submodules` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>submodules:GitSubmodule[0..256]&#124;null</code>” |
+| `GitSubmodule` | `upstream_ref` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>upstream_ref:git-ref&#124;null</code>” |
+| `GitSubmodule` | `working_tree_manifest_id` | Enforced exactly as declared before identity calculation or verification. | `validateGitSubmodule` | L4792 “<code>working_tree_manifest_id:digest&#124;null</code>” |
+| `ManifestEntry.directory` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4745 “<code>mode:uint32[0..4095]</code>” |
+| `ManifestEntry.directory` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4745 “<code>path:path</code>” |
+| `ManifestEntry.directory` | `type` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4745 “<code>type = directory</code>” |
+| `ManifestEntry.file` | `blob_descriptor_id` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4746 “<code>blob_descriptor_id:digest</code>” |
+| `ManifestEntry.file` | `blob_id` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4746 “<code>blob_id:digest</code>” |
+| `ManifestEntry.file` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4746 “<code>mode:uint32[0..4095]</code>” |
+| `ManifestEntry.file` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4746 “<code>path:path</code>” |
+| `ManifestEntry.file` | `size` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4746 “<code>size:uint53</code>” |
+| `ManifestEntry.file` | `type` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4746 “<code>type = file</code>” |
+| `ManifestEntry.hardlink` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4748 “<code>mode:uint32[0..4095]</code>” |
+| `ManifestEntry.hardlink` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4748 “<code>path:path</code>” |
+| `ManifestEntry.hardlink` | `target_path` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4748 “<code>target_path:path</code>” |
+| `ManifestEntry.hardlink` | `type` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4748 “<code>type = hardlink</code>” |
+| `ManifestEntry.symlink` | `mode` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4747 “<code>mode:uint32[0..4095]</code>” |
+| `ManifestEntry.symlink` | `path` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4747 “<code>path:path</code>” |
+| `ManifestEntry.symlink` | `target` | Enforced exactly as declared before identity calculation or verification; `TestSymlinkTargetLowerBoundReachesBothIdentityEntries` pins accept-at-one and refuse-below-one through both public entries. | `validateManifestEntries` | L4747 “<code>target:string[1..4096]</code>” |
+| `ManifestEntry.symlink` | `type` | Enforced exactly as declared before identity calculation or verification. | `validateManifestEntries` | L4747 “<code>type = symlink</code>” |
+| `MigrationProvenance` | `object_id` | Enforced exactly as declared before identity calculation or verification. | `validateMigrationExtensionObject` | L11461 “<code>object_id:digest</code>” |
+| `MigrationProvenance` | `schema_id` | Type-only: requires a valid UTF-8 JSON string and deliberately adds no non-empty or length rule. | `validateMigrationExtensionObject` | L11460 “<code>schema_id:string</code>” |
+| `MigrationProvenance` | `schema_version` | Enforced exactly as declared before identity calculation or verification. | `validateMigrationExtensionObject` | L11461 “<code>schema_version:semver</code>” |
+| `Session Record 1.0.0` | `created_at` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1473 “\| <code>created_at</code> \| timestamp \| Diagnostic time \|” |
+| `Session Record 1.0.0` | `created_by_host_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1474 “\| <code>created_by_host_id</code> \| UUIDv7 \| Allowlisted host at creation \|” |
+| `Session Record 1.0.0` | `execution_profile` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1477 “\| <code>execution_profile</code> \| enum \| <code>standard</code> or <code>yolo</code> \|” |
+| `Session Record 1.0.0` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1481 “\| <code>extensions</code> \| object \| Required; may be empty; reverse-DNS keys only \|” |
+| `Session Record 1.0.0` | `fork_provenance` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1480 “\| <code>fork_provenance</code> \| Fork Provenance or null \| Required object exactly when this record was created by fork \|” |
+| `Session Record 1.0.0` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1472 “\| <code>kind</code> \| enum \| <code>direct</code> or <code>task_board</code> \|” |
+| `Session Record 1.0.0` | `launch_plan` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1478 “\| <code>launch_plan</code> \| Launch Plan \| Closed shape below; sanitized and secret-free \|” |
+| `Session Record 1.0.0` | `name` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1471 “\| <code>name</code> \| string \| Section 2.3 grammar \|”; L363 “\| Session name \| A mesh-unique human alias of 1–64 characters matching <code>[A-Za-z0-9][A-Za-z0-9._-]{0,63}</code>. \|” |
+| `Session Record 1.0.0` | `provider_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1475 “\| <code>provider_id</code> \| string \| Lowercase plugin ID \|” |
+| `Session Record 1.0.0` | `record_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1468 “\| <code>record_id</code> \| digest \| Canonical object digest \|” |
+| `Session Record 1.0.0` | `schema` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1466 “\| <code>schema</code> \| string \| Exact schema identifier \|” |
+| `Session Record 1.0.0` | `schema_version` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1467 “\| <code>schema_version</code> \| semver \| <code>1.0.0</code> \|” |
+| `Session Record 1.0.0` | `session_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1470 “\| <code>session_id</code> \| UUIDv7 \| Globally unique \|” |
+| `Session Record 1.0.0` | `subject_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1469 “\| <code>subject_id</code> \| UUIDv7 \| Equal to <code>session_id</code> \|” |
+| `Session Record 1.0.0` | `task_board` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1479 “\| <code>task_board</code> \| Task-board Reference or null \| Required object exactly when <code>kind = task_board</code> \|” |
+| `Session Record 1.0.0` | `workspace_group_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordV1` | L1476 “\| <code>workspace_group_id</code> \| UUIDv7 \| Required \|” |
+| `Session Record 2.0.0 and 3.0.0` | `created_at` | Enforced through the common immutable Record Envelope before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1473 “\| <code>created_at</code> \| timestamp \| Diagnostic time \|” |
+| `Session Record 2.0.0 and 3.0.0` | `created_by_host_id` | Enforced through the common immutable Record Envelope before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1474 “\| <code>created_by_host_id</code> \| UUIDv7 \| Allowlisted host at creation \|” |
+| `Session Record 2.0.0 and 3.0.0` | `derivation_provenance` | Required closed provenance union; v2 admits three tags and v3 admits those three plus native adoption. | `validateSessionRecordWithDerivation` | L1623 “It retains every major-1 field except <code>fork_provenance</code>, which is replaced by required closed <code>derivation_provenance</code>” |
+| `Session Record 2.0.0 and 3.0.0` | `execution_profile` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1477 “\| <code>execution_profile</code> \| enum \| <code>standard</code> or <code>yolo</code> \|” |
+| `Session Record 2.0.0 and 3.0.0` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1481 “\| <code>extensions</code> \| object \| Required; may be empty; reverse-DNS keys only \|” |
+| `Session Record 2.0.0 and 3.0.0` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1472 “\| <code>kind</code> \| enum \| <code>direct</code> or <code>task_board</code> \|” |
+| `Session Record 2.0.0 and 3.0.0` | `launch_plan` | Enforced by the shared immutable Session Record creation shape. | `validateSessionRecordWithDerivation` | L1478 “\| <code>launch_plan</code> \| Launch Plan \| Closed shape below; sanitized and secret-free \|” |
+| `Session Record 2.0.0 and 3.0.0` | `name` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1471 “\| <code>name</code> \| string \| Section 2.3 grammar \|”; L363 “\| Session name \| A mesh-unique human alias of 1–64 characters matching <code>[A-Za-z0-9][A-Za-z0-9._-]{0,63}</code>. \|” |
+| `Session Record 2.0.0 and 3.0.0` | `provider_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1475 “\| <code>provider_id</code> \| string \| Lowercase plugin ID \|”; L1676 “The new target Session ID and target <code>provider_id</code> are allocated at creation and never reuse or mutate the source Session or source provider ID.” |
+| `Session Record 2.0.0 and 3.0.0` | `record_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1468 “\| <code>record_id</code> \| digest \| Canonical object digest \|” |
+| `Session Record 2.0.0 and 3.0.0` | `schema` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1466 “\| <code>schema</code> \| string \| Exact schema identifier \|” |
+| `Session Record 2.0.0 and 3.0.0` | `schema_version` | Enforced as exact 2.0.0 or exact 3.0.0 at the version-selected validator. | `validateSessionRecordWithDerivation` | L1467 “\| <code>schema_version</code> \| semver \| <code>1.0.0</code> \|”; L1622 “Session Record 2.0.0 is emitted in v0.3.0 only for a cross-environment clone target.”; L1685 “Session Record 3.0.0 is the v0.4 creation contract.” |
+| `Session Record 2.0.0 and 3.0.0` | `session_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1470 “\| <code>session_id</code> \| UUIDv7 \| Globally unique \|”; L1676 “The new target Session ID and target <code>provider_id</code> are allocated at creation” |
+| `Session Record 2.0.0 and 3.0.0` | `subject_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1469 “\| <code>subject_id</code> \| UUIDv7 \| Equal to <code>session_id</code> \|” |
+| `Session Record 2.0.0 and 3.0.0` | `task_board` | Enforced by the shared immutable Session Record creation shape. | `validateSessionRecordWithDerivation` | L1479 “\| <code>task_board</code> \| Task-board Reference or null \| Required object exactly when <code>kind = task_board</code> \|”; L1681 “Task-board references remain orthogonal authority in the existing <code>task_board</code> field” |
+| `Session Record 2.0.0 and 3.0.0` | `workspace_group_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionRecordWithDerivation` | L1476 “\| <code>workspace_group_id</code> \| UUIDv7 \| Required \|” |
+| `Session Record origin provenance` | `creation_operation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionOriginProvenance` | L1646 “<code>creation_operation_id:UUIDv7</code>” |
+| `Session Record origin provenance` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionOriginProvenance` | L1646 “<code>creation_operation_id:UUIDv7</code>, and <code>extensions</code>” |
+| `Session Record origin provenance` | `kind` | Enforced exactly as declared before identity calculation or verification; the per-variant exact-string check is defensively redundant with the `validateSessionDerivationProvenance` switch dispatch that exclusively selects this validator. | `validateSessionOriginProvenance` | L1646 “<code>kind=origin</code>” |
+| `Session Record same-provider-fork provenance` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | L1654 “<code>source_profile_event_id:digest\|null</code>, and <code>extensions</code>” |
+| `Session Record same-provider-fork provenance` | `kind` | Enforced exactly as declared before identity calculation or verification; the per-variant exact-string check is defensively redundant with the `validateSessionDerivationProvenance` switch dispatch that exclusively selects this validator. | `validateSessionSameProviderForkProvenance` | L1648 “<code>kind=same_provider_fork</code>” |
+| `Session Record same-provider-fork provenance` | `operation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | L1652 “<code>operation_id:UUIDv7</code>” |
+| `Session Record same-provider-fork provenance` | `provider_fork_mode` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | L1653 “<code>provider_fork_mode:native\|supported_import\|task_board_clone</code>” |
+| `Session Record same-provider-fork provenance` | `source_checkpoint_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | L1650 “<code>source_checkpoint_id:digest</code>” |
+| `Session Record same-provider-fork provenance` | `source_profile_event_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | L1654 “<code>source_profile_event_id:digest\|null</code>” |
+| `Session Record same-provider-fork provenance` | `source_session_id` | Enforced as UUIDv7 distinct from the new target Session ID. | `validateSessionSameProviderForkProvenance` | L1649 “<code>source_session_id:UUIDv7</code>” |
+| `Session Record same-provider-fork provenance` | `source_workspace_group_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionSameProviderForkProvenance` | L1651 “<code>source_workspace_group_id:UUIDv7</code>” |
+| `Session Record cross-environment-clone provenance` | `bundle_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | L1658 “<code>bundle_id:UUIDv7</code>” |
+| `Session Record cross-environment-clone provenance` | `canonical_session_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | L1669 “<code>canonical_session_id:digest</code>” |
+| `Session Record cross-environment-clone provenance` | `capture_manifest_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | L1668 “<code>capture_manifest_id:digest</code>” |
+| `Session Record cross-environment-clone provenance` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | L1673 “<code>source_profile_event_id:digest\|null</code>, and <code>extensions</code>” |
+| `Session Record cross-environment-clone provenance` | `kind` | Enforced exactly as declared before identity calculation or verification; the per-variant exact-string check is defensively redundant with the `validateSessionDerivationProvenance` switch dispatch that exclusively selects this validator. | `validateSessionCrossEnvironmentCloneProvenance` | L1656 “The <code>cross_environment_clone</code> variant's exact typed members are <code>kind</code>” |
+| `Session Record cross-environment-clone provenance` | `migration_checkpoint_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | L1671 “<code>migration_checkpoint_id:digest</code>” |
+| `Session Record cross-environment-clone provenance` | `operation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | L1657 “<code>operation_id:UUIDv7</code>” |
+| `Session Record cross-environment-clone provenance` | `previous_lineage_receipt_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | L1672 “<code>previous_lineage_receipt_id:digest\|null</code>” |
+| `Session Record cross-environment-clone provenance` | `projection_plan_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | L1670 “<code>projection_plan_id:digest</code>” |
+| `Session Record cross-environment-clone provenance` | `source_checkpoint_id` | Enforced as digest or null with the four-way AX-source nullability rule. | `validateSessionCrossEnvironmentCloneProvenance` | L1662 “<code>source_checkpoint_id:digest\|null</code>” |
+| `Session Record cross-environment-clone provenance` | `source_environment` | Enforced as an exact closed EnvironmentTuple. | `validateSessionCrossEnvironmentCloneProvenance` | L1665 “<code>source_environment:EnvironmentTuple</code>” |
+| `Session Record cross-environment-clone provenance` | `source_kind` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | L1659 “<code>source_kind:ax_session\|external_native</code>” |
+| `Session Record cross-environment-clone provenance` | `source_native_session_id` | Enforced as 1–512 printable non-control Unicode characters, matching the pinned sanitization requirement; accept-at and refuse-past boundaries drive both public entries. The minimum-one check is subsumed by `requireString`, which refuses the empty string before `requirePrintableBoundedString` counts characters. | `validateSessionCrossEnvironmentCloneProvenance` | L1664 “<code>source_native_session_id:string[1..512]</code>” |
+| `Session Record cross-environment-clone provenance` | `source_profile_event_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | L1673 “<code>source_profile_event_id:digest\|null</code>” |
+| `Session Record cross-environment-clone provenance` | `source_provider_identity_record_id` | Enforced as digest or null with the four-way AX-source nullability rule. | `validateSessionCrossEnvironmentCloneProvenance` | L1663 “<code>source_provider_identity_record_id:digest\|null</code>” |
+| `Session Record cross-environment-clone provenance` | `source_session_id` | Enforced as UUIDv7 or null, distinct from target, with the four-way AX-source nullability rule. | `validateSessionCrossEnvironmentCloneProvenance` | L1660 “<code>source_session_id:UUIDv7\|null</code>” |
+| `Session Record cross-environment-clone provenance` | `source_session_record_id` | Enforced as digest or null with the four-way AX-source nullability rule. | `validateSessionCrossEnvironmentCloneProvenance` | L1661 “<code>source_session_record_id:digest\|null</code>” |
+| `Session Record cross-environment-clone provenance` | `source_snapshot_digest` | Enforced exactly as declared before identity calculation or verification. | `validateSessionCrossEnvironmentCloneProvenance` | L1667 “<code>source_snapshot_digest:digest</code>” |
+| `Session Record cross-environment-clone provenance` | `target_environment` | Enforced as an exact closed EnvironmentTuple. | `validateSessionCrossEnvironmentCloneProvenance` | L1666 “<code>target_environment:EnvironmentTuple</code>” |
+| `Session Record native-adoption provenance` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | L1696 “<code>target_provider_id:provider-id</code>, and <code>extensions</code>” |
+| `Session Record native-adoption provenance` | `kind` | Enforced exactly as declared before identity calculation or verification; the per-variant exact-string check is defensively redundant with the `validateSessionDerivationProvenance` switch dispatch that exclusively selects this validator. | `validateSessionNativeAdoptionProvenance` | L1691 “<code>kind=native_adoption</code>” |
+| `Session Record native-adoption provenance` | `operation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | L1691 “<code>operation_id:UUIDv7</code>” |
+| `Session Record native-adoption provenance` | `source_environment` | Enforced as an exact closed EnvironmentTuple. | `validateSessionNativeAdoptionProvenance` | L1695 “<code>source_environment:EnvironmentTuple</code>” |
+| `Session Record native-adoption provenance` | `source_head_digest` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | L1694 “<code>source_head_digest:digest</code>” |
+| `Session Record native-adoption provenance` | `source_host_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | L1692 “<code>source_host_id:UUIDv7</code>” |
+| `Session Record native-adoption provenance` | `source_instance_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | L1692 “<code>source_instance_id:digest</code>” |
+| `Session Record native-adoption provenance` | `source_observation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionNativeAdoptionProvenance` | L1693 “<code>source_observation_id:digest</code>” |
+| `Session Record native-adoption provenance` | `target_provider_id` | Enforced equal to the immutable target Session Record provider. Provider-ID grammar is subsumed by `validateSessionRecordCommon`, which rejects a malformed record `provider_id` before this equality gate; a different malformed target is refused by the equality gate. | `validateSessionNativeAdoptionProvenance` | L1696 “<code>target_provider_id:provider-id</code>” |
+| `EnvironmentTuple` | `adapter_version` | Presence-only, by the recorded SemVer decision below. The pinned EnvironmentTuple declaration supplies no JSON type and no format; the SemVer word belongs to the Session Adapter Manifest row of a different schema and is not inferred across schemas by field-name similarity. | `validateEnvironmentTuple` | L3630 “and <code>adapter_version</code>; it never contains executable provenance” |
+| `EnvironmentTuple` | `architecture` | Enforced exactly as declared before identity calculation or verification. | `validateEnvironmentTuple` | L3629 “<code>architecture=amd64\|arm64</code>” |
+| `EnvironmentTuple` | `environment_id` | Enforced against the exact environment ID grammar. The pinned EnvironmentTuple clause names the member and gives it no type or format; the only pinned statement of that grammar is the Session Adapter Manifest row of a different schema, quoted beside it. Whether the grammar is inferable across those two schemas is an open question recorded against this row, not a settled reading. | `validateEnvironmentTuple` | L3626 “Environment Tuple contains exactly <code>environment_id</code>”; L3609 “\| <code>environment_id</code> \| <code>[a-z][a-z0-9.-]{0,63}</code>; one semantic native environment \|” |
+| `EnvironmentTuple` | `environment_version` | Presence-only. The pinned EnvironmentTuple declaration supplies no JSON type or bound; the `string[1..128]` bound belongs to the distinct Environment Observation schema and is not inferred here. | `validateEnvironmentTuple` | L3627 “<code>environment_id</code>, <code>environment_version</code>” |
+| `EnvironmentTuple` | `platform` | Enforced against the complete generated AX platform scalar vocabulary. | `validateEnvironmentTuple` | L3628 “<code>platform=linux\|macos\|windows\|wsl2</code>” |
+| `EnvironmentTuple` | `store_schema_fingerprint` | Presence-only. The pinned EnvironmentTuple declaration supplies no JSON type or format; in particular, identity validation does not infer a digest from the member name. | `validateEnvironmentTuple` | L3630 “<code>store_schema_fingerprint</code>, and <code>adapter_version</code>” |
+| `Session Record Board Goal` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardGoal` | L1521 “greater than zero, and <code>extensions</code>” |
+| `Session Record Board Goal` | `goal_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardGoal` | L1520 “<code>goal_id</code> as a 1–128 character public goal reference” |
+| `Session Record Board Goal` | `revision` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardGoal` | L1521 “<code>revision</code> as uint53 greater than zero” |
+| `Session Record Board Goal` | `schema` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardGoal` | L1520 “<code>schema = "board-goal-v2"</code>” |
+| `Session Record Board Identity` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardIdentity` | L1517 “and <code>extensions</code>. A local board requires null <code>remote_url</code>” |
+| `Session Record Board Identity` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardIdentity` | L1514 “Board Identity has exactly <code>kind</code> (<code>local</code> or <code>remote</code>)” |
+| `Session Record Board Identity` | `logical_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardIdentity` | L1515 “<code>logical_id</code> (1–128 characters matching <code>[A-Za-z0-9][A-Za-z0-9._:-]{0,127}</code>)” |
+| `Session Record Board Identity` | `remote_url` | Enforced exactly as declared before identity calculation or verification. | `validateSessionBoardIdentity` | L1517 “<code>remote_url</code> (absolute <code>https</code> URL or null)” |
+| `Session Record Fork Provenance` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | L1537 “or <code>task_board_clone</code>, and <code>extensions</code>” |
+| `Session Record Fork Provenance` | `operation_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | L1535 “<code>operation_id</code> UUIDv7” |
+| `Session Record Fork Provenance` | `provider_fork_mode` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | L1536 “<code>provider_fork_mode</code> as <code>native</code>, <code>supported_import</code>, or <code>task_board_clone</code>” |
+| `Session Record Fork Provenance` | `source_checkpoint_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | L1534 “<code>source_checkpoint_id</code> digest” |
+| `Session Record Fork Provenance` | `source_session_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | L1534 “<code>source_session_id</code> UUIDv7” |
+| `Session Record Fork Provenance` | `source_workspace_group_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionForkProvenance` | L1535 “<code>source_workspace_group_id</code> UUIDv7” |
+| `Session Record Launch Plan` | `argv` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | L1487 “\| <code>argv</code> \| array&lt;string&gt;[1..128] \| Each element is 1–4,096 UTF-8 bytes; total encoded argv is at most 65,536 bytes; never a shell command string \|” |
+| `Session Record Launch Plan` | `contains_secrets` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | L1492 “\| <code>contains_secrets</code> \| boolean \| MUST be false \|” |
+| `Session Record Launch Plan` | `cwd_relative` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | L1489 “\| <code>cwd_relative</code> \| string \| <code>.</code> for the workspace root or a path satisfying Section 1.6 \|” |
+| `Session Record Launch Plan` | `cwd_workspace_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | L1488 “\| <code>cwd_workspace_id</code> \| UUIDv7 \| Names one workspace in the Session Record's workspace group \|” |
+| `Session Record Launch Plan` | `env_literals` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | L1491 “\| <code>env_literals</code> \| map(environment-name,string)[0..64] \| Non-secret literals of at most 4,096 UTF-8 bytes each; keys sorted in canonical form and disjoint from <code>env_names</code> \|” |
+| `Session Record Launch Plan` | `env_names` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | L1490 “\| <code>env_names</code> \| array&lt;string&gt;[0..64] \| Sorted, unique names matching <code>[A-Za-z_][A-Za-z0-9_]{0,127}</code>; values resolve only from destination-local state \|” |
+| `Session Record Launch Plan` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionLaunchPlan` | L1493 “\| <code>extensions</code> \| object \| Reverse-DNS extension keys only \|” |
+| `Session Record Task-board Reference` | `board` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | L1506 “\| <code>board</code> \| Board Identity \| Closed shape below \|” |
+| `Session Record Task-board Reference` | `board_goal` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | L1510 “\| <code>board_goal</code> \| Board Goal or null \| Required non-null for <code>primary_owner</code> \|” |
+| `Session Record Task-board Reference` | `bridge_protocol_version` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | L1505 “\| <code>bridge_protocol_version</code> \| semver \| Exact <code>1.0.0</code> \|” |
+| `Session Record Task-board Reference` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | L1512 “\| <code>extensions</code> \| object \| Reverse-DNS extension keys only \|” |
+| `Session Record Task-board Reference` | `launch_mode` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | L1508 “\| <code>launch_mode</code> \| enum \| <code>primary_owner</code> or <code>tracked_prompt</code> \|” |
+| `Session Record Task-board Reference` | `manager_session_ref` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | L1509 “\| <code>manager_session_ref</code> \| string or null \| MUST be null in the immutable creation record; the public reference is established by <code>task_board.launched</code> and may later change through <code>task_board.adopted</code> \|” |
+| `Session Record Task-board Reference` | `native_goal_binding` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | L1511 “\| <code>native_goal_binding</code> \| enum \| <code>bound</code>, <code>prompt</code>, or <code>none</code> \|” |
+| `Session Record Task-board Reference` | `task_element_id` | Enforced exactly as declared before identity calculation or verification. | `validateSessionTaskBoardReference` | L1507 “\| <code>task_element_id</code> \| string \| 1–128 printable non-control UTF-8 bytes \|” |
+| `Transfer Manifest` | `base_checkpoint_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4695 “\| <code>base_checkpoint_id</code> \| digest or null \| Null only for an initial capture with no predecessor checkpoint \|” |
+| `Transfer Manifest` | `child_manifest_ids` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4697 “\| <code>child_manifest_ids</code> \| sorted unique digest[0..1024] \| Path-disjoint child/partition closure \|” |
+| `Transfer Manifest` | `created_at` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4703 “\| <code>created_at</code> \| timestamp \| Diagnostic only \|” |
+| `Transfer Manifest` | `created_by_host_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4702 “\| <code>created_by_host_id</code> \| UUIDv7 \| Capturing host \|” |
+| `Transfer Manifest` | `entries` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4696 “\| <code>entries</code> \| ManifestEntry[0..65536] \| Sorted bytewise by normalized path \|” |
+| `Transfer Manifest` | `excluded_classes` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4701 “\| <code>excluded_classes</code> \| sorted unique string[0..128] \| Applied exclusion-policy classes \|” |
+| `Transfer Manifest` | `extensions` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4704 “\| <code>extensions</code> \| object \| Reverse-DNS extension keys only \|” |
+| `Transfer Manifest` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4693 “\| <code>kind</code> \| enum \| <code>workspace_group</code>, <code>workspace_tree</code>, <code>provider</code>, <code>task_board</code>, or <code>composite</code> \|” |
+| `Transfer Manifest` | `manifest_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4692 “\| <code>manifest_id</code> \| digest \| Canonical object digest \|” |
+| `Transfer Manifest` | `provider_identity_record_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4699 “\| <code>provider_identity_record_id</code> \| digest or null \| Non-null only for <code>provider</code> \|” |
+| `Transfer Manifest` | `schema` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4690 “\| <code>schema</code> \| string \| Exact Transfer Manifest schema identifier \|” |
+| `Transfer Manifest` | `schema_version` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4691 “\| <code>schema_version</code> \| semver \| Exact <code>1.0.0</code> \|” |
+| `Transfer Manifest` | `subject_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4694 “\| <code>subject_id</code> \| UUIDv7 \| Group, workspace, or session selected by kind \|” |
+| `Transfer Manifest` | `task_board_bundle_id` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4700 “\| <code>task_board_bundle_id</code> \| digest or null \| Non-null only for <code>task_board</code> \|” |
+| `Transfer Manifest` | `workspace_snapshot` | Enforced exactly as declared before identity calculation or verification. | `validateTransferManifest` | L4698 “\| <code>workspace_snapshot</code> \| WorkspaceSnapshot or null \| Non-null only for <code>workspace_group</code> \|” |
+| `WorkspaceSnapshot` | `members` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshot` | L4773 “<code>members:WorkspaceSnapshotMember[1..256]</code>” |
+| `WorkspaceSnapshot` | `workspace_group_id` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshot` | L4772 “<code>workspace_group_id:UUIDv7</code>” |
+| `WorkspaceSnapshotMember.git` | `agent_project_config_paths` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>agent_project_config_paths:sorted unique path[0..256]</code>” |
+| `WorkspaceSnapshotMember.git` | `features` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>features:GitFeatures</code>” |
+| `WorkspaceSnapshotMember.git` | `group_relative_path` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>group_relative_path:path</code>” |
+| `WorkspaceSnapshotMember.git` | `head` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>head:GitHead</code>” |
+| `WorkspaceSnapshotMember.git` | `index` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>index:GitIndex</code>” |
+| `WorkspaceSnapshotMember.git` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>kind = git</code>” |
+| `WorkspaceSnapshotMember.git` | `materialization_policy` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>materialization_policy:shared_checkout&#124;separate_worktree</code>” |
+| `WorkspaceSnapshotMember.git` | `object_pack` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>object_pack:GitObjectPack</code>” |
+| `WorkspaceSnapshotMember.git` | `remotes` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>remotes:GitRemote[1..16]</code>” |
+| `WorkspaceSnapshotMember.git` | `repo_relative_cwd` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>repo_relative_cwd:.&#124;path</code>” |
+| `WorkspaceSnapshotMember.git` | `repository_identity` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>repository_identity:string[1..256]</code>” |
+| `WorkspaceSnapshotMember.git` | `submodules` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>submodules:GitSubmodule[0..256]</code>” |
+| `WorkspaceSnapshotMember.git` | `upstream_ref` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>upstream_ref:git-ref&#124;null</code>” |
+| `WorkspaceSnapshotMember.git` | `working_tree_manifest_id` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>working_tree_manifest_id:digest</code>” |
+| `WorkspaceSnapshotMember.git` | `workspace_id` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4780 “<code>workspace_id:UUIDv7</code>” |
+| `WorkspaceSnapshotMember.managed_tree` | `agent_project_config_paths` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4781 “<code>agent_project_config_paths:sorted unique path[0..256]</code>” |
+| `WorkspaceSnapshotMember.managed_tree` | `group_relative_path` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4781 “<code>group_relative_path:path</code>” |
+| `WorkspaceSnapshotMember.managed_tree` | `kind` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4781 “<code>kind = managed_tree</code>” |
+| `WorkspaceSnapshotMember.managed_tree` | `materialization_policy` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4781 “<code>materialization_policy:shared_tree&#124;separate_copy</code>” |
+| `WorkspaceSnapshotMember.managed_tree` | `repo_relative_cwd` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4781 “<code>repo_relative_cwd:.&#124;path</code>” |
+| `WorkspaceSnapshotMember.managed_tree` | `tree_identity` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4781 “<code>tree_identity:string[1..256]</code>” |
+| `WorkspaceSnapshotMember.managed_tree` | `tree_manifest_id` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4781 “<code>tree_manifest_id:digest</code>” |
+| `WorkspaceSnapshotMember.managed_tree` | `workspace_id` | Enforced exactly as declared before identity calculation or verification. | `validateWorkspaceSnapshotMember` | L4781 “<code>workspace_id:UUIDv7</code>” |
+| `WorkspaceMember.git` | `workspace_id` | UUIDv7. | `validateWorkspaceMember` | L2162 “<code>workspace_id:UUIDv7</code>” |
+| `WorkspaceMember.managed_tree` | `workspace_id` | UUIDv7. | `validateWorkspaceMember` | L2163 “<code>workspace_id:UUIDv7</code>” |
+| `WorkspaceMember.git` | `group_relative_path` | Relative path; absolute, parent-escaping, and non-canonical forms are refused. | `validateWorkspaceMember` | L2162 “<code>group_relative_path:path</code>” |
+| `WorkspaceMember.managed_tree` | `group_relative_path` | Relative path; absolute, parent-escaping, and non-canonical forms are refused. | `validateWorkspaceMember` | L2163 “<code>group_relative_path:path</code>” |
+| `WorkspaceMember.git` | `repo_relative_cwd` | Literal `.` or a relative path. | `validateWorkspaceMember` | L2162 “<code>repo_relative_cwd:.&#124;path</code>” |
+| `WorkspaceMember.managed_tree` | `repo_relative_cwd` | Literal `.` or a relative path. | `validateWorkspaceMember` | L2163 “<code>repo_relative_cwd:.&#124;path</code>” |
+| `WorkspaceMember.git` | `agent_project_config_paths` | Sorted unique relative paths, 0..256 entries. | `validateWorkspaceMember` | L2162 “<code>agent_project_config_paths:sorted unique path[0..256]</code>” |
+| `WorkspaceMember.managed_tree` | `agent_project_config_paths` | Sorted unique relative paths, 0..256 entries. | `validateWorkspaceMember` | L2163 “<code>agent_project_config_paths:sorted unique path[0..256]</code>” |
+| `WorkspaceMember.git` | `kind` | Exact tag selecting the git member set. | `validateWorkspaceMember` | L2162 “<code>kind = git</code>” |
+| `WorkspaceMember.git` | `repository_identity` | 1..256 Unicode characters and refused when it is an absolute path. | `validateWorkspaceMember` | L2162 “<code>repository_identity:string[1..256]</code>” |
+| `WorkspaceMember.git` | `sanitized_remote_urls` | Sorted unique sanitized Git URLs, 1..16 entries; password, token, query, fragment, and machine-local file forms are refused. | `validateWorkspaceMember` | L2162 “<code>sanitized_remote_urls:sorted unique sanitized-git-URL[1..16]</code>” |
+| `WorkspaceMember.git` | `materialization_policy` | Enum shared_checkout or separate_worktree. | `validateWorkspaceMember` | L2162 “<code>materialization_policy:shared_checkout&#124;separate_worktree</code>” |
+| `WorkspaceMember.managed_tree` | `kind` | Exact tag selecting the managed_tree member set. | `validateWorkspaceMember` | L2163 “<code>kind = managed_tree</code>” |
+| `WorkspaceMember.managed_tree` | `tree_identity` | 1..256 Unicode characters and refused when it is an absolute path. | `validateWorkspaceMember` | L2163 “<code>tree_identity:string[1..256]</code>” |
+| `WorkspaceMember.managed_tree` | `materialization_policy` | Enum shared_tree or separate_copy. | `validateWorkspaceMember` | L2163 “<code>materialization_policy:shared_tree&#124;separate_copy</code>” |
+| `Observation Event` | `schema` | Exact Observation schema identifier. | `validateObservationEvent` | L11589 “\| <code>schema</code> \| string \| Exact Observation schema identifier \|” |
+| `Observation Event` | `schema_version` | Exact version 1.0.0. | `validateObservationEvent` | L11590 “\| <code>schema_version</code> \| semver \| Exact <code>1.0.0</code> \|” |
+| `Observation Event` | `stream_id` | UUIDv7. | `validateObservationEvent` | L11591 “\| <code>stream_id</code> \| UUIDv7 \| Stable per host installation; changing it starts a new explicitly separate stream \|” |
+| `Observation Event` | `sequence` | uint53 greater than zero. | `validateObservationEvent` | L11592 “\| <code>sequence</code> \| uint53 \| Starts at 1 and increases by exactly one before each durable append \|” |
+| `Observation Event` | `timestamp` | Canonical AX timestamp. | `validateObservationEvent` | L11593 “\| <code>timestamp</code> \| timestamp \| Observation time; not authority \|” |
+| `Observation Event` | `level` | Enum debug, info, warn, or error. | `validateObservationEvent` | L11594 “\| <code>level</code> \| enum \| <code>debug</code>, <code>info</code>, <code>warn</code>, or <code>error</code> \|” |
+| `Observation Event` | `event` | 3..128 Unicode characters matching the declared observation-name grammar. | `validateObservationEvent` | L11595 “\| <code>event</code> \| observation-name \| <code>[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,7}</code>, 3–128 characters \|” |
+| `Observation Event` | `operation_id` | UUIDv7 or null. | `validateObservationEvent` | L11596 “\| <code>operation_id</code> \| UUIDv7 or null \| Required null when no operation exists \|” |
+| `Observation Event` | `session_id` | UUIDv7 or null. | `validateObservationEvent` | L11597 “\| <code>session_id</code> \| UUIDv7 or null \| Required null for non-session events \|” |
+| `Observation Event` | `host_id` | UUIDv7. | `validateObservationEvent` | L11598 “\| <code>host_id</code> \| UUIDv7 \| Emitting host \|” |
+| `Observation Event` | `peer_host_id` | UUIDv7 or null. | `validateObservationEvent` | L11599 “\| <code>peer_host_id</code> \| UUIDv7 or null \| Required null when no peer participates \|” |
+| `Observation Event` | `phase` | 1..128 Unicode characters in lower_snake_case, or null. | `validateObservationEvent` | L11600 “\| <code>phase</code> \| string[1..128] or null \| Stable lower-snake-case phase or null \|” |
+| `Observation Event` | `result` | Enum started, success, partial, failure, or cancelled. | `validateObservationEvent` | L11601 “\| <code>result</code> \| enum \| <code>started</code>, <code>success</code>, <code>partial</code>, <code>failure</code>, or <code>cancelled</code> \|” |
+| `Observation Event` | `duration_ms` | uint53 or null; a started result requires null. | `validateObservationEvent` | L11602 “\| <code>duration_ms</code> \| uint53 or null \| Null for a point/start event; otherwise elapsed milliseconds \|” |
+| `Observation Event` | `counts` | Closed ObservationCounts object or null. | `validateObservationEvent` | L11603 “\| <code>counts</code> \| ObservationCounts or null \| Closed aggregate below \|” |
+| `Observation Event` | `object_ids` | Sorted unique digests, 0..4096 entries. | `validateObservationEvent` | L11604 “\| <code>object_ids</code> \| sorted unique digest[0..4096] \| Redacted object identities only \|” |
+| `Observation Event` | `error_code` | 1..128 Unicode characters or null; non-null exactly for partial and failure. | `validateObservationEvent` | L11605 “\| <code>error_code</code> \| string[1..128] or null \| Stable Section 15 code when result is partial/failure \|” |
+| `Observation Event` | `extensions` | Present object member. | `validateObservationEvent` | L11606 “\| <code>extensions</code> \| object \| Reverse-DNS extension keys only; no payload content \|” |
+| `ObservationCounts` | `records` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | L11609 “<code>records:uint53</code>” |
+| `ObservationCounts` | `events` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | L11609 “<code>events:uint53</code>” |
+| `ObservationCounts` | `manifests` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | L11610 “<code>manifests:uint53</code>” |
+| `ObservationCounts` | `blobs` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | L11610 “<code>blobs:uint53</code>” |
+| `ObservationCounts` | `chunks` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | L11611 “<code>chunks:uint53</code>” |
+| `ObservationCounts` | `bytes` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | L11611 “<code>bytes:uint53</code>” |
+| `ObservationCounts` | `retries` | uint53 within the safe-integer bound. | `validateObservationCountsMember` | L11612 “<code>retries:uint53</code>” |
 
 ## Reachable cross-member, recursive, and external rules
 
@@ -450,7 +549,7 @@ Applying the two answers to the sites that reach the grammar:
 
 | Site | Pinned declaration | Decision | Pinned by |
 | --- | --- | --- | --- |
-| EnvironmentTuple `adapter_version` | “Environment Tuple contains exactly <code>environment_id</code>, <code>environment_version</code>, <code>platform=linux&#124;macos&#124;windows&#124;wsl2</code>, <code>architecture=amd64&#124;arm64</code>, <code>store_schema_fingerprint</code>, and <code>adapter_version</code>” — no type, no format | **No constraint.** Presence-only, like its untyped `environment_version` and `store_schema_fingerprint` siblings in the same clause. `1.2.3-rc.1` is accepted. | `TestEnvironmentTupleAdapterVersionCarriesNoInferredSemVerConstraint` |
+| EnvironmentTuple `adapter_version` | “Environment Tuple contains exactly <code>environment_id</code>, <code>environment_version</code>, <code>platform=linux\|macos\|windows\|wsl2</code>, <code>architecture=amd64\|arm64</code>, <code>store_schema_fingerprint</code>, and <code>adapter_version</code>” — no type, no format | **No constraint.** Presence-only, like its untyped `environment_version` and `store_schema_fingerprint` siblings in the same clause. `1.2.3-rc.1` is accepted. | `TestEnvironmentTupleAdapterVersionCarriesNoInferredSemVerConstraint` |
 | Migration provenance `schema_version` | “That extension value is a closed object containing exactly <code>schema_id:string</code>, <code>schema_version:semver</code>, and <code>object_id:digest</code>.” | **SemVer 2.0.0 in full.** The type is declared here, so the constraint stands; prerelease and build metadata are accepted because the standard admits them. `1.2.3-rc.1` is accepted; `01.2.3`, `1.2`, `1.2.3-`, `1.2.3-01` and `1.2.3+` are still refused. | `TestMigrationProvenanceSchemaVersionIsSemVer200InFull` |
 | Session Event `terminal.*` `implementation_version` / `protocol_version` | “<code>implementation_version:semver</code>”, “<code>protocol_version:semver</code>” | **SemVer 2.0.0 in full**, for the same reason as the row above. | `validateTerminalV4Payload`, through the shared `semverPattern` grammar inventory |
 

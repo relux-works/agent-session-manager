@@ -526,6 +526,63 @@ func TestSessionRecordDeclaredStringBoundsBothDirectionsAtIdentityProductionEntr
 	}
 }
 
+// sessionRecordGrammarRows pins, by shape and member, every constraint
+// enumeration row whose value production validates against a Session Record
+// identity grammar. The key is the row's shape and member, never its prose.
+//
+// The prose keying this replaces was load-bearing for a gate it did not belong
+// to. Classification used to substring-match the row's Pinned SPEC declaration
+// cell, which is a fidelity artifact and is rewritten whenever a row's quote is
+// corrected. Rewriting that column in BUG-260902-3dn8jd dropped eight rows out
+// of this gate — the seven provenance and board `extensions` rows and
+// `Session Record Launch Plan.env_names` — while the gate stayed green, because
+// its only completeness assertion was that no family was empty. Shape and
+// member cannot be rewritten by a fidelity correction, and the row set below is
+// asserted exactly, so a future rewrite reddens instead of narrowing in silence.
+//
+// The claim each entry makes is about production, not about the pinned
+// document: production validates this member against this grammar, and both
+// public identity entries must refuse every invalid value for it. For seven of
+// the eleven reverse-DNS rows the pinned SPEC.md states the rule only through
+// the one shared `validateExtensionsObject` path and never restates it in the
+// shape's own clause; the enumeration row records that separately and honestly.
+// Dropping those rows from this gate would stop attacking a rule production
+// does enforce, so they stay, keyed on the enforcement rather than on a quote.
+var sessionRecordGrammarRows = map[string]string{
+	"Session Record 1.0.0\x00name":                                    "session-name",
+	"Session Record 2.0.0 and 3.0.0\x00name":                          "session-name",
+	"Session Record 1.0.0\x00provider_id":                             "provider-id",
+	"Session Record 2.0.0 and 3.0.0\x00provider_id":                   "provider-id",
+	"EnvironmentTuple\x00environment_id":                              "environment-id",
+	"Session Record Board Identity\x00logical_id":                     "board-logical-id",
+	"Session Record Launch Plan\x00env_names":                         "environment-name",
+	"Session Record Launch Plan\x00env_literals":                      "environment-name",
+	"Session Record 1.0.0\x00extensions":                              "reverse-dns",
+	"Session Record 2.0.0 and 3.0.0\x00extensions":                    "reverse-dns",
+	"Session Record Launch Plan\x00extensions":                        "reverse-dns",
+	"Session Record Task-board Reference\x00extensions":               "reverse-dns",
+	"Session Record Board Identity\x00extensions":                     "reverse-dns",
+	"Session Record Board Goal\x00extensions":                         "reverse-dns",
+	"Session Record Fork Provenance\x00extensions":                    "reverse-dns",
+	"Session Record origin provenance\x00extensions":                  "reverse-dns",
+	"Session Record same-provider-fork provenance\x00extensions":      "reverse-dns",
+	"Session Record cross-environment-clone provenance\x00extensions": "reverse-dns",
+	"Session Record native-adoption provenance\x00extensions":         "reverse-dns",
+}
+
+// sessionRecordGrammarFamilyCounts pins how many rows each family must
+// contribute. `familyCounts[family] == 0` was the guard that let the rewrite
+// narrow reverse-DNS from eleven rows to four without reddening: four is not
+// zero. An exact per-family count refuses a narrowing as loudly as a deletion.
+var sessionRecordGrammarFamilyCounts = map[string]int{
+	"environment-id":   1,
+	"environment-name": 2,
+	"provider-id":      2,
+	"reverse-dns":      11,
+	"session-name":     2,
+	"board-logical-id": 1,
+}
+
 func TestSessionRecordDeclaredGrammarRowsReachIdentityProductionEntries(t *testing.T) {
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
@@ -548,65 +605,98 @@ func TestSessionRecordDeclaredGrammarRowsReachIdentityProductionEntries(t *testi
 		}
 	}
 
-	familyCounts := make(map[string]int)
-	for _, row := range rows {
-		family, declared := sessionRecordGrammarFamily(row)
-		if !declared {
-			continue
+	matched, familyCounts, failures := resolveSessionRecordGrammarRows(rows)
+	if len(failures) != 0 {
+		t.Fatalf("pinned Session Record grammar row set does not match the constraint enumeration:\n%s",
+			strings.Join(failures, "\n"))
+	}
+	for _, family := range sortedGrammarFamilies() {
+		if got, want := familyCounts[family], sessionRecordGrammarFamilyCounts[family]; got != want {
+			t.Errorf("Session Record %s grammar family has %d rows, want the pinned %d", family, got, want)
 		}
-		familyCounts[family]++
-		row := row
-		t.Run(row.shape+" "+row.member, func(t *testing.T) {
-			valid := sessionRecordWithDeclaredGrammarValue(t, row, family, validSessionRecordGrammarValue(family))
+	}
+
+	for _, entry := range matched {
+		entry := entry
+		t.Run(entry.row.shape+" "+entry.row.member, func(t *testing.T) {
+			valid := sessionRecordWithDeclaredGrammarValue(t, entry.row, entry.family, validSessionRecordGrammarValue(entry.family))
 			assertIdentityEntriesAcceptShape(t, mustJSON(t, valid), SelfRecordID)
 
-			for _, invalid := range invalidSessionRecordGrammarValues(family) {
+			for _, invalid := range invalidSessionRecordGrammarValues(entry.family) {
 				invalid := invalid
 				t.Run(invalid.name, func(t *testing.T) {
-					object := sessionRecordWithDeclaredGrammarValue(t, row, family, invalid.value)
+					object := sessionRecordWithDeclaredGrammarValue(t, entry.row, entry.family, invalid.value)
 					assertIdentityEntriesRefuseShape(t, mustJSON(t, object), SelfRecordID)
 				})
 			}
 		})
 	}
+}
 
-	for _, family := range []string{
-		"environment-id", "environment-name", "provider-id",
-		"reverse-dns", "session-name", "board-logical-id",
-	} {
-		if familyCounts[family] == 0 {
-			t.Errorf("constraint enumeration declares no Session Record %s grammar row", family)
-		}
+type sessionRecordGrammarRow struct {
+	row    documentedConstraintRow
+	family string
+}
+
+// resolveSessionRecordGrammarRows pairs every pinned grammar row with its
+// artifact row. It refuses an absent pinned row rather than skipping it: a
+// pinned row the enumeration no longer carries is exactly the silent narrowing
+// this pairing exists to catch.
+func resolveSessionRecordGrammarRows(
+	rows []documentedConstraintRow,
+) ([]sessionRecordGrammarRow, map[string]int, []string) {
+	byKey := make(map[string]documentedConstraintRow, len(rows))
+	for _, row := range rows {
+		byKey[sessionRecordGrammarKey(row.shape, row.member)] = row
 	}
+
+	keys := make([]string, 0, len(sessionRecordGrammarRows))
+	for key := range sessionRecordGrammarRows {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	var matched []sessionRecordGrammarRow
+	var failures []string
+	familyCounts := make(map[string]int)
+	for _, key := range keys {
+		family := sessionRecordGrammarRows[key]
+		if _, known := sessionRecordGrammarFamilyCounts[family]; !known {
+			failures = append(failures, "pinned row "+readableGrammarKey(key)+" names unknown grammar family "+family)
+			continue
+		}
+		row, ok := byKey[key]
+		if !ok {
+			failures = append(failures,
+				"pinned "+family+" grammar row "+readableGrammarKey(key)+" is absent from the constraint enumeration")
+			continue
+		}
+		familyCounts[family]++
+		matched = append(matched, sessionRecordGrammarRow{row: row, family: family})
+	}
+	return matched, familyCounts, failures
+}
+
+func sessionRecordGrammarKey(shape, member string) string {
+	return shape + "\x00" + member
+}
+
+func readableGrammarKey(key string) string {
+	return strings.ReplaceAll(key, "\x00", ".")
+}
+
+func sortedGrammarFamilies() []string {
+	families := make([]string, 0, len(sessionRecordGrammarFamilyCounts))
+	for family := range sessionRecordGrammarFamilyCounts {
+		families = append(families, family)
+	}
+	sort.Strings(families)
+	return families
 }
 
 type sessionRecordGrammarValue struct {
 	name  string
 	value string
-}
-
-func sessionRecordGrammarFamily(row documentedConstraintRow) (string, bool) {
-	if row.shape != "EnvironmentTuple" && !strings.HasPrefix(row.shape, "Session Record") {
-		return "", false
-	}
-
-	declaration := strings.ToLower(row.specExcerpt)
-	switch {
-	case strings.Contains(declaration, "reverse-dns"):
-		return "reverse-dns", true
-	case strings.Contains(declaration, "environment-name") || strings.Contains(declaration, "environment names"):
-		return "environment-name", true
-	case row.shape == "EnvironmentTuple" && row.member == "environment_id" && strings.Contains(declaration, "[a-z]"):
-		return "environment-id", true
-	case row.member == "name" && strings.Contains(declaration, "section 2.1 grammar"):
-		return "session-name", true
-	case row.shape == "Session Record Board Identity" && row.member == "logical_id" && strings.Contains(declaration, "[a-za-z0-9]"):
-		return "board-logical-id", true
-	case row.member == "provider_id" && strings.Contains(declaration, "lowercase plugin id"):
-		return "provider-id", true
-	default:
-		return "", false
-	}
 }
 
 func validSessionRecordGrammarValue(family string) string {
@@ -699,7 +789,12 @@ func sessionRecordWithDeclaredGrammarValue(
 		object["name"] = value
 		return object
 	case "provider-id":
-		object := validSessionRecordV1Object()
+		if row.shape == "Session Record 1.0.0" {
+			object := validSessionRecordV1Object()
+			object["provider_id"] = value
+			return object
+		}
+		object := validSessionRecordV3Object(validOriginProvenance())
 		object["provider_id"] = value
 		return object
 	case "environment-id":
@@ -1144,5 +1239,125 @@ func TestMigrationProvenanceSchemaVersionIsSemVer200InFull(t *testing.T) {
 		t.Run("refuses "+refused.name, func(t *testing.T) {
 			assertIdentityEntriesRefuseShape(t, withSchemaVersion(refused.value), SelfRecordID)
 		})
+	}
+}
+
+// TestSessionRecordGrammarRowSetRefusesASilentlyNarrowedEnumeration is the
+// anti-vacuity proof for the pinning above, and it reproduces the exact defect
+// that reached review: a Pinned SPEC declaration rewrite that removes rows from
+// the reachability gate without failing anything.
+//
+// The mutants are narrowings, not deletions. Each one leaves the gate present,
+// reachable, and green on every row it still carries.
+func TestSessionRecordGrammarRowSetRefusesASilentlyNarrowedEnumeration(t *testing.T) {
+	t.Parallel()
+
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve Session Record grammar test source path")
+	}
+	packageDirectory := filepath.Dir(source)
+	shipped := readConstraintRows(t, filepath.Join(packageDirectory, "testdata", "constraint-enumeration.md"))
+
+	without := func(shape, member string) []documentedConstraintRow {
+		key := sessionRecordGrammarKey(shape, member)
+		kept := make([]documentedConstraintRow, 0, len(shipped))
+		removed := 0
+		for _, row := range shipped {
+			if sessionRecordGrammarKey(row.shape, row.member) == key {
+				removed++
+				continue
+			}
+			kept = append(kept, row)
+		}
+		if removed != 1 {
+			t.Fatalf("removed %d rows for %s.%s, want exactly 1", removed, shape, member)
+		}
+		return kept
+	}
+
+	for _, test := range []struct {
+		name   string
+		shape  string
+		member string
+		family string
+	}{
+		// The pure regression the review found: the row left the gate because
+		// the classifier grepped for prose the true quote does not contain.
+		{"launch plan env_names", "Session Record Launch Plan", "env_names", "environment-name"},
+		// One of the seven extensions rows whose local reverse-DNS declaration
+		// the pinned document does not restate. Narrowing reverse-DNS from
+		// eleven rows to ten must redden; the old empty-family guard did not.
+		{"board goal extensions", "Session Record Board Goal", "extensions", "reverse-dns"},
+		{"native adoption provenance extensions", "Session Record native-adoption provenance", "extensions", "reverse-dns"},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			narrowed := without(test.shape, test.member)
+			_, familyCounts, failures := resolveSessionRecordGrammarRows(narrowed)
+			if len(failures) == 0 {
+				t.Fatalf("dropping %s.%s was admitted; the row set proves nothing",
+					test.shape, test.member)
+			}
+			joined := strings.Join(failures, "\n")
+			if !strings.Contains(joined, test.shape+"."+test.member) {
+				t.Fatalf("narrowing report %q does not name the dropped row %s.%s",
+					joined, test.shape, test.member)
+			}
+			if got, want := familyCounts[test.family], sessionRecordGrammarFamilyCounts[test.family]; got >= want {
+				t.Fatalf("%s family still counts %d of %d rows after the narrowing", test.family, got, want)
+			}
+		})
+	}
+}
+
+// TestSessionRecordGrammarClassificationIgnoresPinnedSpecProse kills the F1
+// mutant class directly. The Pinned SPEC declaration column is rewritten by the
+// fidelity gate whenever a quote is corrected; membership in this gate must not
+// move when it is. Every shipped grammar row is reclassified with its
+// declaration cell replaced by text that shares no word with the grammar it
+// used to be recognised by.
+func TestSessionRecordGrammarClassificationIgnoresPinnedSpecProse(t *testing.T) {
+	t.Parallel()
+
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve Session Record grammar test source path")
+	}
+	packageDirectory := filepath.Dir(source)
+	shipped := readConstraintRows(t, filepath.Join(packageDirectory, "testdata", "constraint-enumeration.md"))
+
+	scrubbed := make([]documentedConstraintRow, 0, len(shipped))
+	for _, row := range shipped {
+		row.specExcerpt = "L1 “AX Specification”"
+		scrubbed = append(scrubbed, row)
+	}
+
+	before, beforeCounts, beforeFailures := resolveSessionRecordGrammarRows(shipped)
+	if len(beforeFailures) != 0 {
+		t.Fatalf("shipped enumeration does not satisfy the pinned grammar row set: %v", beforeFailures)
+	}
+	after, afterCounts, afterFailures := resolveSessionRecordGrammarRows(scrubbed)
+	if len(afterFailures) != 0 {
+		t.Fatalf("scrubbing the Pinned SPEC declaration column dropped rows: %v", afterFailures)
+	}
+	if len(before) != len(after) {
+		t.Fatalf("scrubbing the Pinned SPEC declaration column changed the row count %d -> %d",
+			len(before), len(after))
+	}
+	for _, family := range sortedGrammarFamilies() {
+		if beforeCounts[family] != afterCounts[family] {
+			t.Fatalf("scrubbing the Pinned SPEC declaration column changed the %s family count %d -> %d",
+				family, beforeCounts[family], afterCounts[family])
+		}
+	}
+	for index := range before {
+		if before[index].family != after[index].family ||
+			before[index].row.shape != after[index].row.shape ||
+			before[index].row.member != after[index].row.member {
+			t.Fatalf("row %d reclassified after scrubbing: %v -> %v", index, before[index], after[index])
+		}
 	}
 }

@@ -88,6 +88,37 @@ command, `doctor` result, conformance-target declaration, or runtime capability
 claim; those surfaces remain unavailable until their owning implementation and
 acceptance tasks land.
 
+## Pinned Specification Document
+
+[`internal/specdoc`](internal/specdoc) embeds the byte-exact `SPEC.md` of that
+same pinned release so repository fidelity gates can compare their artifacts
+against the specification text instead of against the implementation those
+artifacts are supposed to constrain. The upstream specification remains
+normative; this copy is a verification input and amends nothing.
+
+`Load` accepts the document only when its SHA-256 equals
+`specpin.DocumentSHA256`, so a substituted, edited, truncated, or unreadable
+document is refused rather than silently compared against — otherwise a swapped
+specification would confirm whatever it happened to contain. `QuoteLines`
+resolves an excerpt to the 1-based `SPEC.md` lines it begins on, `SectionID`
+resolves a line to the numbered clause that contains it, `TableRowAt` reports
+what a Markdown table body row declares, and all three work under one
+normalization rule: runs of ASCII whitespace collapse to a single space. Case,
+punctuation, digits, and inline `<code>` markup are compared exactly. A
+whitespace run that crosses a hard boundary collapses instead to a block
+separator that no normalized excerpt can contain, so a quote cannot stitch
+across one; both halves of such a stitch are individually verbatim, so
+whitespace collapsing alone admitted it. Two boundaries are hard: a blank line,
+which separates a block from the next, and the newline between two adjacent
+table rows, because a table row is a complete line by construction. Inside one
+block the newline is still forgiven, deliberately — the document's hard line
+wrapping, its table indentation, and the newline between two adjacent list items
+or two adjacent lines of one paragraph.
+
+Only test binaries import this package, so the embedded document never reaches a
+shipped command. It is read-only, mutates no durable state, and advertises no
+runtime capability.
+
 ## Common Wire Scalar Types
 
 [`internal/scalar`](internal/scalar) implements the validated AX value types
@@ -394,7 +425,11 @@ Provenance objects. Major 2 replaces the v1 fork field with the required
 major 3 keeps that exact top-level wire field and adds the `native_adoption`
 creation tag. Each Environment Tuple is independently validated as a closed
 object with the declared environment-ID grammar plus the platform and
-architecture vocabularies. The pinned tuple declaration assigns no type or
+architecture vocabularies. That grammar is not stated by the pinned
+EnvironmentTuple clause, which only names `environment_id`; the sole pinned
+statement of it is the Session Adapter Manifest row of a different schema, and
+the enumeration row now quotes both so the cross-schema step is visible rather
+than implied. The pinned tuple declaration assigns no type or
 bound to `environment_version`, `store_schema_fingerprint`, or
 `adapter_version`, so identity validation requires their presence without
 inferring a constraint from another schema or a member name; in particular the
@@ -404,7 +439,85 @@ member `semver` — Section 17.3 migration provenance and the `terminal.*` Sessi
 Event versions — the constraint is Semantic Versioning 2.0.0 in full, so
 prerelease and build metadata are accepted. Both halves of that decision are
 recorded in
-[`internal/canonicaljson/testdata/constraint-enumeration.md`](internal/canonicaljson/testdata/constraint-enumeration.md). The Session
+[`internal/canonicaljson/testdata/constraint-enumeration.md`](internal/canonicaljson/testdata/constraint-enumeration.md).
+
+Every row of that enumeration is compared against the pinned specification, not
+only against this package. `TestConstraintEnumerationMatchesRequireExactMembers`
+still derives the member set and call site from the production
+`requireExactMembers` argument lists, and
+`TestConstraintEnumerationSpecExcerptsQuoteThePinnedSpecification` additionally
+requires each row's `Pinned SPEC declaration` to quote the hash-verified
+[`internal/specdoc`](internal/specdoc) document verbatim, beginning on the exact
+`SPEC.md` line the row declares, with at least one entry naming the member. A row
+may instead mark an entry `paraphrase:`, which still has to name a line whose raw
+text contains that member. `TestArtifactQuotesAreVerbatimPinnedSpecificationText`
+extends the same requirement to every curly-quoted span elsewhere in the file.
+`TestPlantedConstraintEnumerationRowsRedden` plants fifteen defects into a copy
+of the shipped artifact and requires each to fail — an invented quote, a true
+quote at the wrong line, a true quote that never names its member, a true quote
+from another shape's clause, a true quote from a sibling member's table row, a
+quote stitched across a blank line, a quote stitched across a table row
+boundary, an out-of-document paraphrase, and the previous bare-prose cell among
+them — while `TestUnmodifiedConstraintEnumerationIsAdmitted` requires the
+shipped artifact to pass. This exists because the column used only to be required non-empty: the
+artifact and the code could be wrong about the contract together and stay green,
+which is how a quoted word reached a column for a member the pinned document
+never types that way.
+
+A verbatim, correctly located quote can still be about a different schema, so
+each shape additionally pins the numbered `SPEC.md` clauses its citations may
+come from, and `specdoc.SectionID` resolves every cited line to its nearest
+enclosing numbered heading. Retargeting `ManifestEntry.file.size` from its
+Section 10.4 row to BlobChunk's bounded Section 10.2 clause used to leave the
+package green; it is now refused by clause number.
+`TestEveryConstraintEnumerationShapePinsItsSpecificationClause` asserts the
+pinned shape set exactly against the artifact, and
+`TestClauseAnchorRefusesEveryForeignSectionForOneRow` plants a verbatim line
+from each of the eleven other clauses into one row, requires all eleven to be
+refused, and requires the shipped row to still pass.
+
+A clause anchor alone is still not a shape anchor. Ten shapes are declared in
+Section 10.4, and the member anchor is a substring test another schema's
+identifier can satisfy, so a citation retargeted within one clause used to be
+admitted — seven shipped rows were exactly that, quoting a sibling Git type's
+declaration row while production enforced something else. Citations that land on
+a Markdown table body row are therefore additionally held to the row that
+declares what they cite: the first cell must name the member, or the identifier
+under which the document declares that shape, which
+`constraintRowDeclaringIdentifiers` pins per shape and
+`TestEveryConstraintEnumerationDeclaringIdentifierIsExercised` asserts exactly
+against the artifact. `TestDeclaringRowAnchorRefusesEverySiblingRowOfTheGitTable`
+derives every shared-member pair of the Section 10.4 Git table from the document
+itself, plants all fourteen retargets in both directions, and requires each to be
+refused by the sibling's name. Two citations are exempted by name and reason —
+both Session Record majors quote the Section 2.1 Terms row that carries the
+`name` grammar the Session Record clause defers to — and an unused exemption
+reddens. The residual gap is a citation that lands outside every table row: the
+cross-schema `environment_id` finding below sits there, both of its lines are in
+Section 7.8 prose, and it was reached by reading the document, not by this gate.
+
+Membership in the Session Record grammar reachability gate is keyed on shape and
+member, never on that column. `TestSessionRecordDeclaredGrammarRowsReachIdentityProductionEntries`
+resolves a pinned row set with a pinned per-family row count, so correcting a
+row's quote cannot move a row out of the gate and a narrowed family reddens as
+loudly as an emptied one. It is keyed that way because it was not: classification
+used to substring-match the declaration prose, and rewriting that column dropped
+eight rows out of the gate while it stayed green, because its only completeness
+check was that no family was empty. `TestSessionRecordGrammarRowSetRefusesASilentlyNarrowedEnumeration`
+drops one row at a time and requires the report to name it, and
+`TestSessionRecordGrammarClassificationIgnoresPinnedSpecProse` replaces every
+row's declaration cell with unrelated text and requires the classification not to
+move.
+
+Seven of the eleven reverse-DNS rows in that set — the `extensions` of Board
+Goal, Board Identity, Fork Provenance, and the four derivation-provenance
+variants — are kept on production enforcement rather than on a local pinned
+declaration. `SPEC.md` states the reverse-DNS key rule as a local table row only
+for Launch Plan, Task-board Reference, and the two Session Record majors; for the
+other seven it names `extensions` in a prose member list and never restates the
+rule. Production routes all eleven through one shared `validateExtensionsObject`,
+so each shape's reachability is still worth attacking, and the enumeration row
+records what the document does and does not say separately from that. The Session
 Record contract does not require its source and target `environment_id` values
 to differ. AX-source nullability, source Session ID
 separation, and immutable target-provider equality are enforced before identity
@@ -541,8 +654,10 @@ parsed and discarded: the line must be a positive line number, the quoted
 declaration must name the member and every admitted value as a whole token, and
 two rows quoting the same declaration must cite the same line — so a row widened
 with an extra member also has to carry that member into the text a reviewer
-reads. The artifact still cannot verify itself against `SPEC.md`, which this
-repository does not vendor. Admitting an extra member, dropping one, reordering
+reads. This artifact's declarations are still not compared against `SPEC.md`
+itself; unlike the constraint enumeration below, they paraphrase the pinned rows
+rather than quoting them, so the vendored document in
+[`internal/specdoc`](internal/specdoc) does not yet gate them. Admitting an extra member, dropping one, reordering
 them, adding an unpinned call site, or deleting a pinned one all fail; so does
 adding a second admitting helper, because the derivation asserts its own helper
 set is complete.

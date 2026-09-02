@@ -415,12 +415,13 @@ func readConstraintRows(t *testing.T, path string) []documentedConstraintRow {
 
 	var rows []documentedConstraintRow
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "| `") {
 			continue
 		}
-		cells := strings.Split(line, "|")
+		cells := splitTableCells(line)
 		if len(cells) != 7 {
 			t.Fatalf("constraint enumeration row has %d cells, want 5: %s", len(cells)-2, line)
 		}
@@ -439,4 +440,26 @@ func readConstraintRows(t *testing.T, path string) []documentedConstraintRow {
 		t.Fatal(err)
 	}
 	return rows
+}
+
+// splitTableCells splits a Markdown table row on unescaped pipes. A pinned
+// specification excerpt may itself contain a literal pipe, which the artifact
+// writes as \| so the row still parses as one table row.
+func splitTableCells(line string) []string {
+	var cells []string
+	var current strings.Builder
+	for index := 0; index < len(line); index++ {
+		switch {
+		case line[index] == '\\' && index+1 < len(line) && line[index+1] == '|':
+			current.WriteString(`\|`)
+			index++
+		case line[index] == '|':
+			cells = append(cells, current.String())
+			current.Reset()
+		default:
+			current.WriteByte(line[index])
+		}
+	}
+	cells = append(cells, current.String())
+	return cells
 }

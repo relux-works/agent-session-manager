@@ -13,8 +13,10 @@ specification, not from mutable prose in this repository.
 - Normative source: <https://github.com/relux-works/agent-session-manager-spec/blob/v0.5.0/SPEC.md>
 
 The upstream specification remains normative. This file records the consumed
-release and implementation ownership; it does not copy, amend, or supersede
-the specification.
+release and implementation ownership; it does not amend or supersede the
+specification. The repository vendors one byte-exact, digest-verified copy of
+`SPEC.md` under `internal/specdoc` purely so repository gates can compare their
+artifacts against the real text; that copy carries no authority of its own.
 
 The implementation consumes this identity through the embedded
 [`internal/specpin/v0.5.0.lock.json`](../internal/specpin/v0.5.0.lock.json)
@@ -29,8 +31,16 @@ v0.4.3 compatibility delta, and these shipped fixture identities:
 
 `internal/specpin.Current` and `internal/specpin.Verify` reject partial reads,
 unknown fields, substituted source identities, contract drift, fixture drift,
-and any byte-different lock. This slice is read-only: it mutates no durable
-state and advertises no provider, platform, backend, or CLI capability.
+and any byte-different lock.
+
+[`internal/specdoc`](../internal/specdoc) additionally vendors the byte-exact
+`SPEC.md` of this release as a verification input for repository fidelity gates,
+accepted only when its SHA-256 equals the digest above. The upstream
+specification remains normative: that copy is compared against, never amended,
+extended, or republished as authority, and only test binaries read it.
+
+This slice is read-only: it mutates no durable state and advertises no
+provider, platform, backend, or CLI capability.
 
 ## Program shape
 
