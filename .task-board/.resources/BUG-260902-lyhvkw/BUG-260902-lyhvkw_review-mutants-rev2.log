@@ -1,0 +1,13 @@
+Reviewer mutant run against CR-BUG-260902-lyhvkw-2 (tree 62a18b4, HEAD ef0c1a5), detached worktree copy,
+command per mutant: go test ./internal/canonicaljson -count=1 -run 'NestingDepth|MaxNestingDepth'
+
+widen-512 (const 256 -> 512):            FAIL  TestMaxNestingDepthIsDeclaredAndPinned, TestCanonicalizeRefusesDocumentPastMaxNestingDepth, TestIdentityEntriesRefuseDocumentPastMaxNestingDepth, TestNestingDepthRegressionTwoMegabyteArrayReturnsTypedError
+narrow-255 (const 256 -> 255):           FAIL  pinned + both Accept + both Refuse + regression
+offbyone-gt (>= -> >):                   FAIL  both Refuse + regression
+object-branch-no-increment (depth, not depth+1 in '{' branch): FAIL both Refuse
+array-branch-no-increment  (depth, not depth+1 in '[' branch): FAIL both Refuse; regression test reproduces "runtime: goroutine stack exceeds 1000000000-byte limit / fatal error: stack overflow"
+delete-gate (remove the depth check):    FAIL both Refuse; regression test reproduces the fatal stack overflow
+
+Builder probe (throwaway test, removed): arrays/objects/mixed builders measure exactly the requested depth at 1,2,3,255,256,257;
+identityObjectWithNestedExtension(*, 256) measures total depth 256 for all three shapes.
+(Probe's own json.Valid call on the 2 MB input tripped encoding/json's 10000-level cap; probe defect, not a candidate defect.)

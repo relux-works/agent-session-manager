@@ -1,0 +1,348 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+new file mode 100644
+index 0000000..af097ce
+--- /dev/null
++++ b/LOGBOOK.md
+@@ -0,0 +1,14 @@
++# Flight Logbook
++
++> Institutional memory. Concise, factual, high-signal.
++> Newest entries first. One block per insight.
++
++## 2026-09-02
++
++### 0330 — Canonical decode nesting depth capped at 256
++- ROOT CAUSE: `internal/canonicaljson/canonical.go:355` `decodeValue` recursed once per nesting level with no bound; a 2 MB document of one million nested arrays exhausted the goroutine stack and killed the process with an uncatchable `fatal error: stack overflow` at every public entry, well under the 5,242,880-byte identity size cap.
++- FIX: `MaxNestingDepth = 256` (`canonical.go:38`) enforced inside `decodeValue` before recursion, typed `ErrInvalidJSON`; inherited by `Canonicalize`, `CalculateObjectIdentity`, `VerifyObjectIdentity` through the shared `decodeStrict`.
++- FINDING: deepest pinned v0.5.0 closed shape (Transfer Manifest, 16-level submodule forest, 4-level extensions) decodes at depth 38, so 256 leaves over 6x headroom for normative objects.
++- DECISION: tests pin the bound from a test-local literal, not the constant; widen-257, widen-512, narrow-255 and delete-gate mutants all exit 1 (delete-gate reproduces the original stack overflow).
++- SCOPE: `internal/canonicaljson/canonical.go`, `internal/canonicaljson/nesting_depth_test.go`, `README.md:146`, `internal/canonicaljson/testdata/constraint-enumeration.md`.
++- STATUS: BUG-260902-lyhvkw handed to review; coverage 87.1% -> 87.2%, all configured gates exit 0.
+diff --git a/README.md b/README.md
+index e8508f5..7df5c9b 100644
+--- a/README.md
++++ b/README.md
+@@ -141,7 +141,13 @@ go run ./internal/traceability/cmd/tracecheck \
+ path validates I-JSON input before canonicalization, including duplicate-name,
+ UTF-8, surrogate-pair, ECMAScript number-formatting, string-escaping, and
+ UTF-16 property-ordering rules. Its number behavior is checked against every
+-finite RFC 8785 Appendix B sample through the production entry point.
++finite RFC 8785 Appendix B sample through the production entry point. Both
++paths share one strict decoder that refuses a document nested deeper than the
++declared `MaxNestingDepth` of 256 containers with a typed `ErrInvalidJSON`
++error before recursing further, so a deeply nested peer object returns a
++refusal instead of exhausting the goroutine stack and aborting the process;
++the bound is pinned by a literal in the focused suite and a 2 MB one-million-
++level regression input is driven through all three public entries.
+ 
+ The AX identity path additionally enforces the Section 1.6 common model: JSON
+ numbers are integral safe integers, and the exact `schema`/`schema_version`
+diff --git a/internal/canonicaljson/canonical.go b/internal/canonicaljson/canonical.go
+index 7a213db..ba996f0 100644
+--- a/internal/canonicaljson/canonical.go
++++ b/internal/canonicaljson/canonical.go
+@@ -19,6 +19,24 @@ import (
+ 
+ const maxSafeInteger int64 = 9007199254740991
+ 
++// MaxNestingDepth is the maximum number of nested JSON containers (objects or
++// arrays, the top-level container counted as level 1) that decodeValue admits
++// on every public entry: Canonicalize, CalculateObjectIdentity, and
++// VerifyObjectIdentity all decode through decodeStrict, so the bound is
++// inherited rather than re-applied per entry.
++//
++// Rationale for 256: decodeValue recurses once per level, and the Go runtime
++// aborts the whole process with an uncatchable fatal stack overflow rather
++// than returning an error once that recursion exhausts the goroutine stack
++// (reproduced with a 2 MB document of one million nested arrays, which sits
++// far below the 5,242,880-byte identity size cap). The deepest pinned v0.5.0
++// closed shape, a Transfer Manifest carrying a 16-level submodule forest with
++// 4-level extensions, stays under half of this bound, so no normative object
++// is refused, while 256 small frames use only tens of kilobytes of stack and
++// the refusal stays below encoding/json's own 10,000-level Unmarshal limit,
++// so callers always observe this typed ErrInvalidJSON refusal.
++const MaxNestingDepth = 256
++
+ var (
+ 	// ErrInvalidJSON reports input outside the RFC 8785 I-JSON surface.
+ 	ErrInvalidJSON = errors.New("invalid canonical JSON input")
+@@ -317,7 +335,7 @@ func decodeStrict(input []byte) (any, error) {
+ 
+ 	decoder := json.NewDecoder(bytes.NewReader(input))
+ 	decoder.UseNumber()
+-	value, err := decodeValue(decoder)
++	value, err := decodeValue(decoder, 0)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -330,7 +348,11 @@ func decodeStrict(input []byte) (any, error) {
+ 	return value, nil
+ }
+ 
+-func decodeValue(decoder *json.Decoder) (any, error) {
++// decodeValue decodes one JSON value. depth is the number of containers that
++// already enclose this value; a container found here occupies level depth+1
++// and is refused once that level would exceed MaxNestingDepth, before any
++// deeper recursion can grow the stack.
++func decodeValue(decoder *json.Decoder, depth int) (any, error) {
+ 	token, err := decoder.Token()
+ 	if err != nil {
+ 		return nil, invalidJSON("decode JSON token: %v", err)
+@@ -339,6 +361,11 @@ func decodeValue(decoder *json.Decoder) (any, error) {
+ 	if !ok {
+ 		return token, nil
+ 	}
++	if delimiter == '{' || delimiter == '[' {
++		if depth+1 > MaxNestingDepth {
++			return nil, invalidJSON("nesting depth exceeds maximum %d", MaxNestingDepth)
++		}
++	}
+ 
+ 	switch delimiter {
+ 	case '{':
+@@ -355,7 +382,7 @@ func decodeValue(decoder *json.Decoder) (any, error) {
+ 			if _, duplicate := object[name]; duplicate {
+ 				return nil, invalidJSON("duplicate object member %q", name)
+ 			}
+-			value, err := decodeValue(decoder)
++			value, err := decodeValue(decoder, depth+1)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+@@ -369,7 +396,7 @@ func decodeValue(decoder *json.Decoder) (any, error) {
+ 	case '[':
+ 		array := make([]any, 0)
+ 		for decoder.More() {
+-			value, err := decodeValue(decoder)
++			value, err := decodeValue(decoder, depth+1)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+diff --git a/internal/canonicaljson/nesting_depth_test.go b/internal/canonicaljson/nesting_depth_test.go
+new file mode 100644
+index 0000000..edf98a4
+--- /dev/null
++++ b/internal/canonicaljson/nesting_depth_test.go
+@@ -0,0 +1,203 @@
++package canonicaljson
++
++import (
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++)
++
++// documentedMaxNestingDepth is deliberately a test-local literal rather than
++// a reference to MaxNestingDepth: every accept-at-limit and refuse-past-limit
++// case below is built from this number, so widening or narrowing the
++// production constant reddens the suite instead of silently moving the tests
++// along with it.
++const documentedMaxNestingDepth = 256
++
++func TestMaxNestingDepthIsPinnedToDocumentedValue(t *testing.T) {
++	t.Parallel()
++	if MaxNestingDepth != documentedMaxNestingDepth {
++		t.Fatalf("MaxNestingDepth = %d, want the documented %d; update the rationale, the constraint enumeration, and this pin together", MaxNestingDepth, documentedMaxNestingDepth)
++	}
++}
++
++func TestCanonicalizeAcceptsExactMaximumNestingDepthAndRefusesOnePast(t *testing.T) {
++	t.Parallel()
++
++	tests := []struct {
++		name  string
++		build func(depth int) []byte
++	}{
++		{"nested arrays", nestedArrayDocument},
++		{"nested objects", nestedObjectDocument},
++		{"array inside object alternation", nestedAlternatingDocument},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			t.Parallel()
++			atLimit := test.build(documentedMaxNestingDepth)
++			canonical, err := Canonicalize(atLimit)
++			if err != nil {
++				t.Fatalf("Canonicalize(%s at depth %d) error = %v, want acceptance at the declared limit", test.name, documentedMaxNestingDepth, err)
++			}
++			if string(canonical) != string(atLimit) {
++				t.Fatalf("Canonicalize(%s at depth %d) changed a canonical input: got %q", test.name, documentedMaxNestingDepth, canonical)
++			}
++
++			onePast := test.build(documentedMaxNestingDepth + 1)
++			_, err = Canonicalize(onePast)
++			assertNestingDepthRefusal(t, "Canonicalize("+test.name+")", err)
++		})
++	}
++}
++
++func TestIdentityEntriesInheritNestingDepthGateFromSharedDecode(t *testing.T) {
++	t.Parallel()
++
++	// The identity object itself is level 1 and its extensions map is level 2,
++	// so an extension value nested (limit - 2) deep places the whole document
++	// exactly at the declared limit.
++	atLimit := mustJSON(t, genericExtensionIdentityObject(map[string]any{"a.deep": nestedArrayValue(documentedMaxNestingDepth - 2)}))
++	if depth := jsonDepth(mustDecodeStrict(t, atLimit)); depth != documentedMaxNestingDepth {
++		t.Fatalf("at-limit identity document has depth %d, want %d", depth, documentedMaxNestingDepth)
++	}
++	// decodeValue admits the document at the limit: the refusal that both
++	// public entries report comes from the downstream Section 1.6 extension
++	// depth gate, which is typed ErrInvalidIdentity and names its own bound.
++	// A valid immutable object can never be nested this deep, so this is the
++	// strongest acceptance the identity entries can express at the limit.
++	if _, _, err := CalculateObjectIdentity(atLimit); err == nil || !errors.Is(err, ErrInvalidIdentity) || errors.Is(err, ErrInvalidJSON) || !strings.Contains(err.Error(), "nesting depth 4") {
++		t.Fatalf("CalculateObjectIdentity(at-limit document) error = %v, want the downstream extension depth-4 refusal, proving decode admitted the document", err)
++	}
++	claimedAtLimit := withCorrectIdentityClaimForTest(t, atLimit, SelfRecordID)
++	if _, _, err := VerifyObjectIdentity(claimedAtLimit); err == nil || !errors.Is(err, ErrInvalidIdentity) || errors.Is(err, ErrInvalidJSON) || !strings.Contains(err.Error(), "nesting depth 4") {
++		t.Fatalf("VerifyObjectIdentity(at-limit document) error = %v, want the downstream extension depth-4 refusal, proving decode admitted the document", err)
++	}
++
++	onePast := mustJSON(t, genericExtensionIdentityObject(map[string]any{"a.deep": nestedArrayValue(documentedMaxNestingDepth - 1)}))
++	if len(onePast) > 5_242_880 {
++		t.Fatalf("one-past-limit identity document is %d bytes; it must stay under the encoded size cap so the depth gate is what refuses it", len(onePast))
++	}
++	_, _, err := CalculateObjectIdentity(onePast)
++	assertNestingDepthRefusal(t, "CalculateObjectIdentity", err)
++	_, _, err = VerifyObjectIdentity(onePast)
++	assertNestingDepthRefusal(t, "VerifyObjectIdentity", err)
++}
++
++// TestNestedArrayRegressionReturnsTypedErrorInsteadOfStackOverflow reproduces
++// the original crash shape: one million nested arrays, a 2 MB document under
++// the 5,242,880-byte identity cap, previously exhausted the goroutine stack
++// and aborted the process with an uncatchable fatal runtime error at every
++// public entry.
++func TestNestedArrayRegressionReturnsTypedErrorInsteadOfStackOverflow(t *testing.T) {
++	t.Parallel()
++
++	const crashDepth = 1_000_000
++	input := nestedArrayDocument(crashDepth)
++	if len(input) != 2_000_000 || len(input) > 5_242_880 {
++		t.Fatalf("regression input is %d bytes, want the 2,000,000-byte document below the identity size cap", len(input))
++	}
++
++	_, err := Canonicalize(input)
++	assertNestingDepthRefusal(t, "Canonicalize(2 MB nested arrays)", err)
++	_, _, err = CalculateObjectIdentity(input)
++	assertNestingDepthRefusal(t, "CalculateObjectIdentity(2 MB nested arrays)", err)
++	_, _, err = VerifyObjectIdentity(input)
++	assertNestingDepthRefusal(t, "VerifyObjectIdentity(2 MB nested arrays)", err)
++}
++
++// TestDeepestPinnedClosedShapeStaysWithinNestingHeadroom backs the rationale
++// on MaxNestingDepth: the deepest normative v0.5.0 object, a Transfer
++// Manifest with a 16-level submodule forest and 4-level extensions, must stay
++// within half of the bound and remain accepted by both identity entries.
++func TestDeepestPinnedClosedShapeStaysWithinNestingHeadroom(t *testing.T) {
++	t.Parallel()
++
++	object := validGitWorkspaceGroupObject()
++	member := gitWorkspaceMember(object)
++	member["submodules"] = []any{validInitializedSubmoduleShape(1, 16)}
++	deepest := validInitializedSubmoduleShape(1, 16)
++	for level := 1; level < 16; level++ {
++		deepest = deepest["submodules"].([]any)[0].(map[string]any)
++	}
++	deepest["extensions"] = map[string]any{"a.depth": []any{[]any{[]any{[]any{"value"}}}}}
++	input := mustJSON(t, object)
++
++	depth := jsonDepth(mustDecodeStrict(t, input))
++	t.Logf("deepest pinned closed shape decodes to nesting depth %d; MaxNestingDepth is %d", depth, MaxNestingDepth)
++	if depth*2 > MaxNestingDepth {
++		t.Fatalf("deepest pinned closed shape has depth %d, want at most half of MaxNestingDepth %d", depth, MaxNestingDepth)
++	}
++	assertIdentityEntriesAcceptShape(t, input, SelfManifestID)
++}
++
++func assertNestingDepthRefusal(t *testing.T, entry string, err error) {
++	t.Helper()
++	want := fmt.Sprintf("nesting depth exceeds maximum %d", documentedMaxNestingDepth)
++	if err == nil || !errors.Is(err, ErrInvalidJSON) || errors.Is(err, ErrInvalidIdentity) || !strings.Contains(err.Error(), want) {
++		t.Fatalf("%s error = %v, want typed ErrInvalidJSON containing %q", entry, err, want)
++	}
++}
++
++func nestedArrayDocument(depth int) []byte {
++	return []byte(strings.Repeat("[", depth) + strings.Repeat("]", depth))
++}
++
++func nestedObjectDocument(depth int) []byte {
++	return []byte(strings.Repeat(`{"a":`, depth-1) + "{}" + strings.Repeat("}", depth-1))
++}
++
++func nestedAlternatingDocument(depth int) []byte {
++	var builder strings.Builder
++	for level := 1; level <= depth; level++ {
++		if level%2 == 1 {
++			builder.WriteString(`{"a":`)
++		} else {
++			builder.WriteString("[")
++		}
++	}
++	builder.WriteString("null")
++	for level := depth; level >= 1; level-- {
++		if level%2 == 1 {
++			builder.WriteString("}")
++		} else {
++			builder.WriteString("]")
++		}
++	}
++	return []byte(builder.String())
++}
++
++func nestedArrayValue(depth int) any {
++	var value any = []any{}
++	for level := 1; level < depth; level++ {
++		value = []any{value}
++	}
++	return value
++}
++
++func jsonDepth(value any) int {
++	deepest := 0
++	switch typed := value.(type) {
++	case []any:
++		for _, element := range typed {
++			deepest = max(deepest, jsonDepth(element))
++		}
++		return deepest + 1
++	case map[string]any:
++		for _, member := range typed {
++			deepest = max(deepest, jsonDepth(member))
++		}
++		return deepest + 1
++	default:
++		return 0
++	}
++}
++
++func mustDecodeStrict(t *testing.T, input []byte) any {
++	t.Helper()
++	value, err := decodeStrict(input)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return value
++}
+diff --git a/internal/canonicaljson/testdata/constraint-enumeration.md b/internal/canonicaljson/testdata/constraint-enumeration.md
+index 69c61cf..d0bc856 100644
+--- a/internal/canonicaljson/testdata/constraint-enumeration.md
++++ b/internal/canonicaljson/testdata/constraint-enumeration.md
+@@ -222,5 +222,6 @@ an artifact-only claim.
+ | GitSubmodule | `gitlink_oid` equals a containing stage-0 mode-160000 index entry; initialized state is complete and not unborn; uninitialized state is all null. | Enforced recursively by `validateGitSubmodule`; `TestSpecDerivedRefusalClausesReachBothIdentityEntries` pins missing initialized state and unborn initialized head through both public entries. Resolving parent HEAD-tree and child HEAD commits requires isolated object databases and is external. |
+ | GitSubmodule | Tree depth is at most 16, total count at most 256, repository identities are ancestor-acyclic, and sibling paths do not case-collide. | Enforced by `validateGitSubmodules` and `validateGitSubmodule`; `TestSpecDerivedRefusalClausesReachBothIdentityEntries` pins sibling case collision through both public entries and is mutation-checked with the narrowing `strings.EqualFold` to exact-equality substitution. |
+ | Manifest closure | Every referenced working-tree/managed-tree/submodule manifest, cwd, and project config path occurs in the transitive child closure. | External: child manifests and materialized filesystem are outside one identity candidate. |
++| Decoder robustness bound (implementation, not a pinned SPEC clause) | Every public entry refuses a document nested deeper than `MaxNestingDepth` (256 containers) with a typed `ErrInvalidJSON` error instead of a fatal stack overflow; the deepest pinned closed shape decodes at depth 38. | Enforced by `decodeValue` inside `decodeStrict`, shared by `Canonicalize`, `CalculateObjectIdentity`, and `VerifyObjectIdentity` before number, schema, or shape validation; `TestCanonicalizeAcceptsExactMaximumNestingDepthAndRefusesOnePast` and `TestIdentityEntriesInheritNestingDepthGateFromSharedDecode` pin accept-at-256 and refuse-at-257 from a test-local literal, so widening or narrowing the constant reddens the suite, and `TestNestedArrayRegressionReturnsTypedErrorInsteadOfStackOverflow` replays the 2 MB one-million-level crash input. |
+ | Section 1.6 extensions | Every open extension point has 0–64 lowercase reverse-DNS keys, depth at most 4, and canonical size at most 65,536 bytes. | Enforced by `validateExtensionsObject` before either public entry attests. |
+ | Section 17.3 migration contribution | `works.relux.ax.migrated-from` is a closed three-member object; `schema_id` is bare `string`, `schema_version` canonical semver, and `object_id` digest. | Enforced by `validateMigrationExtensionObject`; publication, atomic-reference advancement, rollback retention, and runtime migration remain explicitly unclaimed. |
+diff --git a/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/nesting-depth-over-limit b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/nesting-depth-over-limit
+new file mode 100644
+index 0000000..c73c41c
+--- /dev/null
++++ b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/nesting-depth-over-limit
+@@ -0,0 +1,2 @@
++go test fuzz v1
++[]byte("[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]")

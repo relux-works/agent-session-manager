@@ -1,0 +1,28 @@
+# BUG-260902-lyhvkw rev-3 reviewer mutant matrix (RUN-260902-70cdd1)
+# Scratch copy of candidate tree d75db085 under .temp/BUG-260902-lyhvkw/review/cand
+# Command per mutant: go test ./internal/canonicaljson -count=1 -run 'Nesting|MaxNesting|FuzzCanonicalizeRoundTrip'
+
+mutant                 change                                                   result
+widen-512              const maxNestingDepth = 512                              exit 1: Pinned, CanonicalizeRefuses, IdentityRefuse, Regression red
+narrow-128             const maxNestingDepth = 128                              exit 1: Pinned, both Accept, both Refuse, Regression red
+widen-by-one           if depth > maxNestingDepth                               exit 1: CanonicalizeRefuses, IdentityRefuse, Regression red
+narrow-by-one          if depth >= maxNestingDepth-1                            exit 1: both Accept, both Refuse, Regression red
+array-no-propagate     array branch calls decodeValue(decoder, depth)           exit 1: both Refuse red; regression reproduces fatal stack overflow
+object-no-propagate    object branch calls decodeValue(decoder, depth)          exit 1: CanonicalizeRefuses, IdentityRefuse red
+delete-gate            depth check removed                                      exit 1: both Refuse red; regression reproduces "runtime: goroutine stack exceeds 1000000000-byte limit / fatal error: stack overflow"
+
+Unmutated candidate: go test ./internal/canonicaljson -count=1 -cover -> ok, coverage 87.2%
+Fuzz seed corpus: -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -> PASS (nesting-depth-over-limit seed is 257 deep)
+
+# Adversarial probe (go run against production entries Canonicalize/CalculateObjectIdentity/VerifyObjectIdentity), all as expected:
+ws-padded-257                              bytes=1028      canon=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | calc=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | verify=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | asExpected=true
+ws-padded-256                              bytes=1024      canon=accept | calc=invalid canonical object identity: identity input must be a JSON objec | verify=invalid canonical object identity: identity input must be a JSON objec | asExpected=true
+later-sibling-257                          bytes=522       canon=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | calc=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | verify=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | asExpected=true
+later-sibling-256                          bytes=520       canon=accept | calc=invalid canonical object identity: identity input must be a JSON objec | verify=invalid canonical object identity: identity input must be a JSON objec | asExpected=true
+second-member-257                          bytes=524       canon=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | calc=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | verify=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | asExpected=true
+second-member-256                          bytes=522       canon=accept | calc=invalid canonical object identity: identity input requires string memb | verify=invalid canonical object identity: identity input requires string memb | asExpected=true
+wide-2000x256                              bytes=1022001   canon=accept | calc=invalid canonical object identity: identity input must be a JSON objec | verify=invalid canonical object identity: identity input must be a JSON objec | asExpected=true
+depth-100000                               bytes=200000    canon=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | calc=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | verify=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | asExpected=true
+truncated-300-opens                        bytes=300       canon=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | calc=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | verify=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | asExpected=true
+unicode-keys-257                           bytes=3330      canon=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | calc=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | verify=invalid canonical JSON input: nesting depth 257 exceeds maximum 256 | asExpected=true
+brackets-in-strings                        bytes=5004      canon=accept | calc=invalid canonical object identity: identity input must be a JSON objec | verify=invalid canonical object identity: identity input must be a JSON objec | asExpected=true

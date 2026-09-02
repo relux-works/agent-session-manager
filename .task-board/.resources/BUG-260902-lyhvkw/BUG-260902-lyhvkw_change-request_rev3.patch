@@ -1,0 +1,393 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+new file mode 100644
+index 0000000..6bbe661
+--- /dev/null
++++ b/LOGBOOK.md
+@@ -0,0 +1,19 @@
++# Flight Logbook
++
++> Institutional memory. Concise, factual, high-signal.
++> Newest entries first. One block per insight.
++
++## 2026-09-02
++
++### 0900 — BUG-260902-lyhvkw rev-2 reapplied onto advanced trunk a351afd
++- FINDING: the accepted revision-2 patch reapplied cleanly except `internal/traceability/traceability.go`, where trunk had independently repinned `reviewedOwnershipCanonicalSHA256`; resolved to the trunk value, then repinned to the recomputed projection digest `9f7737cb07f853012fcc9e2359981e20e9b65df622f9da7fa4935a2180cd04b0` reported by tracecheck.
++- STATUS: canonicaljson coverage 87.1% (trunk a351afd) -> 87.2%; widen-512, narrow-128, and delete-gate mutants all redden the suite; the delete-gate mutant still reproduces `fatal error: stack overflow`.
++
++### 0420 — Canonical decode nesting depth capped at 256
++- ROOT CAUSE: `internal/canonicaljson/canonical.go` `decodeValue` recursed once per nesting level with no bound; a 2,000,000-byte document of one million nested arrays exhausted the goroutine stack and killed the process with uncatchable `fatal error: stack overflow` at `Canonicalize`, `CalculateObjectIdentity`, and `VerifyObjectIdentity`, well under the 5,242,880-byte identity size cap.
++- FIX: `maxNestingDepth = 256` (`internal/canonicaljson/canonical.go:37`) enforced inside `decodeValue` before it opens a container (`canonical.go:362`), typed `ErrInvalidJSON`; every public entry inherits it through the shared `decodeStrict`.
++- DECISION: 256 chosen because the deepest pinned closed shape (16-level submodule tree) decodes at roughly depth 40 and open extensions stop at depth 4, giving more than sixfold headroom; the bound stays far below encoding/json's 10,000-level cap and jcs's unbounded re-parse, so the typed refusal is always the first gate a deep document meets.
++- FINDING: the delete-gate mutant reproduces the exact crash (`runtime: goroutine stack exceeds 1000000000-byte limit`, exit 1 with fatal error) through the new regression test; widen-512 and narrow-128 mutants both redden the suite because tests pin the literal 256/257 rather than reading the constant.
++- FINDING: registering new evidence tests in `internal/traceability/ownership.v0.5.0.json` requires repinning `reviewedOwnershipCanonicalSHA256` in `internal/traceability/traceability.go:42`; tracecheck fails closed on the projection digest until the repin is reviewed.
++- SCOPE: `internal/canonicaljson/canonical.go`, `internal/canonicaljson/nesting_depth_test.go`, `internal/canonicaljson/testdata/constraint-enumeration.md`, `internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/nesting-depth-over-limit`, `internal/traceability/ownership.v0.5.0.json`, `internal/traceability/traceability.go`, `README.md`.
++- STATUS: fixed in STORY-260902-3os1kh workspace (trunk 48db30b descendant); canonicaljson coverage 87.1% -> 87.2%; handed off to review.
+diff --git a/README.md b/README.md
+index 99c8c6b..ec47c22 100644
+--- a/README.md
++++ b/README.md
+@@ -313,6 +313,17 @@ pinned constraint row fails the focused suite. Manifest entry destination-case
+ collision detection uses a linear Unicode simple-fold set; a production-entry
+ regression covers the declared 65,536-entry maximum inside the encoded identity
+ size cap.
++The shared strict decoder behind `Canonicalize` and both identity entries
++enforces a declared 256-container nesting bound: a document that opens a 257th
++nested object or array is refused with the typed `ErrInvalidJSON` error before
++any recursion can exhaust the goroutine stack, which Go otherwise reports as an
++uncatchable fatal runtime error. The bound leaves more than sixfold headroom
++over the deepest normative closed shape (the 16-level submodule tree) and stays
++far below encoding/json's 10,000-level cap, so it is always the first gate a
++deep peer object meets. The suite pins the literal value, proves accept-at-limit
++and refuse-past-limit at every public entry in array, object, and mixed
++container shapes, and replays the original 2,000,000-byte nested-array crash
++input as a typed refusal.
+ Every open `extensions` map is validated against the Section 1.6 reverse-DNS
+ key, member-count, nesting-depth, and canonical-size rules before either entry
+ attests it. Declared `string[n..m]` bounds count Unicode characters rather than
+diff --git a/internal/canonicaljson/canonical.go b/internal/canonicaljson/canonical.go
+index 7a213db..1fb8d78 100644
+--- a/internal/canonicaljson/canonical.go
++++ b/internal/canonicaljson/canonical.go
+@@ -19,6 +19,23 @@ import (
+ 
+ const maxSafeInteger int64 = 9007199254740991
+ 
++// maxNestingDepth bounds how many JSON containers (objects or arrays) may be
++// open at once in any document that reaches decodeValue, which is the shared
++// strict decode path behind Canonicalize, CalculateObjectIdentity, and
++// VerifyObjectIdentity. Without it, one recursion frame per nesting level lets
++// an untrusted peer object exhaust the goroutine stack, and Go reports that as
++// a fatal runtime error that recover cannot intercept.
++//
++// Rationale for 256: the deepest normative closed shape is the Transfer
++// Manifest submodule tree at its 16-level maximum, which nests roughly 40
++// containers including the identity envelope, and open extensions are bounded
++// at 4 levels, so 256 leaves more than sixfold headroom over any accepted AX
++// object. It is also far below encoding/json's 10,000-level Unmarshal cap and
++// the unbounded recursion inside the JCS re-parse, so this typed refusal is
++// always the first gate a deep document meets, and the decode stack stays at
++// a few hundred small frames regardless of input size.
++const maxNestingDepth = 256
++
+ var (
+ 	// ErrInvalidJSON reports input outside the RFC 8785 I-JSON surface.
+ 	ErrInvalidJSON = errors.New("invalid canonical JSON input")
+@@ -317,7 +334,7 @@ func decodeStrict(input []byte) (any, error) {
+ 
+ 	decoder := json.NewDecoder(bytes.NewReader(input))
+ 	decoder.UseNumber()
+-	value, err := decodeValue(decoder)
++	value, err := decodeValue(decoder, 0)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+@@ -330,7 +347,10 @@ func decodeStrict(input []byte) (any, error) {
+ 	return value, nil
+ }
+ 
+-func decodeValue(decoder *json.Decoder) (any, error) {
++// decodeValue decodes one logical JSON value. depth counts the containers
++// already open around this value, so the top-level value is decoded at depth 0
++// and a container at depth maxNestingDepth-1 is the last one allowed to open.
++func decodeValue(decoder *json.Decoder, depth int) (any, error) {
+ 	token, err := decoder.Token()
+ 	if err != nil {
+ 		return nil, invalidJSON("decode JSON token: %v", err)
+@@ -339,6 +359,9 @@ func decodeValue(decoder *json.Decoder) (any, error) {
+ 	if !ok {
+ 		return token, nil
+ 	}
++	if depth >= maxNestingDepth {
++		return nil, invalidJSON("nesting depth %d exceeds maximum %d", depth+1, maxNestingDepth)
++	}
+ 
+ 	switch delimiter {
+ 	case '{':
+@@ -355,7 +378,7 @@ func decodeValue(decoder *json.Decoder) (any, error) {
+ 			if _, duplicate := object[name]; duplicate {
+ 				return nil, invalidJSON("duplicate object member %q", name)
+ 			}
+-			value, err := decodeValue(decoder)
++			value, err := decodeValue(decoder, depth+1)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+@@ -369,7 +392,7 @@ func decodeValue(decoder *json.Decoder) (any, error) {
+ 	case '[':
+ 		array := make([]any, 0)
+ 		for decoder.More() {
+-			value, err := decodeValue(decoder)
++			value, err := decodeValue(decoder, depth+1)
+ 			if err != nil {
+ 				return nil, err
+ 			}
+diff --git a/internal/canonicaljson/nesting_depth_test.go b/internal/canonicaljson/nesting_depth_test.go
+new file mode 100644
+index 0000000..4cd0655
+--- /dev/null
++++ b/internal/canonicaljson/nesting_depth_test.go
+@@ -0,0 +1,193 @@
++package canonicaljson
++
++import (
++	"bytes"
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++)
++
++// declaredMaxNestingDepth pins the production bound as a literal. The tests
++// below build their documents from this pin rather than from maxNestingDepth,
++// so widening or narrowing the production constant moves the accept/refuse
++// boundary away from the documents and reddens the suite instead of silently
++// following the mutation.
++const declaredMaxNestingDepth = 256
++
++// regressionNestingDepth reproduces the original crash shape: one million
++// nested open brackets, a 2,000,000-byte document. On main 48db30b this input
++// aborted the process through Canonicalize with "goroutine stack exceeds
++// 1000000000-byte limit" and "fatal error: stack overflow", which recover
++// cannot catch. It is well under the 5,242,880-byte identity size cap, so that
++// cap never protected the identity entries either.
++const regressionNestingDepth = 1_000_000
++
++func TestMaxNestingDepthIsDeclaredAndPinned(t *testing.T) {
++	t.Parallel()
++	if maxNestingDepth != declaredMaxNestingDepth {
++		t.Fatalf("maxNestingDepth = %d, want the pinned %d; changing the bound requires restating its rationale and re-pinning here", maxNestingDepth, declaredMaxNestingDepth)
++	}
++}
++
++func TestCanonicalizeAcceptsDocumentAtMaxNestingDepth(t *testing.T) {
++	t.Parallel()
++	for name, build := range nestedDocumentBuilders() {
++		t.Run(name, func(t *testing.T) {
++			input := build(declaredMaxNestingDepth)
++			got, err := Canonicalize(input)
++			if err != nil {
++				t.Fatalf("Canonicalize(%s at depth %d) error = %v, want acceptance", name, declaredMaxNestingDepth, err)
++			}
++			if !bytes.Equal(got, input) {
++				t.Fatalf("Canonicalize(%s at depth %d) = %q, want the already-canonical input", name, declaredMaxNestingDepth, got)
++			}
++		})
++	}
++}
++
++func TestCanonicalizeRefusesDocumentPastMaxNestingDepth(t *testing.T) {
++	t.Parallel()
++	for name, build := range nestedDocumentBuilders() {
++		t.Run(name, func(t *testing.T) {
++			_, err := Canonicalize(build(declaredMaxNestingDepth + 1))
++			assertNestingDepthRefusal(t, "Canonicalize("+name+")", err, declaredMaxNestingDepth+1)
++		})
++	}
++}
++
++// TestIdentityEntriesAcceptDocumentAtMaxNestingDepth proves the identity
++// entries decode a document exactly at the bound. No supported closed shape
++// legitimately nests that deep (open extensions stop at 4 levels), so passage
++// through the shared decoder is proven by the refusal coming from the later
++// Section 1.6 extension depth gate with ErrInvalidIdentity, never from the
++// decoder with ErrInvalidJSON.
++func TestIdentityEntriesAcceptDocumentAtMaxNestingDepth(t *testing.T) {
++	t.Parallel()
++	for name, build := range nestedDocumentBuilders() {
++		t.Run(name, func(t *testing.T) {
++			input := identityObjectWithNestedExtension(t, build, declaredMaxNestingDepth)
++			if _, err := Canonicalize(input); err != nil {
++				t.Fatalf("Canonicalize(identity object with %s at depth %d) error = %v, want acceptance", name, declaredMaxNestingDepth, err)
++			}
++			for entry, call := range identityEntries() {
++				_, _, err := call(input)
++				if err == nil || !errors.Is(err, ErrInvalidIdentity) || errors.Is(err, ErrInvalidJSON) {
++					t.Fatalf("%s(identity object with %s at depth %d) error = %v, want the extension shape refusal after a successful decode", entry, name, declaredMaxNestingDepth, err)
++				}
++				if !strings.Contains(err.Error(), "maximum nesting depth 4") {
++					t.Fatalf("%s(identity object with %s at depth %d) error = %v, want the Section 1.6 extension depth gate to be the refusing rule", entry, name, declaredMaxNestingDepth, err)
++				}
++			}
++		})
++	}
++}
++
++func TestIdentityEntriesRefuseDocumentPastMaxNestingDepth(t *testing.T) {
++	t.Parallel()
++	for name, build := range nestedDocumentBuilders() {
++		t.Run(name, func(t *testing.T) {
++			input := identityObjectWithNestedExtension(t, build, declaredMaxNestingDepth+1)
++			for entry, call := range identityEntries() {
++				_, _, err := call(input)
++				assertNestingDepthRefusal(t, entry+"(identity object with "+name+")", err, declaredMaxNestingDepth+1)
++			}
++		})
++	}
++}
++
++func TestNestingDepthRegressionTwoMegabyteArrayReturnsTypedError(t *testing.T) {
++	t.Parallel()
++	input := nestedArrayDocument(regressionNestingDepth)
++	if len(input) != 2_000_000 || len(input) >= 5_242_880 {
++		t.Fatalf("regression input is %d bytes, want the 2,000,000-byte shape under the identity size cap", len(input))
++	}
++
++	_, err := Canonicalize(input)
++	assertNestingDepthRefusal(t, "Canonicalize(2 MB nested array)", err, declaredMaxNestingDepth+1)
++	for entry, call := range identityEntries() {
++		_, _, err := call(input)
++		assertNestingDepthRefusal(t, entry+"(2 MB nested array)", err, declaredMaxNestingDepth+1)
++	}
++}
++
++func identityEntries() map[string]func([]byte) (any, SelfField, error) {
++	return map[string]func([]byte) (any, SelfField, error){
++		"CalculateObjectIdentity": func(input []byte) (any, SelfField, error) {
++			return CalculateObjectIdentity(input)
++		},
++		"VerifyObjectIdentity": func(input []byte) (any, SelfField, error) {
++			return VerifyObjectIdentity(input)
++		},
++	}
++}
++
++func assertNestingDepthRefusal(t *testing.T, call string, err error, refusedDepth int) {
++	t.Helper()
++	if err == nil || !errors.Is(err, ErrInvalidJSON) {
++		t.Fatalf("%s error = %v, want ErrInvalidJSON nesting depth refusal", call, err)
++	}
++	want := fmt.Sprintf("nesting depth %d exceeds maximum %d", refusedDepth, declaredMaxNestingDepth)
++	if !strings.Contains(err.Error(), want) {
++		t.Fatalf("%s error = %v, want %q", call, err, want)
++	}
++}
++
++// nestedDocumentBuilders returns canonical documents whose container nesting
++// depth is exactly the requested count, in every container shape the decoder
++// distinguishes: pure arrays, pure objects, and alternating containers.
++func nestedDocumentBuilders() map[string]func(depth int) []byte {
++	return map[string]func(depth int) []byte{
++		"arrays":  nestedArrayDocument,
++		"objects": nestedObjectDocument,
++		"mixed":   nestedMixedDocument,
++	}
++}
++
++func nestedArrayDocument(depth int) []byte {
++	return []byte(strings.Repeat("[", depth) + strings.Repeat("]", depth))
++}
++
++func nestedObjectDocument(depth int) []byte {
++	return []byte(strings.Repeat(`{"a":`, depth-1) + "{}" + strings.Repeat("}", depth-1))
++}
++
++func nestedMixedDocument(depth int) []byte {
++	var builder strings.Builder
++	closers := make([]byte, 0, depth)
++	for level := 0; level < depth; level++ {
++		if level%2 == 0 {
++			builder.WriteString(`{"a":`)
++			closers = append(closers, '}')
++		} else {
++			builder.WriteString("[")
++			closers = append(closers, ']')
++		}
++	}
++	// The innermost container must be closed immediately, so the last opener
++	// written cannot be an object expecting a member value.
++	document := builder.String()
++	if closers[len(closers)-1] == '}' {
++		document = strings.TrimSuffix(document, `{"a":`) + "{"
++	}
++	for index := len(closers) - 1; index >= 0; index-- {
++		document += string(closers[index])
++	}
++	return []byte(document)
++}
++
++// identityObjectWithNestedExtension embeds a nested document inside a valid
++// Session Record's open extensions so that the whole identity object nests
++// exactly totalDepth containers: the record envelope is depth 1, the
++// extensions object is depth 2, and the embedded value supplies the rest.
++func identityObjectWithNestedExtension(t *testing.T, build func(depth int) []byte, totalDepth int) []byte {
++	t.Helper()
++	const envelopeDepth = 2
++	object := genericExtensionIdentityObject(map[string]any{"a.depth": "NESTED_PLACEHOLDER"})
++	encoded := mustJSON(t, object)
++	replaced := bytes.Replace(encoded, []byte(`"NESTED_PLACEHOLDER"`), build(totalDepth-envelopeDepth), 1)
++	if bytes.Equal(replaced, encoded) {
++		t.Fatal("nested extension placeholder was not substituted")
++	}
++	return replaced
++}
+diff --git a/internal/canonicaljson/testdata/constraint-enumeration.md b/internal/canonicaljson/testdata/constraint-enumeration.md
+index 69c61cf..8348869 100644
+--- a/internal/canonicaljson/testdata/constraint-enumeration.md
++++ b/internal/canonicaljson/testdata/constraint-enumeration.md
+@@ -222,5 +222,6 @@ an artifact-only claim.
+ | GitSubmodule | `gitlink_oid` equals a containing stage-0 mode-160000 index entry; initialized state is complete and not unborn; uninitialized state is all null. | Enforced recursively by `validateGitSubmodule`; `TestSpecDerivedRefusalClausesReachBothIdentityEntries` pins missing initialized state and unborn initialized head through both public entries. Resolving parent HEAD-tree and child HEAD commits requires isolated object databases and is external. |
+ | GitSubmodule | Tree depth is at most 16, total count at most 256, repository identities are ancestor-acyclic, and sibling paths do not case-collide. | Enforced by `validateGitSubmodules` and `validateGitSubmodule`; `TestSpecDerivedRefusalClausesReachBothIdentityEntries` pins sibling case collision through both public entries and is mutation-checked with the narrowing `strings.EqualFold` to exact-equality substitution. |
+ | Manifest closure | Every referenced working-tree/managed-tree/submodule manifest, cwd, and project config path occurs in the transitive child closure. | External: child manifests and materialized filesystem are outside one identity candidate. |
++| Decoder robustness bound (implementation, not a pinned SPEC clause) | Every public entry refuses a document nested deeper than `maxNestingDepth` (256 containers) with a typed `ErrInvalidJSON` error instead of a fatal stack overflow; the deepest pinned closed shape, the 16-level submodule tree, decodes at roughly depth 40. | Enforced by `decodeValue` inside `decodeStrict`, shared by `Canonicalize`, `CalculateObjectIdentity`, and `VerifyObjectIdentity` before number, schema, or shape validation; `TestMaxNestingDepthIsDeclaredAndPinned` pins the literal, `TestCanonicalizeAcceptsDocumentAtMaxNestingDepth`, `TestCanonicalizeRefusesDocumentPastMaxNestingDepth`, `TestIdentityEntriesAcceptDocumentAtMaxNestingDepth`, and `TestIdentityEntriesRefuseDocumentPastMaxNestingDepth` prove accept-at-256 and refuse-at-257 from a test-local literal in array, object, and mixed shapes so widening or narrowing the constant reddens the suite, and `TestNestingDepthRegressionTwoMegabyteArrayReturnsTypedError` replays the 2,000,000-byte one-million-level crash input through every entry. |
+ | Section 1.6 extensions | Every open extension point has 0–64 lowercase reverse-DNS keys, depth at most 4, and canonical size at most 65,536 bytes. | Enforced by `validateExtensionsObject` before either public entry attests. |
+ | Section 17.3 migration contribution | `works.relux.ax.migrated-from` is a closed three-member object; `schema_id` is bare `string`, `schema_version` canonical semver, and `object_id` digest. | Enforced by `validateMigrationExtensionObject`; publication, atomic-reference advancement, rollback retention, and runtime migration remain explicitly unclaimed. |
+diff --git a/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/nesting-depth-over-limit b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/nesting-depth-over-limit
+new file mode 100644
+index 0000000..c73c41c
+--- /dev/null
++++ b/internal/canonicaljson/testdata/fuzz/FuzzCanonicalizeRoundTrip/nesting-depth-over-limit
+@@ -0,0 +1,2 @@
++go test fuzz v1
++[]byte("[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]")
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 3dbdd06..926cf45 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -558,7 +558,11 @@
+         {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample"},
+         {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestCanonicalizeUsesRFC8785UTF16PropertyOrdering"},
+         {"path": "internal/canonicaljson/fuzz_test.go", "declaration": "TestCanonicalizeRejectsMalformedRecursiveObjectShapes"},
+-        {"path": "internal/canonicaljson/fuzz_test.go", "declaration": "FuzzCanonicalizeRoundTrip"}
++        {"path": "internal/canonicaljson/fuzz_test.go", "declaration": "FuzzCanonicalizeRoundTrip"},
++        {"path": "internal/canonicaljson/nesting_depth_test.go", "declaration": "TestMaxNestingDepthIsDeclaredAndPinned"},
++        {"path": "internal/canonicaljson/nesting_depth_test.go", "declaration": "TestCanonicalizeAcceptsDocumentAtMaxNestingDepth"},
++        {"path": "internal/canonicaljson/nesting_depth_test.go", "declaration": "TestCanonicalizeRefusesDocumentPastMaxNestingDepth"},
++        {"path": "internal/canonicaljson/nesting_depth_test.go", "declaration": "TestNestingDepthRegressionTwoMegabyteArrayReturnsTypedError"}
+       ]
+     },
+     {
+@@ -576,7 +580,8 @@
+         {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestTransferManifestAcceptsExactClosedGitWorkspaceSnapshot"},
+         {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestTransferManifestAcceptsEveryClosedKindAndEntryVariant"},
+         {"path": "internal/canonicaljson/golden_test.go", "declaration": "TestObjectIdentityMatchesCrossPlatformGoldenRepresentations"},
+-        {"path": "internal/canonicaljson/fuzz_test.go", "declaration": "FuzzObjectIdentityRepresentationInvariant"}
++        {"path": "internal/canonicaljson/fuzz_test.go", "declaration": "FuzzObjectIdentityRepresentationInvariant"},
++        {"path": "internal/canonicaljson/nesting_depth_test.go", "declaration": "TestIdentityEntriesAcceptDocumentAtMaxNestingDepth"}
+       ]
+     },
+     {
+@@ -591,7 +596,9 @@
+         {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestMigrationProvenanceContributionIsClosedBeforeIdentityAttestation"},
+         {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestSessionRecordV1ClosedShapeReachesBothIdentityEntries"},
+         {"path": "internal/canonicaljson/canonical_test.go", "declaration": "TestUnsupportedSection10RecordSchemasValidateCommonEnvelopeBeforeRefusal"},
+-        {"path": "internal/canonicaljson/fuzz_test.go", "declaration": "FuzzClosedIdentityShapeRefusal"}
++        {"path": "internal/canonicaljson/fuzz_test.go", "declaration": "FuzzClosedIdentityShapeRefusal"},
++        {"path": "internal/canonicaljson/nesting_depth_test.go", "declaration": "TestIdentityEntriesRefuseDocumentPastMaxNestingDepth"},
++        {"path": "internal/canonicaljson/nesting_depth_test.go", "declaration": "TestNestingDepthRegressionTwoMegabyteArrayReturnsTypedError"}
+       ]
+     },
+     {
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index e5507ac..d3eb9e1 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -39,7 +39,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "7badbfe8737f1adda4cc866be30497eab93d68b423dceb0bc2ea50bf2e201d56"
++	reviewedOwnershipCanonicalSHA256 = "9f7737cb07f853012fcc9e2359981e20e9b65df622f9da7fa4935a2180cd04b0"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
