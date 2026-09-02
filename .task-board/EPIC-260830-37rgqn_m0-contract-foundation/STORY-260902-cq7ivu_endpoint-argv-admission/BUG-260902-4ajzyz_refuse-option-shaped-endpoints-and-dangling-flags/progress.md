@@ -1,5 +1,5 @@
 ## Status
-reviewing
+to-review
 
 ## Review
 required
@@ -152,6 +152,16 @@ spawn agent resolution: Agent selection: claude via explicit_override (preferred
 spawn launch composition: empty; contract=agents-infra.child-launch-composition; provider=claude; schema=1; producer=v1.6.1; diagnostic=launch_composition_empty; no project MCP servers enabled
 spawn queued: [reviewer] reviewer (claude) (run=RUN-260902-1be582, max_parallel=20)
 spawn run started: [reviewer] reviewer (claude) (run=RUN-260902-1be582)
+Review rev3 ACCEPTED. Attacked, not read: 29 reviewer-run single-clause mutants in a disposable archive copy (27 killed, 2 proven equivalent - the empty-port length guard and the unreachable bracket-suffix guard, neither changes an admit/refuse decision or a refusal reason). Isolation held: no bound mutant reddened a clause other than its own. The carried-forward short-flag finding is discharged by a letter no named assertion covers: permitting -X reddens on the both-directions key-set pin alone (ssh_admission_test.go:364); -A/-E/-L would have reddened on their named assertions regardless. Dangling value flags: admitting one as a bare flag reddens all four value-taking letters. Independent 76-shape hostile probe (Unicode hyphen lookalikes, ZWSP/BOM prefixes, shell metacharacters, URI shapes, bracket and zone shapes, non-ASCII digits) admitted 12, every one an ordinary LDH host or user@host - no option shape, no whitespace. Reachability proven not argued: the same six hostile endpoints load with err=nil 18/18 on the pre-fix base across all three pinned readers and are refused 0/18 at the candidate; the packages own refusal-inventory audit confirms the new configError site is exercised from production. Gates re-run at the candidate tree: build, vet, gofmt, go test ./... , go test ./... -cover, tracecheck global and 6.1-6.5, cataloggen -check all exit 0, no generated drift. internal/config coverage measured by review at both ends: 94.4 percent at base 10aaa16 -> 94.7 percent. Production code is byte-identical to the accepted BUG-260902-3c7ovg patch; rev2/rev3 rework is test and documentation only and strictly strengthens the evidence. Recorded not blocking: the grammar deliberately narrows a previously unbounded field (underscore hosts, trailing-dot FQDNs, bare IPv6, %zone) as a declared reviewed fail-closed decision, and admitEndpointHostLabel indexes label[0] behind its own length guard so removing that guard panics rather than mis-admitting. No commit_ack supplied - the orchestrator owns the checkpoint and the done transition.
+agent completed: [reviewer] reviewer (claude) (exit=0)
+spawn run completed: claude (run=RUN-260902-1be582, pid=11613, exit=0)
+Rev 3 was ACCEPTED and nothing is wrong with it. Trunk then advanced when the record-schema Story landed, and both that change and this one edit LOGBOOK.md, so the board refuses to integrate a combination nobody has looked at. That refusal is correct.
+
+Refresh the base onto current trunk and resolve the LOGBOOK overlap deliberately - both entries belong, neither replaces the other. Say in your handoff what the combined section reads like; that sentence is the only genuinely new work here.
+
+Everything else must come back byte-identical to the accepted rev-3 tree. If reapplying changes anything outside LOGBOOK.md, stop and report it rather than absorbing it: the acceptance rests on that exact tree, including the port-at-length-bound case that pins the bound to 5 rather than to a range, and the -X letter that discharges the short-flag pin.
+
+Keep the leaf to one signed commit.
 
 ## Precondition Resources
 - [BUG-260902-4ajzyz_accepted-work.patch](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_accepted-work.patch) — Accepted and reviewed work: 7 files, +571/-2. Reapply, do not reimplement.
@@ -167,7 +177,7 @@ spawn run started: [reviewer] reviewer (claude) (run=RUN-260902-1be582)
 - [BUG-260902-4ajzyz_change-request_rev1.patch](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_change-request_rev1.patch) — Change Request CR-BUG-260902-4ajzyz-1 revision 1 candidate patch (repository_delta=present, 7 changed paths)
 - [BUG-260902-4ajzyz_change-request_rev1-validation.log](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_change-request_rev1-validation.log) — Change Request CR-BUG-260902-4ajzyz-1 revision 1 bounded validation log
 - [BUG-260902-4ajzyz_spawn-log_-reviewer--reviewer--claude-_RUN-260902-8d07cc.log](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_spawn-log_-reviewer--reviewer--claude-_RUN-260902-8d07cc.log) — System spawn log captured by task-board
-- [BUG-260902-4ajzyz_review-verdict.md](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_review-verdict.md) — Reviewer verdict for CR revision 2: changes requested — one live surviving mutant on the port length bound
+- [BUG-260902-4ajzyz_review-verdict.md](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_review-verdict.md) — Reviewer verdict rev3: ACCEPTED. 29 reviewer-run mutants (27 killed, 2 equivalent), independent 76-shape hostile probe, cross-reader bypass check 18/18 admitted at base vs 0/18 after fix, all gates exit 0, internal/config coverage 94.4%->94.7%.
 - [BUG-260902-4ajzyz_review-mutants-02.log](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_review-mutants-02.log) — Reviewer round-2 mutants: natural-refactor and narrowing shapes; n06 (@-carve-out) survived
 - [BUG-260902-4ajzyz_review-mutate2.sh](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_review-mutate2.sh) — Reviewer mutant harness round 2, reproduces the surviving @-carve-out mutant
 - [BUG-260902-4ajzyz_spawn-log_-implementer--developer--claude-_RUN-260902-120fd0.log](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_spawn-log_-implementer--developer--claude-_RUN-260902-120fd0.log) — System spawn log captured by task-board
@@ -188,12 +198,13 @@ spawn run started: [reviewer] reviewer (claude) (run=RUN-260902-1be582)
 - [BUG-260902-4ajzyz_change-request_rev3.patch](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_change-request_rev3.patch) — Change Request CR-BUG-260902-4ajzyz-3 revision 3 candidate patch (repository_delta=present, 7 changed paths)
 - [BUG-260902-4ajzyz_change-request_rev3-validation.log](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_change-request_rev3-validation.log) — Change Request CR-BUG-260902-4ajzyz-3 revision 3 bounded validation log
 - [BUG-260902-4ajzyz_spawn-log_-reviewer--reviewer--claude-_RUN-260902-1be582.log](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_spawn-log_-reviewer--reviewer--claude-_RUN-260902-1be582.log) — System spawn log captured by task-board
+- [BUG-260902-4ajzyz_review-verdict-rev3.md](file://BUG-260902-4ajzyz/BUG-260902-4ajzyz_review-verdict-rev3.md) — Reviewer verdict for CR rev3: ACCEPTED. 29 reviewer-run mutants (27 killed, 2 equivalent), independent 76-shape hostile probe, cross-reader bypass check 18/18 admitted at base vs 0/18 at candidate, all gates exit 0, internal/config coverage 94.4->94.7 percent.
 
 ## Created
 2026-09-02T13:03:25Z
 
 ## Last Update
-2026-09-02T14:05:27Z
+2026-09-02T14:17:08Z
 
 ## Assigned To
 [reviewer] reviewer (claude)
