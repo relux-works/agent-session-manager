@@ -9,7 +9,10 @@ The Curator-managed repository foundation is complete and the published AX
 v0.5.0 specification has been decomposed into an implementation board. The
 Go contract foundation pins the immutable normative source and generates typed
 contract, operation, capability-vocabulary, event, and error catalogs from
-reviewed implementation metadata. Session, provider, terminal, mesh, and
+reviewed implementation metadata. The local storage foundation also resolves
+the five Section 3.2 path classes and installs verified immutable blobs on
+native macOS/Linux filesystems. Its local SQLite index projects those supported
+raw blobs without becoming authority. Session, provider, terminal, mesh, and
 operator command behavior is not implemented or advertised by this slice.
 
 Product behavior is defined by the
@@ -838,6 +841,132 @@ go run ./internal/traceability/cmd/tracecheck \
   -section 13.15 -section 17.3 -section 18.1
 ```
 
+## Safe Local Layout, Immutable Blob Sink, and SQLite Projection
+
+[`internal/localstore`](internal/localstore) loads the reviewed five-row Path
+Registry 1.0.0 bound to the pinned v0.5.0 Section 3.2 source. `ResolvePaths`
+applies flag, non-empty `AX_*` environment, then platform-default precedence;
+unknown `AX_*` variables remain ordinary environment. It resolves macOS,
+Linux/WSL2, and native-Windows path syntax without consulting ambient process
+state; Windows environment names are matched case-insensitively and unavailable
+`APPDATA`/`LOCALAPPDATA` defaults fail closed. The future CLI/config owner must
+capture those inputs once and retain the resulting roots for the process
+lifetime.
+
+`InitializeLayout` creates or verifies AX-owned configuration, data, state,
+cache, and runtime roots as mode `0700` directories on native macOS/Linux, and
+accepts only owner mode `0600` for an existing configuration file. Native
+Windows path resolution and golden `digest_path_v1` projection are available,
+but filesystem initialization refuses until the user-only DACL implementation
+and Windows conformance lane land; lexical path evidence does not advertise
+Windows storage support.
+
+`OpenObjectStore` keeps the live root host-local. `PutBlob` writes a mode `0600`
+same-directory temporary file, fsyncs it, verifies the declared uint53 size and
+SHA-256, performs an OS-native atomic no-replace rename, then fsyncs the shard
+directory. An identical retry verifies and reuses the existing inode. Size or
+digest mismatches are installed create-new under the exact quarantined digest
+path with a UUIDv7 leaf. Oversized input is read and quarantined only through
+the bounded declared-size-plus-one diagnostic prefix. A corrupt existing digest
+path causes both candidates to be quarantined and the immutable namespace to
+refuse the write.
+
+`OpenProjection` scans the immutable raw-blob namespace, re-verifies every byte
+against its digest path, and rebuilds `<state>/index.sqlite` in deterministic
+digest order. That order is owned by one comparator and asserted against the
+scan itself rather than through a read query that re-sorts, and the recorded
+`source_fingerprint` is checked against an expectation derived outside the
+implementation, so neither a constant fingerprint nor a re-ordered scan passes.
+The schema and its indexes come from one closed inventory.
+The integrity gate derives SQLite-created internal indexes by applying that
+catalog to a clean in-memory database, then compares every `sqlite_master` row;
+no object kind or `sqlite_` name prefix is filtered out of verification.
+Migrations and full row replacement run in transactions, with injected
+pre-commit failures proving rollback to the prior usable index. Connections use
+WAL journal mode, `synchronous=FULL`, foreign keys, defensive mode that refuses
+`sqlite_master` writes on the live connection, and a bounded busy timeout;
+an owner-only `index.sqlite.lock` serializes cold open, migration, rebuild, and
+recovery across local processes, and is itself refused when it is not a regular
+owner-only file. The authoritative scan runs before that lock is taken, so
+concurrent opens may scan different source snapshots and the later committer may
+write the older one; the index is a derived cache with no advertised freshness
+guarantee and the next open converges on the current source. The database, lock, and any WAL/SHM/journal
+sidecars are checked before SQLite opens either a new or existing index, remain
+mode `0600` under the owner-only state root, and never appear beneath
+transferable durable data.
+
+SQLite integrity or closed-schema drift moves the database and its sidecars
+create-new into `<state>/index-recovery/<uuid>/`, then reconstructs the cache
+from authoritative blobs. A newer implementation schema is refused without
+rewriting it. Missing object roots mean an empty source, while malformed,
+unreadable, unsafe, or hash-mismatched source entries fail closed before SQLite
+is touched. Projection recovery never rewrites or deletes an authoritative
+blob.
+
+The package still does not install JSON/CBOR records or manifests, publish an
+`ax doctor` result, or advertise a runtime capability. Its immutable sink and
+projection isolation are prerequisites for Section 18.4 retention, not a claim
+that Session Event, Tombstone, Acknowledgement, or audit-chain retention
+semantics are implemented.
+
+Run the focused storage and assigned-scope gates with:
+
+```bash
+go test ./internal/localstore -count=1
+go test ./internal/localstore -cover -count=1
+go run ./internal/traceability/cmd/tracecheck \
+  -section 3.2 -section 3.3 -section 10.1 -section 10.2 -section 18.4
+```
+
+The unfiltered localstore package run derives the projection refusal inventory
+from the production source, and it checks completeness in both halves.
+
+Every refusal raised through a refusal funnel must have a negative path that is
+reached beneath `openProjection`, so a unit test calling a refusal helper
+directly no longer counts as proof that the production entry still consults it.
+A site is exempt only when its line carries an inline statement naming the
+exact subsuming check, or naming its production call site together with the
+reason `OpenProjection` cannot reach it.
+
+Because that first half is only as complete as the funnels are exhaustive, the
+same gate also refuses refusals written outside them: a projection-owned source
+may not wrap `ErrUnsafeOwnership` with a bare `fmt.Errorf`, and an owner-only
+guard around `verifyOwnerFileInfo` or `verifyOwnerDirectory` must re-raise
+through a funnel. Only files the current build context compiles are considered,
+so a platform-specific refusal is never demanded from a platform that cannot
+execute it.
+
+Reaching a refusal clause and pinning it are different facts, and the derived
+inventory can only prove the first. A fixture that also trips an earlier check
+exercises the site while some other clause decides the outcome, so the shape
+clauses that refuse a non-regular index, sidecar, blob shard, staged blob, or
+blob leaf are driven with a FIFO created at exactly mode `0600`. Such a fixture
+is not a symlink, is owned by the effective user, and already carries owner-only
+permission bits, so every preceding check passes and the shape clause is the
+only thing that can refuse; each case asserts that isolation before it drives
+`OpenProjection`. Those clauses bound availability as well as safety: with one
+removed, `os.Open` and SQLite block indefinitely on a FIFO that has no writer,
+so the cases assert a bounded return rather than hanging. Mutual exclusion of
+`index.sqlite.lock` is pinned separately from its ownership by holding one open
+file description while a second `openProjection` must not reach its rebuild
+transaction.
+
+The same isolation requirement applies to a multi-term comparison, where the
+earlier check that decides instead of the target one is a sibling term rather
+than a preceding line. Each identity term of the closed-schema comparison is
+therefore driven by a drift that no other term can observe: a definition-only
+rewrite for the SQL comparison, and a `writable_schema` move of an autoindex
+row's `tbl_name` for the table comparison, which SQLite accepts and reopens
+while leaving the `(type, name)` key set and every SQL text unchanged. Each
+case asserts those other terms still match before it drives `OpenProjection`.
+Two terms carry no refusal of their own and say so at the call site instead:
+`kind` and `name` are subsumed by the inventory key lookup, and the
+presence-of-SQL term by SQLite's own schema parser, whose two reachable drift
+directions make the database unopenable and route to the pinned corruption
+path. The exact-name closure over the objects root is driven with a near-miss
+sibling name as well as a foreign one, because a closure narrowed from equality
+to a prefix admits exactly the near miss.
+
 ## Generated Contract Catalogs
 
 [`internal/catalog`](internal/catalog) exposes typed records through
@@ -880,7 +1009,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
 repository gate used by CI. Its reviewed
 [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
 registry independently enumerates implementation owners for all 60 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 38
+contract rows, 36 pinned or catalog-referenced normative section keys, 43
 executable acceptance cases, and 30 exact fixture identities or Appendix D
 anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
 The generated v0.5.0 catalog also carries the reviewed schema/version/self-field
@@ -941,9 +1070,11 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | --- | --- | --- | --- |
 | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
-| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 1.6 -section 2.1 -section 2.2 -section 2.3 -section 2.4 -section 5.1 -section 5.2 -section 5.3 -section 5.4 -section 5.5 -section 5.6 -section 6.1 -section 6.2 -section 6.3 -section 6.4 -section 6.5 -section 10.1 -section 10.2 -section 10.3 -section 10.4 -section 13.14.5 -section 13.15 -section 17.1 -section 17.2 -section 17.3 -section 17.4 -section 18.1`; `go test ./internal/config -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 1.6 -section 2.1 -section 2.2 -section 2.3 -section 2.4 -section 3.2 -section 3.3 -section 5.1 -section 5.2 -section 5.3 -section 5.4 -section 5.5 -section 5.6 -section 6.1 -section 6.2 -section 6.3 -section 6.4 -section 6.5 -section 10.1 -section 10.2 -section 10.3 -section 10.4 -section 13.14.5 -section 13.15 -section 17.1 -section 17.2 -section 17.3 -section 17.4 -section 18.1 -section 18.4`; `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
 | `github.com/pelletier/go-toml/v2` | Parse and emit TOML while the repository-owned Configuration layer enforces exact versioned closed schemas | Imported by `internal/config.Decode`, `internal/config.EncodeCurrent`, and explicit `internal/config.Migrate` at pinned module version `v2.4.3` | Validated Configuration values/TOML bytes in memory; explicit migration writes a same-directory replacement plus an owner-only versioned backup |
+| `modernc.org/sqlite` | Provide the pure-Go SQLite driver for the local derived index without a CGO platform dependency | Imported by `internal/localstore.OpenProjection` at pinned module version `v1.57.0` | `<state>/index.sqlite`, its owner-only lock and WAL/SHM/journal sidecars, and `<state>/index-recovery/<uuid>/` corruption evidence |
+| `golang.org/x/sys` | Invoke OS-native no-replace rename primitives so concurrent processes cannot overwrite an immutable digest path | Imported by `internal/localstore.atomicRenameNoReplace` at pinned module version `v0.47.0` | Same-filesystem atomic rename only; no standalone artifact |
 | GitHub Actions | Enforce traceability, generated-output, test, vet, and build gates on pull requests and `main` | `.github/workflows/ci.yml` | GitHub-hosted CI check results |
 | Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
 | GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |
