@@ -134,6 +134,133 @@ go run ./internal/traceability/cmd/tracecheck \
   -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4
 ```
 
+## Configuration Loading and Versioned Schemas
+
+The internal/config package implements the read-only Section 3.2 path-selection
+boundary used by Section 6.1 configuration loading. LoadOS captures the
+caller-supplied runtime-probed AX platform and current OS inputs once; Load is
+the dependency-injected production entry used by deterministic tests and
+alternate launchers.
+
+One five-row registry drives --config, --data-dir, --state-dir, --cache-dir,
+and --runtime-dir together with their exact AX_* counterparts. Resolution
+applies flag, non-empty documented environment override, then platform default
+independently to every path class. Relative flag and override values are made
+absolute against the captured working directory before use. XDG, macOS,
+WSL2/Linux, and native Windows defaults use native path grammar; missing
+required Linux runtime or Windows profile inputs fail closed.
+
+A failed user-home lookup is deferred rather than refused at capture time,
+because Windows derives no path default from the user home and several classes
+are satisfied by an XDG override. The captured cause travels into the
+platform-default refusal of every home-derived class, so an operator still sees
+why the default was unavailable. Both halves are proven at the real LoadOS and
+MigrateOS entries against a home the case makes and unmakes through the exact
+environment variable os.UserHomeDir reads; no case assigns the captured value or
+its error directly.
+
+Load returns isolated TOML bytes, one immutable resolved-root snapshot, and an
+isolated current-model Configuration when the selected file exists. It dispatches
+strict closed-table readers for Configuration 1.0.0, 2.0.0, and 3.0.0 from the
+pinned catalog; v1/v2 are translated in memory to v3 without changing their
+source bytes. `EncodeCurrent` validates and emits only Configuration 3.0.0.
+Backend-specific v3 settings require an exact caller-supplied settings validator;
+without one, a `backend_config` entry fails closed rather than accepting an
+arbitrary blob. Only an enabled external-trust entry registers its backend for
+selection or backend-specific configuration; disabled entries remain
+round-trippable but cannot authorize activation. An explicit empty
+`transport_policy` is the valid deny-all subset, distinct from omission, whose
+default is both closed transport names.
+
+A not-yet-created configuration file is accepted only when its parent directory
+exists, and ConfigPresent distinguishes that state from an existing empty
+file. Versioned validation applies closed members, scalar and relational bounds,
+unique/sorted registries, SSH host-authentication refusals, directory disclosure
+constraints, and the v3 TerminalBackend trust/config shape from Sections 6 and
+17. Required closed map members preserve the distinction between absence and an
+explicit empty object in both inline (`extensions = {}`) and multiline table
+syntax, and current-version writer output round-trips through the reader. Legacy
+`terminal.backend` accepts exactly `tmux|conpty` before translation.
+The v3 terminal capability vocabulary is derived from the pinned catalog's
+`terminal_backend` family, and the supported reader set is tested as a derived
+property of the pinned Configuration catalog, so neither a new capability nor a
+new Configuration version can silently lack enforcement. Full package tests also
+derive the production refusal-site inventory from source and fail when a new
+configuration refusal has no exercised negative path. That derivation proves
+its own coverage: it enumerates every error type the package declares, requires
+exactly one instrumented constructor per type, and reports any refusal built
+outside that constructor, so a second refusal form or a duplicated constructor
+cannot report green. Sites excluded as subsumed are pinned by an explicit
+inventory test and each names the check that covers it. An omitted
+`required_capabilities` remains marked as contextual default provenance; this
+package does not invent a platform lane minimum that only activation evidence
+can establish.
+
+`Migrate` and `MigrateOS` are the explicit Section 6.4/6.5 durable migration
+entries; ordinary `Load` and startup never call them. Migration validates the
+selected source first, requires the v1 generated-summary disclosure choice,
+re-inspects the selected file's kind and permission bits before anything durable
+is written, creates an owner-only versioned backup containing the exact old
+bytes, writes
+and fsyncs a same-directory temporary file, atomically replaces the source,
+and fsyncs the directory. Exact backups are safely reusable on retry, a
+pre-existing backup whose bytes differ from the source, whose mode is readable
+beyond the owner, or that cannot be read at all is refused rather than treated
+as satisfied, an already-target-version source is a no-op, and a post-replace
+directory-sync failure restores the old bytes before returning an error. A
+failure injected at each durable step leaves the selected file exactly as it
+was, and a rollback that itself fails is reported as a recovery failure rather
+than an ordinary sync failure. Every file the migration stages is fsynced before
+it becomes visible, not only the last one, and the replacement inherits the
+selected file's exact permission bits rather than widening or tightening them.
+Migration retains every Configuration 1.0.0 member: the member set is derived
+from the versioned wire type and a source that carries every member at a
+non-default value is compared as a whole loaded `Configuration` before and after
+each supported target, so a member an encoder drops cannot decay silently to its
+default. `AssessCompatibility`
+reads only the schema envelope and reports `read-only-diagnostic` when a reader
+is older than the document; it exposes no decoded configuration or writer path,
+and the mode is pinned across the full cross-product of pinned Configuration
+versions, so the one-major step is asserted alongside the two-major one.
+
+These are package entry points, not an advertised `ax migrate config` command
+or `doctor` result. The package still does not enumerate environment variables,
+copy ambient credentials, interpret unknown AX_* names, mutate roots, or claim
+runtime capability/backend availability. Existing selected roots are checked
+for directory kind, while absent roots remain eligible for
+the later owner-only initialization boundary. An absent config with a missing
+or non-directory parent, a wrong existing file kind, a read failure, and a root
+inspection failure remain distinct through `errors.Is`; rendered loader errors
+omit wrapped OS/filesystem details so selected machine-local paths cannot leak.
+
+The two seams take deliberately different symlink stances, and both are pinned
+in both directions at their real `LoadOS` and `MigrateOS` entries. The read seam
+resolves symlinks and then applies the Section 3.2 value kind to the resolved
+target: a configuration file symlinked onto a regular file loads, a root
+symlinked onto a directory loads, and either link pointed at the wrong kind
+still fails closed with the same typed refusal a direct path would produce. The
+pinned specification states no no-follow requirement for these five classes and
+resolves symlinks before comparison where it speaks about them at all, so
+refusing an ordinary dotfiles or Application Support symlink would be an
+invented constraint; a dangling configuration symlink accordingly resolves to a
+not-yet-created regular-file path whose parent exists, which `Load` admits
+without creating anything. The durable migration seam does not follow symlinks,
+because its atomic rename would replace the operator's link rather than the
+document the link points at, silently detaching it and leaving the real document
+holding stale bytes. The specification is silent about that mutation, so the
+mutating path fails closed: a selected file that is not itself a regular file is
+refused with `ErrConfigNotRegular` before any backup, staging file, or
+replacement is written, and the refusal leaves the directory exactly as it was.
+
+Run the focused tests and assigned-scope traceability gate with:
+
+    go test ./internal/config -count=1 -v
+    go test ./internal/config -cover -count=1
+    go run ./internal/traceability/cmd/tracecheck \
+      -section 3.2 \
+      -section 6.1 -section 6.2 -section 6.3 -section 6.4 -section 6.5 \
+      -section 17.1 -section 17.2 -section 17.4
+
 ## Canonical JSON and Immutable Object Identities
 
 [`internal/canonicaljson`](internal/canonicaljson) exposes the production RFC
@@ -270,7 +397,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
 repository gate used by CI. Its reviewed
 [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
 registry independently enumerates implementation owners for all 60 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 29
+contract rows, 36 pinned or catalog-referenced normative section keys, 30
 executable acceptance cases, and 30 exact fixture identities or Appendix D
 anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
 The generated v0.5.0 catalog also carries the reviewed schema/version/self-field
@@ -325,8 +452,9 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | --- | --- | --- | --- |
 | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
-| Go toolchain | Verify global and assigned-scope specification ownership, validate and fuzz common wire scalars and canonical identities, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4 -section 17.3`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate and fuzz common wire scalars and canonical identities, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.1 -section 6.2 -section 6.3 -section 6.4 -section 6.5 -section 17.1 -section 17.2 -section 17.4`; `go test ./internal/config -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
+| `github.com/pelletier/go-toml/v2` | Parse and emit TOML while the repository-owned Configuration layer enforces exact versioned closed schemas | Imported by `internal/config.Decode`, `internal/config.EncodeCurrent`, and explicit `internal/config.Migrate` at pinned module version `v2.4.3` | Validated Configuration values/TOML bytes in memory; explicit migration writes a same-directory replacement plus an owner-only versioned backup |
 | GitHub Actions | Enforce traceability, generated-output, test, vet, and build gates on pull requests and `main` | `.github/workflows/ci.yml` | GitHub-hosted CI check results |
 | Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
 | GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |
@@ -334,6 +462,12 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 Temporary validation logs and worktrees belong under `.temp/<TASK-ID>/` and
 must not be committed. Diagrams, when implementation work introduces them,
 belong under `diagrams/`.
+
+Configuration loading, migration, and downgrade assessment use the existing Go
+toolchain entry in the tools table. Focused outputs are Go test/coverage results
+and the read-only traceability report; migration writes only when its explicit
+production entry is called, and task-scoped captured logs belong under
+`.temp/<TASK-ID>/`.
 
 ## Contribution Baseline
 

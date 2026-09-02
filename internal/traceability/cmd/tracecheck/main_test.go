@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
+	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=35 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
 	if output.String() != want {
 		t.Fatalf("run() output = %q, want %q", output.String(), want)
 	}
@@ -54,9 +54,38 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run(assigned sections) error = %v", err)
 	}
-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=29 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
+	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=35 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
 	if output.String() != want {
 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+	}
+}
+
+func TestRunAssignedConfigPathSectionUsesScopedImplementationOwner(t *testing.T) {
+	t.Parallel()
+
+	repositoryRoot := filepath.Join("..", "..", "..", "..")
+	var output bytes.Buffer
+	if err := run([]string{"-root", repositoryRoot, "-section", "3.2"}, &output); err != nil {
+		t.Fatalf("run(-section 3.2) error = %v", err)
+	}
+	if !strings.Contains(output.String(), "assigned_scopes=1") {
+		t.Fatalf("run(-section 3.2) output = %q, want assigned_scopes=1", output.String())
+	}
+}
+
+func TestRunAssignedVersionedConfigSectionsUseScopedImplementationOwners(t *testing.T) {
+	t.Parallel()
+
+	repositoryRoot := filepath.Join("..", "..", "..", "..")
+	for _, section := range []string{"6.1", "6.2", "6.3", "6.4", "6.5", "17.1", "17.2"} {
+		var output bytes.Buffer
+		if err := run([]string{"-root", repositoryRoot, "-section", section}, &output); err != nil {
+			t.Errorf("run(-section %s) error = %v", section, err)
+			continue
+		}
+		if !strings.Contains(output.String(), "assigned_scopes=1") {
+			t.Errorf("run(-section %s) output = %q, want assigned_scopes=1", section, output.String())
+		}
 	}
 }
 
