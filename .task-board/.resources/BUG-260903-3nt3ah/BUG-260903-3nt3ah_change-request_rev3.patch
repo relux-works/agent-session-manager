@@ -1,0 +1,982 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index dac040a..6c6fdb2 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,45 @@
+ 
+ ## 2026-09-03
+ 
++### 0626 — Third instance of one class in one comment: the pin proved the digit and never the noun
++
++- ROOT CAUSE: the 0559 fix rewrote `Canonicalize`'s intro to say it rejects "any document that **opens** more than 256 containers". `maxNestingDepth` bounds containers *open at once*. Driven through the real exported entry point, `[[],[],…×400]` opens 401 containers at depth 2 and canonicalizes to 1201 bytes with `err=<nil>`; `{"k0":{},…×400}` likewise. The accurate wording already existed 135 lines above, on the constant itself — "may be open at once" — and the rewrite restated it in the exported doc while dropping the three words that made it true.
++- FINDING: N5's class, third time, same comment. rev1 shipped it as a false *behaviour* claim, rev1→rev2 fixed it into a false *citation*, rev2 shipped it as a false *refusal* claim about containers. Each fix was correct about the thing it was fixing and reintroduced the class one clause over. The 0559 entry rejects this pattern one paragraph before it recurred.
++- FINDING: **the pin blessed it.** `TestCanonicalizeDocumentedContainerLimitIsTheEnforcedOne` string-matched `"more than 256 containers"` and then drove only *nested* arrays at 256 and 257 — evidence consistent with a depth bound and with a count bound alike. It proved the number and never the quantity the number bounds. A test that is green under both readings of the claim it pins is not pinning the claim; and this was the one positive-path-shaped assertion in a file built to avoid exactly that.
++- FIX: the clause states "holds more than 256 containers open at once", and the assertion moved out of free prose into the row form this file already uses for rounding — `400 sibling arrays open 401 containers, 2 at once: accepted`, `256 nested … 256 at once: accepted`, `257 nested … 257 at once: refused`. Each row is built from its own text, both quantities are **re-measured from the document bytes** rather than recomputed from the shape that produced them, and the verdict is driven through `Canonicalize`. Three coverage requirements must stay satisfiable by the rows: the limit is reachable, the limit is enforced, and one accepted row opens more than the limit — the third is the fact that makes a count reading false, so shrinking the block back to the nested rows reddens instead of quietly restoring the ambiguity.
++- FINDING: the qualifier is checked at *every* occurrence in the prose, not once. `strings.Contains` is satisfied by a comment that states the clause correctly here and incorrectly there — the same presence-check hole that let mutant N8 add a false SPEC clause beside the true one at 0559. Rows are exempt from the scan because they are not prose: a row that misstates the quantity fails on behaviour.
++- EVIDENCE: ten mutants, each confirmed present in the source before measuring, all exit 1, no survivors. R1 reverts to the rev2 count wording; R2 flips the sibling row's verdict; R3 deletes the sibling row (delete-only, the coverage requirement fires); R4 lies about the row's own arithmetic, 401→402; R5 drifts the digit 256→512; **R6 narrows production into a genuine count bound** — refuse when `[`+`{` exceed `maxNestingDepth` — which keeps the doc's number true and reddens only because the noun is now driven; R7 adds a false count claim beside the true clause; R8 drifts a rounding row (parser regression control for the new row form); R9 narrows the depth guard to `maxNestingDepth-1`; R10 renames the test the comment cites.
++- NOTE: general property. When a documented bound names a number and a quantity, a pin that varies only the number cannot distinguish the two readings. Vary the quantity: drive a case that is far past the number under one reading and nowhere near it under the other.
++- SCOPE: `internal/canonicaljson/canonical.go` (comments only), `internal/canonicaljson/canonical_number_contract_test.go`, `README.md`, `LOGBOOK.md`. No production logic changed; `canonical_test.go` and `internal/specdoc/` byte-for-byte unchanged. Package coverage 97.2%, unchanged.
++- RESIDUAL: unchanged and still real — claims about RFC 8785 itself stay unmeasured, and free prose outside the enumerated rows, names and citations is still unchecked. The container clause is the second demonstration that this bound has a cost rather than being hypothetical; the treatment each time is to move the claim into a driven row, not to widen the disclaimer.
++- ANOMALY: `curator status --check` still exits 1 with `worktree: go-testing-tools not-installed`, pre-existing Story-worktree provisioning state; this diff touches no Curator-managed path. Reported failing, not explained away.
++- STATUS: Ready for review. BUG-260903-3nt3ah rev3.
++
++### 0559 — The fix for a false claim shipped a false citation, and the bound that let it through said "unmeasurable" where the package already measured
++
++- ROOT CAUSE: the 0553 fix rewrote `Canonicalize`'s doc comment and attributed "before identity calculation" to normative fixture `NUM-UNSAFE-ROUND`. That phrase is the `NUM-UNSAFE-NUMBER` row, `SPEC.md:301`; `NUM-UNSAFE-ROUND` is `SPEC.md:302` and says "Reject from the JSON number token before conversion to a host double". `LOGBOOK.md` repeated the false quotation. N5 was "an exported doc comment asserts a refusal the function does not perform"; its fix was "an exported doc comment asserts a citation the specification does not contain" — the same class, moved from behaviour to citation.
++- FINDING: the decision survives and is strengthened. `NUM-UNSAFE-ROUND`'s real text describes this implementation more exactly than the row that was quoted, because `validateAXNumbers` refuses on the `json.Number` token before any conversion to a host double. Both fixtures are now cited, each from its own row.
++- FINDING: the enabling defect was not the misquote, it was the disclosure under it. `canonical_number_contract_test.go` declared the specification quotations "which no test can verify against their sources from inside this package" while `constraint_excerpt_test.go` in the same package already imported `internal/specdoc` and did exactly that. An unmeasured area reported as unmeasurable — "nothing is there" where the truth was "nothing this checker looked at". The RFC 8785 half of that sentence is genuinely unverifiable in-repo and stays; the SPEC half became a gate.
++- FIX: the doc comment now carries `SPEC.md:<line> [FIXTURE] "verbatim text"` rows parsed out of the comment itself and checked against the digest-pinned document. Four conditions per citation: the quote occurs in `SPEC.md`, **exactly once**, beginning at the declared line, and when a fixture is named it is the row `TableRowAt` says declares that fixture. Uniqueness is what stops a citation being *weakened* instead of corrected — `"Reject"` still begins at `SPEC.md:302` and now fails, because it also begins at nine other lines.
++- FINDING: presence checks cannot see an added false claim. The first draft required the doc to mention the clause its citations land in, via `strings.Contains`. Mutant N8 — adding "in Section 1.5" beside the true "Section 1.6" — **survived green**. Rewritten as set equality between the clauses the comment names and the clauses the citations land in; N8 then reddens with `names SPEC.md clauses [1.5 1.6], but every citation lands in [1.6]`. A gate that only confirms the truth is present is not a gate against lies being added.
++- EVIDENCE: nine mutants, each confirmed present in the source before measuring, all exit 1. N1 re-points a fixture attribution to the neighbouring row; N2 re-points the line; N3 weakens the quote to a non-unique fragment; N4 deletes the citation rather than correcting it (required-citation set fires); N5 cites a fixture row without naming the fixture; N6 drifts the documented container limit from `maxNestingDepth`; N7 renames the Appendix B pin the comment names; N8/N9 falsify the clause claim by addition and by substitution.
++- SCOPE: `internal/canonicaljson/canonical.go` (comments only), `internal/canonicaljson/canonical_number_contract_test.go`, `README.md`, `LOGBOOK.md`. Secondaries fixed: the stale `canonical.go:199` citation in the 0553 entry now names `prepareObjectIdentity` instead of a line number that had already moved to 256; the comment states `256` rather than the unexported `maxNestingDepth`, tied to the constant and to accept-at-256/refuse-at-257 through the real entry point.
++- RESIDUAL: claims about RFC 8785 itself stay unmeasured. `TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample` catches drift between this implementation and a **vendored transcription** of Appendix B; drift between that transcription and the RFC is not detectable here, because RFC 8785 is not vendored. Stated in the file as a bound rather than as an absence.
++- STATUS: Ready for review. BUG-260903-3nt3ah rev2.
++
++### 0553 — A doc comment that promises a refusal is only pinnable if the doc is the test's input
++
++- ROOT CAUSE: `Canonicalize`'s doc comment claimed it "rejects malformed UTF-8, invalid surrogate escapes, duplicate object names, and non-I-JSON input". Three of the four were true. The fourth was not: RFC 8785 Section 3.2.2.3 serializes numbers through the ECMAScript `Number.prototype.toString` algorithm on the binary64 value, so `canonical.go` rounded `9007199254740993` to `9007199254740992`, `18446744073709551615` to `18446744073709552000`, and `1.0` to `1`. No live defect — the identity path is gated by `validateAXNumbers`, called from `prepareObjectIdentity` — but `Canonicalize` is exported, so the first external caller would have inherited a guarantee it does not provide. Audit finding N5, the last of the thirteen second-audit findings.
++- DECISION: option (b), document the rounding as intended, not (a), make it refuse. Both authorities the AC names point the same way. RFC 8785 Appendix B publishes the rounded outputs as *normative test data* and two of its samples are this exact rounding (`0x4340000000000000` → `9007199254740992`, `0x4430000000000000` → `295147905179352830000`), pinned at `canonical_test.go:47-70`; refusing in `Canonicalize` means refusing to be an RFC 8785 canonicalizer and deleting that test. The pinned SPEC never put the refusal there: it puts it on the AX *decoder*: fixture `NUM-UNSAFE-NUMBER` (SPEC.md:301) says "Reject **before identity calculation** with `incompatible_schema`", and `NUM-UNSAFE-ROUND` (SPEC.md:302) says "Reject **from the JSON number token before conversion to a host double**; an implementation that first rounds it to 9007199254740992 is nonconforming". Identity calculation is `CalculateObjectIdentity`/`VerifyObjectIdentity`, and `validateAXNumbers` runs inside `prepareObjectIdentity` before any canonical bytes exist. The implementation already conformed; only the prose lied.
++- FINDING: a doc comment cannot be pinned by a test that *restates* it — that just moves the same unverified claim into a second file where it can drift identically. The pin only works if the comment is the test's **input**. `canonical_number_contract_test.go` parses the `literal -> canonical` rows and the exported entry-point names out of the `Canonicalize` doc with `go/parser` and checks them against real behaviour and against the entry-point set derived from the production call graph. Editing prose without code reddens (M3, M4); editing code without prose reddens (M5). An indented line in the comment that is neither a row nor an exported name is a hard failure, so documented-but-unchecked text cannot accumulate.
++- FINDING: the negative test needed a carrier no other validator would catch. `extensions` is it — `validateExtensionValue` in `closed_shapes.go:1833` accepts any `json.Number` unexamined — so an unsafe integer smuggled through an otherwise valid Session Record can only be refused by `validateAXNumbers`. A green baseline with a safe extension number runs first, or the three refusals would prove nothing.
++- REGRESSION AVOIDED: the first draft derived its own AST call graph recording only `call.Fun.(*ast.Ident)` edges and skipping methods — the identical construction the 0210 entry measured at 3 of 7 UTF-8 guards while it looked complete. Rewritten to reuse `productionCallGraph`/`exportedProductionEntryPoints`/`reachableProductionFunctions` from `utf8_subsumption_test.go`. Shipping a second, weaker graph beside the hardened one would have reopened a blind spot this board had already paid to close, in the same package, three hours later.
++- EVIDENCE: six mutants, each confirmed present in the source before its test was measured. M1 **narrows** rather than deletes — `integer > maxSafeInteger` → `maxSafeInteger+2`, gate still in place, bound moved by two — and the negative test still catches `9007199254740993`. M2 deletes the gate. M3/M4 drift the doc. M5 makes `Canonicalize` call `validateAXNumbers` and the derived set correctly grows to include `CanonicalByteLength`. M6 registers `validateAXNumbers` in a function-value table and routes the gate through it: **behaviour unchanged, `go build` exit 0, negative test still green at exit 0**, and only `TestValidateAXNumbersHasNoCallSiteThisGraphCannotSee` reddens.
++- FINDING: M6 is what separates a stated bound from a held one. The graph resolves a computed callee to every function whose identifier is used as a value in the package, so the derived entry-point set is exact *only while* `validateAXNumbers` is never used as a value. That precondition is not narration — it is the single test standing between a dispatch-table registration and a silently widened set with the whole suite `ok`.
++- SCOPE: `internal/canonicaljson/canonical.go` (comments only — `Canonicalize`, `CalculateObjectIdentity`, `VerifyObjectIdentity`, `validateAXNumbers`; no logic changed), `internal/canonicaljson/canonical_number_contract_test.go` (new), `README.md`. `canonical_test.go` byte-for-byte unchanged. Package coverage 97.2%, unchanged.
++- ANOMALY: `curator status --check` exits 1 with `worktree: go-testing-tools not-installed`. Pre-existing Story-worktree provisioning state — `.claude/skills/` does not exist in the worktree at all and this diff touches no Curator-managed path. Reported failing, not explained away.
++- STATUS: Ready for review. BUG-260903-3nt3ah. Closes the second adversarial audit's thirteenth and last finding.
++
+ ### 0412 — Symbol reachability is not semantic coverage, and 48 bindings measured 2/394
+ 
+ - ROOT CAUSE: `internal/traceability` proved two things about a `section_binding` — the named Go declaration parses and exists, and the linked acceptance case is registered with an executable test. Neither compares the implementation against the section it claims, so a sliver satisfied a whole-section binding and `tracecheck -section X` reported it as owned. `section:2.2` (22 unconditional lease/replica invariants) was bound to `validateSessionRecordCommon`, which validates one enum and a name grammar; `section:18.4` (audit retention) was bound to `OpenProjection`, and no retention code exists. Three independently produced branches reached that state without anyone noticing.
+diff --git a/README.md b/README.md
+index a8a030c..3d9f344 100644
+--- a/README.md
++++ b/README.md
+@@ -628,6 +628,31 @@ deep peer object meets. The suite pins the literal value, proves accept-at-limit
+ and refuse-past-limit at every public entry in array, object, and mixed
+ container shapes, and replays the original 2,000,000-byte nested-array crash
+ input as a typed refusal.
++The AX safe-integer refusal is not part of `Canonicalize` and must not be: RFC
++8785 Section 3.2.2.3 serializes numbers through the ECMAScript double-to-string
++algorithm, so `Canonicalize` rounds `9007199254740993` to `9007199254740992`,
++`18446744073709551615` to `18446744073709552000`, and `1.0` to `1`, exactly as
++Appendix B publishes. The specification puts that refusal on the AX decoder
++instead: Section 1.6 fixture `NUM-UNSAFE-NUMBER` (SPEC.md:301) requires
++rejection "before identity calculation", and `NUM-UNSAFE-ROUND` (SPEC.md:302)
++requires rejection "from the JSON number token before conversion to a host
++double". So `CalculateObjectIdentity`, `VerifyObjectIdentity`,
++`ValidateObservationEvent` and `ValidateObservationStream` reject all three
++literals with a typed error while `Canonicalize` documents the rounding as
++intended behaviour. The split is pinned rather than asserted in prose: the
++`literal -> canonical` rows, the entry-point names and the `SPEC.md:<line>`
++citations are parsed out of the `Canonicalize` doc comment and checked against
++real behaviour, against the entry-point set derived from the production call
++graph, and against the digest-pinned document in `internal/specdoc` — a quoted
++fragment must occur there exactly once, begin at the declared line, and, when a
++fixture is named, be the row that declares it. The same comment's container
++clause is pinned the same way: it bounds containers open at once, not containers
++opened, so `Canonicalize` accepts a shallow array of 400 empty arrays that opens
++401 containers and refuses 257 nested ones, and each of those rows is built,
++measured and driven through the exported entry point. A doc edit without a code
++edit, a code edit without a doc edit, a widened or deleted safe-integer bound, a
++depth bound restated as a count of containers opened, and a quotation re-pointed
++at a neighbouring fixture row each redden the suite.
+ Every open `extensions` map is validated against the Section 1.6 reverse-DNS
+ key, member-count, nesting-depth, and canonical-size rules before either entry
+ attests it. Declared `string[n..m]` bounds count Unicode characters rather than
+diff --git a/internal/canonicaljson/canonical.go b/internal/canonicaljson/canonical.go
+index 1fb8d78..f281344 100644
+--- a/internal/canonicaljson/canonical.go
++++ b/internal/canonicaljson/canonical.go
+@@ -153,9 +153,72 @@ func validateSchemaIdentityContracts(contracts map[schemaIdentityKey]schemaIdent
+ 	return nil
+ }
+ 
+-// Canonicalize is the production RFC 8785 entry point. It rejects malformed
+-// UTF-8, invalid surrogate escapes, duplicate object names, and non-I-JSON
+-// input before producing the canonical UTF-8 byte sequence.
++// Canonicalize is the production RFC 8785 entry point. It decodes input through
++// the shared strict decoder, so it rejects malformed UTF-8, lone or unpaired
++// surrogate escapes, unescaped control characters inside strings, duplicate
++// object names, trailing data after the top-level value, and any document that
++// holds more than 256 containers open at once. What survives is returned as the
++// RFC 8785 canonical UTF-8 byte sequence.
++//
++// That last bound is a nesting depth, not a count of the containers a document
++// opens. Only simultaneously open containers cost decoder stack frames, which
++// is the exhaustion this refusal exists to prevent, so a shallow document is
++// accepted however many containers it opens in total. Each row below is built
++// and driven through this function by
++// TestCanonicalizeDocumentedContainerLimitIsADepthNotACount:
++//
++//	400 sibling arrays open 401 containers, 2 at once: accepted
++//	256 nested arrays open 256 containers, 256 at once: accepted
++//	257 nested arrays open 257 containers, 257 at once: refused
++//
++// WHAT THIS FUNCTION DOES NOT REFUSE.
++//
++// It does not enforce the AX common logical number model, and it must not.
++// RFC 8785 Section 3.2.2.3 serializes every number through the ECMAScript
++// Number.prototype.toString algorithm applied to the IEEE 754 binary64 value,
++// and Appendix B publishes the resulting rounded outputs as normative test
++// data. A literal that binary64 cannot hold exactly is therefore rounded to the
++// nearest double and canonicalized from there rather than refused:
++//
++//	9007199254740993 -> 9007199254740992
++//	18446744073709551615 -> 18446744073709552000
++//	1.0 -> 1
++//
++// That is the intended behaviour of a JCS transform, not a gap in it. Refusing
++// those literals here would contradict Appendix B, whose own published samples
++// include 9007199254740992 and 295147905179352830000 as canonical outputs of
++// exactly this rounding, and which this package pins in
++// TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample.
++//
++// DIVISION OF GUARANTEES.
++//
++// The pinned specification does not put the safe-integer refusal on the
++// canonicalization step. It puts it on the AX decoder, on the JSON number token
++// itself, and Section 1.6 says so both as a MUST clause and as two normative
++// boundary fixtures. Each fragment below is quoted verbatim from the pinned
++// internal/specdoc/SPEC.md at the line named, and a fragment attributed to a
++// fixture is quoted from the table row that declares that fixture:
++//
++//	SPEC.md:292 "A decoder MUST reject a numeric literal at or beyond <code>2^53</code> even if its host language can represent it"
++//	SPEC.md:295 "Implementations MUST NOT round a value and continue."
++//	SPEC.md:301 NUM-UNSAFE-NUMBER "Reject before identity calculation with <code>incompatible_schema</code>"
++//	SPEC.md:302 NUM-UNSAFE-ROUND "Reject from the JSON number token before conversion to a host double; an implementation that first rounds it to 9007199254740992 is nonconforming"
++//
++// NUM-UNSAFE-ROUND describes this implementation exactly: validateAXNumbers
++// refuses the literal on the json.Number token, before any conversion to a host
++// double, and it runs inside prepareObjectIdentity before any canonical bytes
++// exist. It is reached from these exported entry points, each of which refuses
++// all three literals above with a typed error:
++//
++//	CalculateObjectIdentity
++//	VerifyObjectIdentity
++//	ValidateObservationEvent
++//	ValidateObservationStream
++//
++// Canonicalize itself carries no such guarantee. It is a byte transform over
++// whatever RFC 8785 accepts, and this package exports no standalone AX number
++// validator, so a caller that needs the AX number model must reach it through
++// one of the entry points named above rather than by canonicalizing first.
+ func Canonicalize(input []byte) ([]byte, error) {
+ 	value, err := decodeStrict(input)
+ 	if err != nil {
+@@ -180,6 +243,11 @@ func Canonicalize(input []byte) ([]byte, error) {
+ // contract, omits that field, applies RFC 8785 JCS, and returns the SHA-256
+ // identity. Callers cannot select an arbitrary field to omit, which prevents
+ // self inclusion and digest cycles.
++//
++// This is where the AX safe-integer refusal lives, not in Canonicalize: a
++// literal at or beyond 2^53, or any floating-point literal, is refused here
++// with ErrInvalidIdentity before canonical bytes are produced. See the DIVISION
++// OF GUARANTEES note on Canonicalize.
+ func CalculateObjectIdentity(input []byte) (scalar.Digest, SelfField, error) {
+ 	object, selfField, _, err := prepareObjectIdentity(input)
+ 	if err != nil {
+@@ -235,7 +303,9 @@ func calculatePreparedObjectIdentity(object map[string]any, selfField SelfField)
+ }
+ 
+ // VerifyObjectIdentity drives the same production calculation and refuses a
+-// malformed, self-included, or otherwise mismatched claimed identity.
++// malformed, self-included, or otherwise mismatched claimed identity. It shares
++// prepareObjectIdentity with CalculateObjectIdentity, so it carries the same AX
++// safe-integer guarantee that Canonicalize does not.
+ func VerifyObjectIdentity(input []byte) (scalar.Digest, SelfField, error) {
+ 	object, selfField, claimed, err := prepareObjectIdentity(input)
+ 	if err != nil {
+@@ -408,6 +478,12 @@ func decodeValue(decoder *json.Decoder, depth int) (any, error) {
+ 	}
+ }
+ 
++// validateAXNumbers is the AX decoder half of the split documented under
++// DIVISION OF GUARANTEES on Canonicalize. It walks the decoded value and
++// refuses every literal the common logical data model forbids, on the
++// json.Number token rather than on a host double, so an unsafe integer is
++// rejected instead of rounded. Canonicalize deliberately does not call it;
++// every exported entry point that promises the AX number model does.
+ func validateAXNumbers(value any) error {
+ 	switch typed := value.(type) {
+ 	case json.Number:
+diff --git a/internal/canonicaljson/canonical_number_contract_test.go b/internal/canonicaljson/canonical_number_contract_test.go
+new file mode 100644
+index 0000000..da24359
+--- /dev/null
++++ b/internal/canonicaljson/canonical_number_contract_test.go
+@@ -0,0 +1,774 @@
++package canonicaljson
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"go/ast"
++	"go/parser"
++	"go/token"
++	"regexp"
++	"sort"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/specdoc"
++)
++
++// Canonicalize once documented that it rejects "non-I-JSON input". It does not:
++// RFC 8785 Section 3.2.2.3 serializes numbers through the ECMAScript
++// double-to-string algorithm, so 9007199254740993 canonicalizes to
++// 9007199254740992 and 1.0 canonicalizes to 1. The doc comment now states that
++// rounding as intended behaviour and hands the AX safe-integer refusal to the
++// entry points that actually perform it.
++//
++// A doc comment cannot notice when it stops matching the code underneath it,
++// and this whole defect class IS the doc and the behaviour disagreeing. So the
++// tests in this file take the doc comment as the expectation rather than
++// restating it: the `literal -> canonical` rows and the entry-point names are
++// parsed out of the comment on Canonicalize in canonical.go and checked against
++// what the package really does. Editing the prose without editing the code
++// reddens here, and so does editing the code without editing the prose.
++//
++// WHAT IS PINNED, AND WHAT IS NOT.
++//
++// Machine-checked: every `literal -> canonical` row, the required-literal set
++// below, the list of exported entry points named under DIVISION OF GUARANTEES
++// (compared against the set derived from the production call graph), every
++// `SPEC.md:<line>` citation (quoted verbatim against the digest-pinned document
++// in internal/specdoc, required to be unique, to begin at the declared line, and
++// where a fixture is named, to be the row that declares that fixture), the
++// required-citation set below, the container limit together with the quantity
++// it bounds and every `<n> arrays open <m> containers` row, every test name the
++// comment mentions, and the absence of the retracted "non-I-JSON" claim.
++//
++// Not machine-checked: the rest of the prose, including every claim about
++// RFC 8785 — its Section 3.2.2.3 algorithm and the contents of its Appendix B.
++// RFC 8785 is not vendored in this repository, so no test here can compare a
++// claim about it against its source. What is checked instead is one step
++// downstream: TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample
++// drives Canonicalize against a vendored transcription of the Appendix B
++// samples, so a drift between this implementation and that transcription is
++// caught while a drift between the transcription and the RFC is not. That bound
++// is a real one. The
++// specification quotations were once covered by the same sentence, and that was
++// false — internal/specdoc embeds SPEC.md byte-exact under the pinned digest and
++// internal/canonicaljson/constraint_excerpt_test.go had already been checking
++// excerpts against it in this package. An unmeasured area was reported as
++// unmeasurable, and the doc comment shipped a quotation attributed to the wrong
++// fixture row underneath it. The pin is bounded to the enumerated rows, names
++// and citations; it is not "the doc comment cannot lie".
++//
++// That bound has now cost twice, in the same comment, and the second time is
++// what added the container rows. Revision 2 stated the depth limit as "opens
++// more than 256 containers", which is a refusal the function does not perform:
++// maxNestingDepth bounds containers open at once, so a shallow array of 400
++// empty arrays opens 401 containers and canonicalizes normally. The pin of the
++// day matched the digit 256 and drove only nested arrays, so it proved the
++// number and never the quantity, and the false clause shipped green. The
++// treatment is the treatment used for the rounding claim: move the assertion
++// out of free prose into a row form the test builds, measures and drives.
++
++// auditedRoundedLiterals are the three literals the audit finding named. The
++// doc comment must keep documenting each of them, so shrinking the table back
++// to a comfortable subset reddens instead of quietly narrowing the disclosure.
++var auditedRoundedLiterals = []string{
++	"9007199254740993",
++	"18446744073709551615",
++	"1.0",
++}
++
++// requiredSpecCitationLines are the pinned SPEC.md lines the DIVISION OF
++// GUARANTEES note must keep citing, and requiredSpecCitationFixtures the
++// normative fixtures it must keep naming. Without them a citation could be
++// deleted rather than corrected, and the doc comment would shrink its own
++// obligation until the gate below had nothing left to check — the failure mode
++// the audited literal set above exists to prevent.
++var (
++	requiredSpecCitationLines    = []int{292, 295, 301, 302}
++	requiredSpecCitationFixtures = []string{"NUM-UNSAFE-NUMBER", "NUM-UNSAFE-ROUND"}
++)
++
++// canonicalizeDocContract is the machine-readable part of the Canonicalize doc
++// comment.
++type canonicalizeDocContract struct {
++	text        string
++	rounding    map[string]string
++	entryPoints []string
++	citations   []specCitation
++	containers  []containerRow
++}
++
++// containerRow is one `<n> <shape> arrays open <opened> containers, <atOnce> at
++// once: <verdict>` row of the doc comment. The row states both quantities
++// separately because the whole point of the block is that they are different
++// quantities and only one of them is bounded.
++type containerRow struct {
++	arrays   int
++	shape    string
++	opened   int
++	atOnce   int
++	accepted bool
++	text     string
++}
++
++func (row containerRow) String() string { return row.text }
++
++// specCitation is one `SPEC.md:<line> [FIXTURE] "text"` row of the doc comment.
++// fixture is empty when the row is not attributed to a normative fixture.
++type specCitation struct {
++	line    int
++	fixture string
++	text    string
++}
++
++func (citation specCitation) String() string {
++	if citation.fixture == "" {
++		return fmt.Sprintf("SPEC.md:%d %s", citation.line, strconv.Quote(citation.text))
++	}
++	return fmt.Sprintf("SPEC.md:%d %s %s", citation.line, citation.fixture, strconv.Quote(citation.text))
++}
++
++// TestCanonicalizeDocumentedRoundingIsWhatCanonicalizeActuallyDoes drives the
++// real exported entry point with each literal the doc comment claims is rounded
++// rather than refused, and requires the documented output byte for byte.
++func TestCanonicalizeDocumentedRoundingIsWhatCanonicalizeActuallyDoes(t *testing.T) {
++	contract := parseCanonicalizeDocContract(t)
++
++	for _, literal := range auditedRoundedLiterals {
++		if _, ok := contract.rounding[literal]; !ok {
++			t.Fatalf("Canonicalize doc comment no longer documents the rounding of %s; the audited literal set is %v", literal, auditedRoundedLiterals)
++		}
++	}
++
++	for _, literal := range sortedKeys(contract.rounding) {
++		want := contract.rounding[literal]
++		t.Run(literal, func(t *testing.T) {
++			got, err := Canonicalize([]byte(literal))
++			if err != nil {
++				t.Fatalf("Canonicalize(%s) error = %v, want the documented canonical form %q", literal, err, want)
++			}
++			if string(got) != want {
++				t.Fatalf("Canonicalize(%s) = %q, but the doc comment documents %q", literal, got, want)
++			}
++		})
++	}
++}
++
++// TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint is the
++// negative half. Each documented literal is carried into an otherwise valid
++// Session Record through an `extensions` member, which is the one place a
++// number survives every closed-shape validator: validateExtensionValue accepts
++// any json.Number without inspecting it. So the refusal proven here can only
++// come from validateAXNumbers, and removing or widening that gate reddens this
++// test rather than being caught by some other guard.
++func TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint(t *testing.T) {
++	contract := parseCanonicalizeDocContract(t)
++
++	baseline := mustJSON(t, sessionRecordWithExtensionNumber(json.Number("1")))
++	if _, _, err := CalculateObjectIdentity(baseline); err != nil {
++		t.Fatalf("CalculateObjectIdentity(fixture carrying a safe extension number) error = %v, want acceptance; the refusals below would prove nothing", err)
++	}
++
++	for _, literal := range sortedKeys(contract.rounding) {
++		t.Run(literal, func(t *testing.T) {
++			candidate := mustJSON(t, sessionRecordWithExtensionNumber(json.Number(literal)))
++			want := "outside the AX safe-integer interval"
++			if strings.ContainsAny(literal, ".eE") {
++				want = "floating-point number"
++			}
++
++			digest, _, err := CalculateObjectIdentity(candidate)
++			if err == nil {
++				t.Fatalf("CalculateObjectIdentity(extensions number %s) = %q, nil; want a refusal containing %q", literal, digest, want)
++			}
++			if !errors.Is(err, ErrInvalidIdentity) || !strings.Contains(err.Error(), want) {
++				t.Fatalf("CalculateObjectIdentity(extensions number %s) error = %v, want ErrInvalidIdentity containing %q", literal, err, want)
++			}
++
++			if _, _, err := VerifyObjectIdentity(candidate); err == nil || !errors.Is(err, ErrInvalidIdentity) || !strings.Contains(err.Error(), want) {
++				t.Fatalf("VerifyObjectIdentity(extensions number %s) error = %v, want ErrInvalidIdentity containing %q", literal, err, want)
++			}
++
++			event := mustJSON(t, observationEventWithExtensionNumber(json.Number(literal)))
++			if err := ValidateObservationEvent(event); err == nil || !strings.Contains(err.Error(), want) {
++				t.Fatalf("ValidateObservationEvent(extensions number %s) error = %v, want a refusal containing %q", literal, err, want)
++			}
++			if err := ValidateObservationStream([][]byte{event}); err == nil || !strings.Contains(err.Error(), want) {
++				t.Fatalf("ValidateObservationStream(extensions number %s) error = %v, want a refusal containing %q", literal, err, want)
++			}
++		})
++	}
++}
++
++// TestCanonicalizeDocumentsExactlyTheEntryPointsThatEnforceTheAXNumberModel
++// derives the division of guarantees from the production call graph instead of
++// trusting the doc comment's list. An exported function from which
++// validateAXNumbers is reachable promises the AX number model to its callers
++// and must be named; one from which it is not reachable must not be named, and
++// Canonicalize must stay in the second group.
++//
++// The bound is the graph's bound, stated at length on productionCallGraph in
++// utf8_subsumption_test.go: it models identifier calls, methods declared in
++// this package, and dispatch through a function value, and it models neither
++// reflection, nor a function value handed to another package and invoked there,
++// nor a func-typed struct field. Within that model the derived set is exact,
++// because a computed callee is assumed to reach only functions whose identifier
++// is used as a value somewhere in the package, and
++// TestValidateAXNumbersHasNoCallSiteThisGraphCannotSee proves validateAXNumbers
++// is never used that way.
++func TestCanonicalizeDocumentsExactlyTheEntryPointsThatEnforceTheAXNumberModel(t *testing.T) {
++	contract := parseCanonicalizeDocContract(t)
++	derived := exportedFunctionsReaching(t, "validateAXNumbers")
++
++	if len(derived) == 0 {
++		t.Fatal("derived zero exported entry points reaching validateAXNumbers; the AX number model has no production enforcement")
++	}
++	if strings.Join(contract.entryPoints, ",") != strings.Join(derived, ",") {
++		t.Fatalf("Canonicalize doc comment names entry points %v, but validateAXNumbers is reachable from exactly %v", contract.entryPoints, derived)
++	}
++	for _, name := range derived {
++		if name == "Canonicalize" {
++			t.Fatal("Canonicalize now reaches validateAXNumbers, so its documented non-guarantee is false; either revert that call or rewrite the DIVISION OF GUARANTEES note")
++		}
++	}
++	if strings.Contains(contract.text, "non-I-JSON") {
++		t.Fatal("Canonicalize doc comment claims to reject non-I-JSON input again; that claim was retracted because RFC 8785 Section 3.2.2.3 rounds unsafe numeric literals instead of refusing them")
++	}
++}
++
++// TestValidateAXNumbersHasNoCallSiteThisGraphCannotSee holds the precondition
++// that makes the derivation above exact rather than merely sound. The graph
++// resolves a computed callee to every function whose identifier is used as a
++// value in the package, so the moment validateAXNumbers is registered in a
++// dispatch table, every computed call site starts reaching it and the derived
++// entry-point set silently widens to something the doc comment cannot track.
++// Registering it that way must redden here first.
++func TestValidateAXNumbersHasNoCallSiteThisGraphCannotSee(t *testing.T) {
++	_, files := packageProductionFiles(t)
++
++	uses := 0
++	for _, path := range files {
++		parsed := parseProductionFile(t, path)
++		ast.Inspect(parsed, func(node ast.Node) bool {
++			identifier, ok := node.(*ast.Ident)
++			if !ok || identifier.Name != "validateAXNumbers" {
++				return true
++			}
++			uses++
++			return true
++		})
++		ast.Inspect(parsed, func(node ast.Node) bool {
++			call, ok := node.(*ast.CallExpr)
++			if !ok {
++				return true
++			}
++			if identifier, ok := call.Fun.(*ast.Ident); ok && identifier.Name == "validateAXNumbers" {
++				uses--
++			}
++			return true
++		})
++	}
++	// One remaining use is the declaration's own name; anything more is an
++	// identifier used as a value rather than called.
++	if uses != 1 {
++		t.Fatalf("validateAXNumbers appears %d times outside plain calls, want only its declaration; the derived entry-point set is no longer complete", uses)
++	}
++}
++
++// TestCanonicalizeSpecificationCitationsQuoteThePinnedSpecification measures
++// the half of the doc comment that the first revision of this file declared
++// unmeasurable. It is not: internal/specdoc embeds SPEC.md byte-exact, refuses
++// any document whose SHA-256 is not the pinned digest, and exposes the text by
++// line and by table row. The first revision shipped "before identity
++// calculation" attributed to NUM-UNSAFE-ROUND when that phrase is the
++// NUM-UNSAFE-NUMBER row one line above, which is the audited defect class —
++// an authoritative comment asserting something its source does not say — moved
++// from behaviour to citation.
++//
++// Each citation must satisfy four conditions, and the third is what stops a
++// citation being weakened rather than corrected: the quoted text must occur in
++// the pinned document exactly once, so shortening it to a fragment that also
++// appears elsewhere fails instead of passing more easily.
++func TestCanonicalizeSpecificationCitationsQuoteThePinnedSpecification(t *testing.T) {
++	contract := parseCanonicalizeDocContract(t)
++	document, err := specdoc.Load()
++	if err != nil {
++		t.Fatalf("load the pinned specification document: %v", err)
++	}
++
++	seenLines := map[int]bool{}
++	seenFixtures := map[string]bool{}
++	sections := map[string][]specCitation{}
++
++	for _, citation := range contract.citations {
++		seenLines[citation.line] = true
++		if citation.fixture != "" {
++			seenFixtures[citation.fixture] = true
++		}
++
++		if strings.TrimSpace(citation.text) == "" {
++			t.Errorf("citation %s quotes nothing; an empty quote is satisfied by any document", citation)
++			continue
++		}
++
++		lines := document.QuoteLines(citation.text)
++		switch {
++		case len(lines) == 0:
++			t.Errorf("citation %s quotes text that is absent from the pinned SPEC.md", citation)
++			continue
++		case len(lines) > 1:
++			t.Errorf("citation %s quotes text that begins at %v, so it does not identify one place in the pinned SPEC.md; quote enough of the line to be unique rather than a fragment that matches everywhere", citation, lines)
++			continue
++		case lines[0] != citation.line:
++			t.Errorf("citation %s quotes text that begins at SPEC.md:%d, not at the declared line", citation, lines[0])
++			continue
++		}
++
++		row, isRow := document.TableRowAt(citation.line)
++		switch {
++		case citation.fixture == "" && isRow:
++			t.Errorf("citation %s quotes the %q table row that declares %q without naming it; a normative fixture row must be cited by its fixture identifier", citation, row.Header, row.Identifier)
++		case citation.fixture != "" && !isRow:
++			t.Errorf("citation %s attributes the quote to fixture %s, but SPEC.md:%d is not a table body row and so declares no fixture", citation, citation.fixture, citation.line)
++		case citation.fixture != "" && row.Identifier != citation.fixture:
++			t.Errorf("citation %s attributes the quote to fixture %s, but SPEC.md:%d is the row that declares %q", citation, citation.fixture, citation.line, row.Identifier)
++		}
++
++		section, ok := document.SectionID(citation.line)
++		if !ok {
++			t.Errorf("citation %s cites a line outside every numbered SPEC.md clause", citation)
++			continue
++		}
++		sections[section] = append(sections[section], citation)
++	}
++
++	for _, line := range requiredSpecCitationLines {
++		if !seenLines[line] {
++			t.Errorf("Canonicalize doc comment no longer cites SPEC.md:%d; the required citation set is %v", line, requiredSpecCitationLines)
++		}
++	}
++	for _, fixture := range requiredSpecCitationFixtures {
++		if !seenFixtures[fixture] {
++			t.Errorf("Canonicalize doc comment no longer attributes a quotation to normative fixture %s; the required set is %v", fixture, requiredSpecCitationFixtures)
++		}
++	}
++
++	// The comment names the clause its citations come from. That name is a
++	// claim of the same kind as the quotations, so it is checked against the
++	// clause the pinned document actually puts those lines in.
++	//
++	// The check is set equality, not presence. Requiring only that the true
++	// clause is mentioned somewhere lets a second, false clause be added beside
++	// it and stay green — a mutant of exactly that shape survived the first
++	// draft of this gate. Every SPEC.md clause the comment names must be the
++	// one its citations land in.
++	if len(sections) != 1 {
++		t.Fatalf("citations span SPEC.md clauses %v; the doc comment presents them as one clause", sortedSectionIDs(sections))
++	}
++	claimed := documentedSpecSections(contract.text)
++	if strings.Join(claimed, ",") != strings.Join(sortedSectionIDs(sections), ",") {
++		t.Errorf("doc comment names SPEC.md clauses %v, but every citation lands in %v", claimed, sortedSectionIDs(sections))
++	}
++}
++
++// documentedSpecSection matches a clause reference in the doc comment. The
++// optional prefix group exists to exclude "RFC 8785 Section 3.2.2.3": that
++// names a clause of a different document, which is not vendored here and is
++// covered by the stated RFC bound instead.
++var documentedSpecSection = regexp.MustCompile(`(RFC 8785 )?Section ([0-9]+(?:\.[0-9]+)*)`)
++
++// documentedSpecSections returns every pinned-SPEC clause the doc text names.
++func documentedSpecSections(text string) []string {
++	seen := map[string]bool{}
++	var ids []string
++	for _, match := range documentedSpecSection.FindAllStringSubmatch(text, -1) {
++		if match[1] != "" || seen[match[2]] {
++			continue
++		}
++		seen[match[2]] = true
++		ids = append(ids, match[2])
++	}
++	sort.Strings(ids)
++	return ids
++}
++
++// TestCanonicalizeDocumentedContainerLimitIsADepthNotACount ties the doc
++// comment's container clause to maxNestingDepth and to the behaviour on both
++// sides of it.
++//
++// The predecessor of this test checked the digit and never the noun. It
++// string-matched "more than 256 containers" and then drove only nested arrays
++// at maxNestingDepth and maxNestingDepth+1, which is consistent with a bound on
++// containers opened and with a bound on containers open at once alike. The
++// comment said "opens more than 256 containers", the enforced bound is a
++// nesting depth, and the pin passed green over a false refusal claim — the
++// audited defect class reintroduced by its own fix.
++//
++// So the number and the quantity it bounds are now pinned separately:
++//
++//   - the clause must carry the "open at once" qualifier, and no mention of the
++//     limit anywhere in the comment may drop it;
++//   - every documented row is built and driven through the real exported entry
++//     point, with the row's own arithmetic re-measured from the bytes rather
++//     than recomputed from the shape that produced them;
++//   - the rows must keep covering all three facts: the limit is reachable, the
++//     limit is enforced, and a document opening far more containers than the
++//     limit is accepted while it stays shallow. The third is the one that makes
++//     a count reading false, and shrinking the block back to the nested rows
++//     alone reddens here rather than quietly restoring the ambiguity.
++func TestCanonicalizeDocumentedContainerLimitIsADepthNotACount(t *testing.T) {
++	contract := parseCanonicalizeDocContract(t)
++
++	claim := fmt.Sprintf("more than %d containers open at once", maxNestingDepth)
++	if !strings.Contains(contract.text, claim) {
++		t.Fatalf("Canonicalize doc comment does not state %q, so its container limit is either unstated, no longer the enforced maxNestingDepth = %d, or stated as a bound on containers opened rather than on containers open at once", claim, maxNestingDepth)
++	}
++	// strings.Contains above is satisfied by a comment that states the clause
++	// correctly once and incorrectly again somewhere else, which is the shape
++	// that survives a presence check. Every occurrence in the free prose must
++	// qualify the limit. The rows are exempt because they are not prose: each
++	// one is built, measured and driven below, so a row that misstates the
++	// quantity fails on behaviour rather than on wording.
++	prose := contract.text
++	for _, row := range contract.containers {
++		prose = strings.Replace(prose, row.text, "", 1)
++	}
++	limit := fmt.Sprintf("%d containers", maxNestingDepth)
++	for index := 0; ; {
++		offset := strings.Index(prose[index:], limit)
++		if offset < 0 {
++			break
++		}
++		at := index + offset
++		if !strings.HasPrefix(prose[at:], limit+" open at once") {
++			t.Errorf("Canonicalize doc comment mentions %q without the \"open at once\" qualifier, in %q; the enforced bound is a nesting depth and a bare count claim is false", limit, docExcerptAround(prose, at))
++		}
++		index = at + len(limit)
++	}
++
++	var reachable, enforced, shallowBeyondLimit *containerRow
++	for index := range contract.containers {
++		row := contract.containers[index]
++		t.Run(row.text, func(t *testing.T) {
++			document := containerRowDocument(t, row)
++			opened, atOnce := measureContainers(t, document)
++			if opened != row.opened || atOnce != row.atOnce {
++				t.Fatalf("row %q describes a document that opens %d containers with %d open at once, but the document it names opens %d with %d open at once", row, row.opened, row.atOnce, opened, atOnce)
++			}
++
++			_, err := Canonicalize(document)
++			switch {
++			case row.accepted && err != nil:
++				t.Fatalf("row %q documents acceptance, but Canonicalize returned %v", row, err)
++			case !row.accepted && err == nil:
++				t.Fatalf("row %q documents a refusal, but Canonicalize accepted %d containers with %d open at once", row, opened, atOnce)
++			}
++		})
++
++		switch {
++		case row.accepted && row.atOnce == maxNestingDepth:
++			reachable = &contract.containers[index]
++		case !row.accepted && row.atOnce == maxNestingDepth+1:
++			enforced = &contract.containers[index]
++		}
++		if row.accepted && row.opened > maxNestingDepth && row.atOnce <= maxNestingDepth {
++			shallowBeyondLimit = &contract.containers[index]
++		}
++	}
++
++	if reachable == nil {
++		t.Errorf("no documented row is accepted with exactly %d containers open at once, so the documented limit is never shown to be reachable", maxNestingDepth)
++	}
++	if enforced == nil {
++		t.Errorf("no documented row is refused with exactly %d containers open at once, so the documented limit is never shown to be enforced", maxNestingDepth+1)
++	}
++	if shallowBeyondLimit == nil {
++		t.Errorf("no documented row is accepted while opening more than %d containers, so nothing distinguishes the documented depth bound from a bound on containers opened; that is the wording error this test exists to catch", maxNestingDepth)
++	}
++}
++
++// containerRowDocument builds the document a container row names. The shapes
++// are deliberately string-free so measureContainers can count brackets without
++// a JSON scanner.
++func containerRowDocument(t *testing.T, row containerRow) []byte {
++	t.Helper()
++	switch row.shape {
++	case "nested":
++		return nestedArrayDocument(row.arrays)
++	case "sibling":
++		return []byte("[" + strings.TrimSuffix(strings.Repeat("[],", row.arrays), ",") + "]")
++	}
++	t.Fatalf("row %q names container shape %q, which this test cannot build", row, row.shape)
++	return nil
++}
++
++// measureContainers re-derives both quantities from the document bytes. Doing
++// it here rather than from the row's own shape formula is the point: a row that
++// misstates how many containers its document opens must fail, not be confirmed
++// by arithmetic copied out of the claim under test.
++func measureContainers(t *testing.T, document []byte) (opened, atOnce int) {
++	t.Helper()
++	if bytes.ContainsAny(document, `"`) {
++		t.Fatalf("document %q contains a string, so counting brackets is not a valid measurement of its structure", document)
++	}
++	depth := 0
++	for _, symbol := range document {
++		switch symbol {
++		case '[', '{':
++			opened++
++			depth++
++			if depth > atOnce {
++				atOnce = depth
++			}
++		case ']', '}':
++			depth--
++		}
++	}
++	if depth != 0 {
++		t.Fatalf("document %q closes %d containers it never opened", document, -depth)
++	}
++	return opened, atOnce
++}
++
++// docExcerptAround returns a short window of the doc text around index, so a
++// failure names the offending sentence instead of only the phrase.
++func docExcerptAround(text string, index int) string {
++	start := index - 60
++	if start < 0 {
++		start = 0
++	}
++	end := index + 60
++	if end > len(text) {
++		end = len(text)
++	}
++	return strings.Join(strings.Fields(text[start:end]), " ")
++}
++
++// TestCanonicalizeDocCommentNamesOnlyTestsThatExist pins the last unchecked
++// name in the comment. It cites
++// TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample as the reason
++// the Appendix B rounding may not be refused here; a renamed or deleted test
++// would leave that justification pointing at nothing while the comment kept
++// reading as though it were still pinned.
++func TestCanonicalizeDocCommentNamesOnlyTestsThatExist(t *testing.T) {
++	contract := parseCanonicalizeDocContract(t)
++	// Reuses the derivation in declared_bounds_proofs_test.go rather than
++	// walking the test sources a second time; a second, weaker enumeration in
++	// the same package is how this package once pinned 3 of 7 UTF-8 guards.
++	declared := packageTestFunctionNames(t)
++
++	named := documentedTestNames(contract.text)
++	if len(named) == 0 {
++		t.Fatal("Canonicalize doc comment names no test; its Appendix B justification rests on a pin the reader cannot find")
++	}
++	for _, name := range named {
++		if _, ok := declared[name]; !ok {
++			t.Errorf("Canonicalize doc comment names %s, which is not a test function in this package", name)
++		}
++	}
++}
++
++var documentedTestName = regexp.MustCompile(`\bTest[A-Za-z0-9_]*\b`)
++
++// documentedTestNames returns every Go test identifier the doc text mentions.
++func documentedTestNames(text string) []string {
++	seen := map[string]bool{}
++	var names []string
++	for _, name := range documentedTestName.FindAllString(text, -1) {
++		if seen[name] {
++			continue
++		}
++		seen[name] = true
++		names = append(names, name)
++	}
++	sort.Strings(names)
++	return names
++}
++
++func sortedSectionIDs(sections map[string][]specCitation) []string {
++	ids := make([]string, 0, len(sections))
++	for id := range sections {
++		ids = append(ids, id)
++	}
++	sort.Strings(ids)
++	return ids
++}
++
++// sessionRecordWithExtensionNumber returns a valid Session Record carrying
++// number under a reverse-DNS extensions key.
++func sessionRecordWithExtensionNumber(number json.Number) map[string]any {
++	object := validSessionRecordV1Object()
++	object["extensions"] = map[string]any{"works.relux.ax.audit": number}
++	return object
++}
++
++// observationEventWithExtensionNumber does the same for the Section 18.1
++// observation entry, which is not identity-addressed and has its own entry.
++func observationEventWithExtensionNumber(number json.Number) map[string]any {
++	object := validObservationEventObject()
++	object["extensions"] = map[string]any{"works.relux.ax.audit": number}
++	return object
++}
++
++// parseCanonicalizeDocContract extracts the machine-readable rows and names
++// from the Canonicalize doc comment in the production sources.
++func parseCanonicalizeDocContract(t *testing.T) canonicalizeDocContract {
++	t.Helper()
++	_, files := packageProductionFiles(t)
++
++	for _, path := range files {
++		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ParseComments)
++		if err != nil {
++			t.Fatal(err)
++		}
++		for _, declaration := range parsed.Decls {
++			function, ok := declaration.(*ast.FuncDecl)
++			if !ok || function.Name.Name != "Canonicalize" || function.Recv != nil {
++				continue
++			}
++			if function.Doc == nil {
++				t.Fatal("Canonicalize has no doc comment, so its contract is undocumented")
++			}
++			return newCanonicalizeDocContract(t, function.Doc.Text())
++		}
++	}
++	t.Fatal("no declaration of Canonicalize found in the production sources")
++	return canonicalizeDocContract{}
++}
++
++// newCanonicalizeDocContract reads the two indented block forms out of the doc
++// text: `literal -> canonical` rows, and bare exported identifiers.
++func newCanonicalizeDocContract(t *testing.T, text string) canonicalizeDocContract {
++	t.Helper()
++	contract := canonicalizeDocContract{text: text, rounding: map[string]string{}}
++
++	for _, line := range strings.Split(text, "\n") {
++		if !strings.HasPrefix(line, "\t") {
++			continue
++		}
++		row := strings.TrimSpace(line)
++		if row == "" {
++			continue
++		}
++		if match := canonicalizeContainerRow.FindStringSubmatch(row); match != nil {
++			contract.containers = append(contract.containers, containerRow{
++				arrays:   mustRowCount(t, row, match[1]),
++				shape:    match[2],
++				opened:   mustRowCount(t, row, match[3]),
++				atOnce:   mustRowCount(t, row, match[4]),
++				accepted: match[5] == "accepted",
++				text:     row,
++			})
++			continue
++		}
++		if literal, canonical, ok := strings.Cut(row, " -> "); ok {
++			literal, canonical = strings.TrimSpace(literal), strings.TrimSpace(canonical)
++			if previous, duplicate := contract.rounding[literal]; duplicate {
++				t.Fatalf("Canonicalize doc comment documents %s twice, as %q and %q", literal, previous, canonical)
++			}
++			contract.rounding[literal] = canonical
++			continue
++		}
++		if strings.HasPrefix(row, "SPEC.md:") {
++			match := canonicalizeSpecCitationRow.FindStringSubmatch(row)
++			if match == nil {
++				t.Fatalf("indented line %q in the Canonicalize doc comment looks like a SPEC.md citation but does not parse as `SPEC.md:<line> [FIXTURE] \"quoted text\"`, so it would be documented but unchecked", row)
++			}
++			line, err := strconv.Atoi(match[1])
++			if err != nil {
++				t.Fatalf("citation %q declares an unreadable SPEC.md line: %v", row, err)
++			}
++			contract.citations = append(contract.citations, specCitation{line: line, fixture: match[2], text: match[3]})
++			continue
++		}
++		if isExportedIdentifier(row) {
++			contract.entryPoints = append(contract.entryPoints, row)
++			continue
++		}
++		t.Fatalf("indented line %q in the Canonicalize doc comment is none of a `literal -> canonical` row, an exported entry-point name, or a `SPEC.md:<line>` citation, so it is documented but unchecked", row)
++	}
++
++	if len(contract.rounding) == 0 {
++		t.Fatal("Canonicalize doc comment documents no rounding rows, so nothing about its number behaviour is pinned")
++	}
++	if len(contract.citations) == 0 {
++		t.Fatal("Canonicalize doc comment cites no SPEC.md line, so its statement of the division of guarantees rests on nothing")
++	}
++	if len(contract.containers) == 0 {
++		t.Fatal("Canonicalize doc comment documents no container rows, so its container refusal is unpinned prose again")
++	}
++	sort.Strings(contract.entryPoints)
++	return contract
++}
++
++// canonicalizeSpecCitationRow matches `SPEC.md:<line> [FIXTURE] "quoted text"`.
++// The fixture group is deliberately anchored to the pinned document's own
++// fixture-identifier spelling, so a citation cannot name an arbitrary word and
++// have it accepted as an attribution.
++var canonicalizeSpecCitationRow = regexp.MustCompile(`^SPEC\.md:([1-9][0-9]*) (?:([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*) )?"(.*)"$`)
++
++// canonicalizeContainerRow matches
++// `<n> <sibling|nested> arrays open <opened> containers, <atOnce> at once: <verdict>`.
++var canonicalizeContainerRow = regexp.MustCompile(`^([1-9][0-9]*) (sibling|nested) arrays open ([1-9][0-9]*) containers, ([1-9][0-9]*) at once: (accepted|refused)$`)
++
++func mustRowCount(t *testing.T, row, field string) int {
++	t.Helper()
++	value, err := strconv.Atoi(field)
++	if err != nil {
++		t.Fatalf("row %q declares an unreadable count %q: %v", row, field, err)
++	}
++	return value
++}
++
++func isExportedIdentifier(text string) bool {
++	if text == "" || text[0] < 'A' || text[0] > 'Z' {
++		return false
++	}
++	for _, symbol := range text {
++		isLetter := (symbol >= 'a' && symbol <= 'z') || (symbol >= 'A' && symbol <= 'Z')
++		isDigit := symbol >= '0' && symbol <= '9'
++		if !isLetter && !isDigit && symbol != '_' {
++			return false
++		}
++	}
++	return true
++}
++
++// exportedFunctionsReaching returns the sorted exported production entry points
++// from which target is reachable.
++//
++// It reuses productionCallGraph rather than deriving a second graph. A weaker
++// derivation in the same package would reintroduce a blind spot this package
++// already measured and closed: a graph that recorded only `f(x)` edges once
++// pinned 3 of 7 UTF-8 guards while looking complete, because this package
++// dispatches through a function-value table. That graph now models function
++// values and methods, and its residual constructions are stated on it.
++func exportedFunctionsReaching(t *testing.T, target string) []string {
++	t.Helper()
++	declarations, edges := productionCallGraph(t)
++
++	if _, declared := declarations[target]; !declared {
++		t.Fatalf("%s is not a production declaration, so nothing can be derived about what reaches it", target)
++	}
++
++	var exported []string
++	for _, entryPoint := range exportedProductionEntryPoints(declarations) {
++		if reachableProductionFunctions(edges, entryPoint.key)[target] {
++			exported = append(exported, entryPoint.key)
++		}
++	}
++	sort.Strings(exported)
++	return exported
++}
++
++func sortedKeys(table map[string]string) []string {
++	keys := make([]string, 0, len(table))
++	for key := range table {
++		keys = append(keys, key)
++	}
++	sort.Strings(keys)
++	return keys
++}

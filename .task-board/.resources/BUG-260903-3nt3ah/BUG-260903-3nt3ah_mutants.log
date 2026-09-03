@@ -1,0 +1,107 @@
+--- M1 mutant present: accepted interval widened by 2 ---
+=== MUTANT M1-widened-safe-integer-bound ===
+ internal/canonicaljson/canonical.go | 65 ++++++++++++++++++++++++++++++++++---
+ 1 file changed, 60 insertions(+), 5 deletions(-)
+--- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint (0.00s)
+    --- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint/9007199254740993 (0.00s)
+        canonical_number_contract_test.go:107: CalculateObjectIdentity(extensions number 9007199254740993) = "sha256:ea0e4d0dfb2e13f116d7088ef37f08475354f943f8543285cf0faf7ed085d6b4", nil; want a refusal containing "outside the AX safe-integer interval"
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.435s
+FAIL
+exit=1
+--- M2 mutant: validateAXNumbers call removed from prepareObjectIdentity ---
+canonical.go call sites now: 0
+--- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint (0.00s)
+    --- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint/1.0 (0.00s)
+        canonical_number_contract_test.go:107: CalculateObjectIdentity(extensions number 1.0) = "sha256:7d4a69a560853c095df943f57cbf3bd25145f7eaa7d127dafbbea07258439a56", nil; want a refusal containing "floating-point number"
+    --- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint/18446744073709551615 (0.00s)
+        canonical_number_contract_test.go:107: CalculateObjectIdentity(extensions number 18446744073709551615) = "sha256:9f9a4c4deb0d70020c38372c065f17f10bce481e1253305bb0b073c3acbe05e7", nil; want a refusal containing "outside the AX safe-integer interval"
+    --- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint/9007199254740993 (0.00s)
+        canonical_number_contract_test.go:107: CalculateObjectIdentity(extensions number 9007199254740993) = "sha256:ea0e4d0dfb2e13f116d7088ef37f08475354f943f8543285cf0faf7ed085d6b4", nil; want a refusal containing "outside the AX safe-integer interval"
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.388s
+FAIL
+exit=1
+--- M3 mutant present: doc row 1.0 -> 1.0 ---
+--- FAIL: TestCanonicalizeDocumentedRoundingIsWhatCanonicalizeActuallyDoes (0.00s)
+    --- FAIL: TestCanonicalizeDocumentedRoundingIsWhatCanonicalizeActuallyDoes/1.0 (0.00s)
+        canonical_number_contract_test.go:76: Canonicalize(1.0) = "1", but the doc comment documents "1.0"
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.268s
+FAIL
+M3 exit=1
+--- M4 mutant present: audited row deleted from doc ---
+--- FAIL: TestCanonicalizeDocumentedRoundingIsWhatCanonicalizeActuallyDoes (0.00s)
+    canonical_number_contract_test.go:64: Canonicalize doc comment no longer documents the rounding of 18446744073709551615; the audited literal set is [9007199254740993 18446744073709551615 1.0]
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.407s
+FAIL
+M4 exit=1
+--- M5 mutant present: Canonicalize now calls validateAXNumbers ---
+--- FAIL: TestCanonicalizeDocumentsExactlyTheEntryPointsThatEnforceTheAXNumberModel (0.00s)
+    canonical_number_contract_test.go:148: Canonicalize doc comment names entry points [CalculateObjectIdentity ValidateObservationEvent ValidateObservationStream VerifyObjectIdentity], but validateAXNumbers is reachable from exactly [CalculateObjectIdentity CanonicalByteLength Canonicalize ValidateObservationEvent ValidateObservationStream VerifyObjectIdentity]
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.382s
+FAIL
+M5 exit=1
+
+##### RE-RUN AGAINST THE HARDENED productionCallGraph (exportedFunctionsReaching now reuses it) #####
+=== M1 widened safe-integer bound (narrowing, not delete) ===
+mutant present: 1 occurrence(s) of maxSafeInteger+2
+--- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint (0.00s)
+    --- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint/9007199254740993 (0.00s)
+        canonical_number_contract_test.go:107: CalculateObjectIdentity(extensions number 9007199254740993) = "sha256:ea0e4d0dfb2e13f116d7088ef37f08475354f943f8543285cf0faf7ed085d6b4", nil; want a refusal containing "outside the AX safe-integer interval"
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.402s
+FAIL
+exit=1
+=== M2 validateAXNumbers removed from prepareObjectIdentity ===
+mutant present: 0 call site(s) left in canonical.go
+--- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint (0.00s)
+    --- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint/1.0 (0.00s)
+        canonical_number_contract_test.go:107: CalculateObjectIdentity(extensions number 1.0) = "sha256:7d4a69a560853c095df943f57cbf3bd25145f7eaa7d127dafbbea07258439a56", nil; want a refusal containing "floating-point number"
+    --- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint/18446744073709551615 (0.00s)
+        canonical_number_contract_test.go:107: CalculateObjectIdentity(extensions number 18446744073709551615) = "sha256:9f9a4c4deb0d70020c38372c065f17f10bce481e1253305bb0b073c3acbe05e7", nil; want a refusal containing "outside the AX safe-integer interval"
+    --- FAIL: TestCanonicalizeDocumentedNonGuaranteeIsRefusedAtEveryNamedEntryPoint/9007199254740993 (0.00s)
+        canonical_number_contract_test.go:107: CalculateObjectIdentity(extensions number 9007199254740993) = "sha256:ea0e4d0dfb2e13f116d7088ef37f08475354f943f8543285cf0faf7ed085d6b4", nil; want a refusal containing "outside the AX safe-integer interval"
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.424s
+FAIL
+exit=1
+=== M3 doc row changed to 1.0 -> 1.0, code untouched ===
+mutant present: 1 mutated row(s)
+--- FAIL: TestCanonicalizeDocumentedRoundingIsWhatCanonicalizeActuallyDoes (0.00s)
+    --- FAIL: TestCanonicalizeDocumentedRoundingIsWhatCanonicalizeActuallyDoes/1.0 (0.00s)
+        canonical_number_contract_test.go:76: Canonicalize(1.0) = "1", but the doc comment documents "1.0"
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.336s
+FAIL
+exit=1
+=== M4 audited row deleted from doc ===
+mutant present: 0 row(s) remain
+--- FAIL: TestCanonicalizeDocumentedRoundingIsWhatCanonicalizeActuallyDoes (0.00s)
+    canonical_number_contract_test.go:64: Canonicalize doc comment no longer documents the rounding of 18446744073709551615; the audited literal set is [9007199254740993 18446744073709551615 1.0]
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.377s
+FAIL
+exit=1
+=== M5 Canonicalize now calls validateAXNumbers ===
+mutant present: 1 call(s) inside Canonicalize
+--- FAIL: TestCanonicalizeDocumentsExactlyTheEntryPointsThatEnforceTheAXNumberModel (0.01s)
+    canonical_number_contract_test.go:152: Canonicalize doc comment names entry points [CalculateObjectIdentity ValidateObservationEvent ValidateObservationStream VerifyObjectIdentity], but validateAXNumbers is reachable from exactly [CalculateObjectIdentity CanonicalByteLength Canonicalize ValidateObservationEvent ValidateObservationStream VerifyObjectIdentity]
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.380s
+FAIL
+exit=1
+=== M6 validateAXNumbers registered in a function-value table ===
+mutant present: 2 reference(s) to the dispatch table
+build exit=0
+--- FAIL: TestValidateAXNumbersHasNoCallSiteThisGraphCannotSee (0.00s)
+    canonical_number_contract_test.go:199: validateAXNumbers appears 2 times outside plain calls, want only its declaration; the derived entry-point set is no longer complete
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.523s
+FAIL
+exit=1
+--- behaviour unchanged, so the negative test alone would NOT catch it: ---
+ok  	github.com/relux-works/agent-session-manager/internal/canonicaljson	0.258s
+negative-test exit=0
