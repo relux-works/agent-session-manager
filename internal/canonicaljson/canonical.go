@@ -153,9 +153,72 @@ func validateSchemaIdentityContracts(contracts map[schemaIdentityKey]schemaIdent
 	return nil
 }
 
-// Canonicalize is the production RFC 8785 entry point. It rejects malformed
-// UTF-8, invalid surrogate escapes, duplicate object names, and non-I-JSON
-// input before producing the canonical UTF-8 byte sequence.
+// Canonicalize is the production RFC 8785 entry point. It decodes input through
+// the shared strict decoder, so it rejects malformed UTF-8, lone or unpaired
+// surrogate escapes, unescaped control characters inside strings, duplicate
+// object names, trailing data after the top-level value, and any document that
+// holds more than 256 containers open at once. What survives is returned as the
+// RFC 8785 canonical UTF-8 byte sequence.
+//
+// That last bound is a nesting depth, not a count of the containers a document
+// opens. Only simultaneously open containers cost decoder stack frames, which
+// is the exhaustion this refusal exists to prevent, so a shallow document is
+// accepted however many containers it opens in total. Each row below is built
+// and driven through this function by
+// TestCanonicalizeDocumentedContainerLimitIsADepthNotACount:
+//
+//	400 sibling arrays open 401 containers, 2 at once: accepted
+//	256 nested arrays open 256 containers, 256 at once: accepted
+//	257 nested arrays open 257 containers, 257 at once: refused
+//
+// WHAT THIS FUNCTION DOES NOT REFUSE.
+//
+// It does not enforce the AX common logical number model, and it must not.
+// RFC 8785 Section 3.2.2.3 serializes every number through the ECMAScript
+// Number.prototype.toString algorithm applied to the IEEE 754 binary64 value,
+// and Appendix B publishes the resulting rounded outputs as normative test
+// data. A literal that binary64 cannot hold exactly is therefore rounded to the
+// nearest double and canonicalized from there rather than refused:
+//
+//	9007199254740993 -> 9007199254740992
+//	18446744073709551615 -> 18446744073709552000
+//	1.0 -> 1
+//
+// That is the intended behaviour of a JCS transform, not a gap in it. Refusing
+// those literals here would contradict Appendix B, whose own published samples
+// include 9007199254740992 and 295147905179352830000 as canonical outputs of
+// exactly this rounding, and which this package pins in
+// TestCanonicalizeMatchesEveryFiniteRFC8785AppendixBNumberSample.
+//
+// DIVISION OF GUARANTEES.
+//
+// The pinned specification does not put the safe-integer refusal on the
+// canonicalization step. It puts it on the AX decoder, on the JSON number token
+// itself, and Section 1.6 says so both as a MUST clause and as two normative
+// boundary fixtures. Each fragment below is quoted verbatim from the pinned
+// internal/specdoc/SPEC.md at the line named, and a fragment attributed to a
+// fixture is quoted from the table row that declares that fixture:
+//
+//	SPEC.md:292 "A decoder MUST reject a numeric literal at or beyond <code>2^53</code> even if its host language can represent it"
+//	SPEC.md:295 "Implementations MUST NOT round a value and continue."
+//	SPEC.md:301 NUM-UNSAFE-NUMBER "Reject before identity calculation with <code>incompatible_schema</code>"
+//	SPEC.md:302 NUM-UNSAFE-ROUND "Reject from the JSON number token before conversion to a host double; an implementation that first rounds it to 9007199254740992 is nonconforming"
+//
+// NUM-UNSAFE-ROUND describes this implementation exactly: validateAXNumbers
+// refuses the literal on the json.Number token, before any conversion to a host
+// double, and it runs inside prepareObjectIdentity before any canonical bytes
+// exist. It is reached from these exported entry points, each of which refuses
+// all three literals above with a typed error:
+//
+//	CalculateObjectIdentity
+//	VerifyObjectIdentity
+//	ValidateObservationEvent
+//	ValidateObservationStream
+//
+// Canonicalize itself carries no such guarantee. It is a byte transform over
+// whatever RFC 8785 accepts, and this package exports no standalone AX number
+// validator, so a caller that needs the AX number model must reach it through
+// one of the entry points named above rather than by canonicalizing first.
 func Canonicalize(input []byte) ([]byte, error) {
 	value, err := decodeStrict(input)
 	if err != nil {
@@ -180,6 +243,11 @@ func Canonicalize(input []byte) ([]byte, error) {
 // contract, omits that field, applies RFC 8785 JCS, and returns the SHA-256
 // identity. Callers cannot select an arbitrary field to omit, which prevents
 // self inclusion and digest cycles.
+//
+// This is where the AX safe-integer refusal lives, not in Canonicalize: a
+// literal at or beyond 2^53, or any floating-point literal, is refused here
+// with ErrInvalidIdentity before canonical bytes are produced. See the DIVISION
+// OF GUARANTEES note on Canonicalize.
 func CalculateObjectIdentity(input []byte) (scalar.Digest, SelfField, error) {
 	object, selfField, _, err := prepareObjectIdentity(input)
 	if err != nil {
@@ -235,7 +303,9 @@ func calculatePreparedObjectIdentity(object map[string]any, selfField SelfField)
 }
 
 // VerifyObjectIdentity drives the same production calculation and refuses a
-// malformed, self-included, or otherwise mismatched claimed identity.
+// malformed, self-included, or otherwise mismatched claimed identity. It shares
+// prepareObjectIdentity with CalculateObjectIdentity, so it carries the same AX
+// safe-integer guarantee that Canonicalize does not.
 func VerifyObjectIdentity(input []byte) (scalar.Digest, SelfField, error) {
 	object, selfField, claimed, err := prepareObjectIdentity(input)
 	if err != nil {
@@ -408,6 +478,12 @@ func decodeValue(decoder *json.Decoder, depth int) (any, error) {
 	}
 }
 
+// validateAXNumbers is the AX decoder half of the split documented under
+// DIVISION OF GUARANTEES on Canonicalize. It walks the decoded value and
+// refuses every literal the common logical data model forbids, on the
+// json.Number token rather than on a host double, so an unsafe integer is
+// rejected instead of rounded. Canonicalize deliberately does not call it;
+// every exported entry point that promises the AX number model does.
 func validateAXNumbers(value any) error {
 	switch typed := value.(type) {
 	case json.Number:

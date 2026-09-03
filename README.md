@@ -628,6 +628,31 @@ deep peer object meets. The suite pins the literal value, proves accept-at-limit
 and refuse-past-limit at every public entry in array, object, and mixed
 container shapes, and replays the original 2,000,000-byte nested-array crash
 input as a typed refusal.
+The AX safe-integer refusal is not part of `Canonicalize` and must not be: RFC
+8785 Section 3.2.2.3 serializes numbers through the ECMAScript double-to-string
+algorithm, so `Canonicalize` rounds `9007199254740993` to `9007199254740992`,
+`18446744073709551615` to `18446744073709552000`, and `1.0` to `1`, exactly as
+Appendix B publishes. The specification puts that refusal on the AX decoder
+instead: Section 1.6 fixture `NUM-UNSAFE-NUMBER` (SPEC.md:301) requires
+rejection "before identity calculation", and `NUM-UNSAFE-ROUND` (SPEC.md:302)
+requires rejection "from the JSON number token before conversion to a host
+double". So `CalculateObjectIdentity`, `VerifyObjectIdentity`,
+`ValidateObservationEvent` and `ValidateObservationStream` reject all three
+literals with a typed error while `Canonicalize` documents the rounding as
+intended behaviour. The split is pinned rather than asserted in prose: the
+`literal -> canonical` rows, the entry-point names and the `SPEC.md:<line>`
+citations are parsed out of the `Canonicalize` doc comment and checked against
+real behaviour, against the entry-point set derived from the production call
+graph, and against the digest-pinned document in `internal/specdoc` — a quoted
+fragment must occur there exactly once, begin at the declared line, and, when a
+fixture is named, be the row that declares it. The same comment's container
+clause is pinned the same way: it bounds containers open at once, not containers
+opened, so `Canonicalize` accepts a shallow array of 400 empty arrays that opens
+401 containers and refuses 257 nested ones, and each of those rows is built,
+measured and driven through the exported entry point. A doc edit without a code
+edit, a code edit without a doc edit, a widened or deleted safe-integer bound, a
+depth bound restated as a count of containers opened, and a quotation re-pointed
+at a neighbouring fixture row each redden the suite.
 Every open `extensions` map is validated against the Section 1.6 reverse-DNS
 key, member-count, nesting-depth, and canonical-size rules before either entry
 attests it. Declared `string[n..m]` bounds count Unicode characters rather than
