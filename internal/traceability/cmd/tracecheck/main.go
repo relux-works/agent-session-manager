@@ -42,7 +42,7 @@ func run(arguments []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(
+	if _, err = fmt.Fprintf(
 		stdout,
 		"traceability ok: contracts=%d normative_sections=%d acceptance_cases=%d fixtures=%d compatibility_contracts=%d assigned_scopes=%d\n",
 		report.Contracts,
@@ -51,6 +51,24 @@ func run(arguments []string, stdout io.Writer) error {
 		report.Fixtures,
 		report.CompatibilityContracts,
 		report.AssignedScopes,
+	); err != nil {
+		return err
+	}
+	// Coverage is printed as the measured ratio it was computed from. A gate
+	// that reported "sections owned" would repeat the claim this line exists to
+	// contradict.
+	_, err = fmt.Fprintf(
+		stdout,
+		"section coverage: bindings=%d full=%d partial=%d sliver=%d unevidenced=%d unmeasured=%d unowned=%d clauses_discharged=%d/%d\n",
+		report.SectionBindings,
+		report.FullCoverage,
+		report.PartialCoverage,
+		report.SliverCoverage,
+		report.UnevidencedCoverage,
+		report.UnmeasuredCoverage,
+		report.UnownedSections,
+		report.DischargedClauses,
+		report.NormativeClauses,
 	)
 	return err
 }

@@ -115,9 +115,15 @@ block the newline is still forgiven, deliberately — the document's hard line
 wrapping, its table indentation, and the newline between two adjacent list items
 or two adjacent lines of one paragraph.
 
-Only test binaries import this package, so the embedded document never reaches a
-shipped command. It is read-only, mutates no durable state, and advertises no
-runtime capability.
+Only repository gates import this package - the test binaries that check
+enumeration artifacts, and `internal/traceability`, which measures the clause
+inventory of a bound section from it. The embedded document never reaches the
+`ax` command, which does not exist yet, and
+`TestEmbeddedDocumentNeverReachesAProductBinary` is what keeps that true once it
+does: it reads the module import graph from source, refuses any `main` package
+outside `tracecheck` that can reach this package, and proves the detector by
+planting a `cmd/ax` that imports `internal/traceability`. It is read-only,
+mutates no durable state, and advertises no runtime capability.
 
 ## Common Wire Scalar Types
 
@@ -164,8 +170,18 @@ go test ./internal/scalar -count=1
 go test ./internal/scalar -cover -count=1
 go test ./internal/scalar -run=^$ \
   -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1
+go run ./internal/traceability/cmd/tracecheck
+```
+
+The assigned-scope gate refuses Sections 1.6, 10.1, 10.2, 10.3 and 10.4: each
+binding validates a corner of its section and the gate now says so with the
+measured ratio. See [Specification-to-Code Ownership
+Gate](#specification-to-code-ownership-gate).
+
+```bash
 go run ./internal/traceability/cmd/tracecheck \
   -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4
+# exits non-zero: 0/31, 0/3, 0/5, 1/3 and 0/25 normative clauses discharged
 ```
 
 ## Configuration Loading and Versioned Schemas
@@ -354,10 +370,13 @@ Run the focused tests and assigned-scope traceability gate with:
 
     go test ./internal/config -count=1 -v
     go test ./internal/config -cover -count=1
-    go run ./internal/traceability/cmd/tracecheck \
-      -section 3.2 \
-      -section 6.1 -section 6.2 -section 6.3 -section 6.4 -section 6.5 \
-      -section 17.1 -section 17.2 -section 17.4
+    go run ./internal/traceability/cmd/tracecheck -section 6.2
+
+Section 6.2 is the only configuration section the assigned-scope gate admits:
+its single normative clause is enumerated and discharged. Sections 3.2, 6.1,
+6.3, 6.4, 6.5, 17.1, 17.2 and 17.4 are refused with their measured ratio, and
+Section 6.5 additionally names the `required_capabilities` default defect. See
+[Specification-to-Code Ownership Gate](#specification-to-code-ownership-gate).
 
 ## Canonical JSON and Immutable Object Identities
 
@@ -982,12 +1001,16 @@ go test ./internal/canonicaljson -run=^$ \
   -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1
 go test ./internal/canonicaljson -run=^$ \
   -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1
-go run ./internal/traceability/cmd/tracecheck \
-  -section 2.1 -section 2.2 -section 2.3 -section 2.4 \
-  -section 5.1 -section 5.2 -section 5.3 -section 5.4 \
-  -section 5.5 -section 5.6 -section 10.1 -section 13.14.5 \
-  -section 13.15 -section 17.3 -section 18.1
+go run ./internal/traceability/cmd/tracecheck
 ```
+
+Section 13.14.5 is refused at 0/0: the obligation scanner measures no clause
+line under it, because the section states its obligations as required-member and
+variant tables, so the gate cannot measure how much of it
+`validateSessionEventV2` discharges. Sections 2.1, 2.3, 2.4, 5.1-5.6, 10.1, 13.15, 17.3 and 18.1 are
+refused with their measured ratio, and Section 2.2 is refused as recorded
+unowned. See [Specification-to-Code Ownership
+Gate](#specification-to-code-ownership-gate).
 
 ## Safe Local Layout, Immutable Blob Sink, and SQLite Projection
 
@@ -1126,9 +1149,13 @@ Run the focused storage and assigned-scope gates with:
 ```bash
 go test ./internal/localstore -count=1
 go test ./internal/localstore -cover -count=1
-go run ./internal/traceability/cmd/tracecheck \
-  -section 3.2 -section 3.3 -section 10.1 -section 10.2 -section 18.4
+go run ./internal/traceability/cmd/tracecheck
 ```
+
+The assigned-scope gate refuses Sections 3.2, 3.3, 10.1 and 10.2 with their
+measured ratio, and Section 18.4 as recorded unowned: no retention or
+garbage-collection rule is implemented. See [Specification-to-Code Ownership
+Gate](#specification-to-code-ownership-gate).
 
 The unfiltered localstore package run derives the projection refusal inventory
 from the production source, and it checks completeness in both halves.
@@ -1222,8 +1249,9 @@ repository gate used by CI. Its reviewed
 [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
 registry independently enumerates implementation owners for all 60 current
 contract rows, 36 pinned or catalog-referenced normative section keys, 43
-executable acceptance cases, and 30 exact fixture identities or Appendix D
-anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
+executable acceptance cases, 48 exact section bindings with their declared
+coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
+Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
 The generated v0.5.0 catalog also carries the reviewed schema/version/self-field
 contracts used by canonical object identity calculation; generator validation
 binds each row to a pinned contract and rejects duplicate, unsupported,
@@ -1238,27 +1266,126 @@ build:
 
 ```bash
 go run ./internal/traceability/cmd/tracecheck
-go run ./internal/traceability/cmd/tracecheck -section 9.2 -section 7.9
+go run ./internal/traceability/cmd/tracecheck -section 6.2
 ```
 
 The repeated `-section` form is the Story-scope production gate. It resolves
 each assigned subsection, and every heading in a same-top-level range, against
 the immutable v0.5.0 inventory. Every exact `section_binding` must name its own
-production declaration and executable acceptance case. A generic top-level
-source pin is not a scoped implementation owner. The common-types and canonical
-identity implementations now own the assigned Section 1.6, Section 2.1 name
-grammar, Section 2.2 invariant-10 creation-profile value, Section 2.4 profile
-enum, Sections 5.1–5.6 and 10.1–10.4, Sections 13.14.5 and 13.15 event
-payloads, Section 17.3 identity contribution, and Section 18.1 Observation
-validation bindings. The Section 2.3 binding is limited to the immutable validated name
-consumed by a future resolver; local/peer lookup, ASCII-fold collision handling,
-route choice, and the associated runtime errors are not implemented or
-advertised. Malformed, nonexistent, unpinned, or otherwise unowned assignments
-fail closed.
+production declaration and executable acceptance case, and must additionally
+discharge the whole section it claims. A generic top-level source pin is not a
+scoped implementation owner. Malformed, nonexistent, unpinned, or otherwise
+unowned assignments fail closed.
 
-Successful output reports ownership inventory counts only. The gate does not
-mutate repository or product state, add an `ax` command or `doctor` result,
-or claim that any catalog capability is available, enabled, or supported.
+### Declared coverage and what the gate can decide
+
+A binding that names a real Go declaration and a real acceptance case used to be
+enough. It is not: `section:2.2` named `validateSessionRecordCommon`, which
+validates one enum and a name grammar, while Section 2.2 is the twenty-two
+unconditional lease and replica invariants; `section:18.4` named
+`OpenProjection` while Section 18.4 is audit retention and no retention code
+exists. A Story assigned either section would have found it already owned and
+could have done nothing.
+
+Every `section_binding` now declares a `coverage` level, and the gate recomputes
+that level rather than believing it. The denominator is measured from
+[`internal/specdoc`](internal/specdoc): the RFC 2119 clause lines the pinned
+`SPEC.md` carries under the section's own heading and its subheadings. The
+numerator is the `clauses` the binding enumerates, each of which must name a
+clause of that inventory, quote it verbatim beginning on the exact `SPEC.md`
+line it occupies, and be discharged by an acceptance case the binding itself
+owns.
+
+| Level | Meaning | Admitted as an assigned scope |
+| --- | --- | --- |
+| `full` | every normative clause of the section is enumerated and discharged | yes |
+| `partial` | at least half are | no |
+| `sliver` | fewer than half are | no |
+| `unevidenced` | none are; the registry makes no clause-level claim | no |
+| `unmeasured` | the obligation scanner finds no clause line under the section at all | no |
+
+`unmeasured` is the honest name for what used to be called `declarative` and
+used to be admitted. The scanner matches uppercase RFC 2119 keywords, so a
+section that states its obligations as a table scores zero and was read as
+carrying no obligation. That is false, and the first revision of this gate
+reproduced the very bug it was built to remove: `-section 15.2`, the nineteen-row
+normative exit-code registry, exited 0 with nothing in the tree implementing it,
+and so did `-section 7.3`, the closed Provider Manifest. Nineteen of the 157
+pinned headings are in that class - 7.3, 10.8.1, 13.5, 13.12, 13.14.1-13.14.5,
+14.3, 14.6, 15.2, 16.6, 16.7, 18.2, 19.4 and Appendices A, B and C - and
+`TestUnmeasuredCoverageIsAScannerBlindSpotNotAnAbsenceOfObligation` measures
+that every one of them has a substantive body, so not one is a heading with
+nothing to discharge. Keyword absence is now a failure to measure, never a
+coverage claim.
+
+A binding below `full` must also name its gap, `unmeasured` included, and the
+gap has to name the section as a whole identifier - so a sentence about 6.55 is
+not a gap about 6.5 - and name the production declaration the binding is
+registered to. `unowned_sections` records a section this repository does not
+implement at all, with a gap and the evidence for it; an unowned entry may not
+cover a section the generated catalog requires an owner for, so it is a
+disclosure and never an exemption. Every one of these fields is inside the
+reviewed projection digest, so none of them can be self-minted.
+
+This is what the gate decides, and it is less than semantic coverage. It decides
+that a claimed clause is a real obligation of the claimed section, that it is
+quoted verbatim at the line it occupies, that the discharging acceptance case is
+registered and owned by the binding, and that the declared level equals the
+measured ratio. **It cannot decide that the named acceptance case exercises the
+clause's meaning.** A binding could enumerate every clause of a section and
+point all of them at one weak test, and the gate would admit it. That residual
+class - a complete enumeration discharged by inadequate tests - is not covered
+here and is not claimed to be.
+
+It also cannot see an obligation stated without an RFC 2119 keyword, which is
+why `unmeasured` is refused rather than admitted: the gate reports that it could
+not measure the section instead of inferring that there was nothing to measure.
+And the gap-quality check is a tightening rather than a proof - a sentence that
+names both its section and its production declaration and still says nothing
+useful is admitted, and the gate cannot decide otherwise.
+
+### Measured coverage of this repository
+
+`tracecheck` prints the ratio it measured rather than a sentence about it:
+
+```text
+section coverage: bindings=48 full=1 partial=0 sliver=1 unevidenced=43 unmeasured=3 unowned=2 clauses_discharged=2/394
+```
+
+Forty-eight section bindings discharge 2 of the 394 normative clauses their
+sections carry. One binding is `full` (Section 6.2, whose single clause is the
+native-Windows `conpty` requirement, discharged by
+`TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes`), one is `sliver`
+(Section 10.3, whose chunk offset invariant is enforced by
+`validateBlobDescriptor` while its two receiver clauses have no implementation),
+three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of which now
+carries a gap saying why the scanner measures zero and what is missing), and
+forty-three are `unevidenced`. Two sections are recorded unowned.
+Assigned-scope admission therefore succeeds today for `-section 6.2` and
+nothing else; every other assignment is refused with its ratio and its gap.
+
+One admitted binding out of forty-eight is a thin positive arm, and it is
+disclosed here rather than hidden: without Section 6.2 the admit path would only
+ever be exercised synthetically.
+
+That is a disclosure of the shipped state, not a target that was met.
+`TestRunRefusesEveryAssignedSectionThatOnlySlivers` and
+`TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers` pin every failing
+binding with its exact measured ratio, so a section that becomes covered has to
+leave those tables deliberately. Five further gaps the disclosure surfaced:
+Section 15.2's exit-code registry is implemented nowhere, the only `os.Exit`
+calls in the tree being the `exit(1)` failure paths of `cataloggen` and
+`tracecheck`; Section 7.3's closed Provider Manifest exists only as a catalog
+row naming its URN; Section 6.5 requires the `required_capabilities` default to
+be the platform lane minimum while `internal/config/validation.go` accepts only
+an empty default; Section 17.2's single clause is an unknown-event reader
+obligation while its binding names the Configuration writer; and Section 2.1's
+single clause is a replica runtime obligation that no code here implements.
+
+Successful output reports ownership inventory counts and the measured coverage
+ratio only. The gate does not mutate repository or product state, add an `ax`
+command or `doctor` result, or claim that any catalog capability is available,
+enabled, or supported.
 
 ## Managed Skills
 
@@ -1282,7 +1409,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | --- | --- | --- | --- |
 | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
-| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 1.6 -section 2.1 -section 2.2 -section 2.3 -section 2.4 -section 3.2 -section 3.3 -section 5.1 -section 5.2 -section 5.3 -section 5.4 -section 5.5 -section 5.6 -section 6.1 -section 6.2 -section 6.3 -section 6.4 -section 6.5 -section 10.1 -section 10.2 -section 10.3 -section 10.4 -section 13.14.5 -section 13.15 -section 17.1 -section 17.2 -section 17.3 -section 17.4 -section 18.1 -section 18.4`; `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
 | `github.com/pelletier/go-toml/v2` | Parse and emit TOML while the repository-owned Configuration layer enforces exact versioned closed schemas | Imported by `internal/config.Decode`, `internal/config.EncodeCurrent`, and explicit `internal/config.Migrate` at pinned module version `v2.4.3` | Validated Configuration values/TOML bytes in memory; explicit migration writes a same-directory replacement plus an owner-only versioned backup |
 | `modernc.org/sqlite` | Provide the pure-Go SQLite driver for the local derived index without a CGO platform dependency | Imported by `internal/localstore.OpenProjection` at pinned module version `v1.57.0` | `<state>/index.sqlite`, its owner-only lock and WAL/SHM/journal sidecars, and `<state>/index-recovery/<uuid>/` corruption evidence |

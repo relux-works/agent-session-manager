@@ -22,7 +22,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=43 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n"
+	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=43 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
+		"section coverage: bindings=48 full=1 partial=0 sliver=1 unevidenced=43 unmeasured=3 unowned=2 clauses_discharged=2/394\n"
 	if output.String() != want {
 		t.Fatalf("run() output = %q, want %q", output.String(), want)
 	}
@@ -50,34 +51,46 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	}
 
 	output.Reset()
-	err = run([]string{"-root", repositoryRoot, "-section", "9.2", "-section", "7.9"}, &output)
+	err = run([]string{"-root", repositoryRoot, "-section", "6.2"}, &output)
 	if err != nil {
 		t.Fatalf("run(assigned sections) error = %v", err)
 	}
-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=43 fixtures=30 compatibility_contracts=55 assigned_scopes=2\n"
+	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=43 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
+		"section coverage: bindings=48 full=1 partial=0 sliver=1 unevidenced=43 unmeasured=3 unowned=2 clauses_discharged=2/394\n"
 	if output.String() != want {
 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
 	}
+
+	// This invocation used to exit 0. Section 13.14.5 was admitted because the
+	// obligation scanner measured zero clauses under it, which the gate read as
+	// "carries no obligation". It reads as "cannot be measured" now, and the
+	// command refuses the whole scope and emits no success line.
+	output.Reset()
+	err = run([]string{"-root", repositoryRoot, "-section", "6.2", "-section", "13.14.5"}, &output)
+	if err == nil || !errors.Is(err, traceability.ErrTraceability) ||
+		!strings.Contains(err.Error(), "discharges 0/0 normative clauses, which is unmeasured coverage") {
+		t.Fatalf("run(-section 6.2 -section 13.14.5) error = %v, want unmeasured refusal", err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("refused run emitted success output %q", output.String())
+	}
 }
 
-func TestRunAssignedConfigPathSectionUsesScopedImplementationOwner(t *testing.T) {
+// TestRunAdmitsOnlyAssignedSectionsWhoseBindingDischargesTheWholeSection is the
+// admitted arm of the coverage gate at the command entry point. Section 6.2
+// discharges the one normative clause its pinned section carries. It is the
+// only section in the shipped registry the command admits.
+//
+// Section 13.14.5 was admitted here too, on the ground that its pinned section
+// "carries none of its own". That was an artefact of the obligation scanner
+// matching uppercase keywords only, not a fact about the section, so the
+// assertion moved to TestRunRefusesEveryAssignedSectionThatOnlySlivers with its
+// measured 0/0 ratio rather than being deleted.
+func TestRunAdmitsOnlyAssignedSectionsWhoseBindingDischargesTheWholeSection(t *testing.T) {
 	t.Parallel()
 
 	repositoryRoot := filepath.Join("..", "..", "..", "..")
-	var output bytes.Buffer
-	if err := run([]string{"-root", repositoryRoot, "-section", "3.2"}, &output); err != nil {
-		t.Fatalf("run(-section 3.2) error = %v", err)
-	}
-	if !strings.Contains(output.String(), "assigned_scopes=1") {
-		t.Fatalf("run(-section 3.2) output = %q, want assigned_scopes=1", output.String())
-	}
-}
-
-func TestRunAssignedVersionedConfigSectionsUseScopedImplementationOwners(t *testing.T) {
-	t.Parallel()
-
-	repositoryRoot := filepath.Join("..", "..", "..", "..")
-	for _, section := range []string{"6.1", "6.2", "6.3", "6.4", "6.5", "17.1", "17.2"} {
+	for _, section := range []string{"6.2"} {
 		var output bytes.Buffer
 		if err := run([]string{"-root", repositoryRoot, "-section", section}, &output); err != nil {
 			t.Errorf("run(-section %s) error = %v", section, err)
@@ -89,18 +102,57 @@ func TestRunAssignedVersionedConfigSectionsUseScopedImplementationOwners(t *test
 	}
 }
 
-func TestRunAssignedScalarSectionsUseScopedImplementationOwners(t *testing.T) {
+// TestRunRefusesEveryAssignedSectionThatOnlySlivers is the disclosure this bug
+// exists to produce. Every section listed here was admitted by the command
+// before the coverage gate, and the README documented the whole list as the
+// Story-scope validation command. Each binding names a real Go declaration and
+// an executable acceptance case, and none of them discharges the section it is
+// registered against, so a Story assigned one could do nothing and stay green.
+// The command now refuses each with the measured ratio; the expectations below
+// are the shipped state, so a section that becomes covered has to leave this
+// table deliberately.
+func TestRunRefusesEveryAssignedSectionThatOnlySlivers(t *testing.T) {
 	t.Parallel()
 
 	repositoryRoot := filepath.Join("..", "..", "..", "..")
-	for _, section := range []string{"1.6", "2.1", "2.2", "2.3", "2.4", "3.2", "3.3", "5.1", "10.1", "10.2", "10.3", "10.4", "17.3", "18.4"} {
+	for _, test := range []struct {
+		section string
+		want    string
+	}{
+		{"1.6", "discharges 0/31 normative clauses, which is unevidenced coverage"},
+		{"2.1", "discharges 0/1 normative clauses, which is unevidenced coverage"},
+		{"2.2", `binding "section:2.2" is recorded unowned:`},
+		{"2.3", "discharges 0/7 normative clauses, which is unevidenced coverage"},
+		{"2.4", "discharges 0/4 normative clauses, which is unevidenced coverage"},
+		{"3.2", "discharges 0/13 normative clauses, which is unevidenced coverage"},
+		{"3.3", "discharges 0/4 normative clauses, which is unevidenced coverage"},
+		{"5.1", "discharges 0/9 normative clauses, which is unevidenced coverage"},
+		{"6.1", "discharges 0/2 normative clauses, which is unevidenced coverage"},
+		{"6.3", "discharges 0/11 normative clauses, which is unevidenced coverage"},
+		{"6.4", "discharges 0/2 normative clauses, which is unevidenced coverage"},
+		{"6.5", "discharges 0/3 normative clauses, which is unevidenced coverage"},
+		{"7.3", "discharges 0/0 normative clauses, which is unmeasured coverage"},
+		{"7.9", "discharges 0/8 normative clauses, which is unevidenced coverage"},
+		{"9.2", "discharges 0/35 normative clauses, which is unevidenced coverage"},
+		{"10.1", "discharges 0/3 normative clauses, which is unevidenced coverage"},
+		{"10.2", "discharges 0/5 normative clauses, which is unevidenced coverage"},
+		{"10.3", "discharges 1/3 normative clauses, which is sliver coverage"},
+		{"10.4", "discharges 0/25 normative clauses, which is unevidenced coverage"},
+		{"13.14.5", "discharges 0/0 normative clauses, which is unmeasured coverage"},
+		{"15.2", "discharges 0/0 normative clauses, which is unmeasured coverage"},
+		{"17.1", "discharges 0/6 normative clauses, which is unevidenced coverage"},
+		{"17.2", "discharges 0/1 normative clauses, which is unevidenced coverage"},
+		{"17.3", "discharges 0/3 normative clauses, which is unevidenced coverage"},
+		{"18.1", "discharges 0/5 normative clauses, which is unevidenced coverage"},
+		{"18.4", `binding "section:18.4" is recorded unowned:`},
+	} {
 		var output bytes.Buffer
-		if err := run([]string{"-root", repositoryRoot, "-section", section}, &output); err != nil {
-			t.Errorf("run(-section %s) error = %v", section, err)
-			continue
+		err := run([]string{"-root", repositoryRoot, "-section", test.section}, &output)
+		if err == nil || !errors.Is(err, traceability.ErrTraceability) || !strings.Contains(err.Error(), test.want) {
+			t.Errorf("run(-section %s) error = %v, want ErrTraceability containing %q", test.section, err, test.want)
 		}
-		if !strings.Contains(output.String(), "assigned_scopes=1") {
-			t.Errorf("run(-section %s) output = %q, want assigned_scopes=1", section, output.String())
+		if output.Len() != 0 {
+			t.Errorf("run(-section %s) emitted success output %q", test.section, output.String())
 		}
 	}
 }
@@ -122,7 +174,6 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
 	}{
 		{"1.6", "internal/scalar/scalar.go", "ErrInvalidScalar", "var ErrInvalidScalar", "var RenamedErrInvalidScalar"},
 		{"2.1", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
-		{"2.2", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
 		{"2.3", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
 		{"2.4", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
 		{"3.2", "internal/localstore/paths.go", "ResolvePaths", "func ResolvePaths(", "func RenamedResolvePaths("},
@@ -133,7 +184,6 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
 		{"10.3", "internal/canonicaljson/closed_shapes.go", "validateBlobDescriptor", "func validateBlobDescriptor", "func renamedValidateBlobDescriptor"},
 		{"10.4", "internal/canonicaljson/closed_shapes.go", "validateTransferManifest", "func validateTransferManifest", "func renamedValidateTransferManifest"},
 		{"17.3", "internal/canonicaljson/closed_shapes.go", "validateMigrationProvenance", "func validateMigrationProvenance", "func renamedValidateMigrationProvenance"},
-		{"18.4", "internal/localstore/projection.go", "OpenProjection", "func OpenProjection(", "func RenamedOpenProjection("},
 	}
 
 	for _, test := range tests {
@@ -181,7 +231,7 @@ func TestMainRejectsRenamedCanonicalIdentityEntryPoint(t *testing.T) {
 // main -> run -> traceability.VerifyAssignedSections call chain in an isolated
 // module. It re-pins the intentionally narrowed registry so the section:9.2
 // refusal, rather than the existing digest gate, is what makes the test red.
-// The unrelated section:7.9 binding must remain executable and green.
+// The unrelated section:6.2 binding must remain executable and green.
 func TestMainRejectsOneNarrowedAssignedSectionBinding(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds an isolated tracecheck binary")
@@ -200,7 +250,7 @@ func TestMainRejectsOneNarrowedAssignedSectionBinding(t *testing.T) {
 	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.5.0.json")
 	removeOwnershipKey(t, registryPath, "section:9.2")
 
-	output, err := runTracecheck(t, fixtureRoot, "-section", "7.9")
+	output, err := runTracecheck(t, fixtureRoot, "-section", "6.2")
 	if err == nil || !strings.Contains(output, "projection digest ") {
 		t.Fatalf("unrepinned narrowed tracecheck error = %v output = %q, want projection digest refusal", err, output)
 	}
@@ -212,15 +262,15 @@ func TestMainRejectsOneNarrowedAssignedSectionBinding(t *testing.T) {
 		t.Fatalf("narrowed assigned tracecheck error = %v output = %q, want refusal %q and no success output", err, output, want)
 	}
 
-	output, err = runTracecheck(t, fixtureRoot, "-section", "7.9")
+	output, err = runTracecheck(t, fixtureRoot, "-section", "6.2")
 	if err != nil || !strings.Contains(output, "assigned_scopes=1") {
-		t.Fatalf("unrelated assigned tracecheck error = %v output = %q, want green section:7.9 binding", err, output)
+		t.Fatalf("unrelated assigned tracecheck error = %v output = %q, want green section:6.2 binding", err, output)
 	}
 }
 
 // TestMainRejectsDetachedScopeSpecificAcceptanceCase drives the production
 // main -> run -> traceability.VerifyAssignedSections call chain after removing
-// only Section 9.2's executable acceptance link. Section 7.9 must stay green.
+// only Section 9.2's executable acceptance link. Section 6.2 must stay green.
 func TestMainRejectsDetachedScopeSpecificAcceptanceCase(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds an isolated tracecheck binary")
@@ -230,7 +280,7 @@ func TestMainRejectsDetachedScopeSpecificAcceptanceCase(t *testing.T) {
 	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.5.0.json")
 	removeOwnershipAcceptanceCases(t, registryPath, "section:9.2")
 
-	output, err := runTracecheck(t, fixtureRoot, "-section", "7.9")
+	output, err := runTracecheck(t, fixtureRoot, "-section", "6.2")
 	if err == nil || !strings.Contains(output, "projection digest ") {
 		t.Fatalf("unrepinned detached-case tracecheck error = %v output = %q, want projection digest refusal", err, output)
 	}
@@ -242,15 +292,15 @@ func TestMainRejectsDetachedScopeSpecificAcceptanceCase(t *testing.T) {
 		t.Fatalf("detached-case tracecheck error = %v output = %q, want refusal %q and no success output", err, output, want)
 	}
 
-	output, err = runTracecheck(t, fixtureRoot, "-section", "7.9")
+	output, err = runTracecheck(t, fixtureRoot, "-section", "6.2")
 	if err != nil || !strings.Contains(output, "assigned_scopes=1") {
-		t.Fatalf("unrelated assigned tracecheck error = %v output = %q, want green section:7.9 binding", err, output)
+		t.Fatalf("unrelated assigned tracecheck error = %v output = %q, want green section:6.2 binding", err, output)
 	}
 }
 
 // TestMainRejectsMissingScopeSpecificProductionDeclaration drives the
 // production entry point after detaching only Section 9.2 from its concrete Go
-// declaration. Section 7.9 must remain independently executable and green.
+// declaration. Section 6.2 must remain independently executable and green.
 func TestMainRejectsMissingScopeSpecificProductionDeclaration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds an isolated tracecheck binary")
@@ -260,7 +310,7 @@ func TestMainRejectsMissingScopeSpecificProductionDeclaration(t *testing.T) {
 	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.5.0.json")
 	replaceOwnershipProductionDeclaration(t, registryPath, "section:9.2", "MissingSectionNineTwoImplementation")
 
-	output, err := runTracecheck(t, fixtureRoot, "-section", "7.9")
+	output, err := runTracecheck(t, fixtureRoot, "-section", "6.2")
 	if err == nil || !strings.Contains(output, "projection digest ") {
 		t.Fatalf("unrepinned missing-production tracecheck error = %v output = %q, want projection digest refusal", err, output)
 	}
@@ -272,9 +322,9 @@ func TestMainRejectsMissingScopeSpecificProductionDeclaration(t *testing.T) {
 		t.Fatalf("missing-production tracecheck error = %v output = %q, want refusal containing %q and no success output", err, output, want)
 	}
 
-	output, err = runTracecheck(t, fixtureRoot, "-section", "7.9")
+	output, err = runTracecheck(t, fixtureRoot, "-section", "6.2")
 	if err != nil || !strings.Contains(output, "assigned_scopes=1") {
-		t.Fatalf("unrelated assigned tracecheck error = %v output = %q, want green section:7.9 binding", err, output)
+		t.Fatalf("unrelated assigned tracecheck error = %v output = %q, want green section:6.2 binding", err, output)
 	}
 }
 
@@ -419,10 +469,21 @@ func removeOwnershipAcceptanceCases(t *testing.T, filename, target string) {
 	})
 }
 
+// replaceOwnershipProductionDeclaration narrows the mutant to exactly one
+// thing: the binding names a Go declaration that does not exist. The gap
+// sentence is rewritten to name the replacement too, because a gap has to name
+// the declaration its binding is registered to, and leaving the old name there
+// would make the coverage disclosure check red instead of the production-owner
+// check this mutant exists to reach.
 func replaceOwnershipProductionDeclaration(t *testing.T, filename, target, declaration string) {
 	t.Helper()
 	mutateOwnershipGroup(t, filename, target, func(group map[string]any) {
-		group["production"].(map[string]any)["declaration"] = declaration
+		production := group["production"].(map[string]any)
+		previous, _ := production["declaration"].(string)
+		production["declaration"] = declaration
+		if gap, ok := group["gap"].(string); ok && previous != "" {
+			group["gap"] = strings.ReplaceAll(gap, previous, declaration)
+		}
 	})
 }
 
@@ -437,10 +498,11 @@ func removeOwnershipKey(t *testing.T, filename, target string) {
 		t.Fatalf("decode ownership registry: %v", err)
 	}
 	removed := 0
+	groups := []any{}
 	for _, rawGroup := range document["ownership"].([]any) {
 		group := rawGroup.(map[string]any)
 		keys := group["keys"].([]any)
-		filtered := keys[:0]
+		filtered := []any{}
 		for _, key := range keys {
 			if key == target {
 				removed++
@@ -448,8 +510,13 @@ func removeOwnershipKey(t *testing.T, filename, target string) {
 			}
 			filtered = append(filtered, key)
 		}
+		if len(filtered) == 0 {
+			continue
+		}
 		group["keys"] = filtered
+		groups = append(groups, group)
 	}
+	document["ownership"] = groups
 	if removed != 1 {
 		t.Fatalf("removed ownership key %q %d times, want exactly once", target, removed)
 	}

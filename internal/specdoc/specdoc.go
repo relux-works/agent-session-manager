@@ -8,10 +8,15 @@
 // silently compared against. Nothing here advertises runtime capabilities or
 // mutates durable state.
 //
-// The package exists so that enumeration artifacts can be compared against the
-// specification text itself rather than against the implementation those
-// artifacts are supposed to constrain. Only test binaries import it, so the
-// embedded document never reaches a shipped command.
+// The package exists so that enumeration artifacts and ownership claims can be
+// compared against the specification text itself rather than against the
+// implementation those artifacts are supposed to constrain. Only repository
+// gates import it: the test binaries that check enumeration artifacts, and
+// internal/traceability, which measures the normative clause inventory of a
+// bound section from this document. The embedded document never reaches the ax
+// command, and TestEmbeddedDocumentNeverReachesAProductBinary enforces that
+// from the module import graph rather than leaving it as a comment: only
+// tracecheck, the ownership gate, may reach this package from a main package.
 package specdoc
 
 import (

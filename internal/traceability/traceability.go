@@ -24,6 +24,7 @@ import (
 
 	"github.com/relux-works/agent-session-manager/internal/catalog"
 	"github.com/relux-works/agent-session-manager/internal/cataloggen"
+	"github.com/relux-works/agent-session-manager/internal/specdoc"
 	"github.com/relux-works/agent-session-manager/internal/specpin"
 )
 
@@ -39,7 +40,7 @@ const (
 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
 	// formatting may change, but ownership claims cannot be self-minted without
 	// an explicit review of this binding.
-	reviewedOwnershipCanonicalSHA256 = "8dd1c0acb40c83c109fe6bd27ae9d64166b9ceb0381c17116b9563aad5499924"
+	reviewedOwnershipCanonicalSHA256 = "23e2f7a62fa93b329a5efb52c65b61b3972b62ca3ef4414c7aed3ad8419178b9"
 )
 
 var ErrTraceability = errors.New("spec-to-code traceability check failed")
@@ -53,6 +54,21 @@ type Report struct {
 	Fixtures               int
 	CompatibilityContracts int
 	AssignedScopes         int
+
+	// SectionBindings and the coverage counters below are a measured ratio over
+	// the registered section bindings, not a prose claim. NormativeClauses is
+	// the number of RFC 2119 clause lines the pinned document itself carries in
+	// the bound sections; DischargedClauses is how many of those a binding
+	// enumerates with a verified excerpt and an acceptance owner.
+	SectionBindings     int
+	FullCoverage        int
+	PartialCoverage     int
+	SliverCoverage      int
+	UnevidencedCoverage int
+	UnmeasuredCoverage  int
+	UnownedSections     int
+	NormativeClauses    int
+	DischargedClauses   int
 }
 
 type ownershipKind string
@@ -70,6 +86,19 @@ type ownershipRegistry struct {
 	Source          registrySource   `json:"source"`
 	AcceptanceCases []acceptanceCase `json:"acceptance_cases"`
 	Ownership       []ownershipGroup `json:"ownership"`
+	UnownedSections []unownedSection `json:"unowned_sections"`
+}
+
+// unownedSection records a real v0.5.0 section that this repository does not
+// implement. It exists so an unimplemented section is disclosed by name rather
+// than bound to a symbol from a neighbouring package, which is what an owned
+// key would otherwise assert. It is a disclosure, never an exemption: a section
+// the generated catalog requires an owner for may not be declared here, and
+// assigned-scope admission refuses an unowned section and prints its gap.
+type unownedSection struct {
+	Key      string `json:"key"`
+	Gap      string `json:"gap"`
+	Evidence string `json:"evidence"`
 }
 
 type registrySource struct {
@@ -87,10 +116,71 @@ type acceptanceCase struct {
 }
 
 type ownershipGroup struct {
-	Kind            ownershipKind `json:"kind"`
-	Keys            []string      `json:"keys"`
-	Production      codeReference `json:"production"`
-	AcceptanceCases []string      `json:"acceptance_cases"`
+	Kind            ownershipKind      `json:"kind"`
+	Keys            []string           `json:"keys"`
+	Production      codeReference      `json:"production"`
+	AcceptanceCases []string           `json:"acceptance_cases"`
+	Coverage        coverageLevel      `json:"coverage,omitempty"`
+	Gap             string             `json:"gap,omitempty"`
+	Clauses         []dischargedClause `json:"clauses,omitempty"`
+}
+
+// coverageLevel is how much of a bound section a binding claims to discharge.
+// The claim is not taken on trust: the level is recomputed from the clauses the
+// binding enumerates against the clause inventory the pinned specification
+// itself carries for that section, and a claim that differs from the measured
+// level is refused.
+type coverageLevel string
+
+const (
+	// coverageFull means every normative clause the pinned section carries is
+	// enumerated with a verified excerpt and an acceptance owner.
+	coverageFull coverageLevel = "full"
+	// coveragePartial means at least half of them are.
+	coveragePartial coverageLevel = "partial"
+	// coverageSliver means fewer than half are: the binding implements a corner
+	// of the section it is registered against.
+	coverageSliver coverageLevel = "sliver"
+	// coverageUnevidenced means the binding enumerates no clause at all. It says
+	// the registry makes no clause-level claim, not that the implementation
+	// covers nothing.
+	coverageUnevidenced coverageLevel = "unevidenced"
+	// coverageUnmeasured means normativeKeywordPattern finds no clause line
+	// under the section's heading or its subheadings, so the gate cannot
+	// measure the section's obligations at all.
+	//
+	// It is deliberately NOT called "declarative", and it does NOT mean the
+	// section carries no obligation. Nineteen of the 157 pinned headings are in
+	// this class and every one of them has a substantive body: Section 15.2 is a
+	// nineteen-row normative exit-code registry and Section 7.3 is the closed
+	// Provider Manifest, both of which state their obligations as tables rather
+	// than in uppercase RFC 2119 keywords. Treating that silence as "nothing to
+	// discharge" is the same free pass this gate exists to remove, reached
+	// through the scanner instead of through the label, so an unmeasured binding
+	// carries the same mandatory gap as every other level below full and is
+	// refused for assigned-scope admission.
+	coverageUnmeasured coverageLevel = "unmeasured"
+)
+
+// dischargedClause binds one normative clause of the pinned section to the
+// acceptance cases that discharge it. Every field is checked against the
+// hash-verified document: the identifier must index the section's own clause
+// inventory, the line must be the line that clause occupies, and the excerpt
+// must be that clause's text quoted verbatim, so a clause cannot be claimed
+// with a true sentence about something else.
+type dischargedClause struct {
+	ID              string   `json:"id"`
+	Line            int      `json:"line"`
+	Excerpt         string   `json:"excerpt"`
+	AcceptanceCases []string `json:"acceptance_cases"`
+}
+
+// normativeClause is one RFC 2119 clause line of the pinned specification,
+// measured from the document rather than declared by the registry.
+type normativeClause struct {
+	ID   string
+	Line int
+	Text string
 }
 
 type codeReference struct {
@@ -178,7 +268,16 @@ func verifyRepository(repository fs.FS, assignedSections []string) (Report, erro
 	if err != nil {
 		return Report{}, err
 	}
-	return verifyOwnership(repository, registry, manifest, currentCatalog, compatibilityCatalog, bindings)
+	document, err := specdoc.Load()
+	if err != nil {
+		return Report{}, fail("load pinned specification document: %v", err)
+	}
+	if manifest.Source.Document.SHA256 != specpin.DocumentSHA256 {
+		return Report{}, fail(
+			"verified normative lock document digest %s differs from the pinned clause source %s",
+			manifest.Source.Document.SHA256, specpin.DocumentSHA256)
+	}
+	return verifyOwnership(repository, document, registry, manifest, currentCatalog, compatibilityCatalog, bindings)
 }
 
 func readRequired(repository fs.FS, filename string) ([]byte, error) {
@@ -208,6 +307,7 @@ func decodeOwnershipRegistry(candidate []byte) (ownershipRegistry, error) {
 
 func verifyOwnership(
 	repository fs.FS,
+	document *specdoc.Document,
 	registry ownershipRegistry,
 	manifest specpin.Manifest,
 	currentCatalog catalog.Catalog,
@@ -258,14 +358,51 @@ func verifyOwnership(
 	if err != nil {
 		return Report{}, err
 	}
+	// Coverage is measured over every registered section binding, not only the
+	// assigned ones, so a sliver planted anywhere in the registry reddens both
+	// production entry points rather than only the repository-wide one. It is
+	// measured before ownership resolution so that a section moved to the
+	// unowned disclosure to dodge the catalog's owner requirement is reported
+	// as that dodge rather than as an ordinary missing owner.
+	coverage, err := verifySectionCoverage(document, registry.Ownership, acceptanceIDs)
+	if err != nil {
+		return Report{}, err
+	}
+	ownedSections := make(map[string]struct{}, len(coverage))
+	for key := range coverage {
+		ownedSections[key] = struct{}{}
+	}
+	unowned, err := verifyUnownedSections(
+		registry.UnownedSections, expected[ownershipSectionBinding], requiredSectionBindings, ownedSections)
+	if err != nil {
+		return Report{}, err
+	}
+
 	owned, err := verifyOwnershipGroups(checker, registry.Ownership, acceptanceIDs, expected, required, selectedSectionBindings)
 	if err != nil {
 		return Report{}, err
 	}
+
 	for _, binding := range assignedBindings {
 		for _, key := range binding.Keys {
+			if entry, disclosed := unowned[key]; disclosed {
+				return Report{}, fail(
+					"assigned section %q binding %q is recorded unowned: %s", binding.Scope, key, entry.Gap)
+			}
 			if _, ok := owned[ownershipSectionBinding][key]; !ok {
 				return Report{}, fail("assigned section %q binding %q has no scoped implementation owner", binding.Scope, key)
+			}
+			// Admission requires full and nothing else. coverageUnmeasured is
+			// deliberately not admitted: the gate cannot see the section's
+			// obligations, and admitting on an unverifiable justification
+			// sentence would be self-minted evidence for exactly the class this
+			// gate exists to refuse. Absence of a scanner-visible clause is a
+			// failure to measure, not a measured absence of obligation.
+			measured := coverage[key]
+			if measured.Level != coverageFull {
+				return Report{}, fail(
+					"assigned section %q binding %q discharges %s normative clauses, which is %s coverage; assigned-scope admission requires full: %s",
+					binding.Scope, key, measured.Ratio(), measured.Level, measured.Gap)
 			}
 		}
 	}
@@ -286,14 +423,67 @@ func verifyOwnership(
 		return Report{}, fail("ownership registry projection digest %s differs from reviewed %s", gotDigest, reviewedOwnershipCanonicalSHA256)
 	}
 
-	return Report{
+	report := Report{
 		Contracts:              len(expected[ownershipContract]),
 		NormativeSections:      len(expected[ownershipNormativeSection]),
 		AcceptanceCases:        len(acceptanceIDs),
 		Fixtures:               len(expected[ownershipFixture]),
 		CompatibilityContracts: len(compatibilityCatalog.Contracts),
 		AssignedScopes:         len(assignedBindings),
-	}, nil
+		SectionBindings:        len(coverage),
+		UnownedSections:        len(unowned),
+	}
+	for _, measured := range coverage {
+		report.NormativeClauses += measured.Total
+		report.DischargedClauses += measured.Discharged
+		switch measured.Level {
+		case coverageFull:
+			report.FullCoverage++
+		case coveragePartial:
+			report.PartialCoverage++
+		case coverageSliver:
+			report.SliverCoverage++
+		case coverageUnevidenced:
+			report.UnevidencedCoverage++
+		case coverageUnmeasured:
+			report.UnmeasuredCoverage++
+		}
+	}
+	return report, nil
+}
+
+// verifySectionCoverage measures every registered section binding against the
+// pinned document and refuses a coverage claim on any other ownership kind. A
+// contract or fixture owner has no section to be measured against, so a
+// coverage field there would be a claim the gate cannot check.
+func verifySectionCoverage(
+	document *specdoc.Document,
+	groups []ownershipGroup,
+	acceptanceIDs map[string]struct{},
+) (map[string]sectionCoverage, error) {
+	result := make(map[string]sectionCoverage)
+	for index, group := range groups {
+		if group.Kind != ownershipSectionBinding {
+			if group.Coverage != "" || group.Gap != "" || len(group.Clauses) != 0 {
+				return nil, fail(
+					"ownership group %d (%s) claims section coverage, which only a section binding can be measured for",
+					index, group.Kind)
+			}
+			continue
+		}
+		if len(group.Keys) != 1 {
+			return nil, fail("section binding ownership group %d has %d keys, want exactly one", index, len(group.Keys))
+		}
+		measured, err := verifySectionBindingCoverage(document, group, acceptanceIDs)
+		if err != nil {
+			return nil, err
+		}
+		if _, duplicate := result[measured.Key]; duplicate {
+			return nil, fail("duplicate section_binding implementation owner for %q", measured.Key)
+		}
+		result[measured.Key] = measured
+	}
+	return result, nil
 }
 
 func verifyAcceptanceCases(checker *sourceChecker, cases []acceptanceCase) (map[string]struct{}, error) {
@@ -771,4 +961,329 @@ func equalStrings(left, right []string) bool {
 
 func fail(format string, arguments ...any) error {
 	return fmt.Errorf("%w: %s", ErrTraceability, fmt.Sprintf(format, arguments...))
+}
+
+// normativeKeywordPattern matches the RFC 2119 obligation keywords that make a
+// specification line a clause an implementation has to discharge. MAY and
+// SHOULD are deliberately absent: they create no obligation, so counting them
+// would inflate the denominator and make coverage look worse than it is.
+var normativeKeywordPattern = regexp.MustCompile(`\b(MUST NOT|MUST|SHALL NOT|SHALL|REQUIRED)\b`)
+
+// clauseIdentifierPattern matches the "<section>#<index>" form of a clause id.
+var clauseIdentifierPattern = regexp.MustCompile(`^(.+)#([1-9][0-9]*)$`)
+
+// minimumGapLength is the shortest gap sentence the gate accepts. A gap has to
+// say what is missing; "n/a", "todo" and an empty string are not disclosures.
+const minimumGapLength = 32
+
+// verifyGapDiscloses checks that a gap sentence is a disclosure rather than
+// padding. Length and a substring match alone were not enough: "Section 9.2 is
+// not fully covered here yet." satisfied both while saying nothing. A real gap
+// says what the binding's own implementation does and does not reach, so it has
+// to name the production declaration the binding is registered to as well as
+// the section, and it has to name the section as a whole identifier so that a
+// gap about 6.55 cannot pass for a gap about 6.5.
+//
+// This is a tightening, not a proof: a sentence that names both and still says
+// nothing useful is admitted, and the gate cannot decide otherwise. That limit
+// is stated in README.md.
+func verifyGapDiscloses(gap, display, declaration string) error {
+	if len(gap) < minimumGapLength {
+		return fmt.Errorf("gap %q is shorter than the %d characters a disclosure needs", gap, minimumGapLength)
+	}
+	if !mentionsSection(gap, display) {
+		return fmt.Errorf("gap does not name section %s as a whole identifier", display)
+	}
+	if declaration != "" && !strings.Contains(gap, declaration) {
+		return fmt.Errorf("gap does not name the production declaration %q the binding is registered to", declaration)
+	}
+	return nil
+}
+
+// mentionsSection reports whether text names the section display identifier as
+// a whole identifier. A bare substring match accepts "6.55" as a mention of
+// "6.5" and "13.15" as a mention of "13.1", which would let a gap about one
+// section stand in for another.
+func mentionsSection(text, display string) bool {
+	pattern, err := regexp.Compile(`(?:^|[^0-9.])` + regexp.QuoteMeta(display) + `(?:[^0-9]|$)`)
+	if err != nil {
+		return false
+	}
+	return pattern.MatchString(text)
+}
+
+// sectionDocumentIdentifier maps an ownership key to the heading identifier the
+// pinned document uses. "section:10.3" is heading 10.3; "section:appendix-d" is
+// heading D.
+func sectionDocumentIdentifier(key string) (string, error) {
+	identifier := strings.TrimPrefix(key, "section:")
+	if identifier == key || identifier == "" {
+		return "", fmt.Errorf("ownership key %q is not a section binding key", key)
+	}
+	if rest, ok := strings.CutPrefix(identifier, "appendix-"); ok {
+		if len(rest) != 1 {
+			return "", fmt.Errorf("ownership key %q is not a real appendix key", key)
+		}
+		return strings.ToUpper(rest), nil
+	}
+	return identifier, nil
+}
+
+// sectionDisplayName is how a gap sentence has to name the section it is about.
+func sectionDisplayName(key string) (string, error) {
+	identifier := strings.TrimPrefix(key, "section:")
+	if rest, ok := strings.CutPrefix(identifier, "appendix-"); ok {
+		if len(rest) != 1 {
+			return "", fmt.Errorf("ownership key %q is not a real appendix key", key)
+		}
+		return "Appendix " + strings.ToUpper(rest), nil
+	}
+	if identifier == "" || identifier == key {
+		return "", fmt.Errorf("ownership key %q is not a section binding key", key)
+	}
+	return identifier, nil
+}
+
+// sectionClauseInventory measures every normative clause the pinned document
+// carries under a heading, including its subheadings. A parent heading owns its
+// children's obligations, so Appendix D is measured over D.1..D.n rather than
+// over the two lines between its title and its first subheading.
+func sectionClauseInventory(document *specdoc.Document, key string) ([]normativeClause, error) {
+	identifier, err := sectionDocumentIdentifier(key)
+	if err != nil {
+		return nil, err
+	}
+	prefix := identifier + "."
+	var result []normativeClause
+	for line := 1; line <= document.LineCount(); line++ {
+		owner, ok := document.SectionID(line)
+		if !ok || (owner != identifier && !strings.HasPrefix(owner, prefix)) {
+			continue
+		}
+		text, ok := document.Line(line)
+		if !ok {
+			return nil, fmt.Errorf("pinned document line %d is unreadable", line)
+		}
+		if !normativeKeywordPattern.MatchString(text) {
+			continue
+		}
+		result = append(result, normativeClause{
+			ID:   fmt.Sprintf("%s#%d", identifier, len(result)+1),
+			Line: line,
+			Text: strings.TrimSpace(text),
+		})
+	}
+	return result, nil
+}
+
+// coverageBucket is the measured coverage level. It is computed from the two
+// counts and never read from the registry.
+func coverageBucket(discharged, total int) coverageLevel {
+	switch {
+	case total == 0:
+		return coverageUnmeasured
+	case discharged == 0:
+		return coverageUnevidenced
+	case discharged >= total:
+		return coverageFull
+	case discharged*2 >= total:
+		return coveragePartial
+	default:
+		return coverageSliver
+	}
+}
+
+// sectionCoverage is the measured result for one section binding.
+type sectionCoverage struct {
+	Key        string
+	Level      coverageLevel
+	Discharged int
+	Total      int
+	Gap        string
+}
+
+// Ratio renders the measured coverage as the ratio it was computed from, so a
+// report never has to describe coverage in prose.
+func (coverage sectionCoverage) Ratio() string {
+	return fmt.Sprintf("%d/%d", coverage.Discharged, coverage.Total)
+}
+
+// verifySectionBindingCoverage measures one section binding against the pinned
+// document and refuses a declared level that differs from the measured one.
+//
+// This is the check that stops a binding from claiming a whole section while
+// implementing a corner of it. It verifies what it can decide: that every
+// enumerated clause is a real obligation of the claimed section, quoted
+// verbatim at the line it occupies, and named by an acceptance case the binding
+// itself registers; and that the declared level equals the measured ratio. It
+// cannot decide that the named acceptance case exercises the clause's meaning —
+// that residual is stated in README.md and in the coverage artifact.
+func verifySectionBindingCoverage(
+	document *specdoc.Document,
+	group ownershipGroup,
+	acceptanceIDs map[string]struct{},
+) (sectionCoverage, error) {
+	key := group.Keys[0]
+	inventory, err := sectionClauseInventory(document, key)
+	if err != nil {
+		return sectionCoverage{}, fail("section binding %q clause inventory: %v", key, err)
+	}
+	byIdentifier := make(map[string]normativeClause, len(inventory))
+	for _, clause := range inventory {
+		byIdentifier[clause.ID] = clause
+	}
+	groupCases := make(map[string]struct{}, len(group.AcceptanceCases))
+	for _, acceptanceID := range group.AcceptanceCases {
+		groupCases[acceptanceID] = struct{}{}
+	}
+
+	seen := make(map[string]struct{}, len(group.Clauses))
+	for _, declared := range group.Clauses {
+		clause, known := byIdentifier[declared.ID]
+		if !known {
+			return sectionCoverage{}, fail(
+				"section binding %q discharges clause %q, which is not one of the %d normative clauses of the pinned section",
+				key, declared.ID, len(inventory))
+		}
+		if _, duplicate := seen[declared.ID]; duplicate {
+			return sectionCoverage{}, fail("section binding %q repeats discharged clause %q", key, declared.ID)
+		}
+		seen[declared.ID] = struct{}{}
+		if declared.Line != clause.Line {
+			return sectionCoverage{}, fail(
+				"section binding %q clause %q declares line %d, but the pinned clause is at line %d",
+				key, declared.ID, declared.Line, clause.Line)
+		}
+		excerpt := specdoc.Normalize(declared.Excerpt)
+		if excerpt == "" {
+			return sectionCoverage{}, fail("section binding %q clause %q quotes an empty excerpt", key, declared.ID)
+		}
+		if !normativeKeywordPattern.MatchString(excerpt) {
+			return sectionCoverage{}, fail(
+				"section binding %q clause %q quotes text that carries no RFC 2119 obligation", key, declared.ID)
+		}
+		if !quoteBeginsAtLine(document, declared.Excerpt, clause.Line) {
+			return sectionCoverage{}, fail(
+				"section binding %q clause %q does not quote the pinned document verbatim at line %d",
+				key, declared.ID, clause.Line)
+		}
+		if len(declared.AcceptanceCases) == 0 {
+			return sectionCoverage{}, fail(
+				"section binding %q clause %q names no acceptance case that discharges it", key, declared.ID)
+		}
+		caseSeen := make(map[string]struct{}, len(declared.AcceptanceCases))
+		for _, acceptanceID := range declared.AcceptanceCases {
+			if _, duplicate := caseSeen[acceptanceID]; duplicate {
+				return sectionCoverage{}, fail(
+					"section binding %q clause %q repeats acceptance case %q", key, declared.ID, acceptanceID)
+			}
+			caseSeen[acceptanceID] = struct{}{}
+			if _, registered := acceptanceIDs[acceptanceID]; !registered {
+				return sectionCoverage{}, fail(
+					"section binding %q clause %q references unregistered acceptance case %q", key, declared.ID, acceptanceID)
+			}
+			if _, owned := groupCases[acceptanceID]; !owned {
+				return sectionCoverage{}, fail(
+					"section binding %q clause %q discharges through acceptance case %q, which the binding does not own",
+					key, declared.ID, acceptanceID)
+			}
+		}
+	}
+
+	measured := coverageBucket(len(group.Clauses), len(inventory))
+	if group.Coverage == "" {
+		return sectionCoverage{}, fail(
+			"section binding %q declares no coverage level; the pinned section carries %d normative clauses and the binding enumerates %d",
+			key, len(inventory), len(group.Clauses))
+	}
+	if group.Coverage != measured {
+		return sectionCoverage{}, fail(
+			"section binding %q claims %s coverage but discharges %d of the %d normative clauses of the pinned section, which is %s coverage",
+			key, group.Coverage, len(group.Clauses), len(inventory), measured)
+	}
+	display, err := sectionDisplayName(key)
+	if err != nil {
+		return sectionCoverage{}, fail("section binding %q: %v", key, err)
+	}
+	// Every level below full owes a gap, coverageUnmeasured included. Before
+	// this the gate refused a gap on the unmeasured bucket, so the bindings with
+	// the least evidence behind them were the only ones structurally forbidden
+	// from disclosing it.
+	switch measured {
+	case coverageFull:
+		if group.Gap != "" {
+			return sectionCoverage{}, fail("section binding %q claims %s coverage and still names a gap", key, measured)
+		}
+	default:
+		if err := verifyGapDiscloses(group.Gap, display, group.Production.Declaration); err != nil {
+			return sectionCoverage{}, fail(
+				"section binding %q claims %s coverage without naming what %s leaves unimplemented: %v",
+				key, measured, display, err)
+		}
+	}
+	return sectionCoverage{
+		Key:        key,
+		Level:      measured,
+		Discharged: len(group.Clauses),
+		Total:      len(inventory),
+		Gap:        group.Gap,
+	}, nil
+}
+
+// quoteBeginsAtLine reports whether the normalized excerpt occurs in the pinned
+// document beginning on the given line. An excerpt matching elsewhere, or
+// nowhere, is not a quote of the clause it claims.
+func quoteBeginsAtLine(document *specdoc.Document, excerpt string, line int) bool {
+	for _, candidate := range document.QuoteLines(excerpt) {
+		if candidate == line {
+			return true
+		}
+	}
+	return false
+}
+
+// verifyUnownedSections checks the disclosed unimplemented sections. An entry
+// must name a real section, must not also be owned, must not cover a section
+// the generated catalog requires an owner for, and must state a gap and the
+// evidence for it.
+func verifyUnownedSections(
+	entries []unownedSection,
+	allowed map[string]struct{},
+	requiredByCatalog map[string]struct{},
+	owned map[string]struct{},
+) (map[string]unownedSection, error) {
+	result := make(map[string]unownedSection, len(entries))
+	for index, entry := range entries {
+		if entry.Key == "" {
+			return nil, fail("unowned section %d has an empty key", index)
+		}
+		if _, duplicate := result[entry.Key]; duplicate {
+			return nil, fail("duplicate unowned section %q", entry.Key)
+		}
+		if _, known := allowed[entry.Key]; !known {
+			return nil, fail("unowned section %q is self-minted for an unknown section", entry.Key)
+		}
+		if _, required := requiredByCatalog[entry.Key]; required {
+			return nil, fail(
+				"unowned section %q is required to have an implementation owner by the generated catalog", entry.Key)
+		}
+		if _, conflict := owned[entry.Key]; conflict {
+			return nil, fail("section %q is registered as both owned and unowned", entry.Key)
+		}
+		display, err := sectionDisplayName(entry.Key)
+		if err != nil {
+			return nil, fail("unowned section %q: %v", entry.Key, err)
+		}
+		// An unowned section has no production declaration by construction, so
+		// the gap is checked for length and a whole-identifier section mention
+		// only, and the separate evidence field carries the rest.
+		if err := verifyGapDiscloses(entry.Gap, display, ""); err != nil {
+			return nil, fail("unowned section %q does not name what %s leaves unimplemented: %v", entry.Key, display, err)
+		}
+		if len(entry.Evidence) < minimumGapLength {
+			return nil, fail("unowned section %q states no evidence for its gap", entry.Key)
+		}
+		result[entry.Key] = entry
+	}
+	return result, nil
 }
