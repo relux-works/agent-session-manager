@@ -29,17 +29,18 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 	want := Report{
 		Contracts:              60,
 		NormativeSections:      36,
-		AcceptanceCases:        43,
+		AcceptanceCases:        74,
 		Fixtures:               30,
 		CompatibilityContracts: 55,
-		SectionBindings:        48,
+		SectionBindings:        49,
 		FullCoverage:           1,
+		PartialCoverage:        3,
 		SliverCoverage:         1,
-		UnevidencedCoverage:    43,
+		UnevidencedCoverage:    41,
 		UnmeasuredCoverage:     3,
 		UnownedSections:        2,
-		NormativeClauses:       394,
-		DischargedClauses:      2,
+		NormativeClauses:       403,
+		DischargedClauses:      17,
 	}
 	if !reflect.DeepEqual(report, want) {
 		t.Fatalf("VerifyRepository() report = %#v, want %#v", report, want)
@@ -55,7 +56,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 // section "carries no RFC 2119 obligation of its own". That was false: the
 // obligation scanner matches uppercase keywords only, and Section 13.14.5
 // states its obligations as required-member and variant tables. Nineteen of the
-// 157 pinned headings are in that class, including the nineteen-row exit-code
+// 157 pinned headings are in that class, including the eighteen-row exit-code
 // registry of Section 15.2 and the closed Provider Manifest of Section 7.3, and
 // admitting them reproduced this bug through a different door. The assertion is
 // kept rather than deleted: it moved to the refusal table below and to
@@ -622,7 +623,10 @@ func TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers(t *testing.T) 
 		{"10.3", `binding "section:10.3" discharges 1/3 normative clauses, which is sliver coverage`},
 		{"10.4", `binding "section:10.4" discharges 0/25 normative clauses, which is unevidenced coverage`},
 		{"13.14.5", `binding "section:13.14.5" discharges 0/0 normative clauses, which is unmeasured coverage`},
+		{"14.2", `binding "section:14.2" discharges 8/9 normative clauses, which is partial coverage`},
+		{"15.1", `binding "section:15.1" discharges 5/7 normative clauses, which is partial coverage`},
 		{"15.2", `binding "section:15.2" discharges 0/0 normative clauses, which is unmeasured coverage`},
+		{"15.3", `binding "section:15.3" discharges 2/3 normative clauses, which is partial coverage`},
 		{"17.1", `binding "section:17.1" discharges 0/6 normative clauses, which is unevidenced coverage`},
 		{"17.2", `binding "section:17.2" discharges 0/1 normative clauses, which is unevidenced coverage`},
 		{"17.3", `binding "section:17.3" discharges 0/3 normative clauses, which is unevidenced coverage`},
@@ -846,7 +850,7 @@ func TestPlantedSliverRedensTheProductionEntryPoints(t *testing.T) {
 				sectionBinding(t, registry, "section:15.2").Gap =
 					"Section 15.2 is not fully covered here yet, and it will be covered later."
 			},
-			contains: `gap does not name the production declaration "ForRelease" the binding is registered to`,
+			contains: `gap does not name the production declaration "ExitCodeFor" the binding is registered to`,
 		},
 		{
 			name: "an unmeasured binding relabels itself unevidenced",

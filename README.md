@@ -1231,6 +1231,590 @@ path. The exact-name closure over the objects root is driven with a near-miss
 sibling name as well as a foreign one, because a closure narrowed from equality
 to a prefix admits exactly the near miss.
 
+## Structured Errors, Stable Codes, and Causal Redaction
+
+[`internal/axerror`](internal/axerror) implements the Section 15 Structured
+Error contract: the closed versioned failure object, its stable code-to-exit
+registry, its retryability rule, its typed diagnostic details, and the redaction
+that keeps a local cause off the wire. The package holds no state, opens no
+file, starts no process, and mutates nothing durable, so it has no crash or
+idempotency surface and advertises no provider, platform, backend, or CLI
+capability.
+
+| Element | Where it is decided |
+| --- | --- |
+| Versions `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0` | `Version` constants; any other value, including major 2, is refused rather than coerced |
+| Code-to-exit registry | `ExitCodeFor`, projected from the reviewed catalog rather than retyped, and admitting a code only for the versions that register it |
+| Exit-status registry | `ExitStatusMeaning` and `IsFailureExitStatus`, the closed Section 15.2 table, whose eighteen rows are measured from [`internal/specdoc`](internal/specdoc) rather than restated in prose; success is never a failure class |
+| Containing-contract binding | `BindingFor`, a static table with no negotiation path; `DecodeBound` takes the version from the container, never from the payload |
+| Retryability | `RetryabilityRefusal`, quoting the clause that disqualifies each exit class and each individually named code |
+| Typed details | `TargetAuth` and `RealmEvidence`, plus a presence requirement on `target_auth_missing` that the generic constructor cannot bypass |
+| Redaction | `ValidateDetails` exact-key scanner over the four Section 15.1 detail classes, and `refuseCausalLeak` over the local cause chain |
+| Detail ownership | `New` deep-copies the caller's diagnostic graph and `Detail` deep-copies on the way out, so the graph `ValidateDetails` checked is the graph the object encodes |
+| Untrusted boundaries | `LocalFromUntrusted`, which takes no part of a child or peer payload |
+
+The exit status is never a constructor argument. `New` takes a `Spec` with no
+`exit_code` field and resolves the status through `ExitCodeFor`, so a call site
+cannot mint a mapping the specification does not assign. The reader is the
+mirror image: a code the registry does not carry is admitted, because Section
+15.3 permits a code added in a compatible minor, but it keeps its envelope's
+exit class, is reported by `CodeRegistered` as unrecognized, and can never carry
+the success status.
+
+Redaction is two decidable gates and one structural property, and none of them
+is a confidentiality guarantee:
+
+- a detail key that **exactly** names one of the four classes Section 15.1
+  forbids - credential, raw transcript, environment secret, opaque bundle
+  content - is refused wherever it appears, including inside nested diagnostic
+  objects;
+- human text or a diagnostic value that reproduces the rendered local cause
+  verbatim is refused, which is the `fmt.Errorf("...: %v", err)` accident;
+- the cause itself is unexported and unreachable from the only encoder in the
+  package, so it cannot be serialized by any future field addition.
+
+Matching is exact and never by substring. A substring rule refusing every key
+containing `token`, `socket` or `credential` would refuse `token_count`,
+`socket_timeout_ms` and `credential_profile` - ordinary diagnostics - while
+still admitting a secret written under an innocuous name: false-positive surface
+with no true-positive capability, which is the defect `BUG-260902-2faftr`
+removed from the Configuration extension-key validator. The scanner is likewise
+scoped to Section 15.1's four classes rather than to the whole Section 16.2
+exclusion table, because a diagnostic key naming a PID, a tmux socket or a
+Terminal Instance Binding is none of those four.
+
+A validated failure owns its diagnostic graph outright, and that is part of the
+gate rather than a style choice. The first revision of this package copied only
+the top level of the details map and handed the live nested container back from
+`Detail`; every bound above - the four forbidden classes, the 16 KiB canonical
+size, the depth-4 nesting limit, the admitted value types - could then be
+violated after `ValidateDetails` had already run and passed, and the package
+emitted objects its own `Decode` refused. A validator that checks a graph the
+value does not own is a bypass path, not a gate, so `New` deep-copies on the way
+in and `Detail` deep-copies on the way out.
+`TestConstructionDoesNotAliasTheCallerDetailGraph` and
+`TestDetailAccessorDoesNotHandOutTheLiveContainer` attack containers at three
+depths and on both sides of an array, so a copy narrowed to one level fails them
+rather than only a copy deleted outright.
+
+`RedactionBound` states the limit in the code, and the tests assert that the
+constant still says it. Section 16.2 is explicit that v0.5.0 "does not claim
+reliable content-level secret scrubbing" while an implementation "SHOULD offer a
+best-effort scanner"; this is that scanner and nothing more. A secret placed in
+an innocuously named string value is admitted, and that is a stated bound rather
+than a discovered one.
+
+Two mappings the pinned document leaves open are reported as unknown rather than
+guessed. `LocalFromUntrusted` refuses the Directory Node surface, because
+Section 15.3 says its local code is `incompatible_protocol` or
+`adapter_protocol_violation`/`transport_failure` "as applicable" without fixing
+which; and `RetryabilityRefusal` never reports that a retry is safe, only where
+the document forbids the claim.
+
+`CodesByExitStatus` projects the registry the other way round, from exit
+status to the codes that map to it, because that is the direction a machine
+client reads it in. The measured fan-in is the reason an exit status is never a
+failure identity:
+
+| Structured Error version | Failure statuses | Registered codes | Statuses carrying more than one code | Largest class |
+| --- | ---: | ---: | ---: | ---: |
+| `1.0.0` | 17 | 47 | 14 | 6 codes at exit 6 |
+| `1.1.0` | 17 | 66 | 14 | 9 codes at exit 6 |
+| `1.2.0` | 17 | 94 | 15 | 14 codes at exit 16 |
+| `1.3.0` | 17 | 109 | 15 | 17 codes at exit 6 |
+
+Every cell of that table is re-derived from `CodesByExitStatus` by
+`TestREADMEFanInTableIsDerivedFromTheMeasuredProjection`, which parses these rows
+out of this file, requires every registered version to appear exactly once, and
+refuses a version whose maximum is tied across two statuses because "the largest
+class" would then name no single status. It exists because two of the four rows
+were wrong when they were first published - `1.2.0` said 12 codes at exit 6
+against a measured 14 at exit 16, `1.3.0` said 15 against a measured 17 - and
+survived review because the largest class had been asserted for `1.0.0` and
+`1.1.0` only. The same derivation covers the two figures Logbook entry 1003
+states in prose.
+
+`testdata/historical` holds one frozen envelope per bound version, each read
+through a containing contract that binds it, with its bytes pinned by SHA-256.
+They are checked-in bytes rather than objects a test builds: an envelope
+regenerated by today's constructor would only show that this package agrees with
+itself. `TestABoundReaderNeverAdoptsThePayloadDeclaredVersion` offers every
+frozen envelope to every containing contract that binds a different version and
+requires each cross pair to be refused, so a peer cannot select its own error
+version by writing one into the payload.
+
+Every gate above has a negative test that narrows it rather than deleting it:
+each forbidden retryability class and each individually disqualified code is
+exercised separately, each excluded detail class is refused on its own row, each
+declared bound is refused one step past the limit and admitted exactly at it,
+and each bootstrap mapping is pinned to its literal code.
+
+That sentence was published before it was true of the reader. The
+code-to-exit-status agreement in `decodeBody` and the registered-status
+admission in `decodeExitStatus` both had sampled coverage that a narrowing
+survived, and the first of the two was a reachable bypass of the exit-keyed
+retryability refusal. Both are now swept over their whole domain - every
+registered code of every registered version at every registered failure status,
+and every exit status in 0..255 - and the mutants are in the harness. The
+measurement, the bypass, and the sweeps are described under [CLI Result
+Envelopes](#cli-result-envelopes-rendering-boundaries-and-exit-status), because
+the reading path they protect is the one a machine client calls. Run the suite
+with:
+
+```bash
+go test ./internal/axerror -count=1 -v
+```
+
+## CLI Result Envelopes, Rendering Boundaries, and Exit Status
+
+[`internal/cliresult`](internal/cliresult) implements the Section 14.2 CLI
+Result contract: the independently versioned closed success envelope, the
+static per-command version selection, the closed embedded types and tagged
+command bodies, the Section 17.2 reader rules, the stdout/stderr rendering
+boundary, and the exact Section 15.2 status a failure carries. The package
+holds no state, opens no file, starts no process, and writes only to the
+streams a caller hands it, so it has no crash or idempotency surface and
+advertises no provider, platform, backend, or CLI capability.
+
+Success and failure are different objects rather than two shapes of one object.
+Section 14.2 says "failure output is one Structured Error object from Section
+15.1, not a CLI Result with `ok = false`", so `Result` can only hold an object
+whose `ok` is the literal true, and every failure path takes an
+[`axerror.Error`](internal/axerror) instead.
+
+| Element | Where it is decided |
+| --- | --- |
+| Versions `1.0.0` and `2.0.0` | `VersionForCommand`, a static per-tag table; `3.0.0` and `4.0.0` are registered and refused with `ErrUnimplementedVersion` |
+| Closed envelope | `New` and `Decode` over exactly the eight declared members; a ninth is refused, and a required `T\|null` identifier must be present |
+| Tagged bodies | `validateBody`, one closed validator per Section 14.2 command tag, plus the stop tuple, materialization, and takeover cross-member rules |
+| Identifier nullability | the reviewed `commandRegistry` columns; `idUnconstrained` where Section 14.2 names neither set |
+| Session scope | `validateNestedSessionScope`, comparing the top-level `session_id` to every nested Session Summary and to a bare body `session_id` |
+| Reader rules | `Decode` settles schema and major before anything else, the closed member set included; `acceptsVersion` implements the same-or-lower-minor rule |
+| Common flags | `ParseCommonFlags`, the exact ten flags plus the two refusals Section 14.2 states |
+| Confirmation | `RequireConfirmation`, which checks expectation flags before and independently of `--yes` |
+| Rendering boundary | `Emitter`, one JSON document on stdout, logs and prompts on stderr, progress only on a TTY |
+| Exit status | `ExitStatus` and `Emit`, returning the Structured Error's own `exit_code` unchanged |
+
+One design decision removes a defect class rather than documenting it: the
+writer and the reader share one validator over one value model. `New` marshals
+the caller's body, runs it through the strict
+[`canonicaljson`](internal/canonicaljson) model, and re-parses it, so the graph
+the validators checked is the graph the object encodes and the writer cannot
+emit an object its own `Decode` refuses.
+`TestEveryImplementedCommandRoundTripsThroughItsOwnReader` drives that for all
+eighteen tags. The caller's value is walked first, because `encoding/json`
+replaces invalid UTF-8 with U+FFFD instead of failing and encodes a Go float as
+a JSON number Section 1.6 forbids; substituting a replacement character for a
+byte the caller supplied would silently change data the specification requires
+to be valid UTF-8.
+
+The vocabularies are projected rather than retyped where the repository already
+reviewed them. The SessionSummary `capability-name` set comes from the
+generated catalog's provider family and is asserted to be exactly the seven
+names the Section 14.2 `[0..7]` bound implies; the `peer.probe` contract map is
+restricted to the fourteen Section 11.2 hello keys, which is how that section's
+"Structured Error, Observation Event, and CLI Result MUST NOT appear in this
+map" is enforced rather than merely intended.
+
+Where Section 14.2 states no rule, this package states none. `attach` and
+`pane` appear in neither of the two `operation_id` sets the section names and
+neither is a pure read, so their nullability is unconstrained; PathDiff and
+CLIFinding carry no ID, so the "sorted bytewise by that ID" rule does not reach
+them and no ordering is imposed on them. Inventing a sort or a nullability rule
+would refuse conforming documents just as surely as omitting one admits
+non-conforming ones.
+
+`ContractBound` states the limits in the code, and the tests assert that the
+constant still says them:
+
+- CLI Result 3.0.0 and 4.0.0 are registered by the pinned Section 1.5 row and
+  not built here; their tags are refused, never emitted with an unchecked body.
+- The eight `session.clone.*` tags select CLI Result 2.0.0 - that selection is
+  the Section 14.2 rule this package implements - but their Section 14.1 closed
+  bodies over the Section 13.14 clone types are not built, so the version has a
+  selection and no producer.
+- The takeover adoption rule needs a session kind the body does not carry.
+  `New` requires it as a constructor argument; `Decode` cannot have it and says
+  so through `VerifyTakeoverAdoption` rather than skipping a MUST silently.
+- An absolute-path member is admitted when it is absolute on any supported
+  platform, because a CLI Result names none. `VerifyDestinationPlatform` is the
+  narrowing hook for a caller that knows the emitting host.
+- The Section 18.1 total order of a `logs` event array is not checked: it is a
+  property of a durable stream rather than of one array.
+
+The measured inventory is 18 of 44 registered command tags, 2 of 4 registered
+versions, and 29 user command surfaces of 31, all asserted as ratios rather
+than described in prose. Section 14.2 coverage is 8 of its 9 normative clauses;
+clause `14.2#6` requires the process exit status to equal the failure's
+`exit_code`, and while `Emit` returns exactly that status, no `ax` binary
+exists to call `os.Exit` with it, so the process-level half is disclosed as
+unowned rather than claimed.
+
+Every gate has a negative test that narrows it rather than deleting it: each
+stop-tuple condition is flipped on its own row, each materialization success
+rule is violated separately, the takeover adoption rule is exercised for both
+session kinds in both directions, every body member is driven with every wrong
+JSON type, and each expectation flag is withheld individually. A 50-mutant
+harness over the package's gates kills 48 of 48 non-subsumed mutants, each
+mutant verified applied and compiled before it is measured; the two survivors
+are declared subsumed with the guard that refuses the same input earlier.
+
+### Which refusal wins when two apply
+
+A document of a major this reader is not bound to, carrying a top-level member
+this reader does not know, satisfies two refusals at once. Both orders refuse -
+there was never a bypass here - but only one of them answers the question a
+compatibility caller is actually asking, which is whether its `ax` is too old
+for this output. That question cannot be answered from a member name.
+
+The identity is therefore settled first, in `cliresult.Decode` and in
+`axerror.Decode` alike, and the closed member set is checked against a document
+whose major is known. The pinned document scopes the member rule to the object
+it governs three times over: Section 1.6 requires a reader to "reject an unknown
+top-level field in a major version 1 object", Section 17.1 scopes the same rule
+to "within any negotiated major version", and Section 17.2 lists "rejects an
+unsupported major" as the reader's first rule. Section 15.1 adds the posture:
+"receivers MUST NOT parse a different major's payload far enough to trust its
+error code, retryable bit, details, or authority fields".
+
+| Document | Refusal |
+| --- | --- |
+| Unbound major, unknown member | `ErrUnsupportedMajor` |
+| Unbound major alone | `ErrUnsupportedMajor` |
+| Bound major, unknown member | unknown top-level member |
+| Bound major, missing member | missing required member |
+| Foreign schema, unknown member | schema refusal |
+
+`TestUnsupportedMajorIsSettledBeforeTheClosedMemberRule` pins each row in both
+packages and
+`TestReorderingTheIdentityCheckAdmitsNothingItUsedToRefuse` re-drives every
+shape the old order refused, so the reorder changed which fact a caller reads
+and admitted nothing. Two harness mutants restore the previous order and are
+killed.
+
+### What a machine client is allowed to depend on
+
+`Read` is the consuming half of the same contract: it takes one completed
+`ax --json` invocation and returns the machine-actionable classification, or a
+refusal that names which fact is missing.
+
+Its input type is `InvocationOutput`, which has exactly `Stdout` and
+`ExitStatus`. There is no stderr member, so a reading structurally cannot depend
+on a diagnostic stream; `TestMachineReadingCannotSeeStderr` asserts the member
+set and fails the moment one appears. The behavioural half drives the real
+emitter with logs and progress on stderr and classifies the invocation from
+stdout alone, and its mutant swaps the two streams so the document lands on
+stderr - the machine client is then left with `ErrAbsentDocument` rather than a
+classification recovered from the status.
+
+Neither remaining signal is trusted alone either. The document on stdout decides
+the outcome and the exit status only corroborates it:
+
+| Observation | Answer |
+| --- | --- |
+| No bytes on stdout | `ErrAbsentDocument` - never resolved from the exit status |
+| Bytes that are not one readable JSON document | `ErrUnreadableDocument` - a failure to read is not an absence |
+| One document of another schema | `ErrForeignDocument` |
+| Success object at a failure status, failure object at exit 0, or `exit_code` unequal to the observed status | `ErrOutcomeDisagreement` |
+| A status Section 15.2 assigns no meaning, `1` included | `ErrUnregisteredExitStatus` |
+| A document whose members repeat | `ErrUnreadableDocument` - bytes with two readings are not one document |
+
+The last row is the reason both readers run the same Section 1.6
+common-data-model gate. `encoding/json` does not refuse a repeated member: it
+resolves the repeat, and it resolves it differently per decode target, so a
+Structured Error declaring `"retryable": false` and repeating the member as
+`true` was read as retryable - a forged retry claim assembled from two members
+no conforming writer could emit - a repeated `code` inside one exit class
+answered with the second occurrence, and a repeated `details` resolved to the
+union of both occurrences, which is neither. The exit-status corroboration does
+not catch any of it, because both occurrences can share the exit class.
+
+`cliresult.Decode` always canonicalized. `axerror.Decode` did not, so the
+failure branch of the same reading admitted the shape, and `axerror.Decode` is
+also the reader for peer-supplied provider, bridge, RPC, session-adapter and
+terminal-backend envelopes, which made it reachable from a remote peer.
+`requireCommonDataModel` closes it at `Decode`, so every one of those surfaces
+is gated in one place; `documentSchema` runs the same gate before it reads the
+`schema` member, because a repeated `schema` would otherwise select the branch.
+
+The gate uses the canonicalizer as a check and **discards its output**. RFC 8785
+serializes numbers through the ECMAScript algorithm, so the transform rewrites
+`1e1` to `10`; `decodeExitStatus` reads `exit_code` from its raw bytes precisely
+so that form is refused, and a gate that adopted its own canonical bytes would
+be a widening wearing a validator's clothes.
+`TestTheCanonicalGateDoesNotLaunderTheExitStatusToken` proves both halves - that
+the transform really does rewrite the literal, and that `Decode` still refuses
+it - and the harness carries the adopt-the-canonical-bytes mutant.
+
+The exit status cannot stand in for the document, and the refusals say so with a
+measured count rather than as advice: `exitStatusIsNotEnough` reports how many
+registered codes the bound error version assigns to that status. Nothing on
+`Reading` is computed from `message`; `HumanMessage` exists for display and is
+the only message-derived value. `TestMessageTextChangesNoMachineAnswer` replays
+each envelope with the message replaced - by a different code's name, by JSON,
+by 4,096 characters - and requires every machine answer to be identical.
+
+`testdata/historical` holds nine frozen invocations - the Section 14.2 and 15.1
+normative examples verbatim, an envelope carrying a namespaced extension this
+reader knows nothing about, unknown detail keys, a code a later compatible minor
+added, that code with `retryable` forged to true, and a `session.clone.*`
+failure. Each file's bytes are pinned by SHA-256 and each row records the
+machine answers a client must still get, so regenerating a fixture to make a
+test pass changes the compatibility claim instead of restating it. The
+`session.clone.*` row is the compatibility fact the two CLI bindings produce:
+this repository builds no clone success body, and its failure is still fully
+classified, because "this build cannot construct that success" and "this failure
+is unreadable" are different facts.
+
+An 86-mutant harness over these gates kills 85 and declares 1 subsumed, each
+mutant verified applied and compiled before it is measured, and each verified to
+carry the MUTATED text on disk rather than only to differ from the original. The
+subsumed one removes the exit-0 guard in `readFailure`; the `exit_code` equality
+check refuses the same input one guard later, because a Structured Error can
+never carry `exit_code` 0.
+
+That count is a STATED BOUND, not a figure this repository measures. The harness
+mutates the working tree, so it is task-scoped evidence under `.temp/` and
+attached to its board item rather than run by `go test ./...`; no committed
+artifact derives it, and a reader should treat it as reproducible-on-demand
+rather than gated. Every figure in this file that CAN be derived from a
+committed measurement is derived from one -
+`TestREADMEFanInTableIsDerivedFromTheMeasuredProjection` re-derives the fan-in
+table above, and `TestREADMEOwnershipFiguresAreDerivedFromTheMeasuredReport`
+re-derives every figure of the ownership paragraph below.
+
+Sixty-four of those mutants narrow rather than delete. The class is defined
+once in the harness and counted from that definition rather than by hand; the
+same definition applied to the 28-, 44-, 53- and 63-mutant harnesses selects
+exactly the fourteen, twenty-seven, thirty-six and forty-four those revisions
+published, so this figure extends that class instead of redefining it. The common-data-model gate
+is restricted to one of the four registered versions, moved behind the identity
+check, and made to adopt its own canonical bytes; the discriminator's copy is
+disabled on its own; `ErrAbsentDocument` is aliased onto `ErrUnreadableDocument`;
+and the two published fan-in figures are restored to the wrong values they were
+first published with, plus one row deleted outright. A gate whose only evidence
+is that deleting it reddens something has been shown to exist, not to hold.
+
+The three `ErrOutcomeDisagreement` guards are therefore measured over their
+whole domain rather than at one sample each, because each was first published
+with a narrowing that the suite could not tell from the real thing.
+
+The Section 14.2 equality is narrowed to `failure.CodeRegistered() &&
+failure.ExitCode() != output.ExitStatus`. For a registered code the equality is
+bound twice - `axerror.Decode` already cross-checks `exit_code` against the
+pinned registry - but for a code a later compatible minor added, that lookup
+takes the unregistered branch and runs no exit check at all, so `readFailure` is
+the only thing binding the document to the status the process exited with.
+`TestTheExitStatusEqualityBindsACodeTheRegistryDoesNotCarry` drives the frozen
+later-minor envelope at all sixteen other registered failure statuses and first
+asserts that its code is still unregistered, so the row cannot quietly stop
+covering the class it exists for. A second mutant spares one arbitrary status
+instead, which a single-sample row would have survived.
+
+The success-at-a-failure-status guard is narrowed past exit 130, the Section
+15.2 row "interrupted by operator signal before a clean response" and the one
+status at which a success document plausibly does reach stdout before the
+process dies. Both `ErrOutcomeDisagreement` rows now sweep every registered
+failure status, drawn from `axerror.IsFailureExitStatus` and asserted to be
+seventeen, and a fifth mutant narrows that enumeration below 130 to show the
+sweep fails closed rather than shrinking in silence.
+
+Two further claims that read as measurements are measured as such. The refusal
+that explains why the exit status alone is not enough states a count, and
+`TestTheRefusalStatesTheMeasuredFanInRatherThanAdvice` drives every registered
+command at every registered failure status through `Read` and re-derives that
+count from `CodesByExitStatus`; the harness replaces the count with a constant,
+replaces the whole clause with the word "many", and narrows it to be correct at
+exit 6 only - the last being exactly what a single-row assertion would have
+survived. The retry bit is likewise read from the document at every failure
+status on both polarities by
+`TestTheRetryDecisionFollowsTheDocumentAtEveryFailureStatus`, because a branch
+answering `true` from the status alone survived while the only exit-15 envelope
+any test drove already declared `retryable: true`. The true arm covers fourteen
+of the seventeen statuses - the pinned document forbids the claim for every code
+of the other three - and that figure is asserted rather than left implicit.
+
+The third guard is the command-tag agreement: `Read` refuses a document whose
+`command` is not the command the invocation ran. It was published proven at one
+ordered pair, invoked `doctor` against a document reporting `list`, and two
+narrowings survived the whole repository suite - one sparing a different invoked
+command, and one admitting any document *claiming* to be a `takeover` result,
+which is the one body in this contract carrying adoption and authority
+semantics. The agreement is now driven over the whole implemented vocabulary in
+both directions: every implemented tag as the invocation against every other
+implemented tag's own emitted document, 306 ordered pairs, each required to
+refuse with this guard's own sentence naming both tags so a pair settled by the
+version binding does not count as coverage of it, plus the 18 agreeing pairs
+required to be admitted.
+
+The share of the vocabulary that guard actually owns is measured rather than
+described. `TestTheCommandAgreementGuardOwnsAMeasuredShareOfTheTagVocabulary`
+drives all 1,936 ordered pairs over the 44 registered tags and classifies every
+answer: 18 admitted, 306 refused by the command-tag agreement, 1,144 refused
+before stdout is read because the invoked tag selects a version this repository
+does not build, and 468 refused by the version binding because the document
+claims a tag bound to another CLI Result major. Nothing is admitted that should
+not be, and the guard is reached for exactly the 306. That is the stated bound:
+for a pair involving one of the 26 unimplemented tags the guard is never the
+enforcement, and the reason is an earlier named refusal rather than a bypass.
+
+A fourth guard sits on the same reading path and was published with delete-only
+evidence: the code-to-exit-status agreement in `axerror.decodeBody`, which
+refuses a Structured Error whose `code` and `exit_code` name different Section
+15.2 classes. Its whole coverage was one row - `observation_gap` driven at exit
+5 instead of its own exit 9 - against 752 ordered (code, wrong-status) pairs at
+1.0.0 alone, rising to 1,744 at 1.3.0. Deleting the guard reddened that row;
+narrowing it to `code == "observation_gap"`, or sparing `policy_refused` or
+`authentication_failed` individually, passed all thirteen packages.
+
+That was a bypass and not only an unmeasured ratio. Nothing else refuses the
+pairing, and the retryability refusal this package publishes keys on the exit
+status for three whole classes - 7 authorization, 16 policy refusal, 130
+operator interrupt - so relabelling a code out of its own class asks that
+refusal about the wrong class. Under the narrowing, an `authentication_failed`
+document rewritten to `exit_code` 9 with `retryable: true` was ADMITTED by
+`Read` at exit status 9, and the caller received a `Reading` whose `Code()`
+names an authorization failure and whose `Retryable()` is true. The Section 14.2
+exit-status corroboration cannot see it, because the process really did exit
+with the relabelled status.
+
+`TestTheCodeToExitStatusAgreementIsMeasuredOverTheWholeCodeRegistry` drives every
+registered code of every registered version at every registered failure status:
+316 codes over 4 versions, 5,372 rows. The agreeing status is required to be
+admitted and each of the other sixteen to be refused with this guard's own
+sentence naming both numbers, so a pair settled by `decodeExitStatus`, by the
+closed member set, or by the retryability gate does not count as coverage of it.
+Every figure is re-derived from `CodesFor` and `CodesByExitStatus` and the
+per-version totals are pinned at 752, 1,056, 1,504 and 1,744, so the loop cannot
+go vacuous or quietly shrink; the harness narrows the code loop to one entry to
+prove that.
+
+The bypass itself is closed at the production entry point rather than at the
+decoder. `TestRelabellingACodeOutOfItsExitClassCannotForgeARetryClaimThroughRead`
+takes every 1.0.0 code whose own class carries an exit-keyed retryability refusal
+- 7 of them - relabels each into all 14 failure statuses that carry none, and
+requires `Read` to refuse all 98 with the agreement guard's sentence. The control
+in the other direction is required too: the same code at its own exit status with
+`retryable: true` must be refused by the retryability gate, which is what makes
+the relabelling a bypass of something rather than a rewrite of nothing.
+
+The registered-status admission in `decodeExitStatus` was sampled the same way,
+at `{0, 1, 18, 99}`, so `status != 42` survived the whole suite.
+`TestTheExitStatusAdmissionIsSweptOverEveryByteValue` sweeps 0..255 and requires
+admission if and only if the Section 15.2 table registers the status as a
+failure, plus six values outside the byte range. The document carries a code the
+registry does not register, which takes the Section 15.3 unknown-code branch and
+skips the agreement guard entirely, so the only decision left in the row is the
+one being measured. The oracle is `ExitStatusMeaning` rather than
+`IsFailureExitStatus`: an oracle built from the predicate under test would move
+with the mutant, and the asserted row count of seventeen is what catches a
+mutation that moves both. This path needs no process at all - `DecodeBound`
+reads peer-supplied provider, bridge, RPC, session-adapter and terminal-backend
+envelopes, where the document's own number is the only evidence there is.
+
+Both common-data-model gates were also proven only on hand-built documents, so a
+narrowing by payload SIZE - `len(data) < 4096` - refused every fixture and
+admitted a large one, in `axerror.Decode` and in `documentSchema` alike. Byte
+length is not a dimension of the Section 1.6 contract, but it is the one
+predicate a peer chooses: `axerror.Decode` reads provider, bridge, RPC,
+session-adapter and terminal-backend envelopes, and `stdout` is whatever the
+invoked process wrote. Each gate now also drives a conforming document several
+times that size - a Structured Error padded through its 64-key `details` bound,
+and a CLI Result carrying twelve Session Summaries - and the harness carries
+both size narrowings plus a narrowing of each fixture's own padding, so a
+fixture that stopped being large reddens on its length assertion instead of
+shrinking in silence.
+
+### Refusal guard inventory
+
+Six rounds of review closed one guard at a time, and the seventh found the twin
+of the sixth one file away: `decodeExitStatus` was swept over 0..255 while the
+reader-side gate in `Read` stayed at four sampled values. Working from memory
+closes the guard you were told about. This table is the forced traversal that
+replaces memory, and it is derived rather than written: `TestTheRefusalGuardInventoryIsDerivedFromTheReaderSource`
+parses every refusal site out of `internal/cliresult/client.go` and requires a
+bijection with the rows below, so a guard added without a row - or a row whose
+site no longer exists - is a red before a reviewer has to find it.
+
+Every row states what its domain evidence actually is. `measured` means the
+guard was driven across its whole domain and the admitted and refused counts are
+asserted against a production enumeration. `stated bound` means part of the
+domain is not driven and names the contract reason, never effort.
+
+| # | Guard | Sentinel | Refusal marker | Domain evidence | Measured by |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `Read` refuses an exit status Section 15.2 assigns no meaning | `ErrUnregisteredExitStatus` | `%w: %d` | measured over 0..255 and eight values outside the byte range, admission required to agree with `ExitStatusMeaning` at every point | `TestTheReadLevelExitStatusAdmissionIsSweptOverTheWholeDomain`, `TestTheReadLevelExitStatusAdmissionAdmitsARealReadingAtEveryRegisteredStatus` |
+| 2 | `Read` refuses a document belonging to some other contract | `ErrForeignDocument` | `schema %q` | measured over every contract identifier the pinned catalog registers plus twelve near-miss neighbours of the two admitted ones; stated bound - the member's domain is every JSON string and a discriminator fails on a neighbour of what it admits, not on an arbitrary string | `TestTheForeignSchemaRefusalIsMeasuredOverTheRegisteredContractVocabulary` |
+| 3 | `documentSchema` reports stdout that carries no document | `ErrAbsentDocument` | `%w: %s` | measured at every registered exit status, and required at each to be distinct from the read-failure and foreign-contract facts | `TestReadDistinguishesAbsenceFromAReadFailure`, `TestTheReadLevelExitStatusAdmissionIsSweptOverTheWholeDomain` |
+| 4 | `documentSchema` reports stdout that is not readable JSON | `ErrUnreadableDocument` | `decode: %v` | measured on a truncated envelope and on non-JSON bytes, each required to be distinct from an absence | `TestReadDistinguishesAbsenceFromAReadFailure` |
+| 5 | `documentSchema` refuses a second document on stdout | `ErrUnreadableDocument` | `more than one document` | measured on two concatenated conforming envelopes, required to be answered by this guard and not by the common-data-model gate that also refuses those bytes | `TestReadDistinguishesAbsenceFromAReadFailure` |
+| 6 | `documentSchema` refuses bytes with more than one reading | `ErrUnreadableDocument` | `outside the Section 1.6 common logical data model` | measured over every declared member of both schemas and over a conforming document several thousand bytes long; stated bound - the number half of Section 1.6 is not enforced on this path, disclosed below and pinned | `TestADuplicateSchemaMemberCannotSelectTheBranch`, `TestTheCommonDataModelGateDoesNotCoverTheSection16NumberRule` |
+| 7 | `documentSchema` refuses a document with no `schema` member | `ErrUnreadableDocument` | `document has no schema member` | measured over its two-valued presence domain, both values driven; stated bound - a predicate keyed on the exit status survives, and the exit status is not a dimension of Section 14.2's exactly-one-document rule | `TestReadDistinguishesAbsenceFromAReadFailure` |
+| 8 | `documentSchema` refuses a `schema` member that is not a string | `ErrUnreadableDocument` | `schema member is not a string` | measured over every JSON value form, JSON `null` included, with a string control required to reach the discriminator instead | `TestTheSchemaMemberTypeGuardIsMeasuredOverEveryJSONValueForm` |
+| 9 | `readSuccess` refuses a success object at a failure status | `ErrOutcomeDisagreement` | `carries a CLI Result, which reports success` | measured over all seventeen registered failure statuses, the count asserted against `axerror.IsFailureExitStatus` | `TestReadRefusesEveryDisagreementBetweenStdoutAndTheExitStatus` |
+| 10 | `readSuccess` refuses a document claiming a command the invocation did not run | `ErrOutcomeDisagreement` | `stdout reports command %q` | measured over all 1,936 ordered pairs of the 44 registered tags, classified 18 admitted / 306 by this guard / 1,144 before stdout is read / 468 by the version binding; stated bound - for a pair involving one of the 26 unimplemented tags an earlier named refusal settles it | `TestTheCommandAgreementGuardOwnsAMeasuredShareOfTheTagVocabulary` |
+| 11 | `readFailure` refuses a failure object at exit 0 | `ErrOutcomeDisagreement` | `carries a Structured Error, which reports failure` | declared subsumed - `decodeExitStatus` never admits `exit_code` 0, so row 12 refuses the same input one guard later; the harness carries the mutant and records it as subsumed rather than killed | `TestReadRefusesEveryDisagreementBetweenStdoutAndTheExitStatus` |
+| 12 | `readFailure` refuses an `exit_code` unequal to the observed status | `ErrOutcomeDisagreement` | `must equal that error's exit_code` | measured over all seventeen registered failure statuses for a code the pinned registry does not carry, which is the class where this guard is the sole enforcement | `TestTheExitStatusEqualityBindsACodeTheRegistryDoesNotCarry` |
+
+Row 8 changed production code when it was measured. `encoding/json` admits JSON
+`null` into a `string` and yields `""`, so a document whose `schema` member was
+`null` had been answered as a foreign contract carrying the schema `""` - a
+claim that some other contract owns the document, when what is true is that this
+one is not readable. The guard now checks the raw token alongside the unmarshal.
+
+The guards this leaf added or reordered outside that file are listed with it,
+because the twin one file away is exactly what a single-file table would have
+missed again:
+
+| Guard | File | Function | Measured by |
+| --- | --- | --- | --- |
+| The registered-status admission inside the document - the twin of row 1 | `internal/axerror/decode.go` | `decodeExitStatus` | `TestTheExitStatusAdmissionIsSweptOverEveryByteValue` |
+| The common-data-model gate added to the failure branch | `internal/axerror/decode.go` | `requireCommonDataModel` | `TestDecodeRefusesADuplicateMemberOnEveryDeclaredMember` |
+| The code-to-exit-status agreement | `internal/axerror/decode.go` | `decodeBody` | `TestTheCodeToExitStatusAgreementIsMeasuredOverTheWholeCodeRegistry` |
+| The envelope identity settled before the closed member set | `internal/axerror/decode.go` | `Decode` | `TestUnsupportedMajorIsSettledBeforeTheClosedMemberRule` |
+| The same reordering on the success branch | `internal/cliresult/decode.go` | `Decode` | `TestUnsupportedMajorIsSettledBeforeTheClosedMemberRule` |
+| The unsupported-major comparison reached through `Read` | `internal/cliresult/decode.go` | `verifyEnvelopeIdentity` | `TestTheUnsupportedMajorGuardIsSweptOverAMeasuredMajorRange` |
+| The fan-in projection's unregistered-version refusal | `internal/axerror/registry.go` | `CodesByExitStatus` | `TestCodesByExitStatusRefusesAnUnregisteredVersion` |
+
+STATED BOUND of the inventory itself: the derivation is exhaustive over
+`internal/cliresult/client.go`, which this leaf added in full. The second table
+is enumerated rather than derived, and the refusals `internal/axerror/decode.go`,
+`internal/axerror/registry.go` and `internal/cliresult/decode.go` carry from
+earlier leaves are those leaves' inventories, not this one's. Both tables are
+pinned: every named function must be declared in its named file and every named
+test must exist as a declaration, so a rename is a red rather than a row
+pointing at nothing.
+
+Two disclosures the traversal produced, stated here because neither is visible
+from a passing suite.
+
+The Section 1.6 common-data-model gate does NOT enforce the number half of that
+section. `canonicaljson.Canonicalize` refuses duplicate members, non-UTF-8, and
+non-canonical encoding, and the doc comment on `documentSchema` enumerates what
+it owns; the opening sentence "inside the Section 1.6 common logical data model"
+overstated it. `Read` admits a Structured Error whose `details` carry `1.5`,
+which SPEC.md forbids as "integers only, inside the IEEE 754 double
+safe-integer range". Section 1.6's number rule is bound to `internal/scalar` and
+left unevidenced there, so nothing false is claimed in the traceability
+projection; the admission is now asserted by
+`TestTheCommonDataModelGateDoesNotCoverTheSection16NumberRule`, so closing the
+gap reddens the pin and forces this paragraph to be updated with it.
+
+A reason recorded in an earlier round is wrong although its conclusion holds.
+Three mutants were dismissed on the grounds that "none is a registered code";
+`terminal_backend_capability_unproven` IS registered at Structured Error 1.3.0
+exit 6, and sparing it in `ExitCodeFor`'s version scoping survives on a clean
+tree. The conclusion survives for a different reason: the same narrowing on
+`observation_gap`, which is also only partially registered, is killed by
+`TestExitCodeForRefusesVersionAndCodeDrift`, so the class has a covered
+representative. The dismissal stands; the sentence behind it did not.
+
+
+```bash
+go test ./internal/cliresult -count=1 -v
+go test ./internal/cliresult -cover -count=1
+```
+
 ## Generated Contract Catalogs
 
 [`internal/catalog`](internal/catalog) exposes typed records through
@@ -1273,8 +1857,8 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
 repository gate used by CI. Its reviewed
 [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
 registry independently enumerates implementation owners for all 60 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 43
-executable acceptance cases, 48 exact section bindings with their declared
+contract rows, 36 pinned or catalog-referenced normative section keys, 74
+executable acceptance cases, 49 exact section bindings with their declared
 coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
 The generated v0.5.0 catalog also carries the reviewed schema/version/self-field
@@ -1333,7 +1917,7 @@ owns.
 used to be admitted. The scanner matches uppercase RFC 2119 keywords, so a
 section that states its obligations as a table scores zero and was read as
 carrying no obligation. That is false, and the first revision of this gate
-reproduced the very bug it was built to remove: `-section 15.2`, the nineteen-row
+reproduced the very bug it was built to remove: `-section 15.2`, the eighteen-row
 normative exit-code registry, exited 0 with nothing in the tree implementing it,
 and so did `-section 7.3`, the closed Provider Manifest. Nineteen of the 157
 pinned headings are in that class - 7.3, 10.8.1, 13.5, 13.12, 13.14.1-13.14.5,
@@ -1374,22 +1958,33 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=48 full=1 partial=0 sliver=1 unevidenced=43 unmeasured=3 unowned=2 clauses_discharged=2/394
+section coverage: bindings=49 full=1 partial=3 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=17/403
 ```
 
-Forty-eight section bindings discharge 2 of the 394 normative clauses their
+Forty-nine section bindings discharge 17 of the 403 normative clauses their
 sections carry. One binding is `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by
-`TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes`), one is `sliver`
-(Section 10.3, whose chunk offset invariant is enforced by
-`validateBlobDescriptor` while its two receiver clauses have no implementation),
-three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of which now
-carries a gap saying why the scanner measures zero and what is missing), and
-forty-three are `unevidenced`. Two sections are recorded unowned.
+`TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes`), three are
+`partial` (Section 14.2 at 8/9, bound to
+[`internal/cliresult`](internal/cliresult), whose undischarged clause `14.2#6`
+is the process exit status this repository has no binary to produce; and
+Section 15.1 at 5/7 and Section 15.3 at 2/3, both bound to
+[`internal/axerror`](internal/axerror); the three undischarged clauses there are
+the RPC hello obligation `15.1#5`, the bootstrap-row sentence `15.1#6` that
+binds the provider plugin rather than the host, and the hello-key and
+TerminalBackend-capability prohibition `15.3#3` - this repository builds no RPC
+hello frame, no provider plugin, and no TerminalBackend capability set), one is
+`sliver` (Section 10.3, whose chunk offset invariant is
+enforced by `validateBlobDescriptor` while its two receiver clauses have no
+implementation), three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of
+which carries a gap saying why the scanner measures zero and what is missing),
+and forty-one are `unevidenced`. Two sections are recorded unowned.
 Assigned-scope admission therefore succeeds today for `-section 6.2` and
 nothing else; every other assignment is refused with its ratio and its gap.
+A `partial` binding is refused by assigned-scope admission exactly like an
+`unevidenced` one: admission requires `full`.
 
-One admitted binding out of forty-eight is a thin positive arm, and it is
+One admitted binding out of forty-nine is a thin positive arm, and it is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically.
 
@@ -1398,14 +1993,23 @@ That is a disclosure of the shipped state, not a target that was met.
 `TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers` pin every failing
 binding with its exact measured ratio, so a section that becomes covered has to
 leave those tables deliberately. Five further gaps the disclosure surfaced:
-Section 15.2's exit-code registry is implemented nowhere, the only `os.Exit`
-calls in the tree being the `exit(1)` failure paths of `cataloggen` and
-`tracecheck`; Section 7.3's closed Provider Manifest exists only as a catalog
+Section 15.2's code-to-exit registry is implemented in
+[`internal/axerror`](internal/axerror) and checked row by row, and
+[`internal/cliresult`](internal/cliresult) now maps a failure to that exact
+process status through `Emit` and `ExitStatus`, but nothing in the tree calls
+`os.Exit` with it - the only `os.Exit` calls are the `exit(1)` failure paths of
+`cataloggen` and `tracecheck` - so clause `14.2#6` stays undischarged until an
+`ax` binary exists; Section 7.3's closed Provider Manifest exists only as a catalog
 row naming its URN; Section 6.5 requires the `required_capabilities` default to
 be the platform lane minimum while `internal/config/validation.go` accepts only
 an empty default; Section 17.2's single clause is an unknown-event reader
-obligation while its binding names the Configuration writer; and Section 2.1's
-single clause is a replica runtime obligation that no code here implements.
+obligation while its binding now names the CLI Result machine reader `Read`,
+which classifies one completed invocation rather than retaining any event, so it
+does not discharge that clause either - an unknown error code and an inert
+unknown extension are not an unknown session event, and the four numbered reader
+rules that binding does implement carry no RFC 2119 keyword and are invisible to
+the clause scanner; and Section 2.1's single clause is a replica runtime
+obligation that no code here implements.
 
 Successful output reports ownership inventory counts and the measured coverage
 ratio only. The gate does not mutate repository or product state, add an `ax`
@@ -1434,7 +2038,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | --- | --- | --- | --- |
 | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
-| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
 | `github.com/pelletier/go-toml/v2` | Parse and emit TOML while the repository-owned Configuration layer enforces exact versioned closed schemas | Imported by `internal/config.Decode`, `internal/config.EncodeCurrent`, and explicit `internal/config.Migrate` at pinned module version `v2.4.3` | Validated Configuration values/TOML bytes in memory; explicit migration writes a same-directory replacement plus an owner-only versioned backup |
 | `modernc.org/sqlite` | Provide the pure-Go SQLite driver for the local derived index without a CGO platform dependency | Imported by `internal/localstore.OpenProjection` at pinned module version `v1.57.0` | `<state>/index.sqlite`, its owner-only lock and WAL/SHM/journal sidecars, and `<state>/index-recovery/<uuid>/` corruption evidence |

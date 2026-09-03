@@ -40,7 +40,7 @@ const (
 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
 	// formatting may change, but ownership claims cannot be self-minted without
 	// an explicit review of this binding.
-	reviewedOwnershipCanonicalSHA256 = "23e2f7a62fa93b329a5efb52c65b61b3972b62ca3ef4414c7aed3ad8419178b9"
+	reviewedOwnershipCanonicalSHA256 = "c70c86d24c7a1eddb538940f245396dad907b6aa60eaca92a6d5b1b09a647a12"
 )
 
 var ErrTraceability = errors.New("spec-to-code traceability check failed")
@@ -152,7 +152,7 @@ const (
 	// It is deliberately NOT called "declarative", and it does NOT mean the
 	// section carries no obligation. Nineteen of the 157 pinned headings are in
 	// this class and every one of them has a substantive body: Section 15.2 is a
-	// nineteen-row normative exit-code registry and Section 7.3 is the closed
+	// eighteen-row normative exit-code registry and Section 7.3 is the closed
 	// Provider Manifest, both of which state their obligations as tables rather
 	// than in uppercase RFC 2119 keywords. Treating that silence as "nothing to
 	// discharge" is the same free pass this gate exists to remove, reached
