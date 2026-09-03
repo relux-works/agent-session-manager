@@ -1,0 +1,1538 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 29e4576..3820a15 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,23 +5,41 @@
+ 
+ ## 2026-09-03
+ 
++### 1157 — Two conforming readers, one document: a repeated member is not a parse curiosity, it is a forged retry claim from a remote peer
++
++- SCOPE: `internal/axerror` (new `requireCommonDataModel`), `internal/cliresult` (`documentSchema` gate, `Read` refusal table), README/LOGBOOK fan-in figures. Rework of TASK-260830-33sfxc after review; §1.6, §15.1, §14.2.
++- ROOT CAUSE: `encoding/json` does not refuse a document whose members repeat. It *resolves* the repeat, and it resolves it **differently per decode target**: a scalar member into a struct or a map keeps the last occurrence, and a map-typed member such as `details` MERGES both occurrences. `cliresult.Decode` ran `canonicaljson.Canonicalize`, whose strict decoder refuses duplicates. `axerror.Decode` referenced `canonicaljson` nowhere, so the FAILURE branch of the same reading did not.
++- FINDING: the machine answers changed, not just the parse. Through `Read` on the frozen workspace-conflict fixture at its own exit status 5: a repeated `code` inside the same exit class was **admitted** and answered with the second occurrence; a repeated `retryable` flipped `Retryable()` from false to true — **a forged retry claim assembled from two members no conforming writer could emit**, on a code whose retryability refusal table was never consulted for it; a repeated `details` resolved to the **union** of both occurrences, which is neither one. The exit-status corroboration this leaf added cannot see any of it, because both occurrences share the exit class.
++- FINDING: the reach is remote. `axerror.Decode` is also the reader for peer-supplied provider, task-board bridge, Mesh RPC, session-adapter and terminal-backend envelopes through `DecodeBound`, so the shape arrived from a peer and not only from a local pipe. `TestABoundPeerCannotSendADuplicateKeyedEnvelope` drives all fifteen bound contracts.
++- ROOT CAUSE (the review-visible one): `documentSchema` justified not settling duplicates itself with "the closed decoder for the selected contract then validates the whole object, including the duplicate members". That sentence was true of one branch and false of the other, and it was **written in the same change that shipped the gap**. A delegation claim is a claim about the delegate; this one named no delegate and was never checked against either.
++- DECISION: the gate goes on `axerror.Decode`, so one place covers every peer surface, and a second copy runs in `documentSchema` before it reads `schema` — because a repeated `schema` selects the branch, and neither closed decoder can settle that for the discriminator: both run after the branch is chosen. `TestADuplicateSchemaMemberCannotSelectTheBranch` pins it; without the discriminator's copy the reading answered `ErrOutcomeDisagreement`, a fact about the exit status, for a document whose schema it never settled.
++- DECISION: **the canonical bytes are discarded, not adopted.** RFC 8785 §3.2.2.3 serializes numbers through `Number.prototype.toString`, so the transform rewrites `1e1` to `10` and `9.0` to `9`, and `decodeExitStatus` reads `exit_code` from its raw bytes precisely so those forms are refused. A gate that adopted its own output would be a **widening** dressed as validation. `TestTheCanonicalGateDoesNotLaunderTheExitStatusToken` proves both halves — that the transform really does rewrite the literal, and that `Decode` still refuses it — so the row cannot pass on a token nothing would have changed.
++- DECISION: the gate runs **before** the envelope identity, extending the precedence this leaf already settled. A document whose `schema_version` repeats has no version, and an identity-first order would answer `ErrUnsupportedMajor` or `ErrVersionMismatch` from one of two members it had no basis for choosing between. Both orders refuse; only one declines to invent a version fact. `TestADuplicateIdentityMemberIsNotResolvedIntoAVersionFact` pins it and its reorder mutant is killed.
++- FINDING: removing the gate reddens duplicates, malformed UTF-8, lone surrogate escapes and trailing content, and **does not** redden an unescaped control character — `validateMessage` refuses that byte independently. Measured against the delete mutant rather than assumed, and stated as a subsumed case instead of counted as coverage the gate provides. `parseEnvelopeIdentity`'s trailing-content guard was removed rather than left as a branch no test can redden, and the trailing rows prove the coverage moved with it.
++- FINDING (F2): the published fan-in table was wrong in **two of its four rows** — `1.2.0` said 12 codes at exit 6 against a measured 14 at exit **16**, wrong count and wrong status; `1.3.0` said 15 against a measured 17 — and the error had been copied into entry 1003 below. Cause: `largest`/`largestFor` were asserted for `1.0.0` and `1.1.0` only, so the other two rows were prose nobody measured. Same class as the "nineteen §15.2 rows" defect the 1015 entry records, one artifact over.
++- FIX: `TestREADMEFanInTableIsDerivedFromTheMeasuredProjection` **parses the README table** and re-derives every cell from `CodesByExitStatus`, requires every registered version to appear exactly once, refuses a version whose maximum ties across two statuses (the published row names one status and would otherwise be ambiguous), and a sibling test does the same for the two figures entry 1003 states in prose. Mutants that restore either wrong figure, or delete a row, are killed.
++- FINDING (F3): `TestReadDistinguishesAbsenceFromAReadFailure` asserted `errors.Is` membership only, so aliasing `ErrAbsentDocument` onto `ErrUnreadableDocument` survived the suite. The first mutual-exclusion fix **also survived**: it skipped "the sentinel this row wanted" by comparing VALUES, and under the alias the two values are equal, so it skipped exactly the comparison that would have caught it. The rows now name their sentinel as a string. A negative assertion written in terms of the thing it is testing for is not a negative assertion.
++- FINDING: the first draft of this fix cited Section 1.6 as fixing the wire format as "UTF-8 JSON restricted to the common logical data model". **That sentence is nowhere in the pinned document** — a paraphrase wearing quotation marks, caught by checking the citation through `internal/specdoc` instead of trusting the wording. The two real fragments, `SPEC.md:218` "map keys MUST be UTF-8 strings and MUST be unique" and `SPEC.md:221` "floating-point numbers, NaN, Infinity, non-string map keys, and duplicate keys are forbidden", are now located BY CONTENT and their section is re-derived, so the citation survives re-pagination; the absence of the paraphrase is asserted too, so the correction cannot be undone by someone who remembers the wording. Same class as the 0559 false-citation entry, one contract over.
++- EVIDENCE: 23 mutants, each verified applied, compiled, and carrying the MUTATED text on disk before measurement; 22 killed, 1 declared subsumed, 0 unexplained survivors. Nine narrow rather than delete. `go build`, `go vet`, `gofmt -l` clean; `go test ./... -count=1` exit 0 across 13 packages; `-cover` exit 0 with `cliresult` 95.5% and `axerror` 99.5%; `tracecheck` exit 0 at `acceptance_cases` 73 → 74 and `clauses_discharged` 17/403 unchanged — the new acceptance case is attached to the §15.1 and §17.2 bindings as evidence and claims no additional clause, because the gate discharges no obligation the clause scanner measures.
++- STATUS: Ready for review. TASK-260830-33sfxc rework, leaf 3 of 3 on `task-board/story/STORY-260830-2jylym`.
++
+ ### 1003 — An exit status is a class, not an identity: the fan-in is 47 codes over 17 statuses, and no CLI process exists to produce either
+ 
+ - SCOPE: `internal/cliresult` (new `Read`, reordered `Decode`), `internal/axerror` (new `CodesByExitStatus`, new `parseEnvelopeIdentity`), two frozen historical envelope corpora (TASK-260830-33sfxc), §14.2/§15/§17.2.
+ - DECISION: the compatibility claim needed a **consuming** entry point, because until now nothing in the tree read a completed `ax` invocation - `Emit` writes one and returns a status, and the story's whole claim is about what a machine client may depend on. `Read(command, InvocationOutput{Stdout, ExitStatus})` is that call site: the document on stdout decides the outcome and the exit status only corroborates it.
+ - DECISION: `InvocationOutput` has exactly two members and **no stderr member**, so a reading structurally cannot depend on a diagnostic stream. A behavioural test can only show that today's code ignores a field it has; `TestMachineReadingCannotSeeStderr` asserts the member set through reflection and reddens the moment one appears. Its mutant adds `Stderr []byte` and is killed.
+-- FINDING: the exit status under-determines the failure by a **measured** ratio, not by argument. Structured Error 1.0.0 assigns 47 codes to 17 failure statuses, 14 of which carry more than one code, the largest being 6 codes at exit 6; 1.3.0 reaches 109 codes with 15 codes at exit 6. `CodesByExitStatus` is the production projection and the refusal messages quote its count, so a caller that logs `ErrAbsentDocument` is told *how many* codes the status leaves open instead of being advised to look elsewhere.
++- FINDING: the exit status under-determines the failure by a **measured** ratio, not by argument. Structured Error 1.0.0 assigns 47 codes to 17 failure statuses, 14 of which carry more than one code, the largest being 6 codes at exit 6; 1.3.0 reaches 109 codes with 17 codes at exit 6. `CodesByExitStatus` is the production projection and the refusal messages quote its count, so a caller that logs `ErrAbsentDocument` is told *how many* codes the status leaves open instead of being advised to look elsewhere.
+ - FINDING: the ratio alone is not the decision a client makes with it. Under the `session.clone.*` binding (Error 1.1.0), exit 12 carries both `staging_incomplete`, which may claim `retryable`, and `transaction_unknown`, which §15.1 calls "a parked ambiguous effect, never success or absence" and which may not. A client keying on exit 12 would retry the parked one. `TestExitStatusAloneDecidesNoRetry` drives all three arms through `Read`.
+ - DECISION: absence, read failure, and foreign schema stay **three** refusals. `ErrAbsentDocument`, `ErrUnreadableDocument`, `ErrForeignDocument` - a truncated pipe is not a silent command, and neither is ever resolved from the status. The mutant that collapses absence into read failure is killed.
+ - DECISION: `session.clone.*` failures are readable here and their successes are not, and that asymmetry is the point. This repository builds no clone body, so `Read(CommandCloneRun, success)` returns `ErrUnimplementedVersion`; its failure is Error 1.1.0 and classifies completely. "This build cannot construct that success" and "this failure is unreadable" are different facts.
+ - EVIDENCE: two frozen corpora - 9 CLI invocations under `internal/cliresult/testdata/historical`, 7 protocol-bound envelopes under `internal/axerror/testdata/historical` covering all four bound error versions - each file pinned by SHA-256 with its expected machine answers recorded per row. Regenerating a fixture reddens the digest gate rather than the assertion, which is the whole reason the bytes are checked in instead of built: an envelope produced by today's constructor only shows the package agreeing with itself.
+ - EVIDENCE: message-independence is proved by replay, not by inspection. Every readable envelope is re-read with the message replaced - by another code's name, by a JSON object, by 4,096 characters, by non-ASCII - and every machine answer must be identical while `HumanMessage` must change. A row whose rewrite produced identical bytes fails rather than passing vacuously.
+-- FINDING: one mutant is **declared subsumed**: removing the exit-0 guard in `readFailure` leaves the suite green because `decodeExitStatus` never admits a Structured Error carrying `exit_code` 0, so the equality check refuses the same input one guard later. 14 mutants, each verified applied and compiled before measurement, 13 killed, 1 subsumed, 0 unexplained survivors.
++- FINDING: one mutant is **declared subsumed**: removing the exit-0 guard in `readFailure` leaves the suite green because `decodeExitStatus` never admits a Structured Error carrying `exit_code` 0, so the equality check refuses the same input one guard later. 14 mutants, each verified applied and compiled before measurement, 13 killed, 1 subsumed, 0 unexplained survivors. Superseded by the 1157 entry above: the harness is now 23 mutants at 22 killed / 1 subsumed, and the two additional survivors that appeared when the data-model gate landed were closed rather than declared.
+ - DECISION (the precedence question leaf 2's review deferred): **the envelope identity is settled before the closed member set, in both readers.** A document of an unbound major carrying an unknown top-level member used to be refused with the structural fact - `unknown top-level member "new_in_v2"` in `cliresult`, `unknown field` in `axerror` - and `errors.Is(err, ErrUnsupportedMajor)` was false. Both orders refuse, so nothing was ever admitted either way; what differed is which fact the caller is told, and a caller deciding "is my ax too old for this output" cannot decide it from a member name. The pinned text scopes the member rule to the object it governs three times - §1.6 "a reader MUST reject an unknown top-level field in **a major version 1 object**", §17.1 "**within any negotiated major version** ... unknown top-level fields remain an error", §17.2 rule 1 listed first - and §15.1 states the posture outright: "receivers MUST NOT parse a different major's payload far enough to trust its error code, retryable bit, details, or authority fields". `cliresult.decodeClosedDocument` split into `parseDocument` + `verifyClosedMembers`; `axerror` gained `parseEnvelopeIdentity` reading only `schema`/`schema_version` from the raw bytes.
+ - EVIDENCE: `TestUnsupportedMajorIsSettledBeforeTheClosedMemberRule` pins every row in both packages - six in `cliresult`, five in `axerror` - `TestReorderingTheIdentityCheckAdmitsNothingItUsedToRefuse` re-drives every shape the old order refused (13 rows in `cliresult`, 13 in `axerror`), and two harness mutants restore the previous order and are killed. `cliresult.rawString` now separates "the member is absent" from "the member is not a string", because the identity check is where a missing `schema` is first observed.
+ - FINDING: the reorder made `axerror.decodeClosedDocument`'s trailing-content guard unreachable - `parseEnvelopeIdentity` settles it on the same bytes first - so the guard moved rather than being left as a branch no test could redden. Same call the 0742 entry made about the leading-quote guard in `decodeExitStatus`.
+ - DECISION: §17.2 was rebound from `internal/config`'s `EncodeCurrent` to `Read` and stays **`unevidenced` at 0/1**. Its single scanner-visible clause is an unknown-*event* obligation; an unknown error code and an inert unknown extension are not an unknown Session Event, and no event-history retention exists here. The four numbered reader rules that binding does implement carry no RFC 2119 keyword and are invisible to the scanner. Moving the owner to the reader is a truthfulness fix, not a coverage gain - the ratio did not move.
+-- EVIDENCE: `acceptance_cases` 65 → 73, bindings 49, `clauses_discharged` 17/403 unchanged, digest re-pinned. Package coverage `cliresult` 95.5%, `axerror` 99.5%; the two remaining uncovered branches in `client.go` are unreachable by construction and `TestEveryRegisteredCommandMajorBindsAnErrorVersion` proves it over all 44 registered tags rather than leaving them untested.
++- EVIDENCE: `acceptance_cases` 65 → 73 (74 after the 1157 rework), bindings 49, `clauses_discharged` 17/403 unchanged, digest re-pinned. Package coverage `cliresult` 95.5%, `axerror` 99.5%; the two remaining uncovered branches in `client.go` are unreachable by construction and `TestEveryRegisteredCommandMajorBindsAnErrorVersion` proves it over all 44 registered tags rather than leaving them untested.
+ - STATUS: Ready for review. TASK-260830-33sfxc, leaf 3 of 3 on `task-board/story/STORY-260830-2jylym`.
+ 
+ ### 1015 — encoding/json is not a validator: it substitutes U+FFFD for a byte the contract requires to be valid UTF-8
+diff --git a/README.md b/README.md
+index a590834..f1ad460 100644
+--- a/README.md
++++ b/README.md
+@@ -1320,8 +1320,19 @@ failure identity:
+ | --- | ---: | ---: | ---: | ---: |
+ | `1.0.0` | 17 | 47 | 14 | 6 codes at exit 6 |
+ | `1.1.0` | 17 | 66 | 14 | 9 codes at exit 6 |
+-| `1.2.0` | 17 | 94 | 15 | 12 codes at exit 6 |
+-| `1.3.0` | 17 | 109 | 15 | 15 codes at exit 6 |
++| `1.2.0` | 17 | 94 | 15 | 14 codes at exit 16 |
++| `1.3.0` | 17 | 109 | 15 | 17 codes at exit 6 |
++
++Every cell of that table is re-derived from `CodesByExitStatus` by
++`TestREADMEFanInTableIsDerivedFromTheMeasuredProjection`, which parses these rows
++out of this file, requires every registered version to appear exactly once, and
++refuses a version whose maximum is tied across two statuses because "the largest
++class" would then name no single status. It exists because two of the four rows
++were wrong when they were first published - `1.2.0` said 12 codes at exit 6
++against a measured 14 at exit 16, `1.3.0` said 15 against a measured 17 - and
++survived review because the largest class had been asserted for `1.0.0` and
++`1.1.0` only. The same derivation covers the two figures Logbook entry 1003
++states in prose.
+ 
+ `testdata/historical` holds one frozen envelope per bound version, each read
+ through a containing contract that binds it, with its bytes pinned by SHA-256.
+@@ -1494,6 +1505,34 @@ the outcome and the exit status only corroborates it:
+ | One document of another schema | `ErrForeignDocument` |
+ | Success object at a failure status, failure object at exit 0, or `exit_code` unequal to the observed status | `ErrOutcomeDisagreement` |
+ | A status Section 15.2 assigns no meaning, `1` included | `ErrUnregisteredExitStatus` |
++| A document whose members repeat | `ErrUnreadableDocument` - bytes with two readings are not one document |
++
++The last row is the reason both readers run the same Section 1.6
++common-data-model gate. `encoding/json` does not refuse a repeated member: it
++resolves the repeat, and it resolves it differently per decode target, so a
++Structured Error declaring `"retryable": false` and repeating the member as
++`true` was read as retryable - a forged retry claim assembled from two members
++no conforming writer could emit - a repeated `code` inside one exit class
++answered with the second occurrence, and a repeated `details` resolved to the
++union of both occurrences, which is neither. The exit-status corroboration does
++not catch any of it, because both occurrences can share the exit class.
++
++`cliresult.Decode` always canonicalized. `axerror.Decode` did not, so the
++failure branch of the same reading admitted the shape, and `axerror.Decode` is
++also the reader for peer-supplied provider, bridge, RPC, session-adapter and
++terminal-backend envelopes, which made it reachable from a remote peer.
++`requireCommonDataModel` closes it at `Decode`, so every one of those surfaces
++is gated in one place; `documentSchema` runs the same gate before it reads the
++`schema` member, because a repeated `schema` would otherwise select the branch.
++
++The gate uses the canonicalizer as a check and **discards its output**. RFC 8785
++serializes numbers through the ECMAScript algorithm, so the transform rewrites
++`1e1` to `10`; `decodeExitStatus` reads `exit_code` from its raw bytes precisely
++so that form is refused, and a gate that adopted its own canonical bytes would
++be a widening wearing a validator's clothes.
++`TestTheCanonicalGateDoesNotLaunderTheExitStatusToken` proves both halves - that
++the transform really does rewrite the literal, and that `Decode` still refuses
++it - and the harness carries the adopt-the-canonical-bytes mutant.
+ 
+ The exit status cannot stand in for the document, and the refusals say so with a
+ measured count rather than as advice: `exitStatusIsNotEnough` reports how many
+@@ -1515,11 +1554,20 @@ this repository builds no clone success body, and its failure is still fully
+ classified, because "this build cannot construct that success" and "this failure
+ is unreadable" are different facts.
+ 
+-A 14-mutant harness over these gates kills 13 and declares 1 subsumed, each
+-mutant verified applied and compiled before it is measured. The subsumed one
+-removes the exit-0 guard in `readFailure`; the `exit_code` equality check
+-refuses the same input one guard later, because a Structured Error can never
+-carry `exit_code` 0.
++A 23-mutant harness over these gates kills 22 and declares 1 subsumed, each
++mutant verified applied and compiled before it is measured, and each verified to
++carry the MUTATED text on disk rather than only to differ from the original. The
++subsumed one removes the exit-0 guard in `readFailure`; the `exit_code` equality
++check refuses the same input one guard later, because a Structured Error can
++never carry `exit_code` 0.
++
++Nine of those mutants narrow rather than delete. The common-data-model gate is
++restricted to one of the four registered versions, moved behind the identity
++check, and made to adopt its own canonical bytes; the discriminator's copy is
++disabled on its own; `ErrAbsentDocument` is aliased onto `ErrUnreadableDocument`;
++and the two published fan-in figures are restored to the wrong values they were
++first published with, plus one row deleted outright. A gate whose only evidence
++is that deleting it reddens something has been shown to exist, not to hold.
+ 
+ ```bash
+ go test ./internal/cliresult -count=1 -v
+diff --git a/internal/axerror/datamodel_test.go b/internal/axerror/datamodel_test.go
+new file mode 100644
+index 0000000..78e75d8
+--- /dev/null
++++ b/internal/axerror/datamodel_test.go
+@@ -0,0 +1,425 @@
++package axerror
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/specdoc"
++)
++
++// duplicateMember returns document with member repeated, the second occurrence
++// carrying replacement.
++//
++// The rewrite is textual on purpose. Every structured builder in this
++// repository - encoding/json, the canonicalizer, this package's own encoder -
++// is incapable of emitting the shape under test, because a Go map has one value
++// per key. A document whose members repeat can only be built by writing the
++// bytes, which is exactly how a hostile peer would produce it.
++// The second occurrence is appended as the LAST member of the object, because
++// which occurrence encoding/json keeps is the whole point: a scalar resolves to
++// the last one, so the appended value is the one a resolving reader would answer
++// with, and the row would be vacuous if the injected copy came first.
++func duplicateMember(test *testing.T, document, member, replacement string) []byte {
++	test.Helper()
++	anchor := `"` + member + `":`
++	if !strings.Contains(document, anchor) {
++		test.Fatalf("document carries no %q member to duplicate", member)
++	}
++	closing := strings.LastIndex(document, "}")
++	if closing < 0 {
++		test.Fatal("document has no closing brace")
++	}
++	injected := document[:closing] + `, "` + member + `": ` + replacement + "\n" + document[closing:]
++	if injected == document {
++		test.Fatal("the duplicate-member rewrite did not apply")
++	}
++	// The rewrite must produce the shape under test rather than something that
++	// merely fails to parse: exactly two occurrences of the member name, and
++	// bytes that a lenient reader would still resolve to one object.
++	if count := strings.Count(injected, anchor); count != 2 {
++		test.Fatalf("the rewrite produced %d occurrences of %q, want 2", count, member)
++	}
++	var lenient map[string]json.RawMessage
++	if err := json.Unmarshal([]byte(injected), &lenient); err != nil {
++		test.Fatalf("the rewrite produced bytes encoding/json itself refuses: %v", err)
++	}
++	return []byte(injected)
++}
++
++// TestDecodeRefusesADuplicateMemberOnEveryDeclaredMember is the negative half of
++// the Section 1.6 common-data-model gate this leaf's review found missing.
++//
++// Section 1.6 states the rule twice, quoted verbatim from the pinned
++// internal/specdoc/SPEC.md: "map keys MUST be UTF-8 strings and MUST be unique"
++// at SPEC.md:218, and "floating-point numbers, NaN, Infinity, non-string map
++// keys, and duplicate keys are forbidden" at SPEC.md:221. encoding/json
++// does not refuse such a document. It resolves the repeat, and it resolves it
++// differently depending on the decode target, so two conforming readers of the
++// same bytes disagreed about the code, the retryable bit, and the detail set.
++//
++// Each row asserts three things, because a refusal alone would not prove the
++// gate is the thing refusing: the duplicated document is refused with
++// ErrInvalidStructuredError; the same document without the duplicate is
++// admitted, so the row is not passing for an unrelated reason; and the refusal
++// names the repeated member, so a gate narrowed to some other member set would
++// redden rather than pass.
++func TestDecodeRefusesADuplicateMemberOnEveryDeclaredMember(test *testing.T) {
++	test.Parallel()
++
++	// Every member of the closed nine-member set, each with a second occurrence
++	// that is individually valid. A reader that resolved the repeat would admit
++	// each of these and answer from one occurrence or the other.
++	for _, row := range []struct {
++		member      string
++		replacement string
++	}{
++		{"schema", `"urn:ax:schema:error"`},
++		{"schema_version", `"1.2.0"`},
++		{"code", `"observation_horizon_lost"`},
++		{"message", `"a second message"`},
++		{"exit_code", `9`},
++		{"retryable", `true`},
++		{"operation_id", `"0198f4c8-b180-7299-9273-1234567890ab"`},
++		{"session_id", `"0198f4c8-3e70-7a11-8a2b-1234567890ab"`},
++		{"details", `{"observed_sequence": "18"}`},
++	} {
++		test.Run(row.member, func(test *testing.T) {
++			if _, err := Decode(Version120, []byte(conformingDocument)); err != nil {
++				test.Fatalf("the undoubled document was refused, so this row proves nothing: %v", err)
++			}
++			document := duplicateMember(test, conformingDocument, row.member, row.replacement)
++			_, err := Decode(Version120, document)
++			if !errors.Is(err, ErrInvalidStructuredError) {
++				test.Fatalf("Decode(duplicate %s) error = %v, want ErrInvalidStructuredError", row.member, err)
++			}
++			if !strings.Contains(err.Error(), fmt.Sprintf("duplicate object member %q", row.member)) {
++				test.Fatalf("Decode(duplicate %s) error = %v, want the refusal to name the repeated member",
++					row.member, err)
++			}
++		})
++	}
++
++	test.Run("nested inside details", func(test *testing.T) {
++		document := strings.Replace(conformingDocument,
++			`{"observed_sequence": "17"}`,
++			`{"observed_sequence": "17", "observed_sequence": "18"}`, 1)
++		if document == conformingDocument {
++			test.Fatal("the nested duplicate rewrite did not apply")
++		}
++		_, err := Decode(Version120, []byte(document))
++		if !errors.Is(err, ErrInvalidStructuredError) {
++			test.Fatalf("Decode(nested duplicate) error = %v, want ErrInvalidStructuredError", err)
++		}
++		if !strings.Contains(err.Error(), `duplicate object member "observed_sequence"`) {
++			test.Fatalf("Decode(nested duplicate) error = %v, want the nested member named", err)
++		}
++	})
++}
++
++// TestADuplicateMemberCannotForgeARetryClaim is the finding stated as the
++// machine answer it changed, not as a parse fact.
++//
++// Section 15.1 defines retryable as "true only when the identical request may
++// safely be retried without new authority or confirmation", and this package
++// spends a whole refusal table keeping a peer from claiming it. A document
++// declaring "retryable": false and then repeating the member as true was read
++// as retryable, so the claim was forged out of two members neither of which a
++// conforming writer could have emitted, and the retryability refusal table was
++// never consulted for the code that carried it.
++//
++// The measurement below is the pre-fix behaviour of the same bytes through
++// encoding/json, run here rather than described, so the row cannot decay into
++// prose about a defect nobody re-derives.
++func TestADuplicateMemberCannotForgeARetryClaim(test *testing.T) {
++	test.Parallel()
++
++	document := duplicateMember(test, conformingDocument, "retryable", "true")
++
++	var resolved struct {
++		Retryable *bool `json:"retryable"`
++	}
++	if err := json.Unmarshal(document, &resolved); err != nil {
++		test.Fatalf("unmarshal: %v", err)
++	}
++	if resolved.Retryable == nil || !*resolved.Retryable {
++		test.Fatalf("encoding/json resolved the repeated retryable to %v, want the true occurrence; "+
++			"if this changed, the forged-claim shape this gate refuses changed with it", resolved.Retryable)
++	}
++
++	failure, err := Decode(Version120, document)
++	if err == nil {
++		test.Fatalf("Decode admitted a forged retry claim: retryable = %v", failure.Retryable())
++	}
++	if !errors.Is(err, ErrInvalidStructuredError) {
++		test.Fatalf("Decode(forged retry) error = %v, want ErrInvalidStructuredError", err)
++	}
++}
++
++// TestADuplicateMemberCannotSplitTheDetailSet pins the third machine answer the
++// repeat changed, and the one that is not a last-wins resolution at all.
++//
++// details decodes into a map, and encoding/json merges a repeated map-typed
++// member rather than replacing it, so the reader saw the UNION of both
++// occurrences - a detail set neither occurrence declared and no writer emitted.
++func TestADuplicateMemberCannotSplitTheDetailSet(test *testing.T) {
++	test.Parallel()
++
++	document := duplicateMember(test, conformingDocument, "details", `{"observed_offset": "4"}`)
++
++	var resolved struct {
++		Details map[string]json.RawMessage `json:"details"`
++	}
++	if err := json.Unmarshal(document, &resolved); err != nil {
++		test.Fatalf("unmarshal: %v", err)
++	}
++	if len(resolved.Details) != 2 {
++		test.Fatalf("encoding/json resolved the repeated details to %d keys, want the 2-key union; "+
++			"if this changed, the shape this gate refuses changed with it", len(resolved.Details))
++	}
++
++	failure, err := Decode(Version120, document)
++	if err == nil {
++		test.Fatalf("Decode admitted a union detail set: %v", failure.DetailKeys())
++	}
++	if !errors.Is(err, ErrInvalidStructuredError) {
++		test.Fatalf("Decode(union details) error = %v, want ErrInvalidStructuredError", err)
++	}
++}
++
++// TestABoundPeerCannotSendADuplicateKeyedEnvelope drives the same shape through
++// the entry point a remote peer reaches, not only through the local one.
++//
++// DecodeBound is how a provider, task-board bridge, Mesh RPC, session-adapter,
++// or terminal-backend payload is read, so the duplicate-member shape was
++// remotely reachable on every one of those surfaces rather than only on a local
++// pipe. Every bound contract is driven, so a gate added to one caller instead of
++// to Decode would leave rows red here.
++func TestABoundPeerCannotSendADuplicateKeyedEnvelope(test *testing.T) {
++	test.Parallel()
++
++	contracts := BoundContracts()
++	if len(contracts) == 0 {
++		test.Fatal("no bound contracts to drive")
++	}
++	for _, contract := range contracts {
++		version, err := BindingFor(contract)
++		if err != nil {
++			test.Fatalf("BindingFor(%v): %v", contract, err)
++		}
++		name := fmt.Sprintf("%s major %d binds %s", contract.ID, contract.Major, version)
++		test.Run(name, func(test *testing.T) {
++			// A document of exactly the version this contract binds, so the row
++			// fails on the duplicate rather than on a version mismatch.
++			conforming := strings.Replace(conformingDocument, `"1.2.0"`, `"`+string(version)+`"`, 1)
++			// observation_gap is not registered by every version; a code the
++			// registry does not carry is admitted by Section 15.3 and keeps its
++			// exit class, so the undoubled row below still has to pass.
++			if _, err := DecodeBound(contract, []byte(conforming)); err != nil {
++				test.Fatalf("the undoubled envelope was refused, so this row proves nothing: %v", err)
++			}
++			document := duplicateMember(test, conforming, "retryable", "true")
++			if _, err := DecodeBound(contract, document); !errors.Is(err, ErrInvalidStructuredError) {
++				test.Fatalf("DecodeBound(%v, duplicate retryable) error = %v, want ErrInvalidStructuredError",
++					contract, err)
++			}
++		})
++	}
++}
++
++// TestADuplicateIdentityMemberIsNotResolvedIntoAVersionFact pins the ORDER of
++// the gate against the identity check, which is the second precedence decision
++// this reader makes and the one the first one does not settle.
++//
++// A document whose schema_version appears twice has no version. A reader that
++// settled the identity before the data model would resolve the repeat - to the
++// last occurrence - and then answer with a version fact derived from one of two
++// members it had no basis for choosing between. Both orders refuse the bytes,
++// so this is not a bypass either way; what changes is whether a caller asking
++// "is my ax too old for this output" is told a version it can act on or told
++// that the bytes do not carry one.
++//
++// The rows are chosen so the identity-first order would produce a DIFFERENT and
++// confidently wrong answer, not merely a differently worded one.
++func TestADuplicateIdentityMemberIsNotResolvedIntoAVersionFact(test *testing.T) {
++	test.Parallel()
++
++	for _, row := range []struct {
++		name     string
++		document []byte
++		notFact  error
++	}{
++		{
++			// Identity-first resolves to the appended 2.0.0 and reports an
++			// unsupported major for a document that also declares 1.2.0.
++			name:     "repeated schema_version disagreeing on the major",
++			document: duplicateMember(test, conformingDocument, "schema_version", `"2.0.0"`),
++			notFact:  ErrUnsupportedMajor,
++		},
++		{
++			// Identity-first resolves to the appended 1.0.0 and reports a bound
++			// version mismatch for a document that also declares 1.2.0.
++			name:     "repeated schema_version disagreeing on the minor",
++			document: duplicateMember(test, conformingDocument, "schema_version", `"1.0.0"`),
++			notFact:  ErrVersionMismatch,
++		},
++	} {
++		test.Run(row.name, func(test *testing.T) {
++			_, err := Decode(Version120, row.document)
++			if !errors.Is(err, ErrInvalidStructuredError) {
++				test.Fatalf("Decode(%s) error = %v, want ErrInvalidStructuredError", row.name, err)
++			}
++			if errors.Is(err, row.notFact) {
++				test.Fatalf("Decode(%s) error = %v reports %v; the reader answered with a version "+
++					"fact resolved from one of two occurrences of schema_version",
++					row.name, err, row.notFact)
++			}
++			if !strings.Contains(err.Error(), `duplicate object member "schema_version"`) {
++				test.Fatalf("Decode(%s) error = %v, want the repeated identity member named", row.name, err)
++			}
++		})
++	}
++}
++
++// TestTheCanonicalGateDoesNotLaunderTheExitStatusToken narrows the gate rather
++// than only proving it exists.
++//
++// requireCommonDataModel canonicalizes to decide whether the bytes are inside
++// the common data model and then DISCARDS the canonical form. That is not an
++// omission. RFC 8785 Section 3.2.2.3 serializes every number through the
++// ECMAScript Number.prototype.toString algorithm, so the transform rewrites
++// 1e1 to 10 and 9.0 to 9, and decodeExitStatus reads exit_code from its raw
++// bytes precisely so that the exponent and the point are refused rather than
++// normalized. A gate that adopted its own output would hand the reader a
++// document those literals had been laundered out of, which is a WIDENING
++// disguised as a validation step.
++//
++// Each row proves both halves: that the canonical transform really does rewrite
++// the literal - so the row exercises the laundering it claims to prevent rather
++// than a token nothing would have changed - and that Decode still refuses it.
++func TestTheCanonicalGateDoesNotLaunderTheExitStatusToken(test *testing.T) {
++	test.Parallel()
++
++	for _, row := range []struct {
++		literal   string
++		canonical string
++	}{
++		{literal: "1e1", canonical: "10"},
++		{literal: "9.0", canonical: "9"},
++		{literal: "9.000", canonical: "9"},
++		{literal: "0.9e1", canonical: "9"},
++	} {
++		test.Run(row.literal, func(test *testing.T) {
++			document := strings.Replace(conformingDocument, `"exit_code": 9`, `"exit_code": `+row.literal, 1)
++			if document == conformingDocument {
++				test.Fatal("the exit status substitution did not apply")
++			}
++
++			canonical, err := canonicaljson.Canonicalize([]byte(document))
++			if err != nil {
++				test.Fatalf("the gate refused the document for an unrelated reason: %v", err)
++			}
++			want := `"exit_code":` + row.canonical
++			if !strings.Contains(string(canonical), want) {
++				test.Fatalf("the canonical form of %s is %s, want it to contain %q; "+
++					"this row no longer exercises the laundering it exists to prevent",
++					row.literal, canonical, want)
++			}
++
++			if _, err := Decode(Version120, []byte(document)); err == nil {
++				test.Fatalf("Decode admitted exit_code %s; the gate adopted its own canonical bytes",
++					row.literal)
++			}
++		})
++	}
++}
++
++// TestTheCommonDataModelGateCoversMoreThanDuplicates states the rest of what
++// requireCommonDataModel is the only refusal for, as driven rows rather than as
++// a claim about the strict decoder.
++//
++// It matters because parseEnvelopeIdentity's trailing-content guard was removed
++// when the gate moved in front of it: without these rows, a mutant that deletes
++// the gate would only redden the duplicate cases and the trailing-content
++// coverage would have silently left the package.
++//
++// STATED BOUND, measured against the delete-the-gate mutant rather than assumed:
++// the trailing-content, lone-surrogate and invalid-UTF-8 rows all redden without
++// the gate, so it owns them. The unescaped-control-character row does not,
++// because validateMessage refuses that byte independently for the message
++// member. That row is kept as a subsumed case, not counted as coverage this gate
++// provides, and the day the message rule changes it is still driven here.
++func TestTheCommonDataModelGateCoversMoreThanDuplicates(test *testing.T) {
++	test.Parallel()
++
++	for _, row := range []struct {
++		name     string
++		document []byte
++	}{
++		{"trailing content", []byte(conformingDocument + "\n{}")},
++		{"trailing token", []byte(conformingDocument + " 7")},
++		{
++			"lone surrogate escape in a string",
++			[]byte(strings.Replace(conformingDocument, `"the inventory batch skipped a sequence"`, `"\ud800"`, 1)),
++		},
++		{
++			"invalid UTF-8 in a string",
++			bytes.Replace([]byte(conformingDocument), []byte("sequence"), []byte{0xed, 0xa0, 0x80}, 1),
++		},
++		{
++			"unescaped control character in a string",
++			bytes.Replace([]byte(conformingDocument), []byte("sequence"), []byte{0x01}, 1),
++		},
++	} {
++		test.Run(row.name, func(test *testing.T) {
++			if _, err := Decode(Version120, row.document); !errors.Is(err, ErrInvalidStructuredError) {
++				test.Fatalf("Decode(%s) error = %v, want ErrInvalidStructuredError", row.name, err)
++			}
++		})
++	}
++}
++
++// TestTheCommonDataModelCitationsAreVerbatimInThePinnedDocument checks this
++// package's own citations against internal/specdoc rather than trusting a line
++// number from any report.
++//
++// It exists because the first draft of requireCommonDataModel's doc comment
++// quoted Section 1.6 as fixing the wire format as "UTF-8 JSON restricted to the
++// common logical data model". That sentence is nowhere in the pinned document.
++// It was a paraphrase wearing quotation marks, which is the same defect class as
++// inventing a constraint: a later reader would have gone looking for a rule the
++// contract does not state. Both fragments below are now located by content, so
++// the citation survives the document being re-paginated and reddens if the text
++// changes.
++func TestTheCommonDataModelCitationsAreVerbatimInThePinnedDocument(test *testing.T) {
++	test.Parallel()
++
++	document, err := specdoc.Load()
++	if err != nil {
++		test.Fatalf("load pinned document: %v", err)
++	}
++	for _, fragment := range []string{
++		"map keys MUST be UTF-8 strings and MUST be unique",
++		"floating-point numbers, NaN, Infinity, non-string map keys, and duplicate",
++	} {
++		lines := document.QuoteLines(fragment)
++		if len(lines) != 1 {
++			test.Fatalf("fragment %q occurs on %v, want exactly one line", fragment, lines)
++		}
++		section, known := document.SectionID(lines[0])
++		if !known || section != "1.6" {
++			test.Fatalf("fragment %q is at line %d in section %q, and this package cites Section 1.6",
++				fragment, lines[0], section)
++		}
++	}
++
++	// The paraphrase the first draft quoted. Asserting its ABSENCE keeps the
++	// correction from being undone by someone who remembers the wording.
++	if document.Contains("restricted to the common logical data model") {
++		test.Fatal("the pinned document now carries the paraphrase this test exists to keep out of citations")
++	}
++}
+diff --git a/internal/axerror/decode.go b/internal/axerror/decode.go
+index 07daca6..df3e774 100644
+--- a/internal/axerror/decode.go
++++ b/internal/axerror/decode.go
+@@ -5,10 +5,10 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
+-	"io"
+ 	"regexp"
+ 	"strconv"
+ 
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
+ 	"github.com/relux-works/agent-session-manager/internal/scalar"
+ )
+ 
+@@ -46,6 +46,11 @@ type wireDocument struct {
+ // Decode reads one Structured Error document that is expected to carry exactly
+ // version.
+ //
++// The common logical data model is settled first, before the envelope identity,
++// because a document whose members repeat has no unambiguous identity to settle:
++// see requireCommonDataModel. Nothing about the document is reported to the
++// caller from that pass except that the bytes are outside the model.
++//
+ // The envelope identity is settled before any other member is consulted, the
+ // closed top-level member set included. A document whose schema is not
+ // urn:ax:schema:error, whose major is not 1, or whose supported minor is not
+@@ -75,6 +80,9 @@ func Decode(version Version, data []byte) (*Error, error) {
+ 	if !isRegisteredVersion(version) {
+ 		return nil, fmt.Errorf("%w: %q", ErrUnsupportedVersion, version)
+ 	}
++	if err := requireCommonDataModel(data); err != nil {
++		return nil, err
++	}
+ 	identity, err := parseEnvelopeIdentity(data)
+ 	if err != nil {
+ 		return nil, err
+@@ -101,6 +109,64 @@ func DecodeBound(contract ContainingContract, data []byte) (*Error, error) {
+ 	return Decode(version, data)
+ }
+ 
++// requireCommonDataModel refuses bytes that are outside the Section 1.6 common
++// logical data model before any member of the document is read.
++//
++// It exists because a duplicate member has no single value. Section 1.6 states
++// the rule twice and in both directions, quoted verbatim from the pinned
++// internal/specdoc/SPEC.md at the lines named:
++//
++//	SPEC.md:218 "map keys MUST be UTF-8 strings and MUST be unique"
++//	SPEC.md:221 "floating-point numbers, NaN, Infinity, non-string map keys, and duplicate keys are forbidden"
++//
++// encoding/json does not refuse such a document:
++// it resolves repeats, and it resolves them differently depending on the decode
++// target. A map decode keeps the last occurrence, a struct decode keeps the last
++// occurrence, and a decode into a map-typed member such as details merges both
++// occurrences into one map. So a Structured Error carrying "retryable": false
++// followed by "retryable": true used to be read as retryable - a forged retry
++// claim assembled out of two members neither of which a conforming writer could
++// have emitted - and a repeated details resolved to the union of both
++// occurrences, which is neither one. Two conforming readers of the same bytes
++// disagreed, which is precisely the compatibility property this package exists
++// to hold.
++//
++// The gate is the same one the CLI Result reader runs (cliresult.Decode), so
++// both branches of a machine reading now enforce the same data model rather than
++// one of them relying on the other to do it. It reaches every peer-supplied
++// envelope through DecodeBound: provider, bridge, RPC, session-adapter and
++// terminal-backend payloads are read here, so the duplicate-member shape is
++// remotely reachable and is refused at the same place for all of them.
++//
++// Canonicalize's strict decoder settles more than duplicates - malformed UTF-8,
++// lone or unpaired surrogate escapes, unescaped control characters in strings,
++// trailing data after the top-level value, and more than 256 simultaneously open
++// containers. Measured against the mutant that deletes this call, it is the only
++// refusal for duplicates, malformed UTF-8, lone surrogate escapes and trailing
++// content: all four redden. An unescaped control character does NOT redden,
++// because validateMessage refuses it independently for the message member, so
++// that case is subsumed rather than owned here and is stated as such rather than
++// counted as coverage this gate provides.
++//
++// THE CANONICAL BYTES ARE DELIBERATELY DISCARDED. Canonicalize is used as a
++// gate over the caller's bytes, not as a rewrite of them, and Decode keeps
++// parsing the original document. RFC 8785 Section 3.2.2.3 serializes every
++// number through the ECMAScript Number.prototype.toString algorithm, so the
++// transform rewrites 1e1 to 10 and 9.0 to 9. decodeExitStatus reads exit_code
++// from its raw bytes precisely so that the exponent of 1e1 and the point of 9.0
++// are refused rather than normalized, and adopting the canonical form here would
++// hand it a document those literals had already been laundered out of.
++// TestTheCanonicalGateDoesNotLaunderTheExitStatusToken pins that, and the
++// mutation harness carries the adopt-the-canonical-bytes mutant.
++func requireCommonDataModel(data []byte) error {
++	if _, err := canonicaljson.Canonicalize(data); err != nil {
++		return fmt.Errorf(
++			"%w: document is outside the Section 1.6 common logical data model: %v",
++			ErrInvalidStructuredError, err)
++	}
++	return nil
++}
++
+ // decodeClosedDocument reads the nine declared members and refuses a tenth. It
+ // no longer checks for trailing content: parseEnvelopeIdentity runs first on the
+ // same bytes and settles that, and a second unreachable guard would be a branch
+@@ -129,6 +195,13 @@ type envelopeIdentity struct {
+ // deciding anything else about the document. It refuses bytes that are not one
+ // JSON object, and it refuses a schema or schema_version that is present and is
+ // not a string, because neither can be compared without being read.
++//
++// It no longer checks for trailing content either. requireCommonDataModel runs
++// first on the same bytes and its strict decoder refuses trailing data, so the
++// guard that used to live here would be a branch no test could redden. The
++// coverage did not move with it: TestReaderRefusalTable's trailing-content row
++// still drives Decode, and the harness mutant that removes the gate reddens that
++// row rather than only the duplicate-member ones.
+ func parseEnvelopeIdentity(data []byte) (envelopeIdentity, error) {
+ 	decoder := json.NewDecoder(bytes.NewReader(data))
+ 	decoder.UseNumber()
+@@ -136,10 +209,6 @@ func parseEnvelopeIdentity(data []byte) (envelopeIdentity, error) {
+ 	if err := decoder.Decode(&members); err != nil {
+ 		return envelopeIdentity{}, fmt.Errorf("%w: decode: %v", ErrInvalidStructuredError, err)
+ 	}
+-	var trailing any
+-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+-		return envelopeIdentity{}, fmt.Errorf("%w: document carries trailing content", ErrInvalidStructuredError)
+-	}
+ 	identity := envelopeIdentity{}
+ 	for name, target := range map[string]**string{
+ 		"schema":         &identity.schema,
+diff --git a/internal/axerror/exit_table_pin_test.go b/internal/axerror/exit_table_pin_test.go
+index 02436c6..d2a5823 100644
+--- a/internal/axerror/exit_table_pin_test.go
++++ b/internal/axerror/exit_table_pin_test.go
+@@ -2,8 +2,11 @@ package axerror
+ 
+ import (
+ 	"fmt"
++	"os"
++	"path/filepath"
+ 	"sort"
+ 	"strconv"
++	"strings"
+ 	"testing"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/specdoc"
+@@ -93,3 +96,189 @@ func TestExactlyOneRegisteredExitStatusIsSuccess(t *testing.T) {
+ 		t.Fatalf("the success status is reported as a failure class")
+ 	}
+ }
++
++// fanInHeader is the README table header this test measures. It is matched
++// exactly rather than by keyword, so renaming a column reddens here instead of
++// silently exempting the table from measurement.
++const fanInHeader = "| Structured Error version | Failure statuses | Registered codes " +
++	"| Statuses carrying more than one code | Largest class |"
++
++// fanInRow is one published row, parsed from the README rather than restated.
++type fanInRow struct {
++	line       int
++	version    Version
++	statuses   int
++	codes      int
++	ambiguous  int
++	largest    int
++	largestFor int
++}
++
++// measuredFanIn is the same row derived from the production projection.
++func measuredFanIn(t *testing.T, version Version) fanInRow {
++	t.Helper()
++	groups, err := CodesByExitStatus(version)
++	if err != nil {
++		t.Fatalf("CodesByExitStatus(%s): %v", version, err)
++	}
++	row := fanInRow{version: version, statuses: len(groups)}
++	ties := 0
++	for status, group := range groups {
++		row.codes += len(group)
++		if len(group) > 1 {
++			row.ambiguous++
++		}
++		switch {
++		case len(group) > row.largest:
++			row.largest, row.largestFor, ties = len(group), status, 1
++		case len(group) == row.largest:
++			ties++
++		}
++	}
++	// "The largest class" names one status, so the published row is only well
++	// defined while exactly one status carries the maximum. A tie is reported as
++	// unknown rather than resolved by picking the lower status.
++	if ties != 1 {
++		t.Fatalf("%s has %d statuses tied at %d codes, so no single largest class exists to publish",
++			version, ties, row.largest)
++	}
++	return row
++}
++
++// parsePublishedFanIn reads the README table into rows. It refuses a table it
++// cannot parse rather than skipping the unparsed part: a row that silently fell
++// out of the comparison is exactly how the two wrong rows below survived.
++func parsePublishedFanIn(t *testing.T) []fanInRow {
++	t.Helper()
++	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
++	if err != nil {
++		t.Fatalf("read README.md: %v", err)
++	}
++	lines := strings.Split(string(readme), "\n")
++	start := -1
++	for index, line := range lines {
++		if strings.TrimSpace(line) == fanInHeader {
++			if start >= 0 {
++				t.Fatalf("README carries the fan-in table header twice, at lines %d and %d", start+1, index+1)
++			}
++			start = index
++		}
++	}
++	if start < 0 {
++		t.Fatalf("README no longer carries the fan-in table header %q", fanInHeader)
++	}
++	var rows []fanInRow
++	for index := start + 2; index < len(lines); index++ {
++		text := strings.TrimSpace(lines[index])
++		if !strings.HasPrefix(text, "|") {
++			break
++		}
++		cells := strings.Split(strings.Trim(text, "|"), "|")
++		if len(cells) != 5 {
++			t.Fatalf("README fan-in row at line %d has %d cells, want 5: %q", index+1, len(cells), text)
++		}
++		for cell := range cells {
++			cells[cell] = strings.TrimSpace(cells[cell])
++		}
++		row := fanInRow{line: index + 1, version: Version(strings.Trim(cells[0], "`"))}
++		numbers := []*int{&row.statuses, &row.codes, &row.ambiguous}
++		for cell, target := range numbers {
++			value, err := strconv.Atoi(cells[cell+1])
++			if err != nil {
++				t.Fatalf("README fan-in row at line %d has non-numeric cell %q", index+1, cells[cell+1])
++			}
++			*target = value
++		}
++		if _, err := fmt.Sscanf(cells[4], "%d codes at exit %d", &row.largest, &row.largestFor); err != nil {
++			t.Fatalf("README fan-in row at line %d has largest class %q, want \"N codes at exit S\": %v",
++				index+1, cells[4], err)
++		}
++		rows = append(rows, row)
++	}
++	if len(rows) == 0 {
++		t.Fatal("README fan-in table has no body rows")
++	}
++	return rows
++}
++
++// TestREADMEFanInTableIsDerivedFromTheMeasuredProjection makes the published
++// table a measurement instead of prose beside one.
++//
++// This is the third time a number in this repository drifted from the thing it
++// describes: "nineteen" §15.2 rows against a table with eighteen, an inflated
++// 10/394 clause ratio, and now two of the four rows of this very table. The
++// 1.2.0 row published "12 codes at exit 6" against a measured 14 at exit 16 -
++// wrong count AND wrong status - and 1.3.0 published 15 at exit 6 against a
++// measured 17. Both survived because the largest class was asserted for 1.0.0
++// and 1.1.0 only, so the other two rows were never compared to anything.
++//
++// The fix is not to assert the corrected numbers somewhere else. It is to leave
++// no row unmeasured: every registered version must appear exactly once, every
++// published row must appear in the registry, and every cell of every row is
++// re-derived from CodesByExitStatus here.
++func TestREADMEFanInTableIsDerivedFromTheMeasuredProjection(t *testing.T) {
++	published := parsePublishedFanIn(t)
++
++	seen := make(map[Version]int, len(published))
++	for _, row := range published {
++		if previous, duplicate := seen[row.version]; duplicate {
++			t.Fatalf("README publishes %s twice, at lines %d and %d", row.version, previous, row.line)
++		}
++		seen[row.version] = row.line
++		if !isRegisteredVersion(row.version) {
++			t.Fatalf("README line %d publishes %s, which the registry does not carry", row.line, row.version)
++		}
++		measured := measuredFanIn(t, row.version)
++		measured.line = row.line
++		if row != measured {
++			t.Fatalf("README line %d publishes %s as %d statuses / %d codes / %d ambiguous / "+
++				"%d codes at exit %d; measured %d / %d / %d / %d codes at exit %d",
++				row.line, row.version, row.statuses, row.codes, row.ambiguous, row.largest, row.largestFor,
++				measured.statuses, measured.codes, measured.ambiguous, measured.largest, measured.largestFor)
++		}
++	}
++	for _, version := range Versions() {
++		if _, present := seen[version]; !present {
++			t.Fatalf("the registry carries %s and the README table has no row for it, so its fan-in "+
++				"is published nowhere and cannot drift into being wrong unnoticed", version)
++		}
++	}
++}
++
++// TestLogbookFanInFiguresAreDerivedFromTheMeasuredProjection covers the second
++// place the wrong 1.3.0 figure was copied to. Entry 1003 states the 1.0.0 and
++// 1.3.0 rows in prose, and prose beside a table that measures itself is exactly
++// what drifts, so the sentences are located and re-derived rather than trusted.
++func TestLogbookFanInFiguresAreDerivedFromTheMeasuredProjection(t *testing.T) {
++	logbook, err := os.ReadFile(filepath.Join("..", "..", "LOGBOOK.md"))
++	if err != nil {
++		t.Fatalf("read LOGBOOK.md: %v", err)
++	}
++	text := string(logbook)
++
++	for _, claim := range []struct {
++		version  Version
++		sentence func(fanInRow) string
++	}{
++		{
++			version: Version100,
++			sentence: func(row fanInRow) string {
++				return fmt.Sprintf("assigns %d codes to %d failure statuses, %d of which carry more than one code, "+
++					"the largest being %d codes at exit %d", row.codes, row.statuses, row.ambiguous,
++					row.largest, row.largestFor)
++			},
++		},
++		{
++			version: Version130,
++			sentence: func(row fanInRow) string {
++				return fmt.Sprintf("reaches %d codes with %d codes at exit %d",
++					row.codes, row.largest, row.largestFor)
++			},
++		},
++	} {
++		want := claim.sentence(measuredFanIn(t, claim.version))
++		if !strings.Contains(text, want) {
++			t.Fatalf("LOGBOOK.md no longer states the measured %s fan-in %q", claim.version, want)
++		}
++	}
++}
+diff --git a/internal/axerror/precedence_test.go b/internal/axerror/precedence_test.go
+index 24dd3ab..eaad73b 100644
+--- a/internal/axerror/precedence_test.go
++++ b/internal/axerror/precedence_test.go
+@@ -134,6 +134,17 @@ func TestReorderingTheIdentityCheckAdmitsNothingItUsedToRefuse(test *testing.T)
+ 		{"trailing content", []byte(conformingDocument + "\n{}")},
+ 		{"not an object", []byte(`[]`)},
+ 		{"empty", nil},
++		// The common-data-model gate runs before the identity, so these rows
++		// state the second precedence decision this reader makes: a document
++		// whose members repeat has no unambiguous identity to settle, and the
++		// bytes are refused as bytes rather than reported as a version or a
++		// member fact. Both orders refuse; a reader that settled the identity
++		// first would answer from one of two occurrences of schema_version.
++		{"duplicate schema", duplicateMember(test, conformingDocument, "schema", `"urn:ax:schema:error"`)},
++		{"duplicate schema_version", duplicateMember(test, conformingDocument, "schema_version", `"1.2.0"`)},
++		{"duplicate code", duplicateMember(test, conformingDocument, "code", `"observation_gap"`)},
++		{"duplicate retryable", duplicateMember(test, conformingDocument, "retryable", `true`)},
++		{"duplicate details", duplicateMember(test, conformingDocument, "details", `{"observed_sequence": "18"}`)},
+ 	} {
+ 		test.Run(row.name, func(test *testing.T) {
+ 			if _, err := Decode(Version120, row.document); err == nil {
+diff --git a/internal/cliresult/client.go b/internal/cliresult/client.go
+index e5868d2..bc70410 100644
+--- a/internal/cliresult/client.go
++++ b/internal/cliresult/client.go
+@@ -8,6 +8,7 @@ import (
+ 	"io"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
+ )
+ 
+ // InvocationOutput is everything a machine client observes of one completed
+@@ -43,6 +44,12 @@ var (
+ 	// ErrUnreadableDocument reports stdout that is not exactly one readable
+ 	// JSON document. A partial, malformed, or multi-document stdout is a read
+ 	// failure and is never resolved from the exit status instead.
++	//
++	// A document outside the Section 1.6 common logical data model is the same
++	// fact, not a lesser one. Bytes whose members repeat are readable in more
++	// than one way - encoding/json keeps the last occurrence of a scalar and
++	// merges both occurrences of an object - so no single reading of them
++	// exists to report.
+ 	ErrUnreadableDocument = errors.New("invocation stdout is not one readable JSON document")
+ 
+ 	// ErrForeignDocument reports one readable JSON document whose schema is
+@@ -129,9 +136,28 @@ func Read(command Command, output InvocationOutput) (*Reading, error) {
+ }
+ 
+ // documentSchema discriminates the one document on stdout without trusting it.
+-// It reads the schema member only; the closed decoder for the selected contract
+-// then validates the whole object, including the duplicate members and trailing
+-// content this discriminator deliberately does not settle on its own.
++// It reads the schema member only, and it reads it after the whole document has
++// been shown to be inside the Section 1.6 common logical data model, because a
++// document whose schema member repeats has no single schema to discriminate on.
++// encoding/json would resolve that repeat to the last occurrence and route the
++// reading to a branch the other occurrence contradicts.
++//
++// What each branch then validates, stated exactly rather than delegated in the
++// abstract. Both closed decoders run the same common-data-model gate on the same
++// bytes - cliresult.Decode through canonicaljson.Canonicalize, axerror.Decode
++// through requireCommonDataModel - and both then enforce their own closed
++// top-level member set after settling the envelope identity. The gate here is
++// therefore not the only thing standing between a duplicate member and a
++// reading; it is what makes the member this function reads unambiguous, which
++// neither closed decoder can do for it because both run after the branch is
++// chosen.
++//
++// That statement is load-bearing and was wrong once. Until this leaf's rework
++// axerror.Decode ran no such gate, so the sentence "the closed decoder for the
++// selected contract then validates the whole object, including the duplicate
++// members" was true of the success branch and false of the failure branch, and a
++// Structured Error carrying "retryable": false followed by "retryable": true was
++// read as retryable through this very function.
+ //
+ // The refusals carry the measured reason the exit status cannot stand in for
+ // the missing document, so a caller that logs the error is told the fan-in
+@@ -152,6 +178,11 @@ func documentSchema(stdout []byte, exitStatus int, errorVersion axerror.Version)
+ 			"%w: stdout carries more than one document, and Section 14.2 allows exactly one; %s",
+ 			ErrUnreadableDocument, exitStatusIsNotEnough(exitStatus, errorVersion))
+ 	}
++	if _, err := canonicaljson.Canonicalize(stdout); err != nil {
++		return "", fmt.Errorf(
++			"%w: stdout is outside the Section 1.6 common logical data model, so it is not one document a machine can read the same way twice: %v; %s",
++			ErrUnreadableDocument, err, exitStatusIsNotEnough(exitStatus, errorVersion))
++	}
+ 	raw, present := document["schema"]
+ 	if !present {
+ 		return "", fmt.Errorf("%w: document has no schema member; %s",
+diff --git a/internal/cliresult/client_test.go b/internal/cliresult/client_test.go
+index bda6c0e..f7a5265 100644
+--- a/internal/cliresult/client_test.go
++++ b/internal/cliresult/client_test.go
+@@ -142,29 +142,108 @@ func TestReadDistinguishesAbsenceFromAReadFailure(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	valid, _ := mustEmittedFailure(t, "workspace_conflict")
++	// The sentinels are addressed BY NAME rather than by value, because the
++	// mutual-exclusion check below has to survive the exact mutant it exists
++	// for. Aliasing ErrAbsentDocument to ErrUnreadableDocument makes the two
++	// values equal, so a check that skipped "the sentinel this row wanted" by
++	// comparing values would skip precisely the comparison that would have
++	// caught the alias, and the mutant would survive the whole suite.
++	observations := map[string]error{
++		"ErrAbsentDocument":     ErrAbsentDocument,
++		"ErrUnreadableDocument": ErrUnreadableDocument,
++		"ErrForeignDocument":    ErrForeignDocument,
++	}
+ 	for _, test := range []struct {
+-		name   string
++		name string
++		// want names the fact the row must report, keyed into observations.
++		want   string
+ 		stdout []byte
+-		want   error
++		// says, when set, is text the refusal must carry. It is used only where
++		// two different guards both refuse the same bytes and the row exists to
++		// pin WHICH of them answered.
++		says string
+ 	}{
+-		{"empty", nil, ErrAbsentDocument},
+-		{"whitespace", []byte("  \n\t "), ErrAbsentDocument},
+-		{"truncated", valid.Stdout[:len(valid.Stdout)/2], ErrUnreadableDocument},
+-		{"not json", []byte("workspace conflict\n"), ErrUnreadableDocument},
+-		{"two documents", append(append([]byte{}, valid.Stdout...), valid.Stdout...), ErrUnreadableDocument},
+-		{"no schema member", []byte(`{"code":"workspace_conflict","exit_code":5}`), ErrUnreadableDocument},
+-		{"schema is not a string", []byte(`{"schema":5}`), ErrUnreadableDocument},
+-		{"foreign schema", []byte(`{"schema":"urn:ax:schema:session-record"}`), ErrForeignDocument},
++		{name: "empty", want: "ErrAbsentDocument"},
++		{name: "whitespace", want: "ErrAbsentDocument", stdout: []byte("  \n\t ")},
++		{name: "truncated", want: "ErrUnreadableDocument", stdout: valid.Stdout[:len(valid.Stdout)/2]},
++		{name: "not json", want: "ErrUnreadableDocument", stdout: []byte("workspace conflict\n")},
++		{
++			// Section 14.2 allows exactly one document, and the common-data-model
++			// gate further along refuses the same bytes as trailing data. Both
++			// refuse; the row pins which fact a caller is told, so the guard
++			// cannot be deleted on the grounds that something else catches it.
++			name:   "two documents",
++			want:   "ErrUnreadableDocument",
++			stdout: append(append([]byte{}, valid.Stdout...), valid.Stdout...),
++			says:   "more than one document",
++		},
++		{name: "no schema member", want: "ErrUnreadableDocument", stdout: []byte(`{"code":"workspace_conflict","exit_code":5}`)},
++		{name: "schema is not a string", want: "ErrUnreadableDocument", stdout: []byte(`{"schema":5}`)},
++		{name: "foreign schema", want: "ErrForeignDocument", stdout: []byte(`{"schema":"urn:ax:schema:session-record"}`)},
+ 	} {
+ 		t.Run(test.name, func(t *testing.T) {
++			want, declared := observations[test.want]
++			if !declared {
++				t.Fatalf("row names %q, which is not an observation sentinel", test.want)
++			}
+ 			_, err := Read(CommandMaterialize, InvocationOutput{Stdout: test.stdout, ExitStatus: 5})
+-			if !errors.Is(err, test.want) {
+-				t.Fatalf("Read(%s) error = %v, want %v", test.name, err, test.want)
++			if !errors.Is(err, want) {
++				t.Fatalf("Read(%s) error = %v, want %s", test.name, err, test.want)
++			}
++			if test.says != "" && !strings.Contains(err.Error(), test.says) {
++				t.Fatalf("Read(%s) error = %v, want the refusal to say %q; another guard "+
++					"further along refuses the same bytes with a different fact",
++					test.name, err, test.says)
++			}
++			// Membership alone does not prove a distinction. Until this
++			// assertion existed, aliasing ErrAbsentDocument to
++			// ErrUnreadableDocument - collapsing the two facts the doc comment
++			// calls deliberately separate - survived the whole suite, because
++			// every row only asked whether the answer was in the set it
++			// expected. Each row now also states which facts the answer is NOT.
++			for name, other := range observations {
++				if name == test.want {
++					continue
++				}
++				if errors.Is(err, other) {
++					t.Fatalf("Read(%s) error = %v reports %s as well as %s; "+
++						"an absence, a failure to read and a foreign contract are three facts",
++						test.name, err, name, test.want)
++				}
+ 			}
+ 		})
+ 	}
+ }
+ 
++// TestTheObservationSentinelsAreDistinctValues closes the same gap one level
++// above the rows: the loop above compares sentinels to each other, so it is only
++// meaningful while they are actually different values.
++func TestTheObservationSentinelsAreDistinctValues(t *testing.T) {
++	t.Parallel()
++
++	sentinels := map[string]error{
++		"ErrAbsentDocument":         ErrAbsentDocument,
++		"ErrUnreadableDocument":     ErrUnreadableDocument,
++		"ErrForeignDocument":        ErrForeignDocument,
++		"ErrOutcomeDisagreement":    ErrOutcomeDisagreement,
++		"ErrUnregisteredExitStatus": ErrUnregisteredExitStatus,
++	}
++	for leftName, left := range sentinels {
++		for rightName, right := range sentinels {
++			if leftName == rightName {
++				continue
++			}
++			if errors.Is(left, right) {
++				t.Fatalf("%s and %s are the same fact; the reader claims to report five", leftName, rightName)
++			}
++			if left.Error() == right.Error() {
++				t.Fatalf("%s and %s carry identical text, so a caller reading the message cannot tell them apart",
++					leftName, rightName)
++			}
++		}
++	}
++}
++
+ // TestReadRefusesEveryDisagreementBetweenStdoutAndTheExitStatus is the gate that
+ // makes neither signal sufficient on its own. Each row keeps one signal exactly
+ // as a conforming invocation would produce it and moves the other.
+@@ -287,6 +366,13 @@ func TestExitStatusAloneIdentifiesNoFailure(t *testing.T) {
+ 	}{
+ 		{version: axerror.Version100, statuses: 17, ambiguous: 14, codes: 47, largest: 6, largestFor: 6},
+ 		{version: axerror.Version110, statuses: 17, ambiguous: 14, codes: 66, largest: 9, largestFor: 6},
++		// 1.2.0 and 1.3.0 are bound by the CLI Result 3 and 4 majors. They were
++		// missing here, and the two README rows that quoted them had both
++		// drifted - 1.2.0 was published as 12 codes at exit 6 and is 14 at exit
++		// 16, 1.3.0 as 15 at exit 6 and is 17 - because nothing measured the
++		// largest class for them.
++		{version: axerror.Version120, statuses: 17, ambiguous: 15, codes: 94, largest: 14, largestFor: 16},
++		{version: axerror.Version130, statuses: 17, ambiguous: 15, codes: 109, largest: 17, largestFor: 6},
+ 	} {
+ 		t.Run(string(test.version), func(t *testing.T) {
+ 			groups, err := axerror.CodesByExitStatus(test.version)
+@@ -312,8 +398,21 @@ func TestExitStatusAloneIdentifiesNoFailure(t *testing.T) {
+ 					test.version, ambiguous, largest, largestFor,
+ 					test.ambiguous, test.largest, test.largestFor)
+ 			}
+-			if _, single := groups[15]; !single || len(groups[15]) != 1 {
+-				t.Fatalf("%s exit 15 group = %v, want exactly one code", test.version, groups[15])
++			if _, present := groups[15]; !present {
++				t.Fatalf("%s registers no code at exit 15", test.version)
++			}
++			// A tie at the maximum would make "the largest class" prose
++			// ambiguous, so the published row is only well defined while there
++			// is exactly one such status. Measured, not assumed.
++			ties := 0
++			for _, group := range groups {
++				if len(group) == largest {
++					ties++
++				}
++			}
++			if ties != 1 {
++				t.Fatalf("%s has %d statuses tied at %d codes; the published largest-class row "+
++					"names one status and would be ambiguous", test.version, ties, largest)
+ 			}
+ 		})
+ 	}
+diff --git a/internal/cliresult/datamodel_test.go b/internal/cliresult/datamodel_test.go
+new file mode 100644
+index 0000000..5057b16
+--- /dev/null
++++ b/internal/cliresult/datamodel_test.go
+@@ -0,0 +1,230 @@
++package cliresult
++
++import (
++	"encoding/json"
++	"errors"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++)
++
++// duplicateMember returns document with member repeated as its LAST top-level
++// member, the second occurrence carrying replacement.
++//
++// The second occurrence is appended rather than prepended because which one
++// encoding/json keeps is the whole point: a scalar member resolves to the last
++// occurrence, so the appended value is what a resolving reader would answer
++// with. A prepended copy would leave the original value in place and the row
++// would pass for the wrong reason.
++//
++// The rewrite is textual because no builder in this repository can emit the
++// shape - a Go map has one value per key - which is also why the shape only ever
++// arrives from a writer that composed the bytes itself.
++func duplicateMember(t *testing.T, document []byte, member, replacement string) []byte {
++	t.Helper()
++	text := string(document)
++	anchor := `"` + member + `":`
++	if !strings.Contains(text, anchor) && !strings.Contains(text, `"`+member+`" :`) {
++		t.Fatalf("document carries no %q member to duplicate", member)
++	}
++	closing := strings.LastIndex(text, "}")
++	if closing < 0 {
++		t.Fatal("document has no closing brace")
++	}
++	injected := text[:closing] + `, "` + member + `": ` + replacement + text[closing:]
++	var lenient map[string]json.RawMessage
++	if err := json.Unmarshal([]byte(injected), &lenient); err != nil {
++		t.Fatalf("the rewrite produced bytes encoding/json itself refuses: %v", err)
++	}
++	return []byte(injected)
++}
++
++// TestReadRefusesADuplicateKeyedDocumentOnEitherBranch is the reading-side half
++// of the Section 1.6 common-data-model gate.
++//
++// Read discriminates the two contracts by the schema member and then hands the
++// document to the closed decoder for the branch it chose. Until this leaf's
++// rework only ONE of those two decoders enforced the common data model:
++// cliresult.Decode canonicalized, axerror.Decode did not. So the same reader
++// refused a duplicate-keyed CLI Result and admitted a duplicate-keyed Structured
++// Error, and the exit-status corroboration this leaf added did not catch it
++// because both occurrences of a repeated code can share one exit class.
++//
++// Every row therefore drives Read, the production entry point, not either
++// decoder directly, and every row is run on BOTH branches so a gate restored to
++// one of them cannot pass here.
++func TestReadRefusesADuplicateKeyedDocumentOnEitherBranch(t *testing.T) {
++	t.Parallel()
++
++	failure, _ := mustEmittedFailure(t, "workspace_conflict")
++	success := mustEmittedSuccess(t, CommandTakeover)
++
++	for _, branch := range []struct {
++		name    string
++		output  InvocationOutput
++		command Command
++		members map[string]string
++	}{
++		{
++			name:    "structured error",
++			output:  failure,
++			command: CommandMaterialize,
++			members: map[string]string{
++				// A second code inside the SAME exit class, which is the case
++				// the exit_code equality check cannot see.
++				"code":      `"destination_not_empty"`,
++				"retryable": `true`,
++				"details":   `{"expected_checkpoint": "sha256:1111111111111111111111111111111111111111111111111111111111111111"}`,
++				"schema":    `"urn:ax:schema:error"`,
++				"exit_code": `5`,
++				"message":   `"a second message"`,
++			},
++		},
++		{
++			name:    "cli result",
++			output:  success,
++			command: CommandTakeover,
++			members: map[string]string{
++				"command":    `"takeover"`,
++				"ok":         `true`,
++				"schema":     `"urn:ax:schema:cli-result"`,
++				"body":       `{}`,
++				"extensions": `{}`,
++				"session_id": `null`,
++			},
++		},
++	} {
++		t.Run(branch.name, func(t *testing.T) {
++			if _, err := Read(branch.command, branch.output); err != nil {
++				t.Fatalf("the undoubled invocation was refused, so these rows prove nothing: %v", err)
++			}
++			for member, replacement := range branch.members {
++				t.Run(member, func(t *testing.T) {
++					stdout := duplicateMember(t, branch.output.Stdout, member, replacement)
++					reading, err := Read(branch.command, InvocationOutput{
++						Stdout: stdout, ExitStatus: branch.output.ExitStatus})
++					if err == nil {
++						code, _ := reading.Code()
++						t.Fatalf("Read admitted a duplicate %q: succeeded=%v code=%q retryable=%v",
++							member, reading.Succeeded(), code, reading.Retryable())
++					}
++					if !errors.Is(err, ErrUnreadableDocument) {
++						t.Fatalf("Read(duplicate %s) error = %v, want ErrUnreadableDocument", member, err)
++					}
++					if !strings.Contains(err.Error(), `duplicate object member "`+member+`"`) {
++						t.Fatalf("Read(duplicate %s) error = %v, want the repeated member named; "+
++							"a gate narrowed to another member set would pass without this",
++							member, err)
++					}
++				})
++			}
++		})
++	}
++}
++
++// TestADuplicateMemberCannotForgeARetryClaimThroughRead states the finding as
++// the machine answer it changed rather than as a parse fact, at the entry point
++// a client actually calls.
++//
++// The document declares retryable = false and repeats the member as true. Before
++// the fix Read returned a Reading whose Retryable() was true: a retry claim
++// assembled from two members, neither of which a conforming writer could emit,
++// on a code whose retryability refusal table was never consulted for it. The
++// pre-fix resolution is measured here rather than described, so the row cannot
++// decay into prose about a defect nobody re-derives.
++func TestADuplicateMemberCannotForgeARetryClaimThroughRead(t *testing.T) {
++	t.Parallel()
++
++	failure, _ := mustEmittedFailure(t, "workspace_conflict")
++	baseline, err := Read(CommandMaterialize, failure)
++	if err != nil {
++		t.Fatalf("Read(conforming failure): %v", err)
++	}
++	if baseline.Retryable() {
++		t.Fatal("the fixture already claims retryable, so the forged row would prove nothing")
++	}
++
++	stdout := duplicateMember(t, failure.Stdout, "retryable", "true")
++	var resolved struct {
++		Retryable *bool `json:"retryable"`
++	}
++	if err := json.Unmarshal(stdout, &resolved); err != nil {
++		t.Fatalf("unmarshal: %v", err)
++	}
++	if resolved.Retryable == nil || !*resolved.Retryable {
++		t.Fatalf("encoding/json resolved the repeated retryable to %v, want the appended true; "+
++			"if this changed, the forged-claim shape this gate refuses changed with it", resolved.Retryable)
++	}
++
++	reading, err := Read(CommandMaterialize, InvocationOutput{Stdout: stdout, ExitStatus: failure.ExitStatus})
++	if err == nil {
++		t.Fatalf("Read admitted a forged retry claim: Retryable() = %v", reading.Retryable())
++	}
++	if !errors.Is(err, ErrUnreadableDocument) {
++		t.Fatalf("Read(forged retry) error = %v, want ErrUnreadableDocument", err)
++	}
++}
++
++// TestADuplicateSchemaMemberCannotSelectTheBranch pins the one duplicate the
++// discriminator itself has to settle, because neither closed decoder can settle
++// it for the discriminator: both run after the branch is chosen.
++//
++// A repeated schema member resolves to the last occurrence in a map decode, so a
++// document declaring the Structured Error schema and repeating it as the CLI
++// Result schema routed the reading to readSuccess, which then answered with a
++// disagreement between stdout and the exit status - a fact about the exit status
++// that has nothing to do with what is wrong with the bytes.
++func TestADuplicateSchemaMemberCannotSelectTheBranch(t *testing.T) {
++	t.Parallel()
++
++	failure, _ := mustEmittedFailure(t, "workspace_conflict")
++	stdout := duplicateMember(t, failure.Stdout, "schema", `"`+Schema+`"`)
++
++	var resolved struct {
++		Schema string `json:"schema"`
++	}
++	if err := json.Unmarshal(stdout, &resolved); err != nil {
++		t.Fatalf("unmarshal: %v", err)
++	}
++	if resolved.Schema != Schema {
++		t.Fatalf("encoding/json resolved the repeated schema to %q, want the appended %q; "+
++			"the branch-selection shape this row exists for is gone", resolved.Schema, Schema)
++	}
++
++	_, err := Read(CommandMaterialize, InvocationOutput{Stdout: stdout, ExitStatus: failure.ExitStatus})
++	if !errors.Is(err, ErrUnreadableDocument) {
++		t.Fatalf("Read(duplicate schema) error = %v, want ErrUnreadableDocument", err)
++	}
++	if errors.Is(err, ErrOutcomeDisagreement) {
++		t.Fatalf("Read(duplicate schema) error = %v; the reading reported an exit-status "+
++			"disagreement for a document whose schema it never settled", err)
++	}
++}
++
++// TestBothClosedDecodersEnforceTheSameDataModel drives each contract's own
++// reader directly, so the claim documentSchema makes about its delegation is
++// checked against both branches rather than assumed for one.
++//
++// That sentence was false once. It said "the closed decoder for the selected
++// contract then validates the whole object, including the duplicate members
++// this discriminator deliberately does not settle on its own", which was true of
++// Decode and false of axerror.Decode.
++func TestBothClosedDecodersEnforceTheSameDataModel(t *testing.T) {
++	t.Parallel()
++
++	t.Run("cliresult.Decode", func(t *testing.T) {
++		document := duplicateMember(t, []byte(normativeCLISuccess), "ok", "true")
++		if _, err := Decode(Version100, document); err == nil {
++			t.Fatal("Decode admitted a duplicate-keyed CLI Result")
++		}
++	})
++
++	t.Run("axerror.Decode", func(t *testing.T) {
++		failure, _ := mustEmittedFailure(t, "workspace_conflict")
++		document := duplicateMember(t, failure.Stdout, "retryable", "true")
++		if _, err := axerror.Decode(axerror.Version100, document); err == nil {
++			t.Fatal("axerror.Decode admitted a duplicate-keyed Structured Error")
++		}
++	})
++}
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index 6c68ce9..ea4bd52 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=73 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
++	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=74 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
+ 		"section coverage: bindings=49 full=1 partial=3 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=17/403\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+@@ -55,7 +55,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=73 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
++	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=74 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
+ 		"section coverage: bindings=49 full=1 partial=3 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=17/403\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index e32b0e8..e1c09a5 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -2085,6 +2085,14 @@
+         {
+           "path": "internal/cliresult/client_test.go",
+           "declaration": "TestExitStatusAloneDecidesNoRetry"
++        },
++        {
++          "path": "internal/axerror/exit_table_pin_test.go",
++          "declaration": "TestREADMEFanInTableIsDerivedFromTheMeasuredProjection"
++        },
++        {
++          "path": "internal/axerror/exit_table_pin_test.go",
++          "declaration": "TestLogbookFanInFiguresAreDerivedFromTheMeasuredProjection"
+         }
+       ]
+     },
+@@ -2121,6 +2129,59 @@
+           "declaration": "TestReorderingTheIdentityCheckAdmitsNothingItUsedToRefuse"
+         }
+       ]
++    },
++    {
++      "id": "structured-error-common-data-model",
++      "production": {
++        "path": "internal/axerror/decode.go",
++        "declaration": "requireCommonDataModel"
++      },
++      "tests": [
++        {
++          "path": "internal/axerror/datamodel_test.go",
++          "declaration": "TestDecodeRefusesADuplicateMemberOnEveryDeclaredMember"
++        },
++        {
++          "path": "internal/axerror/datamodel_test.go",
++          "declaration": "TestADuplicateMemberCannotForgeARetryClaim"
++        },
++        {
++          "path": "internal/axerror/datamodel_test.go",
++          "declaration": "TestADuplicateMemberCannotSplitTheDetailSet"
++        },
++        {
++          "path": "internal/axerror/datamodel_test.go",
++          "declaration": "TestABoundPeerCannotSendADuplicateKeyedEnvelope"
++        },
++        {
++          "path": "internal/axerror/datamodel_test.go",
++          "declaration": "TestTheCanonicalGateDoesNotLaunderTheExitStatusToken"
++        },
++        {
++          "path": "internal/axerror/datamodel_test.go",
++          "declaration": "TestTheCommonDataModelGateCoversMoreThanDuplicates"
++        },
++        {
++          "path": "internal/cliresult/datamodel_test.go",
++          "declaration": "TestReadRefusesADuplicateKeyedDocumentOnEitherBranch"
++        },
++        {
++          "path": "internal/cliresult/datamodel_test.go",
++          "declaration": "TestADuplicateMemberCannotForgeARetryClaimThroughRead"
++        },
++        {
++          "path": "internal/cliresult/datamodel_test.go",
++          "declaration": "TestADuplicateSchemaMemberCannotSelectTheBranch"
++        },
++        {
++          "path": "internal/cliresult/datamodel_test.go",
++          "declaration": "TestBothClosedDecodersEnforceTheSameDataModel"
++        },
++        {
++          "path": "internal/axerror/datamodel_test.go",
++          "declaration": "TestTheCommonDataModelCitationsAreVerbatimInThePinnedDocument"
++        }
++      ]
+     }
+   ],
+   "ownership": [
+@@ -2472,7 +2533,8 @@
+         "cli-result-historical-envelopes",
+         "structured-error-historical-envelopes",
+         "config-versioned-readers",
+-        "config-current-writer"
++        "config-current-writer",
++        "structured-error-common-data-model"
+       ],
+       "coverage": "unevidenced",
+       "gap": "Section 17.2 carries exactly one scanner-visible obligation, clause 17.2#1: a reader MAY retain an unknown event as inert history but MUST NOT derive state from it. That clause binds Session Event history, and Read classifies one completed CLI invocation rather than retaining any event, so this binding discharges none of Section 17.2's measured obligations. The four numbered reader rules the section states carry no RFC 2119 keyword and are therefore invisible to the clause scanner; three of them are implemented and tested here - Read and Decode settle the schema and major before any other member, the closed member set included, acceptsVersion implements the same-or-lower-minor rule, and an unknown namespaced extension survives a decode and re-encode byte for byte - while the unknown ownership/security enum rule is covered only for the closed CLI Result vocabularies, not for any lease or security enum, because no ownership implementation exists in this repository."
+@@ -2985,7 +3047,8 @@
+         "structured-error-local-untrusted",
+         "cli-result-message-independence",
+         "structured-error-historical-envelopes",
+-        "structured-error-identity-precedence"
++        "structured-error-identity-precedence",
++        "structured-error-common-data-model"
+       ],
+       "coverage": "partial",
+       "gap": "Two of the seven Section 15.1 clauses stay unimplemented here. Clause 15.1#5 is the RPC hello obligation - an error contract key must never be advertised or negotiated in a hello frame - and New builds a failure object rather than a hello frame; this repository contains no RPC hello builder at all, so BindingFor is a static table with no negotiation path rather than a refusal of one. Clause 15.1#6 is the Provider JSON-over-stdio bootstrap row, whose only RFC 2119 sentence is that the plugin MUST NOT masquerade a different-major object as v2; that obligation binds the provider plugin and this repository builds no provider plugin, only the cataloggen and tracecheck binaries. LocalFromUntrusted implements the host half of the same row, but that half states no RFC 2119 keyword, so it discharges nothing the clause scanner measures and is claimed for clause 15.1#7 instead.",
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 5a2d5cf..40152df 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "44a771f430175492ea461b0a3439021d53b09f953d045b6f99436f5d602308d1"
++	reviewedOwnershipCanonicalSHA256 = "80300d92ff7b1bb783f639d8e18d4954b8241e28e5cff4a29f9f2f370ea78193"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index dfb51ba..297b23a 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -29,7 +29,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              60,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        73,
++		AcceptanceCases:        74,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 		SectionBindings:        49,

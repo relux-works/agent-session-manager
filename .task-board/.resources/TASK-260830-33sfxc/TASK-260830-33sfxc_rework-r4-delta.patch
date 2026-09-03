@@ -1,0 +1,509 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index ff7d677..7e07f7f 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,22 @@
+ 
+ ## 2026-09-03
+ 
++### 1338 — A figure published beside a measurement must be derived from it, not restated next to it: third instance in one artifact
++
++- SCOPE: `README.md` (one figure corrected), new `internal/traceability/readme_figures_pin_test.go`, `internal/cliresult/client_test.go` (two new sweeps), `internal/traceability/ownership.v0.5.0.json` and its projection digest. Round-4 rework of TASK-260830-33sfxc after review; §14.2, §15.1, §15.2. No production code changed — every round-4 finding was an evidence defect, not a behaviour defect.
++- ROOT CAUSE: `README.md` published "73 executable acceptance cases" while `ownership.v0.5.0.json` held 74 entries with 74 distinct ids and `tracecheck` printed `acceptance_cases=74`. The first pass of this leaf moved the registry from 65 to 73 and updated the sentence; the round-2 rework added a case and did not. Nothing measured the figure — setting it to 999 left `go test ./...` and `tracecheck` both at exit 0.
++- FINDING: this is the THIRD occurrence of the identical class inside this one artifact, and the first two are recorded here by the same author. Entry 1015: the "nineteen §15.2 rows" claim against an eighteen-row table. Entry 1157: two of four published fan-in rows wrong, root cause named at the time as "prose nobody measured". The response to the second was `TestREADMEFanInTableIsDerivedFromTheMeasuredProjection`, which parses the README and re-derives every cell — and it sits two hundred lines from a sentence that restates instead of derives and is off by one. The tool for the class existed, in the repository, written for this exact failure, and was never pointed at the neighbouring paragraph.
++- DECISION: the general rule, worth stating once. A figure published beside a measurement must be an INPUT to the test, not a second copy of the answer. Three instances in one artifact is not carelessness; it is the natural failure mode of prose sitting near data. The only fix that holds is parsing the prose and re-deriving every number in it from the thing it describes.
++- FIX: `TestREADMEOwnershipFiguresAreDerivedFromTheMeasuredReport` locates the paragraph by its heading, refuses a heading it finds twice or not at all, and re-derives all seven figures from `traceability.VerifyRepository` — not only the one that drifted, because the other six were correct today and unmeasured for exactly the same reason. Each figure is located by the noun phrase naming what it counts, so re-ordering the clause cannot re-point a pin at a different number.
++- DECISION: the pin polices its own completeness. Every digit run in the paragraph that no pinned phrase consumed is reported as unmeasured, with only dotted version and path tokens exempt under a deliberately narrow rule. That makes DELETING a row from the pinned-figure list a red rather than a quietly smaller comparison — the failure mode entry 2113 records for a derived gate that did not police its own extraction pattern.
++- FINDING (reviewer Observation A, acted on): `exitStatusIsNotEnough` documents its own count as "a measured count rather than as advice" and `README.md` repeated the claim, but every assertion on those refusals matched the trailing clause `identifies no failure` and nothing read the number. Replacing `len(fanIn[exitStatus])` with a constant, or the whole `%d registered` clause with the word "many", left the suite green. Both are killed now, and so is the narrowing that keeps the count correct at exit 6 only — which is exactly the single assertion proposed as the minimal fix. The sweep drives every registered command at every registered §15.2 failure status through `Read` and re-derives each answer from `CodesByExitStatus`.
++- FINDING (reviewer Observation B, acted on): retry independence from the exit status was proven at exit 12 alone, and the one exit-15 envelope any test drove already declared `retryable: true`, so a fabricated "if the status is 15, retry" branch returned the answer the document would have given and survived. `TestTheRetryDecisionFollowsTheDocumentAtEveryFailureStatus` drives both polarities across the whole failure domain; the true arm covers fourteen of seventeen statuses because the pinned document forbids the claim for every code of the other three, and that figure is pinned rather than left implicit.
++- DECISION (reviewer Observation C, left alone): the two survivors the round-3 reviewer checked as genuinely equivalent — `Succeeded()` recomputed from `exitStatus`, and `ExitStatus()` returned from `failure.ExitCode()` — are NOT "fixed". They survive because `readSuccess` and `readFailure` between them make document and status provably agree on every admitted reading. A survivor dismissed with a reason is evidence; one quietly fixed hides why it survived. The same holds for the two round-2 dismissals, the near-equivalent `details` narrowing of `requireCommonDataModel` and the `CodesByExitStatus` empty-group pre-seed.
++- ANOMALY: my first hand-probe of the "many" mutant reported a non-zero exit and I read it as a kill. It was a BUILD failure — dropping the `%d` argument left `fanIn` declared and not used. The harness's `NOT-COMPILED` arm caught it on the next run. A mutant that does not compile proves nothing about the test, and a non-zero exit status is not by itself a kill.
++- EVIDENCE: harness grown from 28 to 44 mutants — 43 killed, 1 declared subsumed (unchanged), 0 unexplained survivors, suite restored green. Supersedes the "28 mutants at 27 killed" figure in the 1231 entry below.
++- DECISION: the "narrows rather than deletes" figure is no longer counted by hand either. The class is now DEFINED in the harness — enforcement left in place for part of the domain, whether a restricted class, one of several redundant copies, a reordering, or a published claim kept and given a specific wrong value — and the count computed from that definition, with the harness failing closed if the set names a mutant that does not exist. Applied to the 28-mutant harness the definition selects exactly the fourteen that revision published; the round-4 count is twenty-seven. Same lesson as the entry title, applied to my own evidence prose rather than to somebody else's.
++- BOUND, stated rather than glossed: the harness mutates the working tree, so it lives under `.temp/` and is attached to the board item. `go test ./...` does not run it and no committed artifact derives its counts. `README.md` now says so where it publishes them, instead of letting a harness figure sit beside gated ones and read as though it were gated too.
++
+ ### 1231 — A gate proven at one sample is a gate proven at one sample: both §14.2 outcome guards shipped with a narrowing the suite could not see
+ 
+ - SCOPE: `internal/cliresult/client_test.go` (two new sweeps, one new test), README mutation prose, `internal/traceability` ownership registration. Round-3 rework of TASK-260830-33sfxc after review; §14.2, §15.2, §15.3. No production code changed — the implementation was correct in both findings and was not asked to move.
+diff --git a/README.md b/README.md
+index 39b80d4..e0a8e77 100644
+--- a/README.md
++++ b/README.md
+@@ -1554,14 +1554,28 @@ this repository builds no clone success body, and its failure is still fully
+ classified, because "this build cannot construct that success" and "this failure
+ is unreadable" are different facts.
+ 
+-A 28-mutant harness over these gates kills 27 and declares 1 subsumed, each
++A 44-mutant harness over these gates kills 43 and declares 1 subsumed, each
+ mutant verified applied and compiled before it is measured, and each verified to
+ carry the MUTATED text on disk rather than only to differ from the original. The
+ subsumed one removes the exit-0 guard in `readFailure`; the `exit_code` equality
+ check refuses the same input one guard later, because a Structured Error can
+ never carry `exit_code` 0.
+ 
+-Fourteen of those mutants narrow rather than delete. The common-data-model gate
++That count is a STATED BOUND, not a figure this repository measures. The harness
++mutates the working tree, so it is task-scoped evidence under `.temp/` and
++attached to its board item rather than run by `go test ./...`; no committed
++artifact derives it, and a reader should treat it as reproducible-on-demand
++rather than gated. Every figure in this file that CAN be derived from a
++committed measurement is derived from one -
++`TestREADMEFanInTableIsDerivedFromTheMeasuredProjection` re-derives the fan-in
++table above, and `TestREADMEOwnershipFiguresAreDerivedFromTheMeasuredReport`
++re-derives every figure of the ownership paragraph below.
++
++Twenty-seven of those mutants narrow rather than delete. The class is defined
++once in the harness and counted from that definition rather than by hand; the
++same definition applied to the 28-mutant harness selects exactly the fourteen
++that revision published, so this figure extends that class instead of redefining
++it. The common-data-model gate
+ is restricted to one of the four registered versions, moved behind the identity
+ check, and made to adopt its own canonical bytes; the discriminator's copy is
+ disabled on its own; `ErrAbsentDocument` is aliased onto `ErrUnreadableDocument`;
+@@ -1593,6 +1607,21 @@ failure status, drawn from `axerror.IsFailureExitStatus` and asserted to be
+ seventeen, and a fifth mutant narrows that enumeration below 130 to show the
+ sweep fails closed rather than shrinking in silence.
+ 
++Two further claims that read as measurements are measured as such. The refusal
++that explains why the exit status alone is not enough states a count, and
++`TestTheRefusalStatesTheMeasuredFanInRatherThanAdvice` drives every registered
++command at every registered failure status through `Read` and re-derives that
++count from `CodesByExitStatus`; the harness replaces the count with a constant,
++replaces the whole clause with the word "many", and narrows it to be correct at
++exit 6 only - the last being exactly what a single-row assertion would have
++survived. The retry bit is likewise read from the document at every failure
++status on both polarities by
++`TestTheRetryDecisionFollowsTheDocumentAtEveryFailureStatus`, because a branch
++answering `true` from the status alone survived while the only exit-15 envelope
++any test drove already declared `retryable: true`. The true arm covers fourteen
++of the seventeen statuses - the pinned document forbids the claim for every code
++of the other three - and that figure is asserted rather than left implicit.
++
+ ```bash
+ go test ./internal/cliresult -count=1 -v
+ go test ./internal/cliresult -cover -count=1
+@@ -1640,7 +1669,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
+ registry independently enumerates implementation owners for all 60 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 73
++contract rows, 36 pinned or catalog-referenced normative section keys, 74
+ executable acceptance cases, 49 exact section bindings with their declared
+ coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
+ Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
+diff --git a/internal/cliresult/client_test.go b/internal/cliresult/client_test.go
+index 9466fe6..48bc032 100644
+--- a/internal/cliresult/client_test.go
++++ b/internal/cliresult/client_test.go
+@@ -898,3 +898,199 @@ func TestReadingAccessorsDoNotHandOutLiveInteriorState(t *testing.T) {
+ 		t.Fatalf("a mutation through Detail() reached the failure: %v", fresher)
+ 	}
+ }
++
++// TestTheRefusalStatesTheMeasuredFanInRatherThanAdvice makes the count in the
++// refusal a measurement instead of prose beside one.
++//
++// exitStatusIsNotEnough documents itself as stating "a measured count rather
++// than as advice", and README.md repeats that claim, but nothing read the
++// number: every assertion on these refusals matched the trailing clause
++// "identifies no failure". Replacing len(fanIn[exitStatus]) with the constant 1,
++// or the whole "%d registered" clause with the word "many", left the suite
++// green. Both mutants are killed here.
++//
++// The sweep is the point. A single row would leave the count proven at one
++// point of its domain, which is precisely how the two round-2 findings on this
++// leaf survived, so every registered command is driven at every registered
++// Section 15.2 failure status and each answer is re-derived from
++// axerror.CodesByExitStatus for the version that command binds.
++func TestTheRefusalStatesTheMeasuredFanInRatherThanAdvice(t *testing.T) {
++	t.Parallel()
++
++	statuses := registeredFailureExitStatuses(t)
++	commands := Commands()
++	if len(commands) == 0 {
++		t.Fatal("no registered commands, so this sweep drives nothing")
++	}
++	measured := 0
++	for _, command := range commands {
++		resultVersion, err := RegisteredVersionForCommand(command)
++		if err != nil {
++			t.Fatalf("RegisteredVersionForCommand(%s): %v", command, err)
++		}
++		major, err := majorOf(resultVersion)
++		if err != nil {
++			t.Fatalf("majorOf(%s): %v", resultVersion, err)
++		}
++		errorVersion, err := axerror.BindingFor(axerror.ContainingContract{ID: Schema, Major: major})
++		if err != nil {
++			t.Fatalf("BindingFor(%s major %d): %v", Schema, major, err)
++		}
++		fanIn, err := axerror.CodesByExitStatus(errorVersion)
++		if err != nil {
++			t.Fatalf("CodesByExitStatus(%s): %v", errorVersion, err)
++		}
++		for _, status := range statuses {
++			// The absent-document arm reaches exitStatusIsNotEnough from the
++			// production entry point, which is where a machine client meets it.
++			_, err := Read(command, InvocationOutput{ExitStatus: status})
++			if !errors.Is(err, ErrAbsentDocument) {
++				t.Fatalf("Read(%s, nothing on stdout at exit %d) error = %v, want ErrAbsentDocument",
++					command, status, err)
++			}
++			var statedStatus, statedCount int
++			var statedVersion string
++			read, scanErr := fmt.Sscanf(
++				refusalTail(t, err.Error()),
++				"exit status %d is assigned to %d registered Structured Error %s codes,",
++				&statedStatus, &statedCount, &statedVersion)
++			if scanErr != nil || read != 3 {
++				t.Fatalf("refusal for %s at exit %d does not state a measured fan-in: %q (%v)",
++					command, status, err, scanErr)
++			}
++			if statedStatus != status {
++				t.Fatalf("refusal for %s at exit %d names exit status %d", command, status, statedStatus)
++			}
++			if statedVersion != string(errorVersion) {
++				t.Fatalf("refusal for %s at exit %d names Structured Error %s, want %s",
++					command, status, statedVersion, errorVersion)
++			}
++			if want := len(fanIn[status]); statedCount != want {
++				t.Fatalf("refusal for %s at exit %d states %d registered codes; CodesByExitStatus(%s) measures %d",
++					command, status, statedCount, errorVersion, want)
++			}
++			if statedCount == 0 {
++				t.Fatalf("refusal for %s at exit %d states no registered codes, so the sweep proves nothing there",
++					command, status)
++			}
++			measured++
++		}
++	}
++	// Asserted rather than left implicit: a predicate or registry that answered
++	// with nothing would otherwise make this a green test that read no refusal.
++	if want := len(commands) * len(statuses); measured != want {
++		t.Fatalf("measured %d refusals, want %d", measured, want)
++	}
++}
++
++// refusalTail returns the part of a refusal after the last "; " separator, which
++// is where exitStatusIsNotEnough is appended. The absent-document arm formats it
++// after a ": " instead, so both separators are tried and an unparseable refusal
++// is reported rather than silently scanned from its beginning.
++func refusalTail(t *testing.T, refusal string) string {
++	t.Helper()
++	if index := strings.LastIndex(refusal, "; "); index >= 0 {
++		return refusal[index+2:]
++	}
++	if index := strings.LastIndex(refusal, ": "); index >= 0 {
++		return refusal[index+2:]
++	}
++	t.Fatalf("refusal %q carries no appended clause", refusal)
++	return ""
++}
++
++// TestTheRetryDecisionFollowsTheDocumentAtEveryFailureStatus generalizes the
++// retry proof above from one exit status to the whole Section 15.2 failure
++// domain.
++//
++// TestExitStatusAloneDecidesNoRetry drives exit 12 only, and the one exit-15
++// envelope any test reads already declares retryable = true, so a fabricated
++// "if the status is 15, retry" branch returned the answer the document would
++// have given and survived the suite. The fix is not another single row: it is to
++// leave no registered failure status unexercised on BOTH polarities, so a
++// special case keyed on any status is a red at that status.
++func TestTheRetryDecisionFollowsTheDocumentAtEveryFailureStatus(t *testing.T) {
++	t.Parallel()
++
++	groups, err := axerror.CodesByExitStatus(axerror.Version110)
++	if err != nil {
++		t.Fatalf("CodesByExitStatus: %v", err)
++	}
++	legacy, _ := mustEmittedFailure(t, "not_found")
++	statuses := registeredFailureExitStatuses(t)
++	measuredFalse, measuredTrue := 0, 0
++	for _, status := range statuses {
++		codes := groups[status]
++		if len(codes) == 0 {
++			t.Fatalf("Structured Error 1.1.0 registers no code at exit %d, so this status is unexercised", status)
++		}
++		// A retryable = false claim is admissible for every code, so the false
++		// arm covers every status without exception. Any branch that answers
++		// true from the status alone dies here at that status.
++		t.Run(fmt.Sprintf("exit%d/false", status), func(t *testing.T) {
++			document := rewriteFailure(t, legacy.Stdout, map[string]any{
++				"schema_version": "1.1.0",
++				"code":           string(codes[0]),
++				"exit_code":      json.Number(fmt.Sprint(status)),
++				"retryable":      false,
++			})
++			reading, readErr := Read(CommandCloneRun, InvocationOutput{Stdout: document, ExitStatus: status})
++			if readErr != nil {
++				t.Fatalf("Read(%s retryable=false at exit %d): %v", codes[0], status, readErr)
++			}
++			if reading.Retryable() {
++				t.Fatalf("Retryable() = true at exit %d for a document declaring false", status)
++			}
++		})
++		measuredFalse++
++
++		// The true arm is only defined where the pinned document permits the
++		// claim, so it is driven for the first permitted code of the status and
++		// the count of covered statuses is asserted below rather than assumed.
++		var permitted axerror.Code
++		for _, code := range codes {
++			if _, refused := axerror.RetryabilityRefusal(code, status); !refused {
++				permitted = code
++				break
++			}
++		}
++		if permitted == "" {
++			continue
++		}
++		t.Run(fmt.Sprintf("exit%d/true", status), func(t *testing.T) {
++			document := rewriteFailure(t, legacy.Stdout, map[string]any{
++				"schema_version": "1.1.0",
++				"code":           string(permitted),
++				"exit_code":      json.Number(fmt.Sprint(status)),
++				"retryable":      true,
++			})
++			reading, readErr := Read(CommandCloneRun, InvocationOutput{Stdout: document, ExitStatus: status})
++			if readErr != nil {
++				t.Fatalf("Read(%s retryable=true at exit %d): %v", permitted, status, readErr)
++			}
++			if !reading.Retryable() {
++				t.Fatalf("Retryable() = false at exit %d for a document declaring true", status)
++			}
++		})
++		measuredTrue++
++	}
++	// Measured, not assumed. A registry that answered with empty groups, or a
++	// refusal predicate that forbade every claim, would otherwise leave one or
++	// both arms driving nothing while the test stayed green.
++	if measuredFalse != len(statuses) {
++		t.Fatalf("the retryable=false arm covered %d of %d failure statuses", measuredFalse, len(statuses))
++	}
++	if measuredTrue != retryPermittedFailureStatuses {
++		t.Fatalf("the retryable=true arm covered %d failure statuses, want %d",
++			measuredTrue, retryPermittedFailureStatuses)
++	}
++}
++
++// retryPermittedFailureStatuses is the measured number of Section 15.2 failure
++// statuses that carry at least one Structured Error 1.1.0 code permitted to
++// claim retryable = true. Fourteen of the seventeen do; at the other three the
++// pinned document forbids the claim for every code of the class, which is why
++// the true arm is asserted against this figure rather than against the status
++// count. It is pinned so that a shrinking true arm is a red rather than a
++// quietly smaller sweep.
++const retryPermittedFailureStatuses = 14
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index dedb55f..28d35ee 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -497,6 +497,10 @@
+         {
+           "path": "internal/traceability/traceability_test.go",
+           "declaration": "TestVerifyRepositoryRejectsForgedOwnershipAndCapabilityClaims"
++        },
++        {
++          "path": "internal/traceability/readme_figures_pin_test.go",
++          "declaration": "TestREADMEOwnershipFiguresAreDerivedFromTheMeasuredReport"
+         }
+       ]
+     },
+@@ -2097,6 +2101,14 @@
+         {
+           "path": "internal/axerror/exit_table_pin_test.go",
+           "declaration": "TestLogbookFanInFiguresAreDerivedFromTheMeasuredProjection"
++        },
++        {
++          "path": "internal/cliresult/client_test.go",
++          "declaration": "TestTheRefusalStatesTheMeasuredFanInRatherThanAdvice"
++        },
++        {
++          "path": "internal/cliresult/client_test.go",
++          "declaration": "TestTheRetryDecisionFollowsTheDocumentAtEveryFailureStatus"
+         }
+       ]
+     },
+diff --git a/internal/traceability/readme_figures_pin_test.go b/internal/traceability/readme_figures_pin_test.go
+new file mode 100644
+index 0000000..b704fa6
+--- /dev/null
++++ b/internal/traceability/readme_figures_pin_test.go
+@@ -0,0 +1,163 @@
++package traceability
++
++import (
++	"os"
++	"path/filepath"
++	"regexp"
++	"strconv"
++	"strings"
++	"testing"
++)
++
++// ownershipParagraphAnchor is the README heading whose first paragraph this
++// test measures. It is matched exactly rather than by keyword, so renaming the
++// heading reddens here instead of silently exempting the paragraph from
++// measurement.
++const ownershipParagraphAnchor = "## Specification-to-Code Ownership Gate"
++
++// publishedFigure is one number the ownership paragraph states, located by the
++// noun phrase that follows it and bound to the Report field it must equal. The
++// phrase is the identity: a figure is proven by naming what it counts, not by
++// its position in the sentence, so re-ordering the clause does not silently
++// re-point a pin at a different number.
++type publishedFigure struct {
++	phrase  string
++	measure func(Report) int
++}
++
++// publishedOwnershipFigures enumerates every figure the paragraph states. The
++// unpinned-figure guard below turns a deletion from this list into a red rather
++// than into a quietly smaller comparison, so the list is measured, not trusted.
++var publishedOwnershipFigures = []publishedFigure{
++	{"current contract rows", func(report Report) int { return report.Contracts }},
++	{"pinned or catalog-referenced normative section keys", func(report Report) int { return report.NormativeSections }},
++	{"executable acceptance cases", func(report Report) int { return report.AcceptanceCases }},
++	{"exact section bindings", func(report Report) int { return report.SectionBindings }},
++	{"disclosed unowned sections", func(report Report) int { return report.UnownedSections }},
++	{"exact fixture identities", func(report Report) int { return report.Fixtures }},
++	{"-contract subset", func(report Report) int { return report.CompatibilityContracts }},
++}
++
++// ownershipParagraph returns the paragraph under the anchor, unwrapped onto one
++// line, together with the README line it starts at. It refuses a target it
++// cannot locate rather than skipping the comparison: a paragraph that silently
++// fell out of the measurement is exactly how the acceptance-case figure below
++// drifted from 73 to 74 without anything reddening.
++func ownershipParagraph(t *testing.T) (string, int) {
++	t.Helper()
++
++	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
++	if err != nil {
++		t.Fatalf("read README.md: %v", err)
++	}
++	lines := strings.Split(string(readme), "\n")
++	anchor := -1
++	for index, line := range lines {
++		if strings.TrimSpace(line) == ownershipParagraphAnchor {
++			if anchor >= 0 {
++				t.Fatalf("README carries the heading %q twice, at lines %d and %d; the paragraph this test measures is ambiguous",
++					ownershipParagraphAnchor, anchor+1, index+1)
++			}
++			anchor = index
++		}
++	}
++	if anchor < 0 {
++		t.Fatalf("README no longer carries the heading %q", ownershipParagraphAnchor)
++	}
++	start := anchor + 1
++	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
++		start++
++	}
++	var body []string
++	for index := start; index < len(lines); index++ {
++		text := strings.TrimSpace(lines[index])
++		if text == "" {
++			break
++		}
++		body = append(body, text)
++	}
++	if len(body) == 0 {
++		t.Fatalf("README carries no paragraph under %q", ownershipParagraphAnchor)
++	}
++	return strings.Join(body, " "), start + 1
++}
++
++// isVersionDigits reports whether the digit run beginning at offset belongs to a
++// dotted version or path token such as v0.5.0 or ownership.v0.5.0.json, rather
++// than being a figure the paragraph publishes. The rule is deliberately narrow:
++// only a run introduced by "v" or preceded by a dot that itself follows a digit
++// is exempt, so a published figure can never be excused as version text.
++func isVersionDigits(paragraph string, offset int) bool {
++	if offset == 0 {
++		return false
++	}
++	switch paragraph[offset-1] {
++	case 'v', 'V':
++		return true
++	case '.':
++		return offset >= 2 && paragraph[offset-2] >= '0' && paragraph[offset-2] <= '9'
++	}
++	return false
++}
++
++// TestREADMEOwnershipFiguresAreDerivedFromTheMeasuredReport makes the published
++// ownership paragraph a measurement instead of prose beside one.
++//
++// This is the third time in this artifact that a figure published next to a
++// measurement drifted from it: LOGBOOK 1015 records the "nineteen §15.2 rows"
++// claim against an eighteen-row table, LOGBOOK 1157 records two of the four
++// published fan-in rows being wrong, and this paragraph published 73 executable
++// acceptance cases while the registry held 74 and tracecheck printed 74. The
++// tool for the class already existed - parsePublishedFanIn in
++// internal/axerror/exit_table_pin_test.go - and had simply never been pointed at
++// the neighbouring sentence.
++//
++// The fix is not to assert the corrected number somewhere else. It is to leave
++// no figure of the paragraph unmeasured: each is located by the phrase naming
++// what it counts, re-derived from VerifyRepository, and any number the paragraph
++// states that no pinned phrase consumed is reported as unmeasured rather than
++// ignored.
++func TestREADMEOwnershipFiguresAreDerivedFromTheMeasuredReport(t *testing.T) {
++	t.Parallel()
++
++	report, err := VerifyRepository(repositorySnapshot(t))
++	if err != nil {
++		t.Fatalf("VerifyRepository() error = %v", err)
++	}
++	paragraph, line := ownershipParagraph(t)
++
++	consumed := make([]bool, len(paragraph))
++	for _, figure := range publishedOwnershipFigures {
++		pattern := regexp.MustCompile(`([0-9]+) ?` + regexp.QuoteMeta(figure.phrase))
++		matches := pattern.FindAllStringSubmatchIndex(paragraph, -1)
++		if len(matches) != 1 {
++			t.Fatalf("README ownership paragraph at line %d states a figure for %q %d times, want exactly 1",
++				line, figure.phrase, len(matches))
++		}
++		digits := paragraph[matches[0][2]:matches[0][3]]
++		published, convErr := strconv.Atoi(digits)
++		if convErr != nil {
++			t.Fatalf("README ownership paragraph at line %d states a non-numeric figure %q for %q",
++				line, digits, figure.phrase)
++		}
++		if measured := figure.measure(report); published != measured {
++			t.Fatalf("README ownership paragraph at line %d publishes %d %s; VerifyRepository measures %d",
++				line, published, strings.TrimPrefix(figure.phrase, "-"), measured)
++		}
++		for offset := matches[0][2]; offset < matches[0][3]; offset++ {
++			consumed[offset] = true
++		}
++	}
++
++	// Every remaining digit run must be version or path text. A figure nobody
++	// pinned is reported here, so adding an unmeasured number to the paragraph -
++	// or deleting a row from publishedOwnershipFigures - is a red.
++	for _, run := range regexp.MustCompile(`[0-9]+`).FindAllStringIndex(paragraph, -1) {
++		if consumed[run[0]] || isVersionDigits(paragraph, run[0]) {
++			continue
++		}
++		t.Fatalf("README ownership paragraph at line %d states the figure %q, which no pinned phrase measures; "+
++			"give it a row in publishedOwnershipFigures or remove it from the paragraph",
++			line, paragraph[run[0]:run[1]])
++	}
++}
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 33c02e8..32e655a 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "f2bc887e0d61066993e01b9198b8361f1dae05e50bd3a2923e435dbb630f18f7"
++	reviewedOwnershipCanonicalSHA256 = "d9a860aa460c1bcc776fb1ca8b705af1713d358869fdb24ea796694f56ca307d"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")

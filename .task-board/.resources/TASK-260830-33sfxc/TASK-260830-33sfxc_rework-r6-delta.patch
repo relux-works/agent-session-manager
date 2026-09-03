@@ -1,0 +1,695 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 6ca62fd..4895ff4 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,21 @@
+ 
+ ## 2026-09-03
+ 
++### 1447 — The exit status a document declares is a member, not a fact: a guard proven on one code let a relabelled envelope forge a retry claim
++
++- SCOPE: new `internal/axerror/agreement_test.go` and `internal/cliresult/relabel_test.go`, `README.md`, `internal/traceability/ownership.v0.5.0.json` and its projection digest. Round-6 rework of TASK-260830-33sfxc after review; §14.2, §15.1, §15.2, §15.3. No production code changed — every round-6 finding was an evidence defect, not a behaviour defect.
++- ROOT CAUSE: the code-to-exit-status agreement in `axerror.decodeBody`, `if exitCode != expectedExit`, was covered by exactly one row of `TestDecodeRefusesClosedShapeViolations`: `observation_gap` driven at exit 5 instead of its own exit 9. One code, one wrong status, out of 752 ordered (code, wrong-status) pairs at 1.0.0 and 1,744 at 1.3.0. Narrowing the guard to `code == "observation_gap"` — restricting it to exactly the pair that row drives — left `go test ./... -count=1` at exit 0 across all 13 packages; so did sparing `policy_refused` or `authentication_failed` individually. Only deleting the guard reddened anything. Reproduced SURVIVED at the reviewed head before a line of test code was written.
++- FINDING: this was a reachable bypass and not only an unmeasured ratio. `code` and `exit_code` are two independent members of one document, and this guard is the sole thing binding them. The retryability refusal this package publishes keys on the EXIT STATUS for three whole classes — 7 authorization, 16 policy refusal, 130 interrupt — so relabelling a code out of its own class asks that refusal about the wrong class and it stays silent. Under the narrowing, `{"code":"authentication_failed","exit_code":9,"retryable":true}` was ADMITTED by `cliresult.Read` at exit status 9, and the caller received a `Reading` naming an authorization failure with `Retryable() == true`. The §14.2 exit-status corroboration cannot see it, because the process really did exit with the relabelled status.
++- FINDING: this is the FOURTH guard on this leaf published proven at one sample, after both `ErrOutcomeDisagreement` guards in entry 1231 and the command-tag agreement in entry 1421. Each round closed the guards it was shown and did not sweep the sibling on the same reading path. The generalisation, stated once: when a class of "proven at one sample" is found, the remedy is to enumerate every guard on that path and measure each over its own domain, not to fix the one that was named.
++- FIX: `TestTheCodeToExitStatusAgreementIsMeasuredOverTheWholeCodeRegistry` drives all 316 registered codes across the 4 registered versions at all 17 registered failure statuses — 5,372 rows. The agreeing status must be ADMITTED and each of the other sixteen refused with this guard's own sentence naming both numbers, so a pair settled by `decodeExitStatus`, by the closed member set, or by the retryability gate does not count as coverage of it. Per-version totals are pinned at 752, 1,056, 1,504 and 1,744 and re-derived from `CodesFor` and `CodesByExitStatus`.
++- DECISION: close the bypass at the production entry point as well as at the decoder, because they are different claims. `TestRelabellingACodeOutOfItsExitClassCannotForgeARetryClaimThroughRead` takes the 7 codes of Structured Error 1.0.0 whose own class carries an exit-keyed retryability refusal, relabels each into all 14 statuses that carry none, and requires `Read` to refuse all 98. The control in the other direction is required in the same loop — the same code at its own status with `retryable: true` must be refused by the retryability gate — which is what makes the relabelling a bypass of something rather than a rewrite of nothing.
++- FINDING (reviewer observation, closed in the same pass): the registered-status admission in `decodeExitStatus` was driven at `{0, 1, 18, 99}`, so `!IsFailureExitStatus(status) && status != 42` survived the whole suite. The complement of a four-value sample is not a bound. `TestTheExitStatusAdmissionIsSweptOverEveryByteValue` sweeps 0..255 plus six out-of-range values and requires admission if and only if the §15.2 table registers the status as a failure.
++- DECISION: an oracle must not be the predicate under test. The sweep above enumerates the expected admissions through `ExitStatusMeaning`, not `IsFailureExitStatus`, because the latter IS the decision being measured and an oracle built from it would agree with whatever the mutant narrowed it to. The asserted row count of seventeen is what catches a mutation that moves both. The sweep also drives a code the registry does not carry, which takes the §15.3 unknown-code branch and skips the agreement guard, so exactly one decision is left in the row.
++- ANOMALY: the two guards closed here are on the same function as gates this leaf has swept three times, and neither appeared in any of the 14-, 23-, 28-, 44- or 53-mutant harnesses. The harness grew by whatever the last review named. A hand-picked mutant set measures the reviewer's attention, not the code — the same shape entry 2113 records for a sweep that selects its own mutants.
++- BOUND, unchanged and restated: `tracecheck` still reports `acceptance_cases=74` and `clauses_discharged=17/403`. All three new tests register against existing acceptance cases rather than new ones, so no coverage figure moved; each registration was probed by renaming its declaration and confirming `tracecheck` names the missing declaration ahead of the projection digest.
++- EVIDENCE: harness grown from 53 to 63 mutants — 62 killed, 1 declared subsumed (unchanged), 0 unexplained survivors, 44 narrowing by the harness's own definition, suite restored green. Supersedes the "53 mutants at 52 killed" figure in the 1421 entry below. Same stated bound: the harness mutates the tree, lives under `.temp/`, and no committed artifact derives its counts.
++- STATUS: Resolved. TASK-260830-33sfxc revision 6, handed to review.
++
+ ### 1421 — A guard proven at one ordered pair admits a forged authority document, and the same blind spot sits in the sibling reader
+ 
+ - SCOPE: `internal/cliresult/client_test.go` (one subtest rewritten into a both-directions sweep, one new grid test), `internal/cliresult/datamodel_test.go` and `internal/axerror/datamodel_test.go` (large-document rows), `README.md`, `internal/traceability/ownership.v0.5.0.json` and its projection digest. Round-5 rework of TASK-260830-33sfxc after review; §14.2, §1.6. No production code changed — every round-5 finding was an evidence defect, not a behaviour defect.
+diff --git a/README.md b/README.md
+index 9a6ba77..3b2c7d6 100644
+--- a/README.md
++++ b/README.md
+@@ -1347,7 +1347,19 @@ Every gate above has a negative test that narrows it rather than deleting it:
+ each forbidden retryability class and each individually disqualified code is
+ exercised separately, each excluded detail class is refused on its own row, each
+ declared bound is refused one step past the limit and admitted exactly at it,
+-and each bootstrap mapping is pinned to its literal code. Run the suite with:
++and each bootstrap mapping is pinned to its literal code.
++
++That sentence was published before it was true of the reader. The
++code-to-exit-status agreement in `decodeBody` and the registered-status
++admission in `decodeExitStatus` both had sampled coverage that a narrowing
++survived, and the first of the two was a reachable bypass of the exit-keyed
++retryability refusal. Both are now swept over their whole domain - every
++registered code of every registered version at every registered failure status,
++and every exit status in 0..255 - and the mutants are in the harness. The
++measurement, the bypass, and the sweeps are described under [CLI Result
++Envelopes](#cli-result-envelopes-rendering-boundaries-and-exit-status), because
++the reading path they protect is the one a machine client calls. Run the suite
++with:
+ 
+ ```bash
+ go test ./internal/axerror -count=1 -v
+@@ -1554,7 +1566,7 @@ this repository builds no clone success body, and its failure is still fully
+ classified, because "this build cannot construct that success" and "this failure
+ is unreadable" are different facts.
+ 
+-A 53-mutant harness over these gates kills 52 and declares 1 subsumed, each
++A 63-mutant harness over these gates kills 62 and declares 1 subsumed, each
+ mutant verified applied and compiled before it is measured, and each verified to
+ carry the MUTATED text on disk rather than only to differ from the original. The
+ subsumed one removes the exit-0 guard in `readFailure`; the `exit_code` equality
+@@ -1571,11 +1583,11 @@ committed measurement is derived from one -
+ table above, and `TestREADMEOwnershipFiguresAreDerivedFromTheMeasuredReport`
+ re-derives every figure of the ownership paragraph below.
+ 
+-Thirty-six of those mutants narrow rather than delete. The class is defined
++Forty-four of those mutants narrow rather than delete. The class is defined
+ once in the harness and counted from that definition rather than by hand; the
+-same definition applied to the 28- and 44-mutant harnesses selects exactly the
+-fourteen and twenty-seven those revisions published, so this figure extends that
+-class instead of redefining it. The common-data-model gate
++same definition applied to the 28-, 44- and 53-mutant harnesses selects exactly
++the fourteen, twenty-seven and thirty-six those revisions published, so this
++figure extends that class instead of redefining it. The common-data-model gate
+ is restricted to one of the four registered versions, moved behind the identity
+ check, and made to adopt its own canonical bytes; the discriminator's copy is
+ disabled on its own; `ErrAbsentDocument` is aliased onto `ErrUnreadableDocument`;
+@@ -1646,6 +1658,60 @@ not be, and the guard is reached for exactly the 306. That is the stated bound:
+ for a pair involving one of the 26 unimplemented tags the guard is never the
+ enforcement, and the reason is an earlier named refusal rather than a bypass.
+ 
++A fourth guard sits on the same reading path and was published with delete-only
++evidence: the code-to-exit-status agreement in `axerror.decodeBody`, which
++refuses a Structured Error whose `code` and `exit_code` name different Section
++15.2 classes. Its whole coverage was one row - `observation_gap` driven at exit
++5 instead of its own exit 9 - against 752 ordered (code, wrong-status) pairs at
++1.0.0 alone, rising to 1,744 at 1.3.0. Deleting the guard reddened that row;
++narrowing it to `code == "observation_gap"`, or sparing `policy_refused` or
++`authentication_failed` individually, passed all thirteen packages.
++
++That was a bypass and not only an unmeasured ratio. Nothing else refuses the
++pairing, and the retryability refusal this package publishes keys on the exit
++status for three whole classes - 7 authorization, 16 policy refusal, 130
++operator interrupt - so relabelling a code out of its own class asks that
++refusal about the wrong class. Under the narrowing, an `authentication_failed`
++document rewritten to `exit_code` 9 with `retryable: true` was ADMITTED by
++`Read` at exit status 9, and the caller received a `Reading` whose `Code()`
++names an authorization failure and whose `Retryable()` is true. The Section 14.2
++exit-status corroboration cannot see it, because the process really did exit
++with the relabelled status.
++
++`TestTheCodeToExitStatusAgreementIsMeasuredOverTheWholeCodeRegistry` drives every
++registered code of every registered version at every registered failure status:
++316 codes over 4 versions, 5,372 rows. The agreeing status is required to be
++admitted and each of the other sixteen to be refused with this guard's own
++sentence naming both numbers, so a pair settled by `decodeExitStatus`, by the
++closed member set, or by the retryability gate does not count as coverage of it.
++Every figure is re-derived from `CodesFor` and `CodesByExitStatus` and the
++per-version totals are pinned at 752, 1,056, 1,504 and 1,744, so the loop cannot
++go vacuous or quietly shrink; the harness narrows the code loop to one entry to
++prove that.
++
++The bypass itself is closed at the production entry point rather than at the
++decoder. `TestRelabellingACodeOutOfItsExitClassCannotForgeARetryClaimThroughRead`
++takes every 1.0.0 code whose own class carries an exit-keyed retryability refusal
++- 7 of them - relabels each into all 14 failure statuses that carry none, and
++requires `Read` to refuse all 98 with the agreement guard's sentence. The control
++in the other direction is required too: the same code at its own exit status with
++`retryable: true` must be refused by the retryability gate, which is what makes
++the relabelling a bypass of something rather than a rewrite of nothing.
++
++The registered-status admission in `decodeExitStatus` was sampled the same way,
++at `{0, 1, 18, 99}`, so `status != 42` survived the whole suite.
++`TestTheExitStatusAdmissionIsSweptOverEveryByteValue` sweeps 0..255 and requires
++admission if and only if the Section 15.2 table registers the status as a
++failure, plus six values outside the byte range. The document carries a code the
++registry does not register, which takes the Section 15.3 unknown-code branch and
++skips the agreement guard entirely, so the only decision left in the row is the
++one being measured. The oracle is `ExitStatusMeaning` rather than
++`IsFailureExitStatus`: an oracle built from the predicate under test would move
++with the mutant, and the asserted row count of seventeen is what catches a
++mutation that moves both. This path needs no process at all - `DecodeBound`
++reads peer-supplied provider, bridge, RPC, session-adapter and terminal-backend
++envelopes, where the document's own number is the only evidence there is.
++
+ Both common-data-model gates were also proven only on hand-built documents, so a
+ narrowing by payload SIZE - `len(data) < 4096` - refused every fixture and
+ admitted a large one, in `axerror.Decode` and in `documentSchema` alike. Byte
+diff --git a/internal/axerror/agreement_test.go b/internal/axerror/agreement_test.go
+new file mode 100644
+index 0000000..6fc6b82
+--- /dev/null
++++ b/internal/axerror/agreement_test.go
+@@ -0,0 +1,319 @@
++package axerror
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"sort"
++	"strings"
++	"testing"
++)
++
++// registeredFailureStatusesFromTheMeaningTable enumerates the Section 15.2
++// failure statuses by asking ExitStatusMeaning about every byte value rather
++// than by asking IsFailureExitStatus.
++//
++// The choice is deliberate. The sweep below measures the admission decision
++// decodeExitStatus makes, and that decision IS a call to IsFailureExitStatus.
++// An oracle built from the same predicate would move with the mutant and the
++// sweep would agree with whatever the predicate had been narrowed to. Reading
++// the meaning table through the other accessor keeps the two independent, and
++// the asserted row count is what catches a mutation that moves both - a status
++// added to or removed from exitMeanings changes this count, and the count is
++// the Section 15.2 table's eighteen rows less the one success row.
++func registeredFailureStatusesFromTheMeaningTable(test *testing.T) []int {
++	test.Helper()
++
++	var statuses []int
++	for status := 0; status <= 255; status++ {
++		if _, registered := ExitStatusMeaning(status); !registered {
++			continue
++		}
++		if status == successExit {
++			continue
++		}
++		statuses = append(statuses, status)
++	}
++	sort.Ints(statuses)
++	const registeredFailureStatusCount = 17
++	if len(statuses) != registeredFailureStatusCount {
++		test.Fatalf("the Section 15.2 table carries %d failure statuses %v, want %d",
++			len(statuses), statuses, registeredFailureStatusCount)
++	}
++	return statuses
++}
++
++// sweptStructuredErrorDocument builds one otherwise-conforming Structured Error
++// document carrying exactly the code and exit status a sweep row names.
++//
++// Everything else about the document is held constant, so the only reason a row
++// can be refused is the pair it carries. In particular retryable is false, which
++// disarms RetryabilityRefusal for every row: a sweep whose refusals came from the
++// retryability gate would measure that gate rather than the code-to-exit-status
++// agreement, and the two are separately mutable.
++func sweptStructuredErrorDocument(test *testing.T, version Version, code Code, exitStatus int) []byte {
++	test.Helper()
++
++	details := map[string]any{}
++	if code == "target_auth_missing" {
++		// decodeBody requires these five keys for this one code. That check
++		// runs after the guard under test, so it cannot mask a refusal - but
++		// without them the agreeing row for this code would fail its positive
++		// control for an unrelated reason.
++		for _, key := range targetAuthMissingKeys {
++			details[key] = "measured"
++		}
++	}
++	encoded, err := json.Marshal(map[string]any{
++		"schema":         Schema,
++		"schema_version": string(version),
++		"code":           string(code),
++		"message":        "swept by the code-to-exit-status agreement measurement",
++		"exit_code":      exitStatus,
++		"retryable":      false,
++		"details":        details,
++	})
++	if err != nil {
++		test.Fatalf("marshal %s %q at exit %d: %v", version, code, exitStatus, err)
++	}
++	return encoded
++}
++
++// TestTheCodeToExitStatusAgreementIsMeasuredOverTheWholeCodeRegistry states, as
++// a measured ratio over every registered code of every registered version, how
++// much of the "a document may not name a code and an exit status from different
++// Section 15.2 classes" refusal the one guard in decodeBody actually owns.
++//
++// The class had one row of coverage: TestDecodeRefusesClosedShapeViolations
++// drives observation_gap at exit 5 instead of its own exit 9. One code, one
++// wrong status, out of 752 ordered (code, wrong-status) pairs at 1.0.0 alone.
++// Narrowing the guard to `exitCode != expectedExit && code == "observation_gap"`
++// - restricting it to exactly the one code that single row drives - passed all
++// thirteen packages, as did sparing policy_refused or authentication_failed
++// individually. Only deleting the guard outright reddened anything, which
++// proved it reachable and said nothing about the class.
++//
++// The gap was a bypass, not only an unmeasured ratio. This guard is the sole
++// enforcement of the pairing: nothing downstream re-derives the exit status
++// from the code. And the retryability refusal this package publishes keys on
++// the exit status for three whole classes (retryabilityRefusalsByExitStatus:
++// 7 authorization, 16 refusal, 130 interrupt), so relabelling a code out of its
++// own class disarms it. Under the narrowing above, an authentication_failed
++// document rewritten to exit 9 and carrying retryable: true was admitted, and
++// cliresult.Read handed a machine client a safe-retry claim on an authorization
++// failure. TestRelabellingACodeOutOfItsExitClassCannotForgeARetryClaimThroughRead
++// drives that exact shape through the production entry point.
++//
++// The sweep here drives every registered code of every registered version at
++// every registered Section 15.2 failure status. The agreeing status is required
++// to be admitted, and each of the other sixteen is required to be refused with
++// this guard's own sentence naming both numbers - so a pair settled by
++// decodeExitStatus, by the closed member set, or by the retryability gate is
++// not counted as coverage of this guard. Every figure is derived from CodesFor
++// and CodesByExitStatus, and the ordered-pair totals are pinned per version, so
++// the loop cannot go vacuous or quietly shrink.
++func TestTheCodeToExitStatusAgreementIsMeasuredOverTheWholeCodeRegistry(test *testing.T) {
++	test.Parallel()
++
++	statuses := registeredFailureStatusesFromTheMeaningTable(test)
++
++	// The measured denominator, per version: registered codes x wrong statuses.
++	// These are the same registry sizes TestCodesByExitStatusMeasuresTheFanIn
++	// pins, multiplied by the sixteen statuses that are not a given code's own.
++	wrongPairsByVersion := map[Version]int{
++		Version100: 752,
++		Version110: 1056,
++		Version120: 1504,
++		Version130: 1744,
++	}
++	if len(wrongPairsByVersion) != len(Versions()) {
++		test.Fatalf("pinned %d ordered-pair totals for %d registered versions",
++			len(wrongPairsByVersion), len(Versions()))
++	}
++
++	swept := make(map[int]bool, len(statuses))
++	for _, status := range statuses {
++		swept[status] = true
++	}
++
++	admitted, byGuard := 0, 0
++	for _, version := range Versions() {
++		codes, err := CodesFor(version)
++		if err != nil {
++			test.Fatalf("CodesFor(%s): %v", version, err)
++		}
++		if len(codes) == 0 {
++			test.Fatalf("%s registers no code, so this sweep would measure nothing", version)
++		}
++
++		// The denominator is re-derived from the projection this leaf added,
++		// not restated: every code the version registers has to appear in
++		// exactly one exit group, and every group's status has to be one of
++		// the statuses swept below.
++		groups, err := CodesByExitStatus(version)
++		if err != nil {
++			test.Fatalf("CodesByExitStatus(%s): %v", version, err)
++		}
++		grouped := 0
++		for status, group := range groups {
++			if !swept[status] {
++				test.Fatalf("%s groups %d codes under exit %d, which is not a swept failure status",
++					version, len(group), status)
++			}
++			grouped += len(group)
++		}
++		if grouped != len(codes) {
++			test.Fatalf("%s registers %d codes and groups %d of them by exit status",
++				version, len(codes), grouped)
++		}
++
++		versionAdmitted, versionByGuard := 0, 0
++		for _, code := range codes {
++			expectedExit, err := ExitCodeFor(version, code)
++			if err != nil {
++				test.Fatalf("%s registers %q and cannot resolve its exit status: %v", version, code, err)
++			}
++			for _, status := range statuses {
++				document := sweptStructuredErrorDocument(test, version, code, status)
++				failure, err := Decode(version, document)
++
++				if status == expectedExit {
++					if err != nil {
++						test.Fatalf("Decode(%s, %q at its own exit %d) was refused: %v",
++							version, code, status, err)
++					}
++					if failure.Code() != code || failure.ExitCode() != status {
++						test.Fatalf("Decode(%s, %q at exit %d) read back %q at exit %d",
++							version, code, status, failure.Code(), failure.ExitCode())
++					}
++					if !failure.CodeRegistered() {
++						test.Fatalf("Decode(%s, %q) reported a registered code as unrecognized",
++							version, code)
++					}
++					versionAdmitted++
++					continue
++				}
++
++				if !errors.Is(err, ErrInvalidStructuredError) {
++					test.Fatalf("Decode(%s, %q at exit %d) error = %v, want ErrInvalidStructuredError",
++						version, code, status, err)
++				}
++				sentence := fmt.Sprintf("maps to exit %d, document carries %d", expectedExit, status)
++				if !strings.Contains(err.Error(), sentence) {
++					test.Fatalf("Decode(%s, %q at exit %d) was refused by something other than the "+
++						"code-to-exit-status agreement: %v", version, code, status, err)
++				}
++				versionByGuard++
++			}
++		}
++
++		if versionAdmitted != len(codes) {
++			test.Fatalf("%s admitted %d of its %d codes at their own exit status",
++				version, versionAdmitted, len(codes))
++		}
++		wantWrong := wrongPairsByVersion[version]
++		if versionByGuard != wantWrong || versionByGuard != len(codes)*(len(statuses)-1) {
++			test.Fatalf("%s: the guard refused %d ordered (code, wrong-status) pairs, want %d pinned "+
++				"and %d derived from %d codes x %d statuses",
++				version, versionByGuard, wantWrong, len(codes)*(len(statuses)-1), len(codes), len(statuses))
++		}
++		admitted += versionAdmitted
++		byGuard += versionByGuard
++	}
++
++	if admitted == 0 || byGuard == 0 {
++		test.Fatalf("the sweep classified %d admissions and %d refusals; one of its arms drove nothing",
++			admitted, byGuard)
++	}
++	total := admitted + byGuard
++	wantTotal := 0
++	for _, version := range Versions() {
++		codes, err := CodesFor(version)
++		if err != nil {
++			test.Fatalf("CodesFor(%s): %v", version, err)
++		}
++		wantTotal += len(codes) * len(statuses)
++	}
++	if total != wantTotal {
++		test.Fatalf("classified %d of %d ordered (version, code, status) rows", total, wantTotal)
++	}
++}
++
++// TestTheExitStatusAdmissionIsSweptOverEveryByteValue turns decodeExitStatus's
++// registered-status admission into a measured ratio over its whole input domain.
++//
++// It was driven at four sampled values - {0, 1, 18, 99} - so narrowing the gate
++// to `!IsFailureExitStatus(status) && status != 42` admitted an unregistered
++// exit status through every reader in this package and passed all thirteen
++// packages. The complement of a four-value sample is not a bound.
++//
++// The document carries a code the registry does not register, on purpose. That
++// selects decodeBody's Section 15.3 unknown-code branch, which skips the
++// code-to-exit-status agreement entirely, so the only decision left in the row
++// is the one being measured: an exit status is admitted if and only if the
++// Section 15.2 table registers it as a failure. With a registered code the
++// agreement guard would refuse sixteen of the seventeen registered statuses and
++// this sweep would measure that guard a second time instead.
++//
++// The path is remotely reachable without a process at all: DecodeBound reads
++// peer-supplied provider, bridge, RPC, session-adapter and terminal-backend
++// envelopes, where no exit status corroborates the member and the document's
++// own number is the only evidence there is.
++func TestTheExitStatusAdmissionIsSweptOverEveryByteValue(test *testing.T) {
++	test.Parallel()
++
++	const unregistered Code = "observation_horizon_lost"
++	if _, err := ExitCodeFor(Version120, unregistered); !errors.Is(err, ErrUnregisteredCode) {
++		test.Fatalf("ExitCodeFor(1.2.0, %q) = %v, want ErrUnregisteredCode: this sweep needs a code "+
++			"that takes the unknown-code branch, and this one is now registered", unregistered, err)
++	}
++
++	statuses := registeredFailureStatusesFromTheMeaningTable(test)
++	wanted := make(map[int]bool, len(statuses))
++	for _, status := range statuses {
++		wanted[status] = true
++	}
++
++	admitted := 0
++	for status := 0; status <= 255; status++ {
++		document := sweptStructuredErrorDocument(test, Version120, unregistered, status)
++		failure, err := Decode(Version120, document)
++
++		if wanted[status] {
++			if err != nil {
++				test.Fatalf("Decode(exit_code %d) was refused, and the Section 15.2 table registers "+
++					"that status as a failure: %v", status, err)
++			}
++			if failure.ExitCode() != status {
++				test.Fatalf("Decode(exit_code %d) read back exit %d", status, failure.ExitCode())
++			}
++			if failure.CodeRegistered() {
++				test.Fatalf("Decode(exit_code %d) reported %q as a registered code", status, unregistered)
++			}
++			admitted++
++			continue
++		}
++
++		if !errors.Is(err, ErrUnregisteredExit) {
++			test.Fatalf("Decode(exit_code %d) error = %v, want ErrUnregisteredExit: the Section 15.2 "+
++				"table assigns that status no failure meaning", status, err)
++		}
++		if !strings.Contains(err.Error(), fmt.Sprintf("exit_code %d", status)) {
++			test.Fatalf("Decode(exit_code %d) refused without naming the status it refused: %v", status, err)
++		}
++	}
++	if admitted != len(statuses) {
++		test.Fatalf("over 0..255 the reader admitted %d exit statuses, and the Section 15.2 table "+
++			"registers %d failures", admitted, len(statuses))
++	}
++
++	// The domain is int32, not a byte. A value outside 0..255 can never be a
++	// process exit status, but nothing stops a peer writing one into the member,
++	// and DecodeBound reads that member with no process behind it.
++	for _, status := range []int{-1, -130, 256, 1000, 65536, 2147483647} {
++		document := sweptStructuredErrorDocument(test, Version120, unregistered, status)
++		if _, err := Decode(Version120, document); !errors.Is(err, ErrUnregisteredExit) {
++			test.Fatalf("Decode(exit_code %d) error = %v, want ErrUnregisteredExit", status, err)
++		}
++	}
++}
+diff --git a/internal/cliresult/relabel_test.go b/internal/cliresult/relabel_test.go
+new file mode 100644
+index 0000000..7319231
+--- /dev/null
++++ b/internal/cliresult/relabel_test.go
+@@ -0,0 +1,177 @@
++package cliresult
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"sort"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++)
++
++// relabelledFailureDocument builds a Structured Error document naming code but
++// declaring exitStatus, which is the whole attack: the code and the number that
++// decides its class are two separate members, and only one guard requires them
++// to agree.
++func relabelledFailureDocument(t *testing.T, version axerror.Version, code axerror.Code, exitStatus int, retryable bool) []byte {
++	t.Helper()
++
++	encoded, err := json.Marshal(map[string]any{
++		"schema":         axerror.Schema,
++		"schema_version": string(version),
++		"code":           string(code),
++		"message":        "relabelled by the exit-class bypass measurement",
++		"exit_code":      exitStatus,
++		"retryable":      retryable,
++		"details":        map[string]any{},
++	})
++	if err != nil {
++		t.Fatalf("marshal %s %q at exit %d: %v", version, code, exitStatus, err)
++	}
++	return encoded
++}
++
++// TestRelabellingACodeOutOfItsExitClassCannotForgeARetryClaimThroughRead drives
++// the bypass the round-5 review measured, through the production entry point a
++// machine client actually calls.
++//
++// The shape. This package publishes a retryability refusal that keys on the
++// exit status for three whole Section 15.2 classes - 7 authorization, 16 policy
++// refusal, 130 operator interrupt - because the meaning of those classes is that
++// the identical request cannot succeed without new authority or confirmation.
++// The code and the exit status are two separate members of one document. Move
++// the exit_code of an authorization failure to a class that permits retry, and
++// the exit-keyed refusal is asked about the wrong class and stays silent.
++//
++// The only thing standing in the way is the code-to-exit-status agreement in
++// axerror.decodeBody. With that guard narrowed to the single code its previous
++// coverage drove, the reviewer's document
++//
++//	{"code":"authentication_failed", "exit_code":9, "retryable":true, ...}
++//
++// was ADMITTED by Read at exit status 9, and the caller received a Reading whose
++// Code() names an authorization failure and whose Retryable() is true. The whole
++// repository suite stayed green.
++//
++// This test sweeps the shape rather than pinning the one document. For every
++// 1.0.0 code whose own class carries an exit-keyed retryability refusal, it
++// relabels the document to every failure status that carries none, and requires
++// Read to refuse each one with the agreement guard's own sentence. The control
++// in the other direction is required too: the same code at its own exit status
++// with retryable: true must be refused by the retryability gate, which is what
++// makes the relabelling a bypass of something rather than a rewrite of nothing.
++func TestRelabellingACodeOutOfItsExitClassCannotForgeARetryClaimThroughRead(t *testing.T) {
++	t.Parallel()
++
++	// CommandList binds CLI Result 1.0.0 and, through the static Section 15.1
++	// table, Structured Error 1.0.0. Read resolves that itself; the version here
++	// is only used to enumerate the registry the same way Read will read it.
++	const invoked = CommandList
++	const version = axerror.Version100
++
++	groups, err := axerror.CodesByExitStatus(version)
++	if err != nil {
++		t.Fatalf("CodesByExitStatus(%s): %v", version, err)
++	}
++
++	// The classes whose refusal the relabelling disarms, and the destinations
++	// that carry no exit-keyed refusal to disarm. Both are derived by asking
++	// the production predicate rather than by restating the three numbers.
++	var forbiddenClasses, permittedDestinations []int
++	for status := range groups {
++		if _, forbidden := axerror.RetryabilityRefusal("", status); forbidden {
++			forbiddenClasses = append(forbiddenClasses, status)
++			continue
++		}
++		permittedDestinations = append(permittedDestinations, status)
++	}
++	sort.Ints(forbiddenClasses)
++	sort.Ints(permittedDestinations)
++	if len(forbiddenClasses) != 3 {
++		t.Fatalf("the exit-keyed retryability refusal covers %d classes %v of the %d %s registers, want 3",
++			len(forbiddenClasses), forbiddenClasses, len(groups), version)
++	}
++	if len(permittedDestinations) == 0 {
++		t.Fatal("no failure status permits a retry claim, so the relabelling has no destination and " +
++			"this test would measure nothing")
++	}
++
++	refusedByTheAgreement, refusedByTheRetryGate, skippedCodeKeyed := 0, 0, 0
++	for _, class := range forbiddenClasses {
++		for _, code := range groups[class] {
++			// A code the pinned document disqualifies by name keeps its refusal
++			// wherever its exit_code is moved to, so it is not a witness for
++			// this bypass. It is counted rather than silently dropped.
++			if _, byName := axerror.RetryabilityRefusal(code, 0); byName {
++				skippedCodeKeyed++
++				continue
++			}
++
++			// Control: at its own class the retryability gate is the refusal.
++			honest := relabelledFailureDocument(t, version, code, class, true)
++			_, err := Read(invoked, InvocationOutput{Stdout: honest, ExitStatus: class})
++			if !errors.Is(err, axerror.ErrInvalidStructuredError) {
++				t.Fatalf("Read(%q at its own exit %d, retryable true) error = %v, want ErrInvalidStructuredError",
++					code, class, err)
++			}
++			if !strings.Contains(err.Error(), "may not claim retryable") {
++				t.Fatalf("Read(%q at its own exit %d, retryable true) was refused by something other "+
++					"than the retryability gate: %v", code, class, err)
++			}
++			refusedByTheRetryGate++
++
++			// The bypass: the same claim, relabelled into a class that permits
++			// it. The process really does exit with the relabelled status, so
++			// readFailure's exit_code equality corroborates the forgery instead
++			// of catching it.
++			for _, destination := range permittedDestinations {
++				forged := relabelledFailureDocument(t, version, code, destination, true)
++				reading, err := Read(invoked, InvocationOutput{Stdout: forged, ExitStatus: destination})
++				if err == nil {
++					retryable := reading.Retryable()
++					readCode, _ := reading.Code()
++					t.Fatalf("Read admitted %q relabelled from exit %d to exit %d: Code() = %q, "+
++						"Retryable() = %v", code, class, destination, readCode, retryable)
++				}
++				if !errors.Is(err, axerror.ErrInvalidStructuredError) {
++					t.Fatalf("Read(%q relabelled %d -> %d) error = %v, want ErrInvalidStructuredError",
++						code, class, destination, err)
++				}
++				sentence := fmt.Sprintf("maps to exit %d, document carries %d", class, destination)
++				if !strings.Contains(err.Error(), sentence) {
++					t.Fatalf("Read(%q relabelled %d -> %d) was refused by something other than the "+
++						"code-to-exit-status agreement: %v", code, class, destination, err)
++				}
++				refusedByTheAgreement++
++			}
++		}
++	}
++
++	// The measured ratio, re-derived from the projection rather than restated,
++	// so a code leaving or joining one of the three classes moves the figure
++	// instead of leaving a smaller sweep passing quietly.
++	witnesses := 0
++	for _, class := range forbiddenClasses {
++		witnesses += len(groups[class])
++	}
++	witnesses -= skippedCodeKeyed
++	if witnesses == 0 {
++		t.Fatalf("%s registers no code in the %d exit-keyed refusal classes %v, so this test drove nothing",
++			version, len(forbiddenClasses), forbiddenClasses)
++	}
++	if refusedByTheRetryGate != witnesses {
++		t.Fatalf("the retryability gate refused %d of %d witness codes at their own class",
++			refusedByTheRetryGate, witnesses)
++	}
++	if refusedByTheAgreement != witnesses*len(permittedDestinations) {
++		t.Fatalf("the agreement guard refused %d relabellings, want %d witnesses x %d permitted destinations = %d",
++			refusedByTheAgreement, witnesses, len(permittedDestinations),
++			witnesses*len(permittedDestinations))
++	}
++	t.Logf("%s: %d witness codes in the %d exit-keyed refusal classes %v (%d skipped as code-keyed), "+
++		"relabelled into %d permitted destinations %v: %d refusals by the agreement guard",
++		version, witnesses, len(forbiddenClasses), forbiddenClasses, skippedCodeKeyed,
++		len(permittedDestinations), permittedDestinations, refusedByTheAgreement)
++}
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 0fb8506..b219f65 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -1654,6 +1654,10 @@
+         {
+           "path": "internal/axerror/registry_test.go",
+           "declaration": "TestBuildCodeRegistryRefusesDriftedCatalogRows"
++        },
++        {
++          "path": "internal/axerror/agreement_test.go",
++          "declaration": "TestTheCodeToExitStatusAgreementIsMeasuredOverTheWholeCodeRegistry"
+         }
+       ]
+     },
+@@ -1667,6 +1671,10 @@
+         {
+           "path": "internal/axerror/refusal_test.go",
+           "declaration": "TestRetryableRefusedForEveryForbiddenClass"
++        },
++        {
++          "path": "internal/cliresult/relabel_test.go",
++          "declaration": "TestRelabellingACodeOutOfItsExitClassCannotForgeARetryClaimThroughRead"
+         }
+       ]
+     },
+@@ -1705,6 +1713,10 @@
+         {
+           "path": "internal/axerror/decode_test.go",
+           "declaration": "TestDecodeRefusesAWrongVersionBeforeReadingItsBody"
++        },
++        {
++          "path": "internal/axerror/agreement_test.go",
++          "declaration": "TestTheExitStatusAdmissionIsSweptOverEveryByteValue"
+         }
+       ]
+     },
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 1899207..1676657 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "0c8a301457873934c3583c91905981af5d61e04a2c9a617893c1f131071e6e31"
++	reviewedOwnershipCanonicalSHA256 = "5563e4b26e2f41d3e5bb45085d21be37dad2337315fe25dcbae589449fdb12bd"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")

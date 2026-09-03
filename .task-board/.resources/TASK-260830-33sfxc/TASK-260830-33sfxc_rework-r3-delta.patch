@@ -1,0 +1,283 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 3820a15..ff7d677 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,21 @@
+ 
+ ## 2026-09-03
+ 
++### 1231 — A gate proven at one sample is a gate proven at one sample: both §14.2 outcome guards shipped with a narrowing the suite could not see
++
++- SCOPE: `internal/cliresult/client_test.go` (two new sweeps, one new test), README mutation prose, `internal/traceability` ownership registration. Round-3 rework of TASK-260830-33sfxc after review; §14.2, §15.2, §15.3. No production code changed — the implementation was correct in both findings and was not asked to move.
++- ROOT CAUSE: this leaf published the standard "a gate whose only evidence is that deleting it reddens something has been shown to exist, not to hold" and then failed it on its own two `ErrOutcomeDisagreement` guards. Each was driven at exactly one row, so each admitted a narrowing that the whole suite could not distinguish from the real guard.
++- FINDING (F1): `if failure.CodeRegistered() && failure.ExitCode() != output.ExitStatus` survived `go test ./internal/cliresult ./internal/axerror`. The uncovered row is precisely where the guard is the SOLE enforcement: `axerror.decodeBody` cross-checks `exit_code` against the pinned registry only when `ExitCodeFor` resolves, and for a code a later compatible minor added it takes the `ErrUnregisteredCode` branch and runs no exit check at all. For a registered code the equality is bound twice; for an unregistered one, `readFailure` is all there is. Reproduced with the frozen `error-1.0.0-later-minor-code.json`: a machine client is handed exit class 5, "workspace/native-store conflict; no silent overwrite", for a document declaring exit class 10, ownership/lease/fencing — two different remediations, chosen from the wrong one.
++- FINDING: the insight had already been had once on this leaf and not carried across. `error-1.0.0-later-minor-code-forged-retry.json` exists because an unregistered code must not be a way past the §15.3 RETRY rule. The identical reasoning applies to the EXIT-CLASS rule and was never applied to it.
++- FINDING (F2): `if output.ExitStatus != SuccessExitStatus && output.ExitStatus != 130` survived the same suites, admitting a CLI Result success object at exit 130 as `Succeeded() == true`. Exit 130 is the §15.2 row "interrupted by operator signal before a clean response", which makes it the one failure status at which a success document plausibly does reach stdout before the process dies — so a narrowing at exactly that status is a realistic bypass, not an artificial one.
++- FIX: both rows now sweep every registered §15.2 failure status rather than one sample, drawn from the production predicate `axerror.IsFailureExitStatus` through one helper that asserts the count is seventeen, so a predicate that answered false for everything would redden instead of turning each loop into a green test that drove nothing. `TestTheExitStatusEqualityBindsACodeTheRegistryDoesNotCarry` first asserts `CodeRegistered() == false` on the conforming read, so the row cannot quietly stop covering the class it exists for if that code is ever registered.
++- DECISION: the enumerator itself carries a mutant. Narrowing its range to `status <= 20` drops exit 130 out of every loop that draws on it, and the asserted count is what makes that a red rather than a silently smaller sweep. A shared helper that decides how much a sweep covers is a gate, and it is measured like one.
++- EVIDENCE: harness grown from 23 to 28 mutants — 27 killed, 1 declared subsumed (unchanged), 0 unexplained survivors, each mutant verified applied, compiled, and carrying the MUTATED text on disk before measurement, suite restored green. Fourteen now narrow rather than delete. Both round-2 survivors were reproduced as SURVIVED on the unchanged tree first and are KILLED after; supersedes the "23 mutants at 22 killed" figure in the 1157 entry below.
++- EVIDENCE: the new test is registered in the `cli-result-machine-reading` acceptance case and the ownership projection digest re-pinned. That registration is not decorative and was not assumed to be checked: renaming the declaration to one that does not exist makes `tracecheck` fail with `declaration ... is absent from "internal/cliresult/client_test.go"` — the declaration-resolution check answers before the digest check does.
++- EVIDENCE: `go build`, `go vet`, `gofmt -l ./internal` clean; `go test ./... -count=1` exit 0 across 13 packages; `-cover` exit 0 with `cliresult` 95.5% and `axerror` 99.5% (both unchanged — the sweeps add rows through statements already executed); `tracecheck` exit 0 at `acceptance_cases` 74 and `clauses_discharged` 17/403, both unchanged, because a test added to an existing acceptance case discharges no new clause.
++- NOTE: the two survivors the reviewer checked and dismissed were left alone as instructed — the `details`-bearing narrowing of `requireCommonDataModel` is near-equivalent on conforming input, and pre-seeding an empty group per failure status in `CodesByExitStatus` is genuinely equivalent against today's registry. A survivor dismissed with a reason is evidence; a survivor quietly fixed hides why it survived.
++- STATUS: Ready for review. TASK-260830-33sfxc round-3 rework, leaf 3 of 3 on `task-board/story/STORY-260830-2jylym`.
++
+ ### 1157 — Two conforming readers, one document: a repeated member is not a parse curiosity, it is a forged retry claim from a remote peer
+ 
+ - SCOPE: `internal/axerror` (new `requireCommonDataModel`), `internal/cliresult` (`documentSchema` gate, `Read` refusal table), README/LOGBOOK fan-in figures. Rework of TASK-260830-33sfxc after review; §1.6, §15.1, §14.2.
+diff --git a/README.md b/README.md
+index f1ad460..39b80d4 100644
+--- a/README.md
++++ b/README.md
+@@ -1554,21 +1554,45 @@ this repository builds no clone success body, and its failure is still fully
+ classified, because "this build cannot construct that success" and "this failure
+ is unreadable" are different facts.
+ 
+-A 23-mutant harness over these gates kills 22 and declares 1 subsumed, each
++A 28-mutant harness over these gates kills 27 and declares 1 subsumed, each
+ mutant verified applied and compiled before it is measured, and each verified to
+ carry the MUTATED text on disk rather than only to differ from the original. The
+ subsumed one removes the exit-0 guard in `readFailure`; the `exit_code` equality
+ check refuses the same input one guard later, because a Structured Error can
+ never carry `exit_code` 0.
+ 
+-Nine of those mutants narrow rather than delete. The common-data-model gate is
+-restricted to one of the four registered versions, moved behind the identity
++Fourteen of those mutants narrow rather than delete. The common-data-model gate
++is restricted to one of the four registered versions, moved behind the identity
+ check, and made to adopt its own canonical bytes; the discriminator's copy is
+ disabled on its own; `ErrAbsentDocument` is aliased onto `ErrUnreadableDocument`;
+ and the two published fan-in figures are restored to the wrong values they were
+ first published with, plus one row deleted outright. A gate whose only evidence
+ is that deleting it reddens something has been shown to exist, not to hold.
+ 
++The two `ErrOutcomeDisagreement` guards are therefore measured over their whole
++domain rather than at one sample each, because both were first published with a
++narrowing that the suite could not tell from the real thing.
++
++The Section 14.2 equality is narrowed to `failure.CodeRegistered() &&
++failure.ExitCode() != output.ExitStatus`. For a registered code the equality is
++bound twice - `axerror.Decode` already cross-checks `exit_code` against the
++pinned registry - but for a code a later compatible minor added, that lookup
++takes the unregistered branch and runs no exit check at all, so `readFailure` is
++the only thing binding the document to the status the process exited with.
++`TestTheExitStatusEqualityBindsACodeTheRegistryDoesNotCarry` drives the frozen
++later-minor envelope at all sixteen other registered failure statuses and first
++asserts that its code is still unregistered, so the row cannot quietly stop
++covering the class it exists for. A second mutant spares one arbitrary status
++instead, which a single-sample row would have survived.
++
++The success-at-a-failure-status guard is narrowed past exit 130, the Section
++15.2 row "interrupted by operator signal before a clean response" and the one
++status at which a success document plausibly does reach stdout before the
++process dies. Both `ErrOutcomeDisagreement` rows now sweep every registered
++failure status, drawn from `axerror.IsFailureExitStatus` and asserted to be
++seventeen, and a fifth mutant narrows that enumeration below 130 to show the
++sweep fails closed rather than shrinking in silence.
++
+ ```bash
+ go test ./internal/cliresult -count=1 -v
+ go test ./internal/cliresult -cover -count=1
+diff --git a/internal/cliresult/client_test.go b/internal/cliresult/client_test.go
+index f7a5265..9466fe6 100644
+--- a/internal/cliresult/client_test.go
++++ b/internal/cliresult/client_test.go
+@@ -5,6 +5,7 @@ import (
+ 	"errors"
+ 	"fmt"
+ 	"reflect"
++	"slices"
+ 	"strings"
+ 	"testing"
+ 
+@@ -244,6 +245,108 @@ func TestTheObservationSentinelsAreDistinctValues(t *testing.T) {
+ 	}
+ }
+ 
++// interruptedExitStatus is the Section 15.2 row "Interrupted by operator signal
++// before a clean response; inspect authority before retry". It is named because
++// it is the one failure status at which a success document plausibly does reach
++// stdout before the process dies, which makes a guard narrowed to spare it a
++// realistic bypass rather than an artificial one.
++const interruptedExitStatus = 130
++
++// registeredFailureExitStatuses enumerates the Section 15.2 failure statuses
++// through the production predicate rather than from a list retyped in a test,
++// so a status added to the pinned table joins every loop that uses this.
++//
++// The measured count is asserted here and not left to each caller: a predicate
++// that answered false for everything would otherwise turn every loop over this
++// slice into a green test that drove nothing.
++func registeredFailureExitStatuses(t *testing.T) []int {
++	t.Helper()
++	var statuses []int
++	for status := 0; status <= 255; status++ {
++		if axerror.IsFailureExitStatus(status) {
++			statuses = append(statuses, status)
++		}
++	}
++	if len(statuses) != 17 {
++		t.Fatalf("Section 15.2 offers %d failure statuses, want the pinned 17", len(statuses))
++	}
++	if meaning, known := axerror.ExitStatusMeaning(interruptedExitStatus); !known ||
++		!strings.Contains(meaning, "Interrupted by operator signal") {
++		t.Fatalf("exit %d meaning = %q/%t, want the Section 15.2 signal-interruption row",
++			interruptedExitStatus, meaning, known)
++	}
++	return statuses
++}
++
++// TestTheExitStatusEqualityBindsACodeTheRegistryDoesNotCarry covers the row
++// where readFailure is the sole enforcement of Section 14.2's "the process exit
++// status MUST equal that error's exit_code".
++//
++// For a registered code the equality is bound twice. axerror.decodeBody already
++// cross-checks the document's exit_code against the pinned registry, so a
++// document that misdeclares its class is refused before Read compares anything.
++// For a code a later compatible minor added, ExitCodeFor takes the
++// ErrUnregisteredCode branch and runs no exit check at all - Section 15.3 keeps
++// the envelope's exit class, and the class is the status, not the code - so the
++// guard in readFailure is the only thing left binding the document to the
++// status the process actually exited with.
++//
++// That is exactly the row the narrowing
++//
++//	if failure.CodeRegistered() && failure.ExitCode() != output.ExitStatus
++//
++// leaves uncovered, and it survived this package's whole suite before this
++// test existed. Under that mutant a machine client is handed exit class 5
++// ("Workspace/native-store conflict; no silent overwrite") for a frozen
++// document declaring exit class 10 (ownership/lease/fencing) - two different
++// remediations, chosen from the wrong one.
++//
++// The row is driven over every registered Section 15.2 failure status, because
++// a single sample would leave the same narrowing available one status over.
++func TestTheExitStatusEqualityBindsACodeTheRegistryDoesNotCarry(t *testing.T) {
++	t.Parallel()
++
++	entry := historicalEntry(t, "error-1.0.0-later-minor-code.json")
++	document := readHistorical(t, entry)
++
++	conforming, err := Read(entry.command, InvocationOutput{Stdout: document, ExitStatus: entry.exitStatus})
++	if err != nil {
++		t.Fatalf("Read(conforming later-minor failure) error = %v", err)
++	}
++	if conforming.CodeRegistered() {
++		t.Fatal("the fixture's code is registered for the bound envelope version, so this row no longer " +
++			"covers the class in which readFailure is the only check on the exit status")
++	}
++	if conforming.ExitStatus() != entry.exitStatus {
++		t.Fatalf("ExitStatus() = %d, want %d", conforming.ExitStatus(), entry.exitStatus)
++	}
++
++	moved := 0
++	for _, status := range registeredFailureExitStatuses(t) {
++		if status == entry.exitStatus {
++			continue
++		}
++		reading, err := Read(entry.command, InvocationOutput{Stdout: document, ExitStatus: status})
++		if !errors.Is(err, ErrOutcomeDisagreement) {
++			classified := "no reading"
++			if reading != nil {
++				code, _ := reading.Code()
++				classified = fmt.Sprintf("code %q at ExitStatus() %d", code, reading.ExitStatus())
++			}
++			t.Fatalf("Read(unregistered code declaring exit_code %d, process exit %d) error = %v (%s), "+
++				"want ErrOutcomeDisagreement", entry.exitStatus, status, err, classified)
++		}
++		if !strings.Contains(err.Error(), "must equal that error's exit_code") {
++			t.Fatalf("refusal at exit %d is %q, which does not name the Section 14.2 equality", status, err)
++		}
++		moved++
++	}
++	if moved != 16 {
++		t.Fatalf("moved the status on %d rows, want the 16 registered failure statuses other than %d",
++			moved, entry.exitStatus)
++	}
++}
++
+ // TestReadRefusesEveryDisagreementBetweenStdoutAndTheExitStatus is the gate that
+ // makes neither signal sufficient on its own. Each row keeps one signal exactly
+ // as a conforming invocation would produce it and moves the other.
+@@ -260,9 +363,24 @@ func TestReadRefusesEveryDisagreementBetweenStdoutAndTheExitStatus(t *testing.T)
+ 		}
+ 	})
+ 	t.Run("success object at a failure status", func(t *testing.T) {
+-		_, err := Read(CommandList, InvocationOutput{Stdout: success.Stdout, ExitStatus: 5})
+-		if !errors.Is(err, ErrOutcomeDisagreement) {
+-			t.Fatalf("error = %v, want ErrOutcomeDisagreement", err)
++		// Driven at every registered Section 15.2 failure status rather than at
++		// one sample. A single sample only shows the guard is reachable: a
++		// narrowing that spares any one status - `output.ExitStatus !=
++		// SuccessExitStatus && output.ExitStatus != 130` is the realistic one,
++		// because 130 is the row "interrupted by operator signal before a clean
++		// response" and therefore the one status at which a success document
++		// plausibly does reach stdout before the process dies - stays green
++		// against it. The count is asserted so the loop cannot go vacuous.
++		statuses := registeredFailureExitStatuses(t)
++		for _, status := range statuses {
++			_, err := Read(CommandList, InvocationOutput{Stdout: success.Stdout, ExitStatus: status})
++			if !errors.Is(err, ErrOutcomeDisagreement) {
++				t.Fatalf("Read(success object, exit %d) error = %v, want ErrOutcomeDisagreement", status, err)
++			}
++		}
++		if !slices.Contains(statuses, interruptedExitStatus) {
++			t.Fatalf("exit %d is not among the %d statuses driven, so the signal-interruption row was not exercised",
++				interruptedExitStatus, len(statuses))
+ 		}
+ 	})
+ 	t.Run("failure exit_code differs from the process status", func(t *testing.T) {
+@@ -275,6 +393,26 @@ func TestReadRefusesEveryDisagreementBetweenStdoutAndTheExitStatus(t *testing.T)
+ 		if !strings.Contains(err.Error(), "must equal that error's exit_code") {
+ 			t.Fatalf("refusal %q does not name the Section 14.2 equality it enforces", err)
+ 		}
++		// The same equality over the whole status vocabulary, so a narrowing
++		// that spares one status is measured rather than assumed. The emitted
++		// document carries exit_code 5, so every other registered failure
++		// status is a disagreement.
++		const declared = 5
++		moved := 0
++		for _, status := range registeredFailureExitStatuses(t) {
++			if status == declared {
++				continue
++			}
++			_, err := Read(CommandMaterialize, InvocationOutput{Stdout: failure.Stdout, ExitStatus: status})
++			if !errors.Is(err, ErrOutcomeDisagreement) {
++				t.Fatalf("Read(exit_code %d document, exit %d) error = %v, want ErrOutcomeDisagreement",
++					declared, status, err)
++			}
++			moved++
++		}
++		if moved != len(registeredFailureExitStatuses(t))-1 {
++			t.Fatalf("moved the status on %d rows, want every registered failure status but %d", moved, declared)
++		}
+ 	})
+ 	t.Run("document reports another command", func(t *testing.T) {
+ 		_, err := Read(CommandDoctor, InvocationOutput{Stdout: success.Stdout, ExitStatus: 0})
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index e1c09a5..dedb55f 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -1965,6 +1965,10 @@
+           "path": "internal/cliresult/client_test.go",
+           "declaration": "TestReadRefusesEveryDisagreementBetweenStdoutAndTheExitStatus"
+         },
++        {
++          "path": "internal/cliresult/client_test.go",
++          "declaration": "TestTheExitStatusEqualityBindsACodeTheRegistryDoesNotCarry"
++        },
+         {
+           "path": "internal/cliresult/client_test.go",
+           "declaration": "TestReadDistinguishesAbsenceFromAReadFailure"
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 40152df..33c02e8 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "80300d92ff7b1bb783f639d8e18d4954b8241e28e5cff4a29f9f2f370ea78193"
++	reviewedOwnershipCanonicalSHA256 = "f2bc887e0d61066993e01b9198b8361f1dae05e50bd3a2923e435dbb630f18f7"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")

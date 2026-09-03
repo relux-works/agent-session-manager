@@ -1,0 +1,549 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 2a2360b..deedcce 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,20 @@
+ 
+ ## 2026-09-03
+ 
++### 0753 — Validate-then-alias is a bypass path, not a gate; and a clause claimed against the wrong actor
++
++- SCOPE: `internal/axerror` rework after review of CR-TASK-260830-34elja-1 rev1 returned `changes_requested` with two blocking findings, both reproduced by the reviewer.
++- ROOT CAUSE: **a validator that checks a graph the constructed value does not own has run and then let the checked data change.** `New` validated the caller's `Details` map and kept it through a *shallow* `cloneDetails`; `Detail` handed the live nested container straight back. Only the top-level map was isolated. Through the package's own exported accessor - no cooperation from the constructing call site needed - a validated failure could be made to emit `"password":"hunter2"`, 33,036 bytes against a declared 16 KiB bound, a value 7 containers deep against a declared bound of 4, and a Go `int` that `validateDetailValue` refuses outright. `axerror.Decode` then rejected the package's own `MarshalJSON` output.
++- FINDING: every §15.1 detail bound was defeated by this, and **no test covered post-construction mutation** - all 20 mutants and the whole positive/negative suite only ever validated maps nobody touched afterwards. The exported doc comment claimed "the closed Section 15.1 object is the only shape this type can produce", which this board treats as a contract; it was false and undisclosed. `internal/config` already returns an isolated resolved-root snapshot for exactly this reason, so the convention existed and was not followed.
++- FIX: deep copy on the way in (`cloneDetails` → `cloneDetailValue`) and on the way out (`Detail`). Five new mutants, three of them **narrowings** rather than deletions - copy shallow again, deep copy stopped at one level, deep copy applied to maps but not arrays - and the tests attack containers at three depths and on both sides of an array so a one-level copy fails them. `internal/axerror/ownership_test.go`.
++- ROOT CAUSE: **a clause was claimed against a topically related section instead of against the actor its MUST binds.** Ownership clause `15.1#6` at SPEC.md:11047 was discharged by `LocalFromUntrusted`. That line's only RFC 2119 sentence is "The plugin MUST NOT masquerade a different-major object as v2" - it binds the **provider plugin**, a child process this repository does not build; its only binaries are `cataloggen` and `tracecheck`. The host half of the same table row, which `LocalFromUntrusted` does implement, carries no RFC 2119 keyword at all, so it is not what the clause scanner measured.
++- FINDING: the scanner counts lines matching an RFC 2119 keyword; it cannot decide **which noun** the MUST governs. A human reading the subject of the sentence is the only check there is. This is the same ground on which `15.1#5` was correctly declared undischarged in the same registry - the honest refusal and the inflated claim shipped side by side.
++- FIX: `15.1#6` dropped, the §15.1 `gap` now names both undischarged clauses with their reasons, digest pin recomputed. §15.1 6/7 → **5/7**, repository `clauses_discharged` 10/394 → **9/394**. This supersedes the EVIDENCE line of the 0742 entry below. No gate outcome moves: §15.1 stays `partial` and assigned-scope admission still refuses it.
++- NOTE: the 0742 entry credits a leading-quote guard in `decodeExitStatus` as the fix for the `"9"` string-exit-status defect. It was not - the real fix was reading `exit_code` from `json.RawMessage`, and the guard was unkillable dead weight in front of `strconv.ParseInt`, which already refuses quoted bytes. Guard removed, the refusal table widened to `"9"`, `""`, `9.5`, `1e1`, `true`, `[]`, `{}`, `[9]`, and a mutant that strips quotes before parsing - the exact narrowing a `json.Number` field would reintroduce - now reddens.
++- NOTE: rev1's harness verified several deletion mutants by grepping for an **unrelated** string that was present either way, which cannot distinguish "mutation applied" from "perl no-op". `run_mutant` now takes `present|absent` and a deletion is verified by the absence of the exact text it deleted.
++- EVIDENCE: 26 mutants, each verified applied before measurement, 26 killed, 0 survivors, final restore re-verified uncached. `go test ./... -count=1` exit 0 across 12 packages; `go build`, `go vet`, `gofmt -l` clean; `tracecheck` exit 0 at 9/394.
++- STATUS: Ready for review. TASK-260830-34elja rework, leaf 1 of 3 on `task-board/story/STORY-260830-2jylym`.
++
+ ### 0742 — A key-name blacklist, again: the same shape BUG-260902-2faftr removed, caught by reading the logbook rather than by a test
+ 
+ - SCOPE: `internal/axerror` (new package, TASK-260830-34elja), Structured Error §15.1-15.3.
+diff --git a/README.md b/README.md
+index 3f8c3ac..368b1ec 100644
+--- a/README.md
++++ b/README.md
+@@ -1250,6 +1250,7 @@ capability.
+ | Retryability | `RetryabilityRefusal`, quoting the clause that disqualifies each exit class and each individually named code |
+ | Typed details | `TargetAuth` and `RealmEvidence`, plus a presence requirement on `target_auth_missing` that the generic constructor cannot bypass |
+ | Redaction | `ValidateDetails` exact-key scanner over the four Section 15.1 detail classes, and `refuseCausalLeak` over the local cause chain |
++| Detail ownership | `New` deep-copies the caller's diagnostic graph and `Detail` deep-copies on the way out, so the graph `ValidateDetails` checked is the graph the object encodes |
+ | Untrusted boundaries | `LocalFromUntrusted`, which takes no part of a child or peer payload |
+ 
+ The exit status is never a constructor argument. `New` takes a `Spec` with no
+@@ -1282,6 +1283,20 @@ scoped to Section 15.1's four classes rather than to the whole Section 16.2
+ exclusion table, because a diagnostic key naming a PID, a tmux socket or a
+ Terminal Instance Binding is none of those four.
+ 
++A validated failure owns its diagnostic graph outright, and that is part of the
++gate rather than a style choice. The first revision of this package copied only
++the top level of the details map and handed the live nested container back from
++`Detail`; every bound above - the four forbidden classes, the 16 KiB canonical
++size, the depth-4 nesting limit, the admitted value types - could then be
++violated after `ValidateDetails` had already run and passed, and the package
++emitted objects its own `Decode` refused. A validator that checks a graph the
++value does not own is a bypass path, not a gate, so `New` deep-copies on the way
++in and `Detail` deep-copies on the way out.
++`TestConstructionDoesNotAliasTheCallerDetailGraph` and
++`TestDetailAccessorDoesNotHandOutTheLiveContainer` attack containers at three
++depths and on both sides of an array, so a copy narrowed to one level fails them
++rather than only a copy deleted outright.
++
+ `RedactionBound` states the limit in the code, and the tests assert that the
+ constant still says it. Section 16.2 is explicit that v0.5.0 "does not claim
+ reliable content-level secret scrubbing" while an implementation "SHOULD offer a
+@@ -1449,17 +1464,20 @@ useful is admitted, and the gate cannot decide otherwise.
+ `tracecheck` prints the ratio it measured rather than a sentence about it:
+ 
+ ```text
+-section coverage: bindings=48 full=1 partial=2 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=10/394
++section coverage: bindings=48 full=1 partial=2 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=9/394
+ ```
+ 
+-Forty-eight section bindings discharge 10 of the 394 normative clauses their
++Forty-eight section bindings discharge 9 of the 394 normative clauses their
+ sections carry. One binding is `full` (Section 6.2, whose single clause is the
+ native-Windows `conpty` requirement, discharged by
+ `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes`), two are `partial`
+-(Section 15.1 at 6/7 and Section 15.3 at 2/3, both bound to
++(Section 15.1 at 5/7 and Section 15.3 at 2/3, both bound to
+ [`internal/axerror`](internal/axerror); the three undischarged clauses are the
+-RPC hello and TerminalBackend capability obligations, which this repository has
+-no builder for), one is `sliver` (Section 10.3, whose chunk offset invariant is
++RPC hello obligation `15.1#5`, the bootstrap-row sentence `15.1#6` that binds
++the provider plugin rather than the host, and the hello-key and
++TerminalBackend-capability prohibition `15.3#3` - this repository builds no RPC
++hello frame, no provider plugin, and no TerminalBackend capability set), one is
++`sliver` (Section 10.3, whose chunk offset invariant is
+ enforced by `validateBlobDescriptor` while its two receiver clauses have no
+ implementation), three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of
+ which carries a gap saying why the scanner measures zero and what is missing),
+diff --git a/internal/axerror/axerror.go b/internal/axerror/axerror.go
+index 6023e03..4516c8a 100644
+--- a/internal/axerror/axerror.go
++++ b/internal/axerror/axerror.go
+@@ -95,6 +95,14 @@ type Spec struct {
+ // Error is one validated Structured Error. Every field is unexported and the
+ // only encoder is MarshalJSON, so the closed Section 15.1 object is the only
+ // shape this type can produce and the local cause cannot escape into it.
++//
++// The details map is owned outright rather than shared. New deep-copies the
++// caller's map on the way in and Detail deep-copies on the way out, so the
++// graph ValidateDetails checked is the graph this object encodes. A shallow
++// copy would leave every Section 15.1 detail bound - the four forbidden
++// classes, the 16 KiB canonical size, the depth-4 nesting limit, the admitted
++// value types - violable after construction through a retained nested
++// container, which is a bypass path around the gate rather than a gate.
+ type Error struct {
+ 	version   Version
+ 	code      Code
+@@ -122,6 +130,16 @@ type Error struct {
+ // The exit status is never taken from the caller. It is resolved through
+ // ExitCodeFor, so the returned object's exit_code is the exact Section 15.2
+ // status the registry assigns to the code.
++//
++// The typed-detail requirement below is asymmetric on purpose.
++// target_auth_missing has exactly one declared use in Section 15.3 and that
++// clause names its five typed details, so the generic constructor may not emit
++// it with a weaker detail set than NewTargetAuthMissing produces.
++// capability_unavailable is a general exit-6 code whose typed details Section
++// 15.3 names only for the realm/broker-evidence case, so requiring them from
++// every capability_unavailable call site would invent a constraint the pinned
++// document does not state; NewRealmEvidenceUnavailable carries that
++// requirement for the case that does declare it.
+ func New(spec Spec) (*Error, error) {
+ 	exitCode, err := ExitCodeFor(spec.Version, spec.Code)
+ 	if err != nil {
+@@ -246,9 +264,16 @@ func (failure *Error) CodeRegistered() bool { return failure.codeRegistered }
+ // nothing in this package does: no accessor above consults the details map, so
+ // an unknown or adversarial detail key cannot change Code, ExitCode, Retryable,
+ // CodeRegistered, or any identifier.
++//
++// The returned value is a deep copy: a nested object or array handed to a
++// caller cannot be written back into this object, so a validated failure stays
++// exactly the object ValidateDetails admitted.
+ func (failure *Error) Detail(key string) (any, bool) {
+ 	value, ok := failure.details[key]
+-	return value, ok
++	if !ok {
++		return nil, false
++	}
++	return cloneDetailValue(value), true
+ }
+ 
+ // DetailKeys returns the diagnostic keys in sorted order.
+@@ -315,16 +340,47 @@ func (failure *Error) MarshalJSON() ([]byte, error) {
+ 	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), nil
+ }
+ 
+-// cloneDetails always returns a non-nil map, so the required details member is
+-// present in every encoded object even when the constructing call site passed
+-// an empty one. MarshalJSON therefore needs no nil guard of its own.
++// cloneDetails deep-copies a validated diagnostic map. It always returns a
++// non-nil map, so the required details member is present in every encoded
++// object even when the constructing call site passed an empty one, and
++// MarshalJSON therefore needs no nil guard of its own.
++//
++// The copy is deep because a shallow one only isolates the top level. The
++// caller of New keeps whatever nested containers it passed, and a nested
++// container handed back by Detail is the same allocation; either one can be
++// written to after ValidateDetails has already run and passed.
+ func cloneDetails(source Details) Details {
+ 	clone := make(Details, len(source))
+ 	for key, value := range source {
+-		clone[key] = value
++		clone[key] = cloneDetailValue(value)
+ 	}
+ 	return clone
+ }
+ 
++// cloneDetailValue deep-copies the two container kinds a detail value may open
++// and returns every other admitted value unchanged. That is safe rather than
++// partial: validateDetailValue admits only nil, bool, string, json.Number,
++// []any, and map[string]any, and the four scalar forms are immutable values in
++// Go. Any other type is refused before a value reaches this function, so no
++// mutable value can fall through the default arm into a constructed object.
++func cloneDetailValue(value any) any {
++	switch typed := value.(type) {
++	case map[string]any:
++		nested := make(map[string]any, len(typed))
++		for key, member := range typed {
++			nested[key] = cloneDetailValue(member)
++		}
++		return nested
++	case []any:
++		members := make([]any, len(typed))
++		for index, member := range typed {
++			members[index] = cloneDetailValue(member)
++		}
++		return members
++	default:
++		return value
++	}
++}
++
+ var _ json.Marshaler = (*Error)(nil)
+ var _ error = (*Error)(nil)
+diff --git a/internal/axerror/decode.go b/internal/axerror/decode.go
+index da8233e..68856a4 100644
+--- a/internal/axerror/decode.go
++++ b/internal/axerror/decode.go
+@@ -179,6 +179,9 @@ func decodeBody(version Version, document *wireDocument) (*Error, error) {
+ 	if document.Details == nil {
+ 		return nil, fmt.Errorf("%w: details is required", ErrInvalidStructuredError)
+ 	}
++	// This map was allocated by the decoder from the document bytes and no
++	// caller holds a reference to it, so the object below owns it already. New
++	// clones instead, because its map comes from a call site that keeps one.
+ 	details := *document.Details
+ 	if err := ValidateDetails(details); err != nil {
+ 		return nil, err
+@@ -199,23 +202,26 @@ func decodeBody(version Version, document *wireDocument) (*Error, error) {
+ 		exitCode:       exitCode,
+ 		retryable:      *document.Retryable,
+ 		ids:            ids,
+-		details:        cloneDetails(details),
++		details:        details,
+ 		codeRegistered: registered,
+ 	}, nil
+ }
+ 
+ // decodeExitStatus reads exit_code from its raw bytes rather than through a
+ // json.Number field. encoding/json will unmarshal the JSON string "9" into a
+-// json.Number, which would let a peer write its exit status as text; the raw
+-// form makes the JSON type part of the check.
++// json.Number, which would let a peer write its exit status as text.
++//
++// Reading the raw bytes makes the JSON type part of the same parse that reads
++// the value, and there is deliberately no separate type guard in front of it:
++// the quotes of "9", the point of 9.0, the exponent of 1e1, and the letters of
++// true, null and [] are all bytes strconv.ParseInt refuses. A leading +, a
++// leading zero, or an underscore separator never reaches here, because the
++// document scanner rejects those before json.RawMessage captures a value.
+ func decodeExitStatus(raw json.RawMessage) (int, error) {
+ 	text := string(bytes.TrimSpace(raw))
+-	if text == "" || text[0] == '"' {
+-		return 0, fmt.Errorf("%w: exit_code is not a JSON number", ErrInvalidStructuredError)
+-	}
+ 	value, err := strconv.ParseInt(text, 10, 32)
+ 	if err != nil {
+-		return 0, fmt.Errorf("%w: exit_code %q is not an int32", ErrInvalidStructuredError, text)
++		return 0, fmt.Errorf("%w: exit_code %s is not a JSON int32", ErrInvalidStructuredError, text)
+ 	}
+ 	status := int(value)
+ 	if !IsFailureExitStatus(status) {
+diff --git a/internal/axerror/decode_test.go b/internal/axerror/decode_test.go
+index 0807760..401eb00 100644
+--- a/internal/axerror/decode_test.go
++++ b/internal/axerror/decode_test.go
+@@ -225,7 +225,12 @@ func retryClaimOn(code, exit string) string {
+ // non-integer or out-of-range exit status, both optional identifiers in their
+ // explicit-null and wrong-type forms, and the sorted key accessor.
+ func TestReaderAndAccessorEdges(test *testing.T) {
+-	for _, exit := range []string{"9.5", "\"9\"", "4294967296", "true"} {
++	// Every wrong JSON type is refused by the same parse over the raw document
++	// bytes: the quotes, the point, the exponent and the letters are all bytes
++	// strconv.ParseInt rejects. A reader that took exit_code through a
++	// json.Number field, or that stripped quotes before parsing, would admit
++	// the string form and let a peer write its exit status as text.
++	for _, exit := range []string{"9.5", "\"9\"", "\"\"", "1e1", "4294967296", "true", "[]", "{}", "[9]"} {
+ 		document := strings.Replace(conformingDocument, `"exit_code": 9`, `"exit_code": `+exit, 1)
+ 		if document == conformingDocument {
+ 			test.Fatal("the exit status substitution did not apply")
+diff --git a/internal/axerror/ownership_test.go b/internal/axerror/ownership_test.go
+new file mode 100644
+index 0000000..30750e6
+--- /dev/null
++++ b/internal/axerror/ownership_test.go
+@@ -0,0 +1,193 @@
++package axerror
++
++import (
++	"encoding/json"
++	"strings"
++	"testing"
++)
++
++// The tests in this file pin one property: a validated Structured Error owns
++// its diagnostic graph outright. They exist because revision 1 of this package
++// copied only the top level of the details map and handed the live nested
++// container back from Detail, so every Section 15.1 detail bound could be
++// violated after ValidateDetails had already run and passed. That is a bypass
++// path around the gate rather than a gate, and no test covered it: the suite
++// only ever validated maps nobody mutated afterwards.
++//
++// Each case mutates a container the caller or the accessor retains and then
++// asserts two things about the object itself - that its encoded bytes did not
++// move, and that its own reader still accepts them. The containers are taken
++// at three depths and on both sides of an array, so a deep copy narrowed to
++// one level fails these tests rather than only a copy deleted outright.
++
++// violateEveryDetailBound writes each Section 15.1 detail bound into container:
++// a key naming a forbidden class, a value past the 16 KiB canonical size, a
++// value past the depth-4 nesting limit, and a Go type validateDetailValue
++// refuses. If any of it reaches the object, ValidateDetails validated a graph
++// the object does not own.
++func violateEveryDetailBound(container map[string]any) {
++	container["password"] = "hunter2"
++	container["blob"] = strings.Repeat("x", 32*1024)
++	var deep any = "leaf"
++	for level := 0; level < 6; level++ {
++		deep = map[string]any{"n": deep}
++	}
++	container["deep"] = deep
++	container["count"] = 7
++}
++
++// detailGraph builds a conforming nested diagnostic graph and returns every
++// mutable container inside it, named for the position the mutation attacks.
++func detailGraph() (Details, map[string]map[string]any) {
++	depth2 := map[string]any{"stream": "stdout"}
++	depth1 := map[string]any{"frame": depth2}
++	firstFrame := map[string]any{"line": "first"}
++	nestedFrame := map[string]any{"line": "second"}
++	details := Details{
++		"context": depth1,
++		"frames":  []any{firstFrame, []any{nestedFrame}},
++	}
++	return details, map[string]map[string]any{
++		"map at depth 1":            depth1,
++		"map at depth 2":            depth2,
++		"map inside an array":       firstFrame,
++		"map inside a nested array": nestedFrame,
++	}
++}
++
++func mustConstruct(test *testing.T, details Details) *Error {
++	test.Helper()
++	failure, err := New(Spec{
++		Version: Version100,
++		Code:    "provider_protocol_error",
++		Message: "unusable first frame",
++		IDs:     NoIDs(),
++		Details: details,
++	})
++	if err != nil {
++		test.Fatalf("a conforming failure was refused: %v", err)
++	}
++	return failure
++}
++
++func mustEncode(test *testing.T, failure *Error) string {
++	test.Helper()
++	encoded, err := json.Marshal(failure)
++	if err != nil {
++		test.Fatalf("marshal: %v", err)
++	}
++	return string(encoded)
++}
++
++// assertUnmovedAndSelfReadable states the two consequences that matter. The
++// bytes are the object's whole observable output, and Decode is the reader the
++// same package ships: an object whose own reader refuses it has already put a
++// document on the wire that no conforming peer can use.
++func assertUnmovedAndSelfReadable(test *testing.T, failure *Error, baseline, position string) {
++	test.Helper()
++	current := mustEncode(test, failure)
++	if current != baseline {
++		test.Fatalf("mutating the %s changed the encoded object\n before: %s\n  after: %s",
++			position, baseline, current)
++	}
++	if _, err := Decode(Version100, []byte(current)); err != nil {
++		test.Fatalf("after mutating the %s the writer emits an object its own reader refuses: %v",
++			position, err)
++	}
++}
++
++// TestConstructionDoesNotAliasTheCallerDetailGraph drives New with a graph the
++// call site keeps a reference to, which is the ordinary way a caller builds
++// details, and then writes every forbidden shape into the containers it kept.
++func TestConstructionDoesNotAliasTheCallerDetailGraph(test *testing.T) {
++	details, retained := detailGraph()
++	failure := mustConstruct(test, details)
++	baseline := mustEncode(test, failure)
++
++	for position, container := range retained {
++		violateEveryDetailBound(container)
++		assertUnmovedAndSelfReadable(test, failure, baseline, "caller's retained "+position)
++	}
++
++	// The top-level map is the arm revision 1 did get right; it is kept here
++	// so a copy deleted outright fails on this row too.
++	details["secret"] = "environment secret written after validation"
++	assertUnmovedAndSelfReadable(test, failure, baseline, "caller's retained top-level map")
++
++	// Replacing an array member is a mutation of the slice rather than of a
++	// map inside it, and a copy that clones maps but shares slices admits it.
++	details["frames"].([]any)[0] = map[string]any{"password": "hunter2"}
++	assertUnmovedAndSelfReadable(test, failure, baseline, "caller's retained array")
++}
++
++// TestDetailAccessorDoesNotHandOutTheLiveContainer attacks the package's own
++// exported accessor, which needs no cooperation from the constructing call site
++// at all: any holder of a validated *Error could reach the live graph through
++// it.
++func TestDetailAccessorDoesNotHandOutTheLiveContainer(test *testing.T) {
++	details, _ := detailGraph()
++	failure := mustConstruct(test, details)
++	baseline := mustEncode(test, failure)
++
++	context, present := failure.Detail("context")
++	if !present {
++		test.Fatal("Detail did not report a key the object carries")
++	}
++	depth1, ok := context.(map[string]any)
++	if !ok {
++		test.Fatalf("Detail returned %T, the object carries a map", context)
++	}
++	violateEveryDetailBound(depth1)
++	assertUnmovedAndSelfReadable(test, failure, baseline, "container returned by Detail")
++
++	depth2, ok := depth1["frame"].(map[string]any)
++	if !ok {
++		test.Fatalf("the returned graph lost its nested map: %#v", depth1["frame"])
++	}
++	violateEveryDetailBound(depth2)
++	assertUnmovedAndSelfReadable(test, failure, baseline, "second-level container returned by Detail")
++
++	frames, present := failure.Detail("frames")
++	if !present {
++		test.Fatal("Detail did not report the array key the object carries")
++	}
++	members, ok := frames.([]any)
++	if !ok {
++		test.Fatalf("Detail returned %T for an array member", frames)
++	}
++	violateEveryDetailBound(members[0].(map[string]any))
++	violateEveryDetailBound(members[1].([]any)[0].(map[string]any))
++	members[0] = "replaced"
++	assertUnmovedAndSelfReadable(test, failure, baseline, "array returned by Detail")
++
++	// A second read is unaffected by what was written into the first, so the
++	// isolation is per call rather than a single defensive copy shared by all
++	// callers.
++	second, _ := failure.Detail("context")
++	if _, leaked := second.(map[string]any)["password"]; leaked {
++		test.Fatal("a second Detail read carries a key written into the first read's copy")
++	}
++}
++
++// TestDecodedObjectsOwnTheirDetailsToo pins the same property on the reading
++// side. Decode builds its map from the document bytes rather than from a
++// caller's graph, so only the accessor arm applies here - and it is the arm a
++// peer-supplied object would be attacked through.
++func TestDecodedObjectsOwnTheirDetailsToo(test *testing.T) {
++	details, _ := detailGraph()
++	source := mustConstruct(test, details)
++	wire := mustEncode(test, source)
++
++	failure, err := Decode(Version100, []byte(wire))
++	if err != nil {
++		test.Fatalf("Decode refused this package's own output: %v", err)
++	}
++	baseline := mustEncode(test, failure)
++
++	context, present := failure.Detail("context")
++	if !present {
++		test.Fatal("the decoded object lost its context detail")
++	}
++	violateEveryDetailBound(context.(map[string]any))
++	assertUnmovedAndSelfReadable(test, failure, baseline, "container returned by Detail on a decoded object")
++}
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index 774601d..c7f3a92 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -23,7 +23,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+ 	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=53 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
+-		"section coverage: bindings=48 full=1 partial=2 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=10/394\n"
++		"section coverage: bindings=48 full=1 partial=2 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=9/394\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+ 	}
+@@ -56,7 +56,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+ 	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=53 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
+-		"section coverage: bindings=48 full=1 partial=2 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=10/394\n"
++		"section coverage: bindings=48 full=1 partial=2 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=9/394\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+ 	}
+@@ -139,7 +139,7 @@ func TestRunRefusesEveryAssignedSectionThatOnlySlivers(t *testing.T) {
+ 		{"10.3", "discharges 1/3 normative clauses, which is sliver coverage"},
+ 		{"10.4", "discharges 0/25 normative clauses, which is unevidenced coverage"},
+ 		{"13.14.5", "discharges 0/0 normative clauses, which is unmeasured coverage"},
+-		{"15.1", "discharges 6/7 normative clauses, which is partial coverage"},
++		{"15.1", "discharges 5/7 normative clauses, which is partial coverage"},
+ 		{"15.2", "discharges 0/0 normative clauses, which is unmeasured coverage"},
+ 		{"15.3", "discharges 2/3 normative clauses, which is partial coverage"},
+ 		{"17.1", "discharges 0/6 normative clauses, which is unevidenced coverage"},
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 1346830..139cb16 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -2596,7 +2596,7 @@
+         "structured-error-local-untrusted"
+       ],
+       "coverage": "partial",
+-      "gap": "Clause 15.1#5 is the RPC hello obligation - an error contract key must never be advertised or negotiated in a hello frame - and New builds a failure object rather than a hello frame. This repository contains no RPC hello builder at all, so Section 15.1 keeps that clause unimplemented and BindingFor is a static table with no negotiation path rather than a refusal of one.",
++      "gap": "Two of the seven Section 15.1 clauses stay unimplemented here. Clause 15.1#5 is the RPC hello obligation - an error contract key must never be advertised or negotiated in a hello frame - and New builds a failure object rather than a hello frame; this repository contains no RPC hello builder at all, so BindingFor is a static table with no negotiation path rather than a refusal of one. Clause 15.1#6 is the Provider JSON-over-stdio bootstrap row, whose only RFC 2119 sentence is that the plugin MUST NOT masquerade a different-major object as v2; that obligation binds the provider plugin and this repository builds no provider plugin, only the cataloggen and tracecheck binaries. LocalFromUntrusted implements the host half of the same row, but that half states no RFC 2119 keyword, so it discharges nothing the clause scanner measures and is claimed for clause 15.1#7 instead.",
+       "clauses": [
+         {
+           "id": "15.1#1",
+@@ -2632,14 +2632,6 @@
+             "structured-error-static-binding"
+           ]
+         },
+-        {
+-          "id": "15.1#6",
+-          "line": 11047,
+-          "excerpt": "| Provider JSON-over-stdio | A syntactically valid v2 request whose operation/body fails receives the Section 7.2 v2 failure envelope with Error 1.0.0 | The plugin MUST NOT masquerade a different-major object as v2. The host accepts no child error object, terminates/waits for exit as applicable, and emits its own local Error 1.0.0: <code>incompatible_protocol</code> for a recognizable major mismatch, otherwise <code>provider_protocol_error</code> |",
+-          "acceptance_cases": [
+-            "structured-error-local-untrusted"
+-          ]
+-        },
+         {
+           "id": "15.1#7",
+           "line": 11053,
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 60b7a68..7009afe 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "5a4f769acfd1f4cfb2edac2be501ecad33bb6b917ffcce60142b66b08d3eaace"
++	reviewedOwnershipCanonicalSHA256 = "b6254945a7ed78d3ea6996e2a12224f36836d62bf52befeca2801d3665d069b2"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index fabc0e8..36658c1 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -40,7 +40,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 		UnmeasuredCoverage:     3,
+ 		UnownedSections:        2,
+ 		NormativeClauses:       394,
+-		DischargedClauses:      10,
++		DischargedClauses:      9,
+ 	}
+ 	if !reflect.DeepEqual(report, want) {
+ 		t.Fatalf("VerifyRepository() report = %#v, want %#v", report, want)
+@@ -623,7 +623,7 @@ func TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers(t *testing.T)
+ 		{"10.3", `binding "section:10.3" discharges 1/3 normative clauses, which is sliver coverage`},
+ 		{"10.4", `binding "section:10.4" discharges 0/25 normative clauses, which is unevidenced coverage`},
+ 		{"13.14.5", `binding "section:13.14.5" discharges 0/0 normative clauses, which is unmeasured coverage`},
+-		{"15.1", `binding "section:15.1" discharges 6/7 normative clauses, which is partial coverage`},
++		{"15.1", `binding "section:15.1" discharges 5/7 normative clauses, which is partial coverage`},
+ 		{"15.2", `binding "section:15.2" discharges 0/0 normative clauses, which is unmeasured coverage`},
+ 		{"15.3", `binding "section:15.3" discharges 2/3 normative clauses, which is partial coverage`},
+ 		{"17.1", `binding "section:17.1" discharges 0/6 normative clauses, which is unevidenced coverage`},

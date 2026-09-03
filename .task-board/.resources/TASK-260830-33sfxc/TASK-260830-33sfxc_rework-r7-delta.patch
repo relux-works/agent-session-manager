@@ -1,0 +1,1231 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 4895ff4..b8e9501 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,21 @@
+ 
+ ## 2026-09-03
+ 
++### 1632 — The generalisation was written down one round earlier and still not executed: a list is a forced traversal, prose is a memory
++
++- SCOPE: new `internal/cliresult/guards_test.go` and `internal/cliresult/guard_inventory_test.go`, one production fix in `internal/cliresult/client.go`, `README.md`, `internal/traceability/ownership.v0.5.0.json` and its projection digest. Round-7 rework of TASK-260830-33sfxc after review; §1.6, §14.2, §15.1, §15.2, §17.2.
++- ROOT CAUSE: the `ErrUnregisteredExitStatus` gate in `cliresult.Read` was driven at four sampled values — `{1, 42, -1, 255}` — while its twin `axerror.decodeExitStatus`, which has the same shape and the same domain, was swept over 0..255 in the round-6 rework one file away. Restricting the reader gate to exactly its four covered values left `go test ./... -count=1` at exit 0 across all 13 packages, as did sparing 127 and 137 — the two statuses a wrapper most plausibly returns when `ax` never ran. Reproduced SURVIVED at the reviewed head with the delete-only control KILLED in the same run.
++- FINDING: entry 1447 below states the exact generalisation this round violated — "when a class of 'proven at one sample' is found, the remedy is to enumerate every guard on that path and measure each over its own domain, not to fix the one that was named". It was written and then not executed. The orchestrator asked for the enumerated list, accepted a sweep without it on the reasoning that the table was a means rather than an end, and the omission it would have made visible cost a whole review round. A generalisation recorded as prose is a memory; a list is a traversal. Working from memory closes the guard you were told about.
++- FIX: `TestTheRefusalGuardInventoryIsDerivedFromTheReaderSource` parses every refusal site out of `internal/cliresult/client.go` with `go/ast` and requires a bijection with a published README table — twelve rows, each naming its function, sentinel, refusal marker, domain-evidence class from a closed vocabulary, and the test declarations that measure it. A guard added to the reader with no row is a red; a row whose marker no longer resolves is a red. A second table enumerates the guards this leaf added or reordered outside that file, `decodeExitStatus` required in it by name, because the twin one file away is exactly what a single-file table would have missed again.
++- FINDING: the traversal immediately produced three more instances of the class, none of which any reviewer had named. The `ErrForeignDocument` branch was covered by one schema identifier, so restricting it to that identifier and routing every other foreign schema into `readSuccess` survived the suite. The "schema member is not a string" guard was covered by the number `5`, so restricting it to JSON numbers survived. Both are the round-6 shape: not an admission bypass, a change in WHICH FACT the machine client is told. The presence guard for a missing `schema` member survives an arbitrary predicate keyed on the exit status, which is the class round 4 declined to block on and is recorded as a stated bound rather than fixed.
++- FIX (production, the only behaviour change this round): `encoding/json` admits JSON `null` into a `string` and yields `""`, so a document whose `schema` member was `null` had been answered as a FOREIGN CONTRACT carrying the schema `""` — a claim that some other contract owns the document, when what is true is that this one is not readable. Found only because the type guard's domain was swept rather than sampled. The guard now checks the raw token alongside the unmarshal.
++- DECISION: the round-6 reviewer asked whether `exitStatusIsNotEnough` should distinguish "this status carries no registered code" from "this status is not in the table", since it computes `len(fanIn[status])` with no membership check and would report a map miss as a measured 0. The answer is not a defensive branch: a branch no production path can take promises nothing and is never measured. `TestTheFanInSentenceCannotReportAMapMissAsAMeasurement` proves the fabrication unreachable instead — `documentSchema` has exactly one caller and it is `Read`, the gate precedes that call in `Read`'s body by AST position, and every (registered version, registered failure status) pair measures at least one code, so a 0 there could only ever have been a miss. Moving the gate behind the discriminator reddens it.
++- FINDING (reviewer observation, disclosed rather than fixed): the §1.6 common-data-model gate does NOT enforce the number half of that section. `Read` admits a Structured Error whose `details` carry `1.5`, which SPEC.md forbids as integers inside the IEEE 754 safe-integer range. The gate's doc comment enumerates what it owns honestly; its opening sentence and README's matching phrasing overstated it. §1.6's number rule is bound to `internal/scalar` and left unevidenced there, so nothing false is claimed in the traceability projection. The admission is now ASSERTED by a test, so closing the gap reddens the pin and forces the disclosure to be updated in the same change — a disclosure with no pin decays into a paragraph nobody re-reads.
++- FINDING (reviewer observation, correction to the record): three mutants were dismissed in round 5 on the grounds that "none is a registered code". `terminal_backend_capability_unproven` IS registered at Structured Error 1.3.0 exit 6 (`catalog_gen.go:541`), and sparing it in `ExitCodeFor`'s version scoping survives on a clean tree. The conclusion holds for a different reason — the same narrowing on `observation_gap` is killed by `TestExitCodeForRefusesVersionAndCodeDrift`, so the class has a covered representative. The dismissal stands; the sentence behind it did not. A survivor dismissed with a wrong reason is worse than one dismissed with none, because the reason is what the next round trusts.
++- DECISION: reviewer observation O3 was closed by measurement rather than by the stated bound the reviewer offered. `verifyEnvelopeIdentity`'s major comparison was proven at major 2 alone; it is now swept over majors 0..64 through `Read` with the bound stated for the tail. Where a domain can be swept cheaply, a stated bound is a bound about effort, and this leaf has published the rule that a bound must be about the contract.
++- BOUND, unchanged and restated: `tracecheck` still reports `acceptance_cases=74` and `clauses_discharged=17/403`. All eight new tests register against the existing `cli-result-machine-reading` acceptance case rather than new ones, so no coverage figure moved; the registration was probed by renaming a declaration and confirming `tracecheck` names the missing declaration ahead of the projection digest.
++- EVIDENCE: harness grown from 63 to 86 mutants — 85 killed, 1 declared subsumed (unchanged), 0 unexplained survivors, 64 narrowing by the harness's own definition, suite restored green after every batch. Supersedes the "63 mutants at 62 killed" figure in the 1447 entry below. One mutant on the §1.6 disclosure was DISCARDED as equivalent and replaced: disabling the assertion in the test changes no outcome while the gap is open, so the replacement closes the gap in production and requires the pin to redden. Same stated bound: the harness mutates the tree, lives under `.temp/`, and no committed artifact derives its counts.
++
+ ### 1447 — The exit status a document declares is a member, not a fact: a guard proven on one code let a relabelled envelope forge a retry claim
+ 
+ - SCOPE: new `internal/axerror/agreement_test.go` and `internal/cliresult/relabel_test.go`, `README.md`, `internal/traceability/ownership.v0.5.0.json` and its projection digest. Round-6 rework of TASK-260830-33sfxc after review; §14.2, §15.1, §15.2, §15.3. No production code changed — every round-6 finding was an evidence defect, not a behaviour defect.
+diff --git a/README.md b/README.md
+index 3b2c7d6..7b82dd7 100644
+--- a/README.md
++++ b/README.md
+@@ -1566,7 +1566,7 @@ this repository builds no clone success body, and its failure is still fully
+ classified, because "this build cannot construct that success" and "this failure
+ is unreadable" are different facts.
+ 
+-A 63-mutant harness over these gates kills 62 and declares 1 subsumed, each
++An 86-mutant harness over these gates kills 85 and declares 1 subsumed, each
+ mutant verified applied and compiled before it is measured, and each verified to
+ carry the MUTATED text on disk rather than only to differ from the original. The
+ subsumed one removes the exit-0 guard in `readFailure`; the `exit_code` equality
+@@ -1583,11 +1583,11 @@ committed measurement is derived from one -
+ table above, and `TestREADMEOwnershipFiguresAreDerivedFromTheMeasuredReport`
+ re-derives every figure of the ownership paragraph below.
+ 
+-Forty-four of those mutants narrow rather than delete. The class is defined
++Sixty-four of those mutants narrow rather than delete. The class is defined
+ once in the harness and counted from that definition rather than by hand; the
+-same definition applied to the 28-, 44- and 53-mutant harnesses selects exactly
+-the fourteen, twenty-seven and thirty-six those revisions published, so this
+-figure extends that class instead of redefining it. The common-data-model gate
++same definition applied to the 28-, 44-, 53- and 63-mutant harnesses selects
++exactly the fourteen, twenty-seven, thirty-six and forty-four those revisions
++published, so this figure extends that class instead of redefining it. The common-data-model gate
+ is restricted to one of the four registered versions, moved behind the identity
+ check, and made to adopt its own canonical bytes; the discriminator's copy is
+ disabled on its own; `ErrAbsentDocument` is aliased onto `ErrUnreadableDocument`;
+@@ -1725,6 +1725,91 @@ both size narrowings plus a narrowing of each fixture's own padding, so a
+ fixture that stopped being large reddens on its length assertion instead of
+ shrinking in silence.
+ 
++### Refusal guard inventory
++
++Six rounds of review closed one guard at a time, and the seventh found the twin
++of the sixth one file away: `decodeExitStatus` was swept over 0..255 while the
++reader-side gate in `Read` stayed at four sampled values. Working from memory
++closes the guard you were told about. This table is the forced traversal that
++replaces memory, and it is derived rather than written: `TestTheRefusalGuardInventoryIsDerivedFromTheReaderSource`
++parses every refusal site out of `internal/cliresult/client.go` and requires a
++bijection with the rows below, so a guard added without a row - or a row whose
++site no longer exists - is a red before a reviewer has to find it.
++
++Every row states what its domain evidence actually is. `measured` means the
++guard was driven across its whole domain and the admitted and refused counts are
++asserted against a production enumeration. `stated bound` means part of the
++domain is not driven and names the contract reason, never effort.
++
++| # | Guard | Sentinel | Refusal marker | Domain evidence | Measured by |
++| --- | --- | --- | --- | --- | --- |
++| 1 | `Read` refuses an exit status Section 15.2 assigns no meaning | `ErrUnregisteredExitStatus` | `%w: %d` | measured over 0..255 and eight values outside the byte range, admission required to agree with `ExitStatusMeaning` at every point | `TestTheReadLevelExitStatusAdmissionIsSweptOverTheWholeDomain`, `TestTheReadLevelExitStatusAdmissionAdmitsARealReadingAtEveryRegisteredStatus` |
++| 2 | `Read` refuses a document belonging to some other contract | `ErrForeignDocument` | `schema %q` | measured over every contract identifier the pinned catalog registers plus twelve near-miss neighbours of the two admitted ones; stated bound - the member's domain is every JSON string and a discriminator fails on a neighbour of what it admits, not on an arbitrary string | `TestTheForeignSchemaRefusalIsMeasuredOverTheRegisteredContractVocabulary` |
++| 3 | `documentSchema` reports stdout that carries no document | `ErrAbsentDocument` | `%w: %s` | measured at every registered exit status, and required at each to be distinct from the read-failure and foreign-contract facts | `TestReadDistinguishesAbsenceFromAReadFailure`, `TestTheReadLevelExitStatusAdmissionIsSweptOverTheWholeDomain` |
++| 4 | `documentSchema` reports stdout that is not readable JSON | `ErrUnreadableDocument` | `decode: %v` | measured on a truncated envelope and on non-JSON bytes, each required to be distinct from an absence | `TestReadDistinguishesAbsenceFromAReadFailure` |
++| 5 | `documentSchema` refuses a second document on stdout | `ErrUnreadableDocument` | `more than one document` | measured on two concatenated conforming envelopes, required to be answered by this guard and not by the common-data-model gate that also refuses those bytes | `TestReadDistinguishesAbsenceFromAReadFailure` |
++| 6 | `documentSchema` refuses bytes with more than one reading | `ErrUnreadableDocument` | `outside the Section 1.6 common logical data model` | measured over every declared member of both schemas and over a conforming document several thousand bytes long; stated bound - the number half of Section 1.6 is not enforced on this path, disclosed below and pinned | `TestADuplicateSchemaMemberCannotSelectTheBranch`, `TestTheCommonDataModelGateDoesNotCoverTheSection16NumberRule` |
++| 7 | `documentSchema` refuses a document with no `schema` member | `ErrUnreadableDocument` | `document has no schema member` | measured over its two-valued presence domain, both values driven; stated bound - a predicate keyed on the exit status survives, and the exit status is not a dimension of Section 14.2's exactly-one-document rule | `TestReadDistinguishesAbsenceFromAReadFailure` |
++| 8 | `documentSchema` refuses a `schema` member that is not a string | `ErrUnreadableDocument` | `schema member is not a string` | measured over every JSON value form, JSON `null` included, with a string control required to reach the discriminator instead | `TestTheSchemaMemberTypeGuardIsMeasuredOverEveryJSONValueForm` |
++| 9 | `readSuccess` refuses a success object at a failure status | `ErrOutcomeDisagreement` | `carries a CLI Result, which reports success` | measured over all seventeen registered failure statuses, the count asserted against `axerror.IsFailureExitStatus` | `TestReadRefusesEveryDisagreementBetweenStdoutAndTheExitStatus` |
++| 10 | `readSuccess` refuses a document claiming a command the invocation did not run | `ErrOutcomeDisagreement` | `stdout reports command %q` | measured over all 1,936 ordered pairs of the 44 registered tags, classified 18 admitted / 306 by this guard / 1,144 before stdout is read / 468 by the version binding; stated bound - for a pair involving one of the 26 unimplemented tags an earlier named refusal settles it | `TestTheCommandAgreementGuardOwnsAMeasuredShareOfTheTagVocabulary` |
++| 11 | `readFailure` refuses a failure object at exit 0 | `ErrOutcomeDisagreement` | `carries a Structured Error, which reports failure` | declared subsumed - `decodeExitStatus` never admits `exit_code` 0, so row 12 refuses the same input one guard later; the harness carries the mutant and records it as subsumed rather than killed | `TestReadRefusesEveryDisagreementBetweenStdoutAndTheExitStatus` |
++| 12 | `readFailure` refuses an `exit_code` unequal to the observed status | `ErrOutcomeDisagreement` | `must equal that error's exit_code` | measured over all seventeen registered failure statuses for a code the pinned registry does not carry, which is the class where this guard is the sole enforcement | `TestTheExitStatusEqualityBindsACodeTheRegistryDoesNotCarry` |
++
++Row 8 changed production code when it was measured. `encoding/json` admits JSON
++`null` into a `string` and yields `""`, so a document whose `schema` member was
++`null` had been answered as a foreign contract carrying the schema `""` - a
++claim that some other contract owns the document, when what is true is that this
++one is not readable. The guard now checks the raw token alongside the unmarshal.
++
++The guards this leaf added or reordered outside that file are listed with it,
++because the twin one file away is exactly what a single-file table would have
++missed again:
++
++| Guard | File | Function | Measured by |
++| --- | --- | --- | --- |
++| The registered-status admission inside the document - the twin of row 1 | `internal/axerror/decode.go` | `decodeExitStatus` | `TestTheExitStatusAdmissionIsSweptOverEveryByteValue` |
++| The common-data-model gate added to the failure branch | `internal/axerror/decode.go` | `requireCommonDataModel` | `TestDecodeRefusesADuplicateMemberOnEveryDeclaredMember` |
++| The code-to-exit-status agreement | `internal/axerror/decode.go` | `decodeBody` | `TestTheCodeToExitStatusAgreementIsMeasuredOverTheWholeCodeRegistry` |
++| The envelope identity settled before the closed member set | `internal/axerror/decode.go` | `Decode` | `TestUnsupportedMajorIsSettledBeforeTheClosedMemberRule` |
++| The same reordering on the success branch | `internal/cliresult/decode.go` | `Decode` | `TestUnsupportedMajorIsSettledBeforeTheClosedMemberRule` |
++| The unsupported-major comparison reached through `Read` | `internal/cliresult/decode.go` | `verifyEnvelopeIdentity` | `TestTheUnsupportedMajorGuardIsSweptOverAMeasuredMajorRange` |
++| The fan-in projection's unregistered-version refusal | `internal/axerror/registry.go` | `CodesByExitStatus` | `TestCodesByExitStatusRefusesAnUnregisteredVersion` |
++
++STATED BOUND of the inventory itself: the derivation is exhaustive over
++`internal/cliresult/client.go`, which this leaf added in full. The second table
++is enumerated rather than derived, and the refusals `internal/axerror/decode.go`,
++`internal/axerror/registry.go` and `internal/cliresult/decode.go` carry from
++earlier leaves are those leaves' inventories, not this one's. Both tables are
++pinned: every named function must be declared in its named file and every named
++test must exist as a declaration, so a rename is a red rather than a row
++pointing at nothing.
++
++Two disclosures the traversal produced, stated here because neither is visible
++from a passing suite.
++
++The Section 1.6 common-data-model gate does NOT enforce the number half of that
++section. `canonicaljson.Canonicalize` refuses duplicate members, non-UTF-8, and
++non-canonical encoding, and the doc comment on `documentSchema` enumerates what
++it owns; the opening sentence "inside the Section 1.6 common logical data model"
++overstated it. `Read` admits a Structured Error whose `details` carry `1.5`,
++which SPEC.md forbids as "integers only, inside the IEEE 754 double
++safe-integer range". Section 1.6's number rule is bound to `internal/scalar` and
++left unevidenced there, so nothing false is claimed in the traceability
++projection; the admission is now asserted by
++`TestTheCommonDataModelGateDoesNotCoverTheSection16NumberRule`, so closing the
++gap reddens the pin and forces this paragraph to be updated with it.
++
++A reason recorded in an earlier round is wrong although its conclusion holds.
++Three mutants were dismissed on the grounds that "none is a registered code";
++`terminal_backend_capability_unproven` IS registered at Structured Error 1.3.0
++exit 6, and sparing it in `ExitCodeFor`'s version scoping survives on a clean
++tree. The conclusion survives for a different reason: the same narrowing on
++`observation_gap`, which is also only partially registered, is killed by
++`TestExitCodeForRefusesVersionAndCodeDrift`, so the class has a covered
++representative. The dismissal stands; the sentence behind it did not.
++
++
+ ```bash
+ go test ./internal/cliresult -count=1 -v
+ go test ./internal/cliresult -cover -count=1
+diff --git a/internal/cliresult/client.go b/internal/cliresult/client.go
+index bc70410..0e602cd 100644
+--- a/internal/cliresult/client.go
++++ b/internal/cliresult/client.go
+@@ -188,8 +188,14 @@ func documentSchema(stdout []byte, exitStatus int, errorVersion axerror.Version)
+ 		return "", fmt.Errorf("%w: document has no schema member; %s",
+ 			ErrUnreadableDocument, exitStatusIsNotEnough(exitStatus, errorVersion))
+ 	}
++	// JSON null is checked alongside the unmarshal because encoding/json admits
++	// null into a string and yields "". Without it a document whose schema
++	// member is null was answered as a foreign contract carrying the schema "" -
++	// a claim that some other contract owns the document, when what is true is
++	// that this one is not readable. The two facts are reported separately
++	// everywhere else in this reader and are reported separately here.
+ 	var schema string
+-	if err := json.Unmarshal(raw, &schema); err != nil {
++	if err := json.Unmarshal(raw, &schema); err != nil || string(bytes.TrimSpace(raw)) == "null" {
+ 		return "", fmt.Errorf("%w: schema member is not a string; %s",
+ 			ErrUnreadableDocument, exitStatusIsNotEnough(exitStatus, errorVersion))
+ 	}
+diff --git a/internal/cliresult/guard_inventory_test.go b/internal/cliresult/guard_inventory_test.go
+new file mode 100644
+index 0000000..086a427
+--- /dev/null
++++ b/internal/cliresult/guard_inventory_test.go
+@@ -0,0 +1,542 @@
++package cliresult
++
++import (
++	"go/ast"
++	"go/parser"
++	"go/token"
++	"os"
++	"path/filepath"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++)
++
++// readerSourceFile is the one production file this leaf added in full, and the
++// file the inventory below is derived from exhaustively.
++const readerSourceFile = "client.go"
++
++// guardInventoryAnchor is the README heading whose two tables this test pins. It
++// is matched exactly, so renaming the heading reddens here instead of silently
++// exempting the inventory from measurement.
++const guardInventoryAnchor = "### Refusal guard inventory"
++
++// evidenceClasses is the closed vocabulary a row's domain-evidence cell must
++// open with. A cell that opened with anything else would be prose again.
++var evidenceClasses = []string{"measured", "stated bound", "declared subsumed"}
++
++// refusalSite is one place the reader refuses, derived from the source rather
++// than named by hand: an fmt.Errorf call wrapping one of this package's
++// sentinels, identified by the function it sits in and the format literal it
++// carries.
++type refusalSite struct {
++	function string
++	sentinel string
++	format   string
++}
++
++// derivedRefusalSites walks the reader source and returns every refusal site in
++// it. This is the forced traversal: it does not consult the inventory, so a
++// guard added to the file appears here whether or not anybody remembered it.
++func derivedRefusalSites(t *testing.T) []refusalSite {
++	t.Helper()
++
++	fileSet := token.NewFileSet()
++	parsed, err := parser.ParseFile(fileSet, readerSourceFile, nil, 0)
++	if err != nil {
++		t.Fatalf("parse %s: %v", readerSourceFile, err)
++	}
++
++	var sites []refusalSite
++	for _, declaration := range parsed.Decls {
++		function, isFunction := declaration.(*ast.FuncDecl)
++		if !isFunction || function.Body == nil {
++			continue
++		}
++		ast.Inspect(function.Body, func(node ast.Node) bool {
++			call, isCall := node.(*ast.CallExpr)
++			if !isCall {
++				return true
++			}
++			selector, isSelector := call.Fun.(*ast.SelectorExpr)
++			if !isSelector || selector.Sel.Name != "Errorf" {
++				return true
++			}
++			if pkg, isIdent := selector.X.(*ast.Ident); !isIdent || pkg.Name != "fmt" {
++				return true
++			}
++			format, sentinel := "", ""
++			for index, argument := range call.Args {
++				if index == 0 {
++					format = concatenatedStringLiteral(t, argument)
++					continue
++				}
++				if identifier, isIdent := argument.(*ast.Ident); isIdent &&
++					strings.HasPrefix(identifier.Name, "Err") && sentinel == "" {
++					sentinel = identifier.Name
++				}
++			}
++			if sentinel == "" {
++				t.Fatalf("%s: fmt.Errorf in %s at %s wraps no Err sentinel; the inventory cannot "+
++					"classify a refusal it cannot name", readerSourceFile, function.Name.Name,
++					fileSet.Position(call.Pos()))
++			}
++			if !strings.HasPrefix(format, "%w") {
++				t.Fatalf("%s: fmt.Errorf in %s at %s does not wrap its sentinel first: %q",
++					readerSourceFile, function.Name.Name, fileSet.Position(call.Pos()), format)
++			}
++			sites = append(sites, refusalSite{function: function.Name.Name, sentinel: sentinel, format: format})
++			return true
++		})
++	}
++	if len(sites) == 0 {
++		t.Fatalf("derived no refusal site from %s, so this pin measures nothing", readerSourceFile)
++	}
++	return sites
++}
++
++// concatenatedStringLiteral flattens `"a" + "b"` into its text. A format built
++// from concatenated literals is common here and must not silently derive as an
++// empty marker.
++func concatenatedStringLiteral(t *testing.T, expression ast.Expr) string {
++	t.Helper()
++	switch typed := expression.(type) {
++	case *ast.BasicLit:
++		if typed.Kind != token.STRING {
++			return ""
++		}
++		unquoted, err := strconv.Unquote(typed.Value)
++		if err != nil {
++			t.Fatalf("unquote %s: %v", typed.Value, err)
++		}
++		return unquoted
++	case *ast.BinaryExpr:
++		if typed.Op != token.ADD {
++			return ""
++		}
++		return concatenatedStringLiteral(t, typed.X) + concatenatedStringLiteral(t, typed.Y)
++	default:
++		return ""
++	}
++}
++
++// inventoryRow is one row of the README's derived table.
++type inventoryRow struct {
++	number   string
++	guard    string
++	sentinel string
++	marker   string
++	evidence string
++	tests    []string
++	line     int
++}
++
++// siblingRow is one row of the README's enumerated table of guards this leaf
++// added or reordered outside the reader source.
++type siblingRow struct {
++	guard    string
++	file     string
++	function string
++	tests    []string
++	line     int
++}
++
++// readmeInventory locates the two tables under the anchor and parses them. It
++// refuses a heading it cannot locate exactly once rather than skipping the
++// comparison, which is how a published figure drifts while a suite stays green.
++func readmeInventory(t *testing.T) ([]inventoryRow, []siblingRow) {
++	t.Helper()
++
++	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
++	if err != nil {
++		t.Fatalf("read README.md: %v", err)
++	}
++	lines := strings.Split(string(readme), "\n")
++	anchor := -1
++	for index, line := range lines {
++		if strings.TrimSpace(line) != guardInventoryAnchor {
++			continue
++		}
++		if anchor >= 0 {
++			t.Fatalf("README carries the heading %q twice, at lines %d and %d", guardInventoryAnchor, anchor+1, index+1)
++		}
++		anchor = index
++	}
++	if anchor < 0 {
++		t.Fatalf("README carries no heading %q, so the inventory this test pins is not published", guardInventoryAnchor)
++	}
++
++	var derived []inventoryRow
++	var siblings []siblingRow
++	for index := anchor + 1; index < len(lines); index++ {
++		line := strings.TrimSpace(lines[index])
++		if strings.HasPrefix(line, "## ") {
++			break
++		}
++		if !strings.HasPrefix(line, "|") {
++			continue
++		}
++		cells := tableCells(line)
++		switch {
++		case len(cells) == 6 && cells[0] != "#" && !strings.HasPrefix(cells[0], "---"):
++			derived = append(derived, inventoryRow{
++				number:   cells[0],
++				guard:    cells[1],
++				sentinel: strings.Trim(cells[2], "`"),
++				marker:   strings.Trim(cells[3], "`"),
++				evidence: cells[4],
++				tests:    backtickedNames(cells[5]),
++				line:     index + 1,
++			})
++		case len(cells) == 4 && cells[0] != "Guard" && !strings.HasPrefix(cells[0], "---"):
++			siblings = append(siblings, siblingRow{
++				guard:    cells[0],
++				file:     strings.Trim(cells[1], "`"),
++				function: strings.Trim(cells[2], "`"),
++				tests:    backtickedNames(cells[3]),
++				line:     index + 1,
++			})
++		}
++	}
++	if len(derived) == 0 || len(siblings) == 0 {
++		t.Fatalf("parsed %d derived rows and %d sibling rows out of the inventory section",
++			len(derived), len(siblings))
++	}
++	return derived, siblings
++}
++
++func tableCells(line string) []string {
++	trimmed := strings.Trim(line, "|")
++	parts := strings.Split(trimmed, "|")
++	cells := make([]string, 0, len(parts))
++	for _, part := range parts {
++		cells = append(cells, strings.TrimSpace(part))
++	}
++	return cells
++}
++
++func backtickedNames(cell string) []string {
++	var names []string
++	for _, part := range strings.Split(cell, "`") {
++		if strings.HasPrefix(part, "Test") {
++			names = append(names, part)
++		}
++	}
++	return names
++}
++
++// declaredTests indexes every test declaration in the repository by name,
++// mapping each to the files that declare it. A row naming a test that does not
++// exist, or that was renamed, is then a red rather than a row pointing at
++// nothing.
++func declaredTests(t *testing.T) map[string][]string {
++	t.Helper()
++
++	declarations := make(map[string][]string)
++	root := filepath.Join("..", "..", "internal")
++	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
++		if err != nil {
++			return err
++		}
++		if entry.IsDir() || !strings.HasSuffix(path, "_test.go") {
++			return nil
++		}
++		fileSet := token.NewFileSet()
++		parsed, parseErr := parser.ParseFile(fileSet, path, nil, 0)
++		if parseErr != nil {
++			return parseErr
++		}
++		for _, declaration := range parsed.Decls {
++			function, isFunction := declaration.(*ast.FuncDecl)
++			if !isFunction || !strings.HasPrefix(function.Name.Name, "Test") {
++				continue
++			}
++			declarations[function.Name.Name] = append(declarations[function.Name.Name], path)
++		}
++		return nil
++	})
++	if err != nil {
++		t.Fatalf("walk %s: %v", root, err)
++	}
++	if len(declarations) == 0 {
++		t.Fatal("indexed no test declarations, so every row below would resolve vacuously")
++	}
++	return declarations
++}
++
++// TestTheRefusalGuardInventoryIsDerivedFromTheReaderSource is the mechanism that
++// exists because six rounds of review closed one guard at a time and the seventh
++// found the twin of the sixth one file away.
++//
++// The reviewer's round-6 finding was that the ErrUnregisteredExitStatus gate in
++// Read was proven at four sampled points while its twin, decodeExitStatus, had
++// been swept over the same domain one round earlier. The pattern was applied to
++// one of the two because the fix worked from memory rather than from a list.
++// This test is that list, and it is derived rather than written: the rows are
++// required to be in bijection with the refusal sites the reader source actually
++// contains, so a guard added without a row reddens here before a reviewer has to
++// find it.
++//
++// It does not measure whether a guard is well covered - that is each row's own
++// named test. It measures that no guard is missing from the traversal, and that
++// every row resolves to a real site, a real sentinel and a real test.
++func TestTheRefusalGuardInventoryIsDerivedFromTheReaderSource(t *testing.T) {
++	t.Parallel()
++
++	sites := derivedRefusalSites(t)
++	rows, siblings := readmeInventory(t)
++	tests := declaredTests(t)
++
++	// Every row resolves to exactly one derived site.
++	matchedSite := make([]bool, len(sites))
++	for _, row := range rows {
++		matches := []int{}
++		for index, site := range sites {
++			if site.function == row.guardFunction() && site.sentinel == row.sentinel &&
++				strings.Contains(site.format, row.marker) {
++				matches = append(matches, index)
++			}
++		}
++		if len(matches) != 1 {
++			t.Fatalf("README:%d row %s resolves to %d refusal sites in %s; a row must name exactly one "+
++				"(function %q, sentinel %q, marker %q)",
++				row.line, row.number, len(matches), readerSourceFile,
++				row.guardFunction(), row.sentinel, row.marker)
++		}
++		if matchedSite[matches[0]] {
++			t.Fatalf("README:%d row %s resolves to a refusal site an earlier row already claimed",
++				row.line, row.number)
++		}
++		matchedSite[matches[0]] = true
++
++		classified := false
++		for _, class := range evidenceClasses {
++			if strings.HasPrefix(row.evidence, class) {
++				classified = true
++			}
++		}
++		if !classified {
++			t.Fatalf("README:%d row %s opens its domain-evidence cell with %q, which is not one of %v",
++				row.line, row.number, firstWords(row.evidence), evidenceClasses)
++		}
++		if len(row.tests) == 0 {
++			t.Fatalf("README:%d row %s names no test, so nothing measures it", row.line, row.number)
++		}
++		for _, name := range row.tests {
++			if _, declared := tests[name]; !declared {
++				t.Fatalf("README:%d row %s names %s, which is not declared anywhere under internal/",
++					row.line, row.number, name)
++			}
++		}
++	}
++
++	// Every derived site is claimed by a row. This is the direction that would
++	// have caught the round-7 finding: the gate existed in the source and no
++	// row stated what measured it.
++	for index, claimed := range matchedSite {
++		if !claimed {
++			t.Fatalf("%s carries a refusal in %s wrapping %s with the format %q, and no inventory row "+
++				"claims it; a guard without a row is a guard nobody traversed",
++				readerSourceFile, sites[index].function, sites[index].sentinel, sites[index].format)
++		}
++	}
++	if len(rows) != len(sites) {
++		t.Fatalf("the inventory publishes %d rows for %d derived refusal sites", len(rows), len(sites))
++	}
++
++	// The sibling table is enumerated rather than derived, so its pin is
++	// resolution: each named function must be declared in its named file, and
++	// each named test must exist.
++	twin := false
++	for _, sibling := range siblings {
++		if !declaresFunction(t, filepath.Join("..", "..", sibling.file), sibling.function) {
++			t.Fatalf("README:%d names %s in %s, which does not declare it",
++				sibling.line, sibling.function, sibling.file)
++		}
++		if len(sibling.tests) == 0 {
++			t.Fatalf("README:%d sibling row %q names no test", sibling.line, sibling.guard)
++		}
++		for _, name := range sibling.tests {
++			if _, declared := tests[name]; !declared {
++				t.Fatalf("README:%d sibling row names %s, which is not declared anywhere under internal/",
++					sibling.line, name)
++			}
++		}
++		if sibling.function == "decodeExitStatus" {
++			twin = true
++		}
++	}
++	// The twin is required by name. The whole point of the second table is that
++	// the gate one file away sits next to its counterpart; a table that quietly
++	// dropped it would satisfy every count above.
++	if !twin {
++		t.Fatal("the sibling table does not carry decodeExitStatus, which is the twin of row 1 and " +
++			"the reason this inventory exists")
++	}
++}
++
++// guardFunction extracts the function name a derived row names. It is the first
++// backticked token of the guard cell, which is the convention the table follows.
++func (row inventoryRow) guardFunction() string {
++	for _, part := range strings.Split(row.guard, "`") {
++		if part != "" && !strings.Contains(part, " ") {
++			return part
++		}
++	}
++	return ""
++}
++
++func firstWords(text string) string {
++	if len(text) > 40 {
++		return text[:40]
++	}
++	return text
++}
++
++func declaresFunction(t *testing.T, path, name string) bool {
++	t.Helper()
++	fileSet := token.NewFileSet()
++	parsed, err := parser.ParseFile(fileSet, path, nil, 0)
++	if err != nil {
++		t.Fatalf("parse %s: %v", path, err)
++	}
++	for _, declaration := range parsed.Decls {
++		if function, isFunction := declaration.(*ast.FuncDecl); isFunction && function.Name.Name == name {
++			return true
++		}
++	}
++	return false
++}
++
++// TestTheFanInSentenceCannotReportAMapMissAsAMeasurement settles the question
++// the round-6 review left open: whether exitStatusIsNotEnough should distinguish
++// "this status carries no registered code" from "this status is not in the
++// table".
++//
++// It computes len(fanIn[status]) with no membership check, so for a status
++// outside the Section 15.2 table it would report 0 in the sentence README
++// publishes as a measured count - a map miss dressed as a measurement.
++//
++// The answer is not a defensive branch. A branch no production path can take
++// promises nothing and is never measured; what makes the sentence honest is that
++// the input it fabricates on cannot reach it, and that is a property to prove
++// rather than to comment. This test proves it structurally and numerically:
++//
++//   - documentSchema, which is the only caller of exitStatusIsNotEnough, has
++//     exactly one caller itself, and that caller is Read;
++//   - inside Read the ErrUnregisteredExitStatus gate precedes the documentSchema
++//     call, so a status outside the table never reaches the sentence; and
++//   - for every registered failure status of every registered error version the
++//     measured count is at least one, so a 0 in that sentence could only ever
++//     have been a map miss.
++//
++// Reordering the gate behind documentSchema reddens the third bullet of
++// TestTheReadLevelExitStatusAdmissionIsSweptOverTheWholeDomain and the position
++// assertion here.
++func TestTheFanInSentenceCannotReportAMapMissAsAMeasurement(t *testing.T) {
++	t.Parallel()
++
++	fileSet := token.NewFileSet()
++	parsed, err := parser.ParseFile(fileSet, readerSourceFile, nil, 0)
++	if err != nil {
++		t.Fatalf("parse %s: %v", readerSourceFile, err)
++	}
++
++	callers := make(map[string][]string)
++	positions := make(map[string]map[string]token.Pos)
++	for _, declaration := range parsed.Decls {
++		function, isFunction := declaration.(*ast.FuncDecl)
++		if !isFunction || function.Body == nil {
++			continue
++		}
++		ast.Inspect(function.Body, func(node ast.Node) bool {
++			call, isCall := node.(*ast.CallExpr)
++			if !isCall {
++				return true
++			}
++			identifier, isIdent := call.Fun.(*ast.Ident)
++			if !isIdent {
++				return true
++			}
++			callers[identifier.Name] = append(callers[identifier.Name], function.Name.Name)
++			if positions[function.Name.Name] == nil {
++				positions[function.Name.Name] = make(map[string]token.Pos)
++			}
++			if _, seen := positions[function.Name.Name][identifier.Name]; !seen {
++				positions[function.Name.Name][identifier.Name] = call.Pos()
++			}
++			return true
++		})
++	}
++
++	if got := callers["documentSchema"]; len(got) != 1 || got[0] != "Read" {
++		t.Fatalf("documentSchema is called from %v, want exactly [Read]; the fan-in sentence is "+
++			"honest only while every path to it runs through Read's gate", got)
++	}
++	for _, caller := range callers["exitStatusIsNotEnough"] {
++		if caller != "documentSchema" {
++			t.Fatalf("exitStatusIsNotEnough is called from %q, and only documentSchema sits behind "+
++				"Read's gate", caller)
++		}
++	}
++	if len(callers["exitStatusIsNotEnough"]) == 0 {
++		t.Fatal("exitStatusIsNotEnough has no caller in the reader source, so this pin measures nothing")
++	}
++
++	// The gate must precede the call. Its position is taken from the sentinel
++	// reference inside Read, which is the gate's only mention there.
++	var gate token.Pos
++	for _, declaration := range parsed.Decls {
++		function, isFunction := declaration.(*ast.FuncDecl)
++		if !isFunction || function.Name.Name != "Read" {
++			continue
++		}
++		ast.Inspect(function.Body, func(node ast.Node) bool {
++			identifier, isIdent := node.(*ast.Ident)
++			if isIdent && identifier.Name == "ErrUnregisteredExitStatus" && gate == token.NoPos {
++				gate = identifier.Pos()
++			}
++			return true
++		})
++	}
++	if gate == token.NoPos {
++		t.Fatal("Read does not mention ErrUnregisteredExitStatus, so nothing gates the fan-in sentence")
++	}
++	call, present := positions["Read"]["documentSchema"]
++	if !present {
++		t.Fatal("Read does not call documentSchema")
++	}
++	if gate > call {
++		t.Fatalf("Read reaches documentSchema at %s before the ErrUnregisteredExitStatus gate at %s, "+
++			"so an unregistered status reaches the fan-in sentence and is reported as 0 registered codes",
++			fileSet.Position(call), fileSet.Position(gate))
++	}
++
++	// The numeric half: 0 is never a true measurement anywhere the sentence can
++	// be reached, so a 0 printed there could only ever have been a map miss.
++	// Measured over every registered error version rather than over the
++	// versions the command table happens to bind.
++	versions := axerror.Versions()
++	if len(versions) == 0 {
++		t.Fatal("the registry declares no version, so this measurement has no denominator")
++	}
++	measured := 0
++	for _, version := range versions {
++		fanIn, fanInErr := axerror.CodesByExitStatus(version)
++		if fanInErr != nil {
++			t.Fatalf("CodesByExitStatus(%s): %v", version, fanInErr)
++		}
++		for _, status := range registeredFailureExitStatuses(t) {
++			if len(fanIn[status]) == 0 {
++				t.Fatalf("Structured Error %s assigns no code to exit status %d, so the fan-in "+
++					"sentence can state 0 as a true measurement and the map-miss reading of 0 "+
++					"is no longer distinguishable", version, status)
++			}
++			measured++
++		}
++	}
++	if want := len(versions) * len(registeredFailureExitStatuses(t)); measured != want {
++		t.Fatalf("measured %d (version, status) pairs, want %d", measured, want)
++	}
++}
+diff --git a/internal/cliresult/guards_test.go b/internal/cliresult/guards_test.go
+new file mode 100644
+index 0000000..a3c5898
+--- /dev/null
++++ b/internal/cliresult/guards_test.go
+@@ -0,0 +1,454 @@
++package cliresult
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"math"
++	"slices"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++)
++
++// registeredExitStatusesFromTheMeaningTable enumerates every status the Section
++// 15.2 table assigns a meaning, success included.
++//
++// The oracle is ExitStatusMeaning rather than IsFailureExitStatus, which is the
++// predicate the gate under test calls. An oracle built from the predicate under
++// test moves with a mutant that narrows it, and the sweep would then measure
++// nothing. The asserted count catches a mutation that moves both.
++func registeredExitStatusesFromTheMeaningTable(t *testing.T) []int {
++	t.Helper()
++
++	var statuses []int
++	for status := 0; status <= 255; status++ {
++		if _, known := axerror.ExitStatusMeaning(status); known {
++			statuses = append(statuses, status)
++		}
++	}
++	const registeredStatusCount = 18
++	if len(statuses) != registeredStatusCount {
++		t.Fatalf("the Section 15.2 table carries %d statuses %v, want the pinned %d "+
++			"(success plus the 17 failure rows)", len(statuses), statuses, registeredStatusCount)
++	}
++	for _, required := range []int{SuccessExitStatus, interruptedExitStatus} {
++		if !slices.Contains(statuses, required) {
++			t.Fatalf("exit %d is absent from the enumeration, so no sweep drawing on it covers that row", required)
++		}
++	}
++	return statuses
++}
++
++// TestTheReadLevelExitStatusAdmissionIsSweptOverTheWholeDomain turns the
++// ErrUnregisteredExitStatus gate in Read into a measured ratio over its whole
++// input domain.
++//
++// The gate was driven at four sampled values - {1, 42, -1, 255} - so restricting
++// it to exactly those four passed all thirteen packages, as did sparing 127 and
++// 137, the two statuses a wrapper most plausibly returns when ax never ran at
++// all. Both were reproduced as SURVIVED on the reviewed tree with a delete-only
++// control KILLED in the same run. The complement of a four-value sample is not a
++// bound.
++//
++// It is not an admission bypass and is not claimed as one: a failure document is
++// still refused by readFailure's exit_code equality, a success document by
++// readSuccess's status guard, and axerror.decodeExitStatus still refuses an
++// unregistered exit_code inside the document. What the gate decides is WHICH
++// FACT the machine client is told, which is the deliverable this leaf exists to
++// establish. Under the {127, 137} narrowing an invocation that wrote nothing at
++// exit 127 answers ErrAbsentDocument and states "exit status 127 is assigned to
++// 0 registered Structured Error 1.0.0 codes" - a fabricated fan-in for a status
++// the Section 15.2 table does not carry, reported in the sentence README
++// publishes as a measured count.
++//
++// This is the reader-side twin of axerror.decodeExitStatus, swept over the same
++// domain by TestTheExitStatusAdmissionIsSweptOverEveryByteValue.
++func TestTheReadLevelExitStatusAdmissionIsSweptOverTheWholeDomain(t *testing.T) {
++	t.Parallel()
++
++	registered := make(map[int]bool)
++	for _, status := range registeredExitStatusesFromTheMeaningTable(t) {
++		registered[status] = true
++	}
++
++	// Empty stdout isolates this gate and nothing else: past it the reader
++	// reports an absent document, and the two answers cannot be confused.
++	admitted, refused := 0, 0
++	for status := 0; status <= 255; status++ {
++		_, err := Read(CommandMaterialize, InvocationOutput{ExitStatus: status})
++		if registered[status] {
++			if errors.Is(err, ErrUnregisteredExitStatus) {
++				t.Fatalf("Read(exit %d) was refused as an unregistered status, and the Section 15.2 "+
++					"table assigns that status a meaning: %v", status, err)
++			}
++			if !errors.Is(err, ErrAbsentDocument) {
++				t.Fatalf("Read(exit %d, nothing on stdout) error = %v, want ErrAbsentDocument", status, err)
++			}
++			admitted++
++			continue
++		}
++		if !errors.Is(err, ErrUnregisteredExitStatus) {
++			t.Fatalf("Read(exit %d) error = %v, want ErrUnregisteredExitStatus: the Section 15.2 table "+
++				"assigns that status no meaning", status, err)
++		}
++		if want := fmt.Sprintf(": %d", status); !strings.HasSuffix(err.Error(), want) {
++			t.Fatalf("Read(exit %d) refused without naming the status it refused: %v", status, err)
++		}
++		// The refusal must not carry the measured-fan-in sentence, whose count
++		// for a status outside the table is a map miss rather than a
++		// measurement. See TestTheFanInSentenceCannotReportAMapMissAsAMeasurement.
++		if strings.Contains(err.Error(), "is assigned to") {
++			t.Fatalf("Read(exit %d) refused with a fan-in measurement for a status the table does "+
++				"not carry: %v", status, err)
++		}
++		refused++
++	}
++	if admitted != len(registered) {
++		t.Fatalf("over 0..255 Read admitted %d exit statuses past the gate, and the Section 15.2 "+
++			"table registers %d", admitted, len(registered))
++	}
++	if want := 256 - len(registered); refused != want {
++		t.Fatalf("over 0..255 Read refused %d exit statuses, want %d", refused, want)
++	}
++
++	// The gate's two production predicates are cross-checked against the
++	// meaning-table oracle here, so a narrowing of either one is a red rather
++	// than a quietly different admitted set.
++	for status := 0; status <= 255; status++ {
++		byPredicates := status == SuccessExitStatus || axerror.IsFailureExitStatus(status)
++		if byPredicates != registered[status] {
++			t.Fatalf("exit %d: the gate's predicates admit=%t and the Section 15.2 meaning table "+
++				"registers=%t", status, byPredicates, registered[status])
++		}
++	}
++
++	// The domain is int, not a byte. No process exits outside 0..255, but
++	// InvocationOutput.ExitStatus is an int a caller fills in, and a wrapper,
++	// an RPC hop, or a test harness can put anything there.
++	outOfRange := 0
++	for _, status := range []int{-1, -130, -2147483648, 256, 1000, 65536, math.MaxInt32, math.MaxInt64} {
++		_, err := Read(CommandMaterialize, InvocationOutput{ExitStatus: status})
++		if !errors.Is(err, ErrUnregisteredExitStatus) {
++			t.Fatalf("Read(exit %d) error = %v, want ErrUnregisteredExitStatus", status, err)
++		}
++		outOfRange++
++	}
++	if outOfRange != 8 {
++		t.Fatalf("drove %d out-of-range statuses, want 8", outOfRange)
++	}
++}
++
++// TestTheReadLevelExitStatusAdmissionAdmitsARealReadingAtEveryRegisteredStatus
++// is the positive half of the sweep above. Reporting a different refusal past
++// the gate shows the gate did not fire; it does not show that a conforming
++// invocation at that status is classified.
++//
++// Every registered failure status is driven with a Structured Error declaring
++// exactly that exit_code, and the success status with a CLI Result. The document
++// carries a code the pinned registry does not register, which takes Section
++// 15.3's unknown-code branch in axerror.decodeBody and skips the code-to-exit
++// agreement, so the exit status is the only thing the row moves.
++func TestTheReadLevelExitStatusAdmissionAdmitsARealReadingAtEveryRegisteredStatus(t *testing.T) {
++	t.Parallel()
++
++	entry := historicalEntry(t, "error-1.0.0-later-minor-code.json")
++	frozen := readHistorical(t, entry)
++
++	classified := 0
++	for _, status := range registeredFailureExitStatuses(t) {
++		document := rewriteFailure(t, frozen, map[string]any{"exit_code": status})
++		reading, err := Read(entry.command, InvocationOutput{Stdout: document, ExitStatus: status})
++		if err != nil {
++			t.Fatalf("Read(failure declaring exit_code %d at exit %d) error = %v", status, status, err)
++		}
++		if reading.Succeeded() {
++			t.Fatalf("Read(Structured Error at exit %d) reported success", status)
++		}
++		if reading.ExitStatus() != status {
++			t.Fatalf("Read(exit %d).ExitStatus() = %d", status, reading.ExitStatus())
++		}
++		if reading.CodeRegistered() {
++			t.Fatalf("the fixture's code is registered at exit %d, so this row measures the "+
++				"code-to-exit agreement rather than the admission", status)
++		}
++		classified++
++	}
++	if want := len(registeredFailureExitStatuses(t)); classified != want {
++		t.Fatalf("classified %d failure statuses, want %d", classified, want)
++	}
++
++	success := mustEmittedSuccess(t, CommandList)
++	reading, err := Read(CommandList, success)
++	if err != nil {
++		t.Fatalf("Read(conforming success at exit %d) error = %v", SuccessExitStatus, err)
++	}
++	if !reading.Succeeded() || reading.ExitStatus() != SuccessExitStatus {
++		t.Fatalf("Read(conforming success) = %t/%d", reading.Succeeded(), reading.ExitStatus())
++	}
++}
++
++// TestTheForeignSchemaRefusalIsMeasuredOverTheRegisteredContractVocabulary
++// states, as a measured ratio over the whole pinned contract registry rather
++// than as one sample, how much of "stdout carries neither a CLI Result nor a
++// Structured Error" the default branch of Read actually owns.
++//
++// Its whole coverage was one row of TestReadDistinguishesAbsenceFromAReadFailure
++// driving urn:ax:schema:session-record. Restricting the branch to exactly that
++// identifier - routing every other foreign schema to readSuccess instead -
++// passed all thirteen packages. The document is still refused there, by
++// verifyEnvelopeIdentity, so this is the same class as the exit-status finding:
++// which fact the machine client is told, not whether it is admitted.
++//
++// STATED BOUND: the domain of the schema member is every JSON string, which is
++// unbounded. What is measured is every contract identifier the pinned catalog
++// registers, plus the near-miss neighbours of the two admitted identifiers -
++// case variants, a trailing space, a prefix, and a suffix - because a
++// discriminator that fails does so on a neighbour of what it admits, not on an
++// arbitrary string.
++func TestTheForeignSchemaRefusalIsMeasuredOverTheRegisteredContractVocabulary(t *testing.T) {
++	t.Parallel()
++
++	admittedSchemas := []string{Schema, axerror.Schema}
++	var foreign []string
++	for _, contract := range catalog.Current().Contracts {
++		identifier := string(contract.ID)
++		if !slices.Contains(admittedSchemas, identifier) {
++			foreign = append(foreign, identifier)
++		}
++	}
++	// The denominator is asserted against the catalog rather than merely
++	// required to be non-empty. Without this, narrowing the loop above to the
++	// first two contracts left the near-miss neighbours below carrying the whole
++	// sweep, and the catalog half of the measurement vanished in silence.
++	catalogued := len(catalog.Current().Contracts)
++	admittedInCatalog := 0
++	for _, contract := range catalog.Current().Contracts {
++		if slices.Contains(admittedSchemas, string(contract.ID)) {
++			admittedInCatalog++
++		}
++	}
++	if admittedInCatalog != len(admittedSchemas) {
++		t.Fatalf("the catalog registers %d of the %d admitted schema identifiers; the subtraction "+
++			"below has the wrong denominator", admittedInCatalog, len(admittedSchemas))
++	}
++	if want := catalogued - len(admittedSchemas); len(foreign) != want {
++		t.Fatalf("drew %d foreign identifiers from a catalog of %d contracts, want %d",
++			len(foreign), catalogued, want)
++	}
++	if len(foreign) < 40 {
++		t.Fatalf("the catalog offers only %d foreign contract identifiers, which is below the "+
++			"vocabulary this sweep was published against", len(foreign))
++	}
++	fromCatalog := len(foreign)
++
++	for _, admitted := range admittedSchemas {
++		neighbours := []string{
++			admitted + " ",
++			" " + admitted,
++			admitted + "s",
++			strings.ToUpper(admitted),
++			strings.Replace(admitted, "urn:ax:", "urn:AX:", 1),
++			admitted[:len(admitted)-1],
++		}
++		for _, neighbour := range neighbours {
++			if slices.Contains(admittedSchemas, neighbour) {
++				t.Fatalf("the near-miss %q equals an admitted identifier, so this row would "+
++					"require the reader to refuse a document it must accept", neighbour)
++			}
++		}
++		foreign = append(foreign, neighbours...)
++	}
++	foreign = append(foreign, "")
++
++	refused := 0
++	for _, identifier := range foreign {
++		document, err := json.Marshal(map[string]any{"schema": identifier})
++		if err != nil {
++			t.Fatalf("encode probe document for %q: %v", identifier, err)
++		}
++		_, err = Read(CommandMaterialize, InvocationOutput{Stdout: document, ExitStatus: 5})
++		if !errors.Is(err, ErrForeignDocument) {
++			t.Fatalf("Read(document declaring schema %q) error = %v, want ErrForeignDocument", identifier, err)
++		}
++		// The refusal must be this guard's own sentence naming the schema it
++		// refused, so a document settled by some earlier check is not counted
++		// as coverage of the discriminator's default branch.
++		if want := fmt.Sprintf("schema %q", identifier); !strings.Contains(err.Error(), want) {
++			t.Fatalf("Read(schema %q) refused with %q, which is not the foreign-schema branch", identifier, err)
++		}
++		refused++
++	}
++	if refused != len(foreign) {
++		t.Fatalf("refused %d of %d foreign identifiers", refused, len(foreign))
++	}
++	if want := fromCatalog + len(admittedSchemas)*6 + 1; len(foreign) != want {
++		t.Fatalf("swept %d identifiers, want %d catalogued plus %d near-miss neighbours plus the "+
++			"empty string", len(foreign), fromCatalog, len(admittedSchemas)*6)
++	}
++	// The positive control, in the same test: both admitted identifiers reach
++	// their branch. Without it a default branch that refused everything would
++	// pass the sweep above.
++	if _, err := Read(CommandList, mustEmittedSuccess(t, CommandList)); err != nil {
++		t.Fatalf("Read(conforming CLI Result) error = %v", err)
++	}
++	failure, _ := mustEmittedFailure(t, "workspace_conflict")
++	if _, err := Read(CommandMaterialize, failure); err != nil {
++		t.Fatalf("Read(conforming Structured Error) error = %v", err)
++	}
++}
++
++// TestTheSchemaMemberTypeGuardIsMeasuredOverEveryJSONValueForm closes the same
++// class on the neighbouring guard: "the schema member is there and is not a
++// string".
++//
++// Its whole coverage was one row driving the number 5, so narrowing the guard to
++// refuse only JSON numbers passed all thirteen packages, and a document whose
++// schema member was true, null, an array, or an object was routed to
++// readSuccess. The domain here is closed and small - the six JSON value forms -
++// so it is swept rather than sampled.
++func TestTheSchemaMemberTypeGuardIsMeasuredOverEveryJSONValueForm(t *testing.T) {
++	t.Parallel()
++
++	nonStrings := map[string]string{
++		"number":         `5`,
++		"negative":       `-1`,
++		"float":          `1.5`,
++		"true":           `true`,
++		"false":          `false`,
++		"null":           `null`,
++		"array":          `["urn:ax:schema:cli-result"]`,
++		"object":         `{"id":"urn:ax:schema:cli-result"}`,
++		"nested array":   `[["urn:ax:schema:error"]]`,
++		"array of one":   `[1]`,
++		"empty array":    `[]`,
++		"empty object":   `{}`,
++		"number as text": `"5"`,
++	}
++	measured := 0
++	for name, raw := range nonStrings {
++		document := []byte(fmt.Sprintf(`{"schema":%s}`, raw))
++		_, err := Read(CommandMaterialize, InvocationOutput{Stdout: document, ExitStatus: 5})
++		if name == "number as text" {
++			// The control: a JSON string reaches the discriminator and is
++			// answered as a foreign contract, not as an unreadable document.
++			// Without it a guard that refused every schema member would pass.
++			if !errors.Is(err, ErrForeignDocument) {
++				t.Fatalf("Read(schema %s) error = %v, want ErrForeignDocument", raw, err)
++			}
++			measured++
++			continue
++		}
++		if !errors.Is(err, ErrUnreadableDocument) {
++			t.Fatalf("Read(schema %s, %s) error = %v, want ErrUnreadableDocument", raw, name, err)
++		}
++		if !strings.Contains(err.Error(), "schema member is not a string") {
++			t.Fatalf("Read(schema %s) refused with %q, which is not the schema-member type guard", raw, err)
++		}
++		measured++
++	}
++	if measured != len(nonStrings) {
++		t.Fatalf("measured %d of %d schema member forms", measured, len(nonStrings))
++	}
++	// Asserted rather than left implicit: the six JSON value forms other than
++	// string, plus the string control, must all be present, so a shrunken table
++	// is a red instead of a quietly smaller sweep.
++	for _, required := range []string{"number", "float", "true", "false", "null", "array", "object", "number as text"} {
++		if _, present := nonStrings[required]; !present {
++			t.Fatalf("the %q form is absent from the swept table", required)
++		}
++	}
++}
++
++// TestTheUnsupportedMajorGuardIsSweptOverAMeasuredMajorRange answers reviewer
++// observation O3 by measurement rather than by prose.
++//
++// verifyEnvelopeIdentity's major comparison was proven at major 2 only, so
++// `candidateMajor != expectedMajor && candidateMajor != 1 && candidateMajor != 3`
++// survived. The domain is the unbounded set of semantic-version majors.
++//
++// STATED BOUND: majors 0..64 are swept; the tail above 64 is not, because the
++// comparison is a single integer inequality with no table behind it and no
++// value in that tail is reachable through any registered contract. A per-major
++// special case anywhere inside the swept range is a red.
++func TestTheUnsupportedMajorGuardIsSweptOverAMeasuredMajorRange(t *testing.T) {
++	t.Parallel()
++
++	conforming := mustEmittedSuccess(t, CommandList)
++	bound, err := VersionForCommand(CommandList)
++	if err != nil {
++		t.Fatalf("VersionForCommand(%s): %v", CommandList, err)
++	}
++	boundMajor, err := majorOf(bound)
++	if err != nil {
++		t.Fatalf("majorOf(%s): %v", bound, err)
++	}
++
++	refused, admitted := 0, 0
++	for major := 0; major <= 64; major++ {
++		document := reversionedResult(t, conforming.Stdout, fmt.Sprintf("%d.0.0", major), string(CommandList))
++		_, err := Read(CommandList, InvocationOutput{Stdout: document, ExitStatus: SuccessExitStatus})
++		if major == boundMajor {
++			if err != nil {
++				t.Fatalf("Read(CLI Result major %d, the bound major) error = %v", major, err)
++			}
++			admitted++
++			continue
++		}
++		if !errors.Is(err, ErrUnsupportedMajor) {
++			t.Fatalf("Read(CLI Result major %d) error = %v, want ErrUnsupportedMajor", major, err)
++		}
++		if want := fmt.Sprintf("document is %d.0.0", major); !strings.Contains(err.Error(), want) {
++			t.Fatalf("Read(major %d) refused with %q, which does not name the major it refused", major, err)
++		}
++		refused++
++	}
++	if admitted != 1 {
++		t.Fatalf("admitted %d majors, want exactly the bound major %d", admitted, boundMajor)
++	}
++	if refused != 64 {
++		t.Fatalf("refused %d majors over 0..64, want 64", refused)
++	}
++}
++
++// TestTheCommonDataModelGateDoesNotCoverTheSection16NumberRule pins a DISCLOSED
++// BOUND rather than a guarantee, and exists so the disclosure cannot rot.
++//
++// documentSchema's doc comment and README both say the document is shown to be
++// "inside the Section 1.6 common logical data model" before its schema member is
++// read. That is true of the part canonicaljson.Canonicalize enforces - duplicate
++// members, encoding, ordering - and it is NOT true of the number half of Section
++// 1.6, which SPEC.md states as "integers only, inside the IEEE 754 double
++// safe-integer range". Read admits a Structured Error whose details carry 1.5.
++//
++// This test asserts the admission, so the bound is measured rather than
++// asserted in prose. Closing the gap - Section 1.6's number rule is bound to
++// internal/scalar and is unevidenced there - turns this test red, which is the
++// intended signal to update the disclosure alongside it.
++func TestTheCommonDataModelGateDoesNotCoverTheSection16NumberRule(t *testing.T) {
++	t.Parallel()
++
++	document := []byte(`{"schema":"urn:ax:schema:error","schema_version":"1.0.0",` +
++		`"code":"workspace_conflict","message":"disclosed bound probe","exit_code":5,` +
++		`"retryable":false,"details":{"measured":1.5}}`)
++	reading, err := Read(CommandMaterialize, InvocationOutput{Stdout: document, ExitStatus: 5})
++	if err != nil {
++		t.Fatalf("Read(details carrying 1.5) error = %v; if the Section 1.6 number rule is now "+
++			"enforced on this path, update the disclosure in README and in documentSchema's "+
++			"doc comment in the same change", err)
++	}
++	code, present := reading.Code()
++	if !present || code != "workspace_conflict" {
++		t.Fatalf("Read(details carrying 1.5) = %q/%t, want the admission this bound discloses", code, present)
++	}
++	// The gate does enforce the half it claims, on the same path, so the bound
++	// is a gap in coverage and not a gate that does nothing.
++	duplicate := []byte(`{"schema":"urn:ax:schema:error","schema":"urn:ax:schema:error",` +
++		`"schema_version":"1.0.0","code":"workspace_conflict","message":"x","exit_code":5,` +
++		`"retryable":false,"details":{}}`)
++	if _, err := Read(CommandMaterialize, InvocationOutput{Stdout: duplicate, ExitStatus: 5}); !errors.Is(err, ErrUnreadableDocument) {
++		t.Fatalf("Read(duplicate schema member) error = %v, want ErrUnreadableDocument", err)
++	}
++}
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index b219f65..4f2955d 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -2000,6 +2000,38 @@
+         {
+           "path": "internal/cliresult/client_test.go",
+           "declaration": "TestTheCommandAgreementGuardOwnsAMeasuredShareOfTheTagVocabulary"
++        },
++        {
++          "path": "internal/cliresult/guards_test.go",
++          "declaration": "TestTheReadLevelExitStatusAdmissionIsSweptOverTheWholeDomain"
++        },
++        {
++          "path": "internal/cliresult/guards_test.go",
++          "declaration": "TestTheReadLevelExitStatusAdmissionAdmitsARealReadingAtEveryRegisteredStatus"
++        },
++        {
++          "path": "internal/cliresult/guards_test.go",
++          "declaration": "TestTheForeignSchemaRefusalIsMeasuredOverTheRegisteredContractVocabulary"
++        },
++        {
++          "path": "internal/cliresult/guards_test.go",
++          "declaration": "TestTheSchemaMemberTypeGuardIsMeasuredOverEveryJSONValueForm"
++        },
++        {
++          "path": "internal/cliresult/guards_test.go",
++          "declaration": "TestTheUnsupportedMajorGuardIsSweptOverAMeasuredMajorRange"
++        },
++        {
++          "path": "internal/cliresult/guards_test.go",
++          "declaration": "TestTheCommonDataModelGateDoesNotCoverTheSection16NumberRule"
++        },
++        {
++          "path": "internal/cliresult/guard_inventory_test.go",
++          "declaration": "TestTheRefusalGuardInventoryIsDerivedFromTheReaderSource"
++        },
++        {
++          "path": "internal/cliresult/guard_inventory_test.go",
++          "declaration": "TestTheFanInSentenceCannotReportAMapMissAsAMeasurement"
+         }
+       ]
+     },
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 1676657..fd21dd3 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "5563e4b26e2f41d3e5bb45085d21be37dad2337315fe25dcbae589449fdb12bd"
++	reviewedOwnershipCanonicalSHA256 = "c70c86d24c7a1eddb538940f245396dad907b6aa60eaca92a6d5b1b09a647a12"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")

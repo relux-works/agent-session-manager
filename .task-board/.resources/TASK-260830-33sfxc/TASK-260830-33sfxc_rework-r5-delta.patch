@@ -1,0 +1,531 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 7e07f7f..6ca62fd 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,20 @@
+ 
+ ## 2026-09-03
+ 
++### 1421 — A guard proven at one ordered pair admits a forged authority document, and the same blind spot sits in the sibling reader
++
++- SCOPE: `internal/cliresult/client_test.go` (one subtest rewritten into a both-directions sweep, one new grid test), `internal/cliresult/datamodel_test.go` and `internal/axerror/datamodel_test.go` (large-document rows), `README.md`, `internal/traceability/ownership.v0.5.0.json` and its projection digest. Round-5 rework of TASK-260830-33sfxc after review; §14.2, §1.6. No production code changed — every round-5 finding was an evidence defect, not a behaviour defect.
++- ROOT CAUSE: the command-tag agreement in `readSuccess`, `if result.Command() != command`, was covered by exactly one row: invoked `doctor`, document reporting `list`. Narrowing it to `result.Command() != CommandTakeover` — admit any document CLAIMING to be a takeover result — left the whole repository suite at exit 0, all 13 packages `ok`. With that in place `Read(CommandList, <a document carrying "command": "takeover">)` hands the caller a `Reading` whose `Result()` is a takeover body, the one body in this contract carrying adoption and authority semantics, for an invocation that never ran it. Reproduced SURVIVED at the reviewed head before a line of test code was written; a control sparing `CommandDoctor` was KILLED in the same run, so the one existing row was real and was all there was.
++- FINDING: this is the THIRD guard on this leaf published proven at one sample, after both `ErrOutcomeDisagreement` guards in entry 1231. The two neighbouring subtests in the SAME test function already sweep their whole domain and assert the sweep count. The pattern was in the file, two screens up, and was not applied to the row between them.
++- FIX: the agreement is driven over the whole implemented vocabulary in both directions — every implemented tag as the invocation against every other implemented tag's own emitted document — and each refusal must carry this guard's own sentence naming both tags, so a pair settled by the version binding does not count as coverage of it. The 18 agreeing pairs are required to be ADMITTED in the same loop, which is what stops a guard that refuses everything from passing the sweep.
++- DECISION: state the guard's share of the vocabulary as a ratio with its denominator rather than as a bound in prose. `TestTheCommandAgreementGuardOwnsAMeasuredShareOfTheTagVocabulary` drives all 1,936 ordered pairs over the 44 registered tags and classifies every answer: 18 admitted, 306 refused by this guard, 1,144 refused before stdout is read because the invoked tag selects a version this repository does not build, 468 refused by the version binding because the document claims a tag bound to another major. "The guard is never reached for a pair involving an unimplemented tag" is then a measured fact with a named earlier refusal behind it, not an assumption that nothing was bypassed.
++- FINDING (reviewer Observation A, extended and acted on rather than recorded as a bound): the reviewer measured that narrowing `axerror.requireCommonDataModel` to skip documents over 4096 bytes SURVIVES, because every duplicate-member fixture is hand-built and short, and declined to block because byte length is not a §1.6 dimension. The identical narrowing on `documentSchema`'s copy of the same gate in `cliresult` also survived — the finding was reported for one reader and holds in both. Both are closed with a conforming document several times that size: a Structured Error padded through its 64-key `details` bound, and a CLI Result carrying twelve Session Summaries.
++- DECISION: give a size fixture ONE knob. The first padding helper padded through both the 4096-character `message` bound and the `details` map, so narrowing either loop alone left the document over 4096 and the mutant survived as an equivalent one. Padding through `details` alone makes the narrowed loop redden the row's own length assertion. A fixture whose size has two independent sources cannot be shown to fail closed.
++- ANOMALY: `Read` refuses the forged-tag pairs from three different places depending on which side is unimplemented, and only one of them is this guard. Counting refusals rather than classifying them would have reported 1,918 refusals and 306 of them would have been invisible; the classification is what turns "everything is refused" into "this guard refuses exactly these".
++- BOUND, unchanged and restated: `tracecheck` still reports `acceptance_cases=74` and `clauses_discharged=17/403`. Both new tests register against existing acceptance cases rather than new ones, so no coverage figure moved; the two registrations were probed by renaming each declaration and confirming `tracecheck` names the missing declaration ahead of the projection digest.
++- EVIDENCE: harness grown from 44 to 53 mutants — 52 killed, 1 declared subsumed (unchanged), 0 unexplained survivors, 36 narrowing by the harness's own definition, suite restored green. Supersedes the "44 mutants at 43 killed" figure in the 1338 entry below. Same stated bound as that entry: the harness mutates the tree, lives under `.temp/`, and no committed artifact derives its counts.
++- STATUS: Resolved. TASK-260830-33sfxc revision 5, handed to review.
++
+ ### 1338 — A figure published beside a measurement must be derived from it, not restated next to it: third instance in one artifact
+ 
+ - SCOPE: `README.md` (one figure corrected), new `internal/traceability/readme_figures_pin_test.go`, `internal/cliresult/client_test.go` (two new sweeps), `internal/traceability/ownership.v0.5.0.json` and its projection digest. Round-4 rework of TASK-260830-33sfxc after review; §14.2, §15.1, §15.2. No production code changed — every round-4 finding was an evidence defect, not a behaviour defect.
+diff --git a/README.md b/README.md
+index e0a8e77..9a6ba77 100644
+--- a/README.md
++++ b/README.md
+@@ -1554,7 +1554,7 @@ this repository builds no clone success body, and its failure is still fully
+ classified, because "this build cannot construct that success" and "this failure
+ is unreadable" are different facts.
+ 
+-A 44-mutant harness over these gates kills 43 and declares 1 subsumed, each
++A 53-mutant harness over these gates kills 52 and declares 1 subsumed, each
+ mutant verified applied and compiled before it is measured, and each verified to
+ carry the MUTATED text on disk rather than only to differ from the original. The
+ subsumed one removes the exit-0 guard in `readFailure`; the `exit_code` equality
+@@ -1571,11 +1571,11 @@ committed measurement is derived from one -
+ table above, and `TestREADMEOwnershipFiguresAreDerivedFromTheMeasuredReport`
+ re-derives every figure of the ownership paragraph below.
+ 
+-Twenty-seven of those mutants narrow rather than delete. The class is defined
++Thirty-six of those mutants narrow rather than delete. The class is defined
+ once in the harness and counted from that definition rather than by hand; the
+-same definition applied to the 28-mutant harness selects exactly the fourteen
+-that revision published, so this figure extends that class instead of redefining
+-it. The common-data-model gate
++same definition applied to the 28- and 44-mutant harnesses selects exactly the
++fourteen and twenty-seven those revisions published, so this figure extends that
++class instead of redefining it. The common-data-model gate
+ is restricted to one of the four registered versions, moved behind the identity
+ check, and made to adopt its own canonical bytes; the discriminator's copy is
+ disabled on its own; `ErrAbsentDocument` is aliased onto `ErrUnreadableDocument`;
+@@ -1583,9 +1583,9 @@ and the two published fan-in figures are restored to the wrong values they were
+ first published with, plus one row deleted outright. A gate whose only evidence
+ is that deleting it reddens something has been shown to exist, not to hold.
+ 
+-The two `ErrOutcomeDisagreement` guards are therefore measured over their whole
+-domain rather than at one sample each, because both were first published with a
+-narrowing that the suite could not tell from the real thing.
++The three `ErrOutcomeDisagreement` guards are therefore measured over their
++whole domain rather than at one sample each, because each was first published
++with a narrowing that the suite could not tell from the real thing.
+ 
+ The Section 14.2 equality is narrowed to `failure.CodeRegistered() &&
+ failure.ExitCode() != output.ExitStatus`. For a registered code the equality is
+@@ -1622,6 +1622,43 @@ any test drove already declared `retryable: true`. The true arm covers fourteen
+ of the seventeen statuses - the pinned document forbids the claim for every code
+ of the other three - and that figure is asserted rather than left implicit.
+ 
++The third guard is the command-tag agreement: `Read` refuses a document whose
++`command` is not the command the invocation ran. It was published proven at one
++ordered pair, invoked `doctor` against a document reporting `list`, and two
++narrowings survived the whole repository suite - one sparing a different invoked
++command, and one admitting any document *claiming* to be a `takeover` result,
++which is the one body in this contract carrying adoption and authority
++semantics. The agreement is now driven over the whole implemented vocabulary in
++both directions: every implemented tag as the invocation against every other
++implemented tag's own emitted document, 306 ordered pairs, each required to
++refuse with this guard's own sentence naming both tags so a pair settled by the
++version binding does not count as coverage of it, plus the 18 agreeing pairs
++required to be admitted.
++
++The share of the vocabulary that guard actually owns is measured rather than
++described. `TestTheCommandAgreementGuardOwnsAMeasuredShareOfTheTagVocabulary`
++drives all 1,936 ordered pairs over the 44 registered tags and classifies every
++answer: 18 admitted, 306 refused by the command-tag agreement, 1,144 refused
++before stdout is read because the invoked tag selects a version this repository
++does not build, and 468 refused by the version binding because the document
++claims a tag bound to another CLI Result major. Nothing is admitted that should
++not be, and the guard is reached for exactly the 306. That is the stated bound:
++for a pair involving one of the 26 unimplemented tags the guard is never the
++enforcement, and the reason is an earlier named refusal rather than a bypass.
++
++Both common-data-model gates were also proven only on hand-built documents, so a
++narrowing by payload SIZE - `len(data) < 4096` - refused every fixture and
++admitted a large one, in `axerror.Decode` and in `documentSchema` alike. Byte
++length is not a dimension of the Section 1.6 contract, but it is the one
++predicate a peer chooses: `axerror.Decode` reads provider, bridge, RPC,
++session-adapter and terminal-backend envelopes, and `stdout` is whatever the
++invoked process wrote. Each gate now also drives a conforming document several
++times that size - a Structured Error padded through its 64-key `details` bound,
++and a CLI Result carrying twelve Session Summaries - and the harness carries
++both size narrowings plus a narrowing of each fixture's own padding, so a
++fixture that stopped being large reddens on its length assertion instead of
++shrinking in silence.
++
+ ```bash
+ go test ./internal/cliresult -count=1 -v
+ go test ./internal/cliresult -cover -count=1
+diff --git a/internal/axerror/datamodel_test.go b/internal/axerror/datamodel_test.go
+index 78e75d8..05b7dea 100644
+--- a/internal/axerror/datamodel_test.go
++++ b/internal/axerror/datamodel_test.go
+@@ -51,6 +51,28 @@ func duplicateMember(test *testing.T, document, member, replacement string) []by
+ 	return []byte(injected)
+ }
+ 
++// largeConformingDocument returns a document that is conforming in every
++// respect and is several times longer than the hand-built fixtures in this
++// file. It is padded through exactly one member the contract already bounds -
++// the details map, up to its 64-key limit - so the result is a document a
++// conforming writer could actually emit, and so the size has a single knob: a
++// narrowed loop here drops the fixture back under the short-document range and
++// reddens the caller's own length assertion instead of quietly shrinking it.
++func largeConformingDocument(test *testing.T) string {
++	test.Helper()
++	pairs := make([]string, 0, 63)
++	for index := 0; index < 63; index++ {
++		pairs = append(pairs, fmt.Sprintf(`"pad_%03d": %q`, index, strings.Repeat("x", 60)))
++	}
++	document := strings.Replace(conformingDocument,
++		`{"observed_sequence": "17"}`,
++		`{"observed_sequence": "17", `+strings.Join(pairs, ", ")+`}`, 1)
++	if document == conformingDocument {
++		test.Fatal("the padding rewrite did not apply")
++	}
++	return document
++}
++
+ // TestDecodeRefusesADuplicateMemberOnEveryDeclaredMember is the negative half of
+ // the Section 1.6 common-data-model gate this leaf's review found missing.
+ //
+@@ -104,6 +126,42 @@ func TestDecodeRefusesADuplicateMemberOnEveryDeclaredMember(test *testing.T) {
+ 		})
+ 	}
+ 
++	// A document an order of magnitude larger than every row above. All of
++	// those build a short fixture by hand, so a gate narrowed by payload SIZE -
++	// `if len(data) < 4096 { ... }` - refuses every one of them and admits a
++	// large one; that narrowing survived the whole suite when this leaf was
++	// reviewed. Byte length is not a dimension of the Section 1.6 contract, so
++	// this is not a rule being asserted; it is the one predicate that is
++	// attacker-controlled on every path Decode is reachable from. DecodeBound
++	// reads provider, bridge, RPC, session-adapter and terminal-backend
++	// envelopes, and a peer chooses how long its own payload is.
++	test.Run("a document far larger than the hand-built fixtures", func(test *testing.T) {
++		large := largeConformingDocument(test)
++		if len(large) <= 4096 {
++			test.Fatalf("the padded document is %d bytes, which does not exceed the short fixtures this row exists to leave behind", len(large))
++		}
++		if _, err := Decode(Version120, []byte(large)); err != nil {
++			test.Fatalf("the padded document without a duplicate was refused, so this row proves nothing: %v", err)
++		}
++		for _, member := range []string{"retryable", "code", "exit_code"} {
++			document := duplicateMember(test, large, member, map[string]string{
++				"retryable": "true", "code": `"observation_horizon_lost"`, "exit_code": "9",
++			}[member])
++			if len(document) <= 4096 {
++				test.Fatalf("the duplicated document is %d bytes", len(document))
++			}
++			_, err := Decode(Version120, document)
++			if !errors.Is(err, ErrInvalidStructuredError) {
++				test.Fatalf("Decode(%d-byte document, duplicate %s) error = %v, want ErrInvalidStructuredError",
++					len(document), member, err)
++			}
++			if !strings.Contains(err.Error(), fmt.Sprintf("duplicate object member %q", member)) {
++				test.Fatalf("Decode(%d-byte document, duplicate %s) error = %v, want the refusal to name the repeated member",
++					len(document), member, err)
++			}
++		}
++	})
++
+ 	test.Run("nested inside details", func(test *testing.T) {
+ 		document := strings.Replace(conformingDocument,
+ 			`{"observed_sequence": "17"}`,
+diff --git a/internal/cliresult/client_test.go b/internal/cliresult/client_test.go
+index 48bc032..10f3d4d 100644
+--- a/internal/cliresult/client_test.go
++++ b/internal/cliresult/client_test.go
+@@ -44,6 +44,28 @@ func mustEmittedSuccess(t *testing.T, command Command) InvocationOutput {
+ 	return InvocationOutput{Stdout: streams.stdout.Bytes(), ExitStatus: status}
+ }
+ 
++// implementedSuccessDocuments emits one conforming CLI Result per implemented
++// command tag through the production emitter, so a sweep over command pairs
++// moves the command tag and nothing else: every document here is exactly what
++// its own invocation would have written.
++//
++// The count is asserted against the production enumeration rather than against
++// a number retyped here - TestRefusalInventoryIsMeasuredRatherThanClaimed pins
++// the 18-of-44 ratio itself - so a map that silently built fewer documents
++// cannot turn a caller's cross product into a smaller sweep.
++func implementedSuccessDocuments(t *testing.T) map[Command]InvocationOutput {
++	t.Helper()
++	implemented := ImplementedCommands()
++	documents := make(map[Command]InvocationOutput, len(implemented))
++	for _, command := range implemented {
++		documents[command] = mustEmittedSuccess(t, command)
++	}
++	if len(documents) != len(implemented) || len(documents) == 0 {
++		t.Fatalf("built %d success documents for %d implemented tags", len(documents), len(implemented))
++	}
++	return documents
++}
++
+ // TestMachineReadingCannotSeeStderr is the structural half of "a machine client
+ // never depends on stderr". Section 14.2 puts the machine-readable answer on
+ // stdout and keeps logs on stderr, and this package expresses that by giving
+@@ -415,9 +437,75 @@ func TestReadRefusesEveryDisagreementBetweenStdoutAndTheExitStatus(t *testing.T)
+ 		}
+ 	})
+ 	t.Run("document reports another command", func(t *testing.T) {
+-		_, err := Read(CommandDoctor, InvocationOutput{Stdout: success.Stdout, ExitStatus: 0})
+-		if !errors.Is(err, ErrOutcomeDisagreement) {
+-			t.Fatalf("error = %v, want ErrOutcomeDisagreement", err)
++		// Driven over the whole implemented command vocabulary in both
++		// directions rather than at one ordered pair. A single pair - the
++		// (invoked doctor, document says list) row this subtest used to be -
++		// only shows the guard is reachable. Two narrowings stayed green
++		// against it and were measured SURVIVED before this sweep existed:
++		// `command != CommandList`, which spares one invoked command, and
++		// `result.Command() != CommandTakeover`, which admits any document
++		// CLAIMING to be a takeover result - the one body in this contract
++		// carrying adoption and authority semantics - for an invocation that
++		// never ran it. The cross product closes both directions at once,
++		// because every implemented tag appears on each side of every pair.
++		//
++		// Every document here is emitted through the production emitter for
++		// its own tag, so each is a conforming CLI Result that only the
++		// invocation disagrees with; nothing earlier in Read has grounds to
++		// refuse it. That is asserted rather than assumed: the refusal must
++		// carry this guard's own sentence naming both tags, so a pair refused
++		// by the version binding or the closed decoder would not count.
++		documents := implementedSuccessDocuments(t)
++		implemented := ImplementedCommands()
++		refused, admitted := 0, 0
++		for _, invoked := range implemented {
++			for _, claimed := range implemented {
++				output := documents[claimed]
++				if invoked == claimed {
++					// The positive control that stops a guard which refuses
++					// everything from passing the sweep above.
++					reading, err := Read(invoked, output)
++					if err != nil {
++						t.Fatalf("Read(%q, its own document) error = %v", invoked, err)
++					}
++					if reading.Command() != invoked || !reading.Succeeded() {
++						t.Fatalf("Read(%q, its own document) = %q/%t, want %q/true",
++							invoked, reading.Command(), reading.Succeeded(), invoked)
++					}
++					admitted++
++					continue
++				}
++				_, err := Read(invoked, output)
++				if !errors.Is(err, ErrOutcomeDisagreement) {
++					t.Fatalf("Read(%q, document reporting %q) error = %v, want ErrOutcomeDisagreement",
++						invoked, claimed, err)
++				}
++				want := fmt.Sprintf("stdout reports command %q and the invocation was %q", claimed, invoked)
++				if !strings.Contains(err.Error(), want) {
++					t.Fatalf("Read(%q, document reporting %q) refused with %q, which is not the command-agreement guard",
++						invoked, claimed, err)
++				}
++				refused++
++			}
++		}
++		// The counts are asserted against the enumeration so a vocabulary that
++		// shrank - or a helper that quietly built fewer documents - cannot turn
++		// this into a smaller sweep that still passes.
++		if wantRefused := len(implemented) * (len(implemented) - 1); refused != wantRefused {
++			t.Fatalf("drove %d disagreeing pairs, want %d over the %d implemented tags",
++				refused, wantRefused, len(implemented))
++		}
++		if admitted != len(implemented) {
++			t.Fatalf("admitted %d agreeing pairs, want %d", admitted, len(implemented))
++		}
++		// The two tags the surviving narrowings named must be inside the swept
++		// vocabulary, in both roles. Without this, a vocabulary that dropped
++		// them would still satisfy every count above.
++		for _, anchor := range []Command{CommandTakeover, CommandList, CommandDoctor} {
++			if !slices.Contains(implemented, anchor) {
++				t.Fatalf("%q is not among the %d implemented tags, so the narrowing that named it was not driven",
++					anchor, len(implemented))
++			}
+ 		}
+ 	})
+ 	t.Run("exit status outside the Section 15.2 table", func(t *testing.T) {
+@@ -438,6 +526,122 @@ func TestReadRefusesEveryDisagreementBetweenStdoutAndTheExitStatus(t *testing.T)
+ 	})
+ }
+ 
++// TestTheCommandAgreementGuardOwnsAMeasuredShareOfTheTagVocabulary states, as a
++// measured ratio over the whole registered vocabulary rather than as prose, how
++// much of the "the document may not claim a command the invocation did not run"
++// class this one guard actually owns.
++//
++// The sweep above proves the guard over the 18 implemented tags in both
++// directions. That is not the whole vocabulary: Section 14.2 registers 44 tags,
++// and the other 26 select CLI Result 2.0.0, 3.0.0, or 4.0.0, whose bodies this
++// repository does not build. This test drives every one of the 44x44 ordered
++// pairs and classifies each answer, so the bound is a number with its
++// denominator rather than a sentence.
++//
++// The stated bound it produces: the command-agreement guard in readSuccess is
++// the sole enforcement for the pairs where both tags are implemented, and it is
++// never reached for a pair involving an unimplemented tag - not because it was
++// bypassed, but because an earlier named refusal already settled that pair.
++// Nothing in the grid is admitted except the agreeing pairs. A pair involving an
++// unimplemented tag can only be driven with a forged document, because this
++// repository builds no body for those tags at all, and the forgery is refused by
++// the version binding rather than by this guard.
++func TestTheCommandAgreementGuardOwnsAMeasuredShareOfTheTagVocabulary(t *testing.T) {
++	t.Parallel()
++
++	documents := implementedSuccessDocuments(t)
++	registered := Commands()
++	implemented := ImplementedCommands()
++
++	// The forged documents: a conforming CLI Result 1.0.0 whose command member
++	// has been rewritten to a tag whose body this repository never builds.
++	// There is no honest way to produce one, which is the bound.
++	forged := make(map[Command]InvocationOutput)
++	conforming := mustEmittedSuccess(t, CommandList)
++	for _, command := range registered {
++		if slices.Contains(implemented, command) {
++			continue
++		}
++		forged[command] = InvocationOutput{
++			Stdout:     reversionedResult(t, conforming.Stdout, "1.0.0", string(command)),
++			ExitStatus: 0,
++		}
++	}
++	if len(forged)+len(implemented) != len(registered) {
++		t.Fatalf("built %d forged and %d emitted documents for %d registered tags",
++			len(forged), len(implemented), len(registered))
++	}
++
++	const guardPhrase = "stdout reports command"
++	admitted, byGuard, byUnimplementedInvocation, byVersionBinding := 0, 0, 0, 0
++	for _, invoked := range registered {
++		for _, claimed := range registered {
++			output, emitted := documents[claimed]
++			if !emitted {
++				output = forged[claimed]
++			}
++			_, err := Read(invoked, output)
++			switch {
++			case err == nil:
++				if invoked != claimed {
++					t.Fatalf("Read(%q, document reporting %q) was admitted", invoked, claimed)
++				}
++				admitted++
++			case errors.Is(err, ErrOutcomeDisagreement):
++				if !strings.Contains(err.Error(), guardPhrase) {
++					t.Fatalf("Read(%q, %q) refused with %q, an outcome disagreement that is not the command guard",
++						invoked, claimed, err)
++				}
++				byGuard++
++			case errors.Is(err, ErrUnimplementedVersion):
++				// The invoked tag selects a version this repository does not
++				// build, so Read refuses before it ever reads a command tag out
++				// of the document.
++				if strings.Contains(err.Error(), guardPhrase) {
++					t.Fatalf("Read(%q, %q) refused as unimplemented but quoted the command guard: %v",
++						invoked, claimed, err)
++				}
++				byUnimplementedInvocation++
++			case errors.Is(err, ErrInvalidResult):
++				// The document claims a tag bound to another CLI Result major,
++				// which the closed decoder settles against the document's own
++				// declared version before the guard runs.
++				if strings.Contains(err.Error(), guardPhrase) {
++					t.Fatalf("Read(%q, %q) refused as invalid but quoted the command guard: %v",
++						invoked, claimed, err)
++				}
++				byVersionBinding++
++			default:
++				t.Fatalf("Read(%q, document reporting %q) refused with an unclassified error: %v",
++					invoked, claimed, err)
++			}
++		}
++	}
++
++	// The measured ratio. Every figure is derived from the production
++	// enumerations, so a tag that becomes implemented moves all four together
++	// instead of leaving one of them quietly wrong.
++	pairs := len(registered) * len(registered)
++	wantAdmitted := len(implemented)
++	wantGuard := len(implemented) * (len(implemented) - 1)
++	wantUnimplementedInvocation := (len(registered) - len(implemented)) * len(registered)
++	wantVersionBinding := len(implemented) * (len(registered) - len(implemented))
++	if admitted != wantAdmitted || byGuard != wantGuard ||
++		byUnimplementedInvocation != wantUnimplementedInvocation || byVersionBinding != wantVersionBinding {
++		t.Fatalf("over %d ordered pairs: admitted %d/%d, guard %d/%d, unimplemented invocation %d/%d, version binding %d/%d",
++			pairs, admitted, wantAdmitted, byGuard, wantGuard,
++			byUnimplementedInvocation, wantUnimplementedInvocation, byVersionBinding, wantVersionBinding)
++	}
++	if admitted+byGuard+byUnimplementedInvocation+byVersionBinding != pairs {
++		t.Fatalf("classified %d answers over %d ordered pairs",
++			admitted+byGuard+byUnimplementedInvocation+byVersionBinding, pairs)
++	}
++	if byGuard == 0 || byVersionBinding == 0 || byUnimplementedInvocation == 0 {
++		t.Fatalf("a refusal class drove nothing: guard %d, version binding %d, unimplemented invocation %d",
++			byGuard, byVersionBinding, byUnimplementedInvocation)
++	}
++}
++
+ // TestReadSelectsTheErrorVersionFromTheCommandNotTheDocument drives the two
+ // bindings Section 14.2 fixes for the CLI: legacy commands select Structured
+ // Error 1.0.0 and every session.clone.* command selects 1.1.0. A document that
+diff --git a/internal/cliresult/datamodel_test.go b/internal/cliresult/datamodel_test.go
+index 5057b16..51d6b84 100644
+--- a/internal/cliresult/datamodel_test.go
++++ b/internal/cliresult/datamodel_test.go
+@@ -3,6 +3,7 @@ package cliresult
+ import (
+ 	"encoding/json"
+ 	"errors"
++	"fmt"
+ 	"strings"
+ 	"testing"
+ 
+@@ -202,6 +203,57 @@ func TestADuplicateSchemaMemberCannotSelectTheBranch(t *testing.T) {
+ 	}
+ }
+ 
++// TestADuplicateSchemaMemberCannotSelectTheBranchInALargeDocument is the same
++// gate at a payload size no hand-built fixture reaches.
++//
++// The row above builds a short document, as does every duplicate-member row in
++// this package and in axerror. A gate narrowed by payload SIZE - `if
++// len(stdout) < 4096 { ... }` - therefore refuses all of them and admits a large
++// one, and that narrowing survived the whole repository suite when this leaf was
++// reviewed. Byte length is not a dimension of the Section 1.6 contract, so this
++// is not a rule being asserted. It is the one predicate a peer chooses: stdout
++// is whatever the invoked process wrote, and its length is not bounded by
++// anything this reader controls.
++//
++// The document is a real CLI Result carrying twelve Session Summaries, emitted
++// through the production emitter, so the only thing separating it from a
++// conforming invocation is the repeated schema member.
++func TestADuplicateSchemaMemberCannotSelectTheBranchInALargeDocument(t *testing.T) {
++	t.Parallel()
++
++	spec := validSpec(t, CommandList)
++	sessions := make([]any, 0, 12)
++	for index := 0; index < 12; index++ {
++		sessions = append(sessions, sessionSummary(fmt.Sprintf("0198f4c8-3e70-7a11-8a2b-12345678900%x", index)))
++	}
++	spec.Body = mutateBody(spec.Body.(map[string]any), "sessions", sessions)
++	var streams capture
++	emitter := mustEmitter(t, ModeJSON, true, streams.streams(false))
++	if _, err := emitter.Emit(Outcome{Result: mustResult(t, spec)}); err != nil {
++		t.Fatalf("Emit: %v", err)
++	}
++	conforming := InvocationOutput{Stdout: streams.stdout.Bytes(), ExitStatus: 0}
++	if len(conforming.Stdout) <= 4096 {
++		t.Fatalf("the padded result is %d bytes, which does not exceed the short fixtures this row exists to leave behind",
++			len(conforming.Stdout))
++	}
++	if _, err := Read(CommandList, conforming); err != nil {
++		t.Fatalf("the padded result without a duplicate was refused, so this row proves nothing: %v", err)
++	}
++
++	stdout := duplicateMember(t, conforming.Stdout, "schema", `"`+axerror.Schema+`"`)
++	if len(stdout) <= 4096 {
++		t.Fatalf("the duplicated document is %d bytes", len(stdout))
++	}
++	_, err := Read(CommandList, InvocationOutput{Stdout: stdout, ExitStatus: 0})
++	if !errors.Is(err, ErrUnreadableDocument) {
++		t.Fatalf("Read(%d-byte document, duplicate schema) error = %v, want ErrUnreadableDocument", len(stdout), err)
++	}
++	if errors.Is(err, ErrOutcomeDisagreement) || errors.Is(err, ErrForeignDocument) {
++		t.Fatalf("Read(duplicate schema) error = %v; the reading answered from a schema it never settled", err)
++	}
++}
++
+ // TestBothClosedDecodersEnforceTheSameDataModel drives each contract's own
+ // reader directly, so the claim documentSchema makes about its delegation is
+ // checked against both branches rather than assumed for one.
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 28d35ee..0fb8506 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -1984,6 +1984,10 @@
+         {
+           "path": "internal/cliresult/client_test.go",
+           "declaration": "TestReadClassifiesAFailureOfACommandWhoseSuccessBodyIsNotBuilt"
++        },
++        {
++          "path": "internal/cliresult/client_test.go",
++          "declaration": "TestTheCommandAgreementGuardOwnsAMeasuredShareOfTheTagVocabulary"
+         }
+       ]
+     },
+@@ -2189,6 +2193,10 @@
+           "path": "internal/cliresult/datamodel_test.go",
+           "declaration": "TestADuplicateSchemaMemberCannotSelectTheBranch"
+         },
++        {
++          "path": "internal/cliresult/datamodel_test.go",
++          "declaration": "TestADuplicateSchemaMemberCannotSelectTheBranchInALargeDocument"
++        },
+         {
+           "path": "internal/cliresult/datamodel_test.go",
+           "declaration": "TestBothClosedDecodersEnforceTheSameDataModel"
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 32e655a..1899207 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "d9a860aa460c1bcc776fb1ca8b705af1713d358869fdb24ea796694f56ca307d"
++	reviewedOwnershipCanonicalSHA256 = "0c8a301457873934c3583c91905981af5d61e04a2c9a617893c1f131071e6e31"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")

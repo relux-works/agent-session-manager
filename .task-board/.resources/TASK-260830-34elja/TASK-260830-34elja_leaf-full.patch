@@ -1,0 +1,4244 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 6c6fdb2..deedcce 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,35 @@
+ 
+ ## 2026-09-03
+ 
++### 0753 — Validate-then-alias is a bypass path, not a gate; and a clause claimed against the wrong actor
++
++- SCOPE: `internal/axerror` rework after review of CR-TASK-260830-34elja-1 rev1 returned `changes_requested` with two blocking findings, both reproduced by the reviewer.
++- ROOT CAUSE: **a validator that checks a graph the constructed value does not own has run and then let the checked data change.** `New` validated the caller's `Details` map and kept it through a *shallow* `cloneDetails`; `Detail` handed the live nested container straight back. Only the top-level map was isolated. Through the package's own exported accessor - no cooperation from the constructing call site needed - a validated failure could be made to emit `"password":"hunter2"`, 33,036 bytes against a declared 16 KiB bound, a value 7 containers deep against a declared bound of 4, and a Go `int` that `validateDetailValue` refuses outright. `axerror.Decode` then rejected the package's own `MarshalJSON` output.
++- FINDING: every §15.1 detail bound was defeated by this, and **no test covered post-construction mutation** - all 20 mutants and the whole positive/negative suite only ever validated maps nobody touched afterwards. The exported doc comment claimed "the closed Section 15.1 object is the only shape this type can produce", which this board treats as a contract; it was false and undisclosed. `internal/config` already returns an isolated resolved-root snapshot for exactly this reason, so the convention existed and was not followed.
++- FIX: deep copy on the way in (`cloneDetails` → `cloneDetailValue`) and on the way out (`Detail`). Five new mutants, three of them **narrowings** rather than deletions - copy shallow again, deep copy stopped at one level, deep copy applied to maps but not arrays - and the tests attack containers at three depths and on both sides of an array so a one-level copy fails them. `internal/axerror/ownership_test.go`.
++- ROOT CAUSE: **a clause was claimed against a topically related section instead of against the actor its MUST binds.** Ownership clause `15.1#6` at SPEC.md:11047 was discharged by `LocalFromUntrusted`. That line's only RFC 2119 sentence is "The plugin MUST NOT masquerade a different-major object as v2" - it binds the **provider plugin**, a child process this repository does not build; its only binaries are `cataloggen` and `tracecheck`. The host half of the same table row, which `LocalFromUntrusted` does implement, carries no RFC 2119 keyword at all, so it is not what the clause scanner measured.
++- FINDING: the scanner counts lines matching an RFC 2119 keyword; it cannot decide **which noun** the MUST governs. A human reading the subject of the sentence is the only check there is. This is the same ground on which `15.1#5` was correctly declared undischarged in the same registry - the honest refusal and the inflated claim shipped side by side.
++- FIX: `15.1#6` dropped, the §15.1 `gap` now names both undischarged clauses with their reasons, digest pin recomputed. §15.1 6/7 → **5/7**, repository `clauses_discharged` 10/394 → **9/394**. This supersedes the EVIDENCE line of the 0742 entry below. No gate outcome moves: §15.1 stays `partial` and assigned-scope admission still refuses it.
++- NOTE: the 0742 entry credits a leading-quote guard in `decodeExitStatus` as the fix for the `"9"` string-exit-status defect. It was not - the real fix was reading `exit_code` from `json.RawMessage`, and the guard was unkillable dead weight in front of `strconv.ParseInt`, which already refuses quoted bytes. Guard removed, the refusal table widened to `"9"`, `""`, `9.5`, `1e1`, `true`, `[]`, `{}`, `[9]`, and a mutant that strips quotes before parsing - the exact narrowing a `json.Number` field would reintroduce - now reddens.
++- NOTE: rev1's harness verified several deletion mutants by grepping for an **unrelated** string that was present either way, which cannot distinguish "mutation applied" from "perl no-op". `run_mutant` now takes `present|absent` and a deletion is verified by the absence of the exact text it deleted.
++- EVIDENCE: 26 mutants, each verified applied before measurement, 26 killed, 0 survivors, final restore re-verified uncached. `go test ./... -count=1` exit 0 across 12 packages; `go build`, `go vet`, `gofmt -l` clean; `tracecheck` exit 0 at 9/394.
++- STATUS: Ready for review. TASK-260830-34elja rework, leaf 1 of 3 on `task-board/story/STORY-260830-2jylym`.
++
++### 0742 — A key-name blacklist, again: the same shape BUG-260902-2faftr removed, caught by reading the logbook rather than by a test
++
++- SCOPE: `internal/axerror` (new package, TASK-260830-34elja), Structured Error §15.1-15.3.
++- ROOT CAUSE: the first revision of the detail-redaction gate matched key **substrings** — `token`, `socket`, `credential`, `secret`, `pid`, `named_pipe`, ... — against §16.2's whole exclusion table. Two errors in one rule. It refused `token_count`, `socket_timeout_ms` and `credential_profile`, ordinary diagnostics the pinned document admits, while admitting a secret written under any innocuous name: false-positive surface with no true-positive capability. And it applied §16.2, which governs manifests and bundles generated by `ax`, to §15.1 error **details**, whose declared prohibition is exactly four classes — "No detail may contain a credential, raw transcript, environment secret, or opaque bundle content". A detail key naming a PID, a tmux socket or a Terminal Instance Binding is none of those four; refusing it invented a constraint.
++- FINDING: identical shape to BUG-260902-2faftr (`hasForbiddenConfigName`), one section over and one day later, in code written by someone who had not yet read the entry. It survived the whole positive/negative suite and 17 killed mutants, because every test asserted the gate was *reachable* and none asked which pinned line *declared* it. Nothing about mutation score detects an invented constraint: a mutant that deletes an unlicensed refusal correctly reddens the test that pins the unlicensed refusal.
++- FIX: exact-match only, scoped to §15.1's four classes, 27 keys, each row carrying the class it names. `details.go:refuseExcludedKey`. The admitted rows in `TestDetailsRefuseExcludedClasses` are now the load-bearing half: `token_count`, `socket_timeout_ms`, `credential_profile`, `api_key_id`, `pid`, `tmux_socket_path`, `terminal_instance_binding`. A mutant restoring substring matching reddens on those and on nothing else.
++- FINDING: **the registry was its own oracle.** The first version of that test ranged over the production `excludedDetailKeys` map, so the mutant that deletes `password` also deletes its own test case — SURVIVED, at exit 0, with 19 of 20 other mutants killed around it. Fixed by pinning the 27 rows as a reviewed literal table compared against production, the same shape `TestExitStatusRegistryIsClosed` already used for §15.2. General: a table-driven test that iterates the table it is testing measures nothing about the table's contents.
++- FINDING: `exit_code` declared as `*json.Number` admits the JSON **string** `"9"` — `encoding/json` will unmarshal a quoted value into a `json.Number`. A peer could have written its exit status as text and been believed. Now decoded from `json.RawMessage` with a leading-quote refusal, so the JSON type is part of the check. Found by a negative row written to raise branch coverage, not by design review.
++- DECISION: retryability is a refusal table and never a permission. `RetryabilityRefusal` reports only where the pinned document forbids `retryable = true` — exit classes 7, 16, 130 and the codes `operation_uncertain`, `terminal_backend_stale_generation`, `transaction_unknown` — each quoting the sentence that disqualifies it. It never reports that a retry is safe. The complement is not evidence.
++- DECISION: `LocalFromUntrusted` refuses the Directory Node surface. §15.3 leaves its local code as `incompatible_protocol` or `adapter_protocol_violation`/`transport_failure` "as applicable" without fixing which, so the mapping is reported unknown rather than guessed into a literal that would then look normative.
++- DECISION: §17.2 was **not** re-bound to this package despite being named in the task scope. Its single scanner-visible clause is an unknown-**event** reader obligation; an unknown error **code** is not an unknown session event. Its existing wrong binding to `internal/config/writer.go:EncodeCurrent` is left in place and left disclosed rather than rebound to a friendlier symbol.
++- EVIDENCE: §15.1 6/7 and §15.3 2/3, both `partial` and both still refused by assigned-scope admission; §15.2 stays `unmeasured`. Repository `clauses_discharged` 2/394 → 10/394, `acceptance_cases` 43 → 53. Package coverage 99.7%. 20 mutants, each verified present before measurement, 20 killed, harness aborts if a restore leaves the baseline red.
++- NOTE: the harness itself bit once. Run 1 aborted mid-script on a zsh `read-only variable: status` error, leaving mutant 1 applied; run 2 then backed up the mutated tree and every later result was measured against a registry missing exit class 7. The tally looked plausible — all KILLED — and was wrong. `mutants.sh` now refuses to start on a red baseline and re-verifies green after every restore.
++- STATUS: Ready for review. TASK-260830-34elja, leaf 1 of 3 on `task-board/story/STORY-260830-2jylym`, one commit past the checkpoint.
++
+ ### 0626 — Third instance of one class in one comment: the pin proved the digit and never the noun
+ 
+ - ROOT CAUSE: the 0559 fix rewrote `Canonicalize`'s intro to say it rejects "any document that **opens** more than 256 containers". `maxNestingDepth` bounds containers *open at once*. Driven through the real exported entry point, `[[],[],…×400]` opens 401 containers at depth 2 and canonicalizes to 1201 bytes with `err=<nil>`; `{"k0":{},…×400}` likewise. The accurate wording already existed 135 lines above, on the constant itself — "may be open at once" — and the rewrite restated it in the exported doc while dropping the three words that made it true.
+diff --git a/README.md b/README.md
+index 3d9f344..368b1ec 100644
+--- a/README.md
++++ b/README.md
+@@ -1231,6 +1231,96 @@ path. The exact-name closure over the objects root is driven with a near-miss
+ sibling name as well as a foreign one, because a closure narrowed from equality
+ to a prefix admits exactly the near miss.
+ 
++## Structured Errors, Stable Codes, and Causal Redaction
++
++[`internal/axerror`](internal/axerror) implements the Section 15 Structured
++Error contract: the closed versioned failure object, its stable code-to-exit
++registry, its retryability rule, its typed diagnostic details, and the redaction
++that keeps a local cause off the wire. The package holds no state, opens no
++file, starts no process, and mutates nothing durable, so it has no crash or
++idempotency surface and advertises no provider, platform, backend, or CLI
++capability.
++
++| Element | Where it is decided |
++| --- | --- |
++| Versions `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0` | `Version` constants; any other value, including major 2, is refused rather than coerced |
++| Code-to-exit registry | `ExitCodeFor`, projected from the reviewed catalog rather than retyped, and admitting a code only for the versions that register it |
++| Exit-status registry | `ExitStatusMeaning` and `IsFailureExitStatus`, the closed nineteen-row Section 15.2 table; success is never a failure class |
++| Containing-contract binding | `BindingFor`, a static table with no negotiation path; `DecodeBound` takes the version from the container, never from the payload |
++| Retryability | `RetryabilityRefusal`, quoting the clause that disqualifies each exit class and each individually named code |
++| Typed details | `TargetAuth` and `RealmEvidence`, plus a presence requirement on `target_auth_missing` that the generic constructor cannot bypass |
++| Redaction | `ValidateDetails` exact-key scanner over the four Section 15.1 detail classes, and `refuseCausalLeak` over the local cause chain |
++| Detail ownership | `New` deep-copies the caller's diagnostic graph and `Detail` deep-copies on the way out, so the graph `ValidateDetails` checked is the graph the object encodes |
++| Untrusted boundaries | `LocalFromUntrusted`, which takes no part of a child or peer payload |
++
++The exit status is never a constructor argument. `New` takes a `Spec` with no
++`exit_code` field and resolves the status through `ExitCodeFor`, so a call site
++cannot mint a mapping the specification does not assign. The reader is the
++mirror image: a code the registry does not carry is admitted, because Section
++15.3 permits a code added in a compatible minor, but it keeps its envelope's
++exit class, is reported by `CodeRegistered` as unrecognized, and can never carry
++the success status.
++
++Redaction is two decidable gates and one structural property, and none of them
++is a confidentiality guarantee:
++
++- a detail key that **exactly** names one of the four classes Section 15.1
++  forbids - credential, raw transcript, environment secret, opaque bundle
++  content - is refused wherever it appears, including inside nested diagnostic
++  objects;
++- human text or a diagnostic value that reproduces the rendered local cause
++  verbatim is refused, which is the `fmt.Errorf("...: %v", err)` accident;
++- the cause itself is unexported and unreachable from the only encoder in the
++  package, so it cannot be serialized by any future field addition.
++
++Matching is exact and never by substring. A substring rule refusing every key
++containing `token`, `socket` or `credential` would refuse `token_count`,
++`socket_timeout_ms` and `credential_profile` - ordinary diagnostics - while
++still admitting a secret written under an innocuous name: false-positive surface
++with no true-positive capability, which is the defect `BUG-260902-2faftr`
++removed from the Configuration extension-key validator. The scanner is likewise
++scoped to Section 15.1's four classes rather than to the whole Section 16.2
++exclusion table, because a diagnostic key naming a PID, a tmux socket or a
++Terminal Instance Binding is none of those four.
++
++A validated failure owns its diagnostic graph outright, and that is part of the
++gate rather than a style choice. The first revision of this package copied only
++the top level of the details map and handed the live nested container back from
++`Detail`; every bound above - the four forbidden classes, the 16 KiB canonical
++size, the depth-4 nesting limit, the admitted value types - could then be
++violated after `ValidateDetails` had already run and passed, and the package
++emitted objects its own `Decode` refused. A validator that checks a graph the
++value does not own is a bypass path, not a gate, so `New` deep-copies on the way
++in and `Detail` deep-copies on the way out.
++`TestConstructionDoesNotAliasTheCallerDetailGraph` and
++`TestDetailAccessorDoesNotHandOutTheLiveContainer` attack containers at three
++depths and on both sides of an array, so a copy narrowed to one level fails them
++rather than only a copy deleted outright.
++
++`RedactionBound` states the limit in the code, and the tests assert that the
++constant still says it. Section 16.2 is explicit that v0.5.0 "does not claim
++reliable content-level secret scrubbing" while an implementation "SHOULD offer a
++best-effort scanner"; this is that scanner and nothing more. A secret placed in
++an innocuously named string value is admitted, and that is a stated bound rather
++than a discovered one.
++
++Two mappings the pinned document leaves open are reported as unknown rather than
++guessed. `LocalFromUntrusted` refuses the Directory Node surface, because
++Section 15.3 says its local code is `incompatible_protocol` or
++`adapter_protocol_violation`/`transport_failure` "as applicable" without fixing
++which; and `RetryabilityRefusal` never reports that a retry is safe, only where
++the document forbids the claim.
++
++Every gate above has a negative test that narrows it rather than deleting it:
++each forbidden retryability class and each individually disqualified code is
++exercised separately, each excluded detail class is refused on its own row, each
++declared bound is refused one step past the limit and admitted exactly at it,
++and each bootstrap mapping is pinned to its literal code. Run the suite with:
++
++```bash
++go test ./internal/axerror -count=1 -v
++```
++
+ ## Generated Contract Catalogs
+ 
+ [`internal/catalog`](internal/catalog) exposes typed records through
+@@ -1273,7 +1363,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
+ registry independently enumerates implementation owners for all 60 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 43
++contract rows, 36 pinned or catalog-referenced normative section keys, 53
+ executable acceptance cases, 48 exact section bindings with their declared
+ coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
+ Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
+@@ -1374,20 +1464,28 @@ useful is admitted, and the gate cannot decide otherwise.
+ `tracecheck` prints the ratio it measured rather than a sentence about it:
+ 
+ ```text
+-section coverage: bindings=48 full=1 partial=0 sliver=1 unevidenced=43 unmeasured=3 unowned=2 clauses_discharged=2/394
++section coverage: bindings=48 full=1 partial=2 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=9/394
+ ```
+ 
+-Forty-eight section bindings discharge 2 of the 394 normative clauses their
++Forty-eight section bindings discharge 9 of the 394 normative clauses their
+ sections carry. One binding is `full` (Section 6.2, whose single clause is the
+ native-Windows `conpty` requirement, discharged by
+-`TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes`), one is `sliver`
+-(Section 10.3, whose chunk offset invariant is enforced by
+-`validateBlobDescriptor` while its two receiver clauses have no implementation),
+-three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of which now
+-carries a gap saying why the scanner measures zero and what is missing), and
+-forty-three are `unevidenced`. Two sections are recorded unowned.
++`TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes`), two are `partial`
++(Section 15.1 at 5/7 and Section 15.3 at 2/3, both bound to
++[`internal/axerror`](internal/axerror); the three undischarged clauses are the
++RPC hello obligation `15.1#5`, the bootstrap-row sentence `15.1#6` that binds
++the provider plugin rather than the host, and the hello-key and
++TerminalBackend-capability prohibition `15.3#3` - this repository builds no RPC
++hello frame, no provider plugin, and no TerminalBackend capability set), one is
++`sliver` (Section 10.3, whose chunk offset invariant is
++enforced by `validateBlobDescriptor` while its two receiver clauses have no
++implementation), three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of
++which carries a gap saying why the scanner measures zero and what is missing),
++and forty-one are `unevidenced`. Two sections are recorded unowned.
+ Assigned-scope admission therefore succeeds today for `-section 6.2` and
+ nothing else; every other assignment is refused with its ratio and its gap.
++A `partial` binding is refused by assigned-scope admission exactly like an
++`unevidenced` one: admission requires `full`.
+ 
+ One admitted binding out of forty-eight is a thin positive arm, and it is
+ disclosed here rather than hidden: without Section 6.2 the admit path would only
+@@ -1398,14 +1496,18 @@ That is a disclosure of the shipped state, not a target that was met.
+ `TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers` pin every failing
+ binding with its exact measured ratio, so a section that becomes covered has to
+ leave those tables deliberately. Five further gaps the disclosure surfaced:
+-Section 15.2's exit-code registry is implemented nowhere, the only `os.Exit`
++Section 15.2's code-to-exit registry is now implemented in
++[`internal/axerror`](internal/axerror) and checked row by row, but the process
++exit status Section 14.2 requires to equal it still is not, the only `os.Exit`
+ calls in the tree being the `exit(1)` failure paths of `cataloggen` and
+ `tracecheck`; Section 7.3's closed Provider Manifest exists only as a catalog
+ row naming its URN; Section 6.5 requires the `required_capabilities` default to
+ be the platform lane minimum while `internal/config/validation.go` accepts only
+ an empty default; Section 17.2's single clause is an unknown-event reader
+-obligation while its binding names the Configuration writer; and Section 2.1's
+-single clause is a replica runtime obligation that no code here implements.
++obligation while its binding names the Configuration writer, and the Structured
++Error reader does not discharge it either because an unknown error code is not
++an unknown session event; and Section 2.1's single clause is a replica runtime
++obligation that no code here implements.
+ 
+ Successful output reports ownership inventory counts and the measured coverage
+ ratio only. The gate does not mutate repository or product state, add an `ax`
+@@ -1434,7 +1536,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
+ | --- | --- | --- | --- |
+ | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
+ | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
+-| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
++| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+ | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
+ | `github.com/pelletier/go-toml/v2` | Parse and emit TOML while the repository-owned Configuration layer enforces exact versioned closed schemas | Imported by `internal/config.Decode`, `internal/config.EncodeCurrent`, and explicit `internal/config.Migrate` at pinned module version `v2.4.3` | Validated Configuration values/TOML bytes in memory; explicit migration writes a same-directory replacement plus an owner-only versioned backup |
+ | `modernc.org/sqlite` | Provide the pure-Go SQLite driver for the local derived index without a CGO platform dependency | Imported by `internal/localstore.OpenProjection` at pinned module version `v1.57.0` | `<state>/index.sqlite`, its owner-only lock and WAL/SHM/journal sidecars, and `<state>/index-recovery/<uuid>/` corruption evidence |
+diff --git a/internal/axerror/axerror.go b/internal/axerror/axerror.go
+new file mode 100644
+index 0000000..4516c8a
+--- /dev/null
++++ b/internal/axerror/axerror.go
+@@ -0,0 +1,386 @@
++// Package axerror implements the AX Structured Error contract of pinned
++// specification Sections 15.1 through 15.3: the closed versioned failure
++// object, its stable code-to-exit registry, its retryability rule, its typed
++// diagnostic details, and the redaction that keeps a local cause off the wire.
++//
++// The package holds no state, opens no file, and starts no process. It
++// advertises no provider, platform, backend, or CLI capability, and mutates no
++// durable state, so it has no crash or idempotency surface of its own.
++package axerror
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"unicode/utf8"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// ErrInvalidStructuredError reports a failure object outside the closed Section
++// 15.1 shape.
++var ErrInvalidStructuredError = errors.New("invalid structured error")
++
++// IDs carries the two optional Section 15.1 identifiers. The pinned document
++// says they "are optional and MUST be present when known", which is an
++// obligation on the constructing call site rather than a shape a validator can
++// check. This type turns the obligation into a decision the call site has to
++// make: NoIDs states that neither identifier is known, and WithOperation and
++// WithSession state that one is. There is no way to leave the question
++// unanswered by forgetting a struct field.
++type IDs struct {
++	operation *scalar.UUIDv7
++	session   *scalar.UUIDv7
++}
++
++// NoIDs states that no operation was allocated and the failure is not
++// session-scoped.
++func NoIDs() IDs { return IDs{} }
++
++// WithOperation records an allocated operation identifier.
++func (ids IDs) WithOperation(operation scalar.UUIDv7) IDs {
++	ids.operation = &operation
++	return ids
++}
++
++// WithSession records the session the failure is scoped to.
++func (ids IDs) WithSession(session scalar.UUIDv7) IDs {
++	ids.session = &session
++	return ids
++}
++
++// Operation reports the allocated operation identifier, if one is known.
++func (ids IDs) Operation() (scalar.UUIDv7, bool) {
++	if ids.operation == nil {
++		return scalar.UUIDv7{}, false
++	}
++	return *ids.operation, true
++}
++
++// Session reports the session the failure is scoped to, if one is known.
++func (ids IDs) Session() (scalar.UUIDv7, bool) {
++	if ids.session == nil {
++		return scalar.UUIDv7{}, false
++	}
++	return *ids.session, true
++}
++
++// Spec is the complete input to New. It deliberately has no exit-code field:
++// the exit status is resolved from the pinned registry for the selected
++// version, so a call site cannot mint a mapping the specification does not
++// assign, and no reviewer has to check one against the table by hand.
++type Spec struct {
++	// Version is the Structured Error version the containing contract binds.
++	Version Version
++	// Code is a stable registry code the selected version registers.
++	Code Code
++	// Message is human text of 1..4096 UTF-8 characters. Automation never
++	// branches on it.
++	Message string
++	// Retryable is true only when the identical request may safely be retried
++	// without new authority or confirmation.
++	Retryable bool
++	// IDs carries the operation and session identifiers that are known.
++	IDs IDs
++	// Details is the required diagnostic map. An empty map is valid; nil is
++	// not, because the member itself is required.
++	Details Details
++	// Cause is the local Go error this failure was built from. It is kept for
++	// errors.Is and errors.As and is structurally unreachable from the wire
++	// object: no encoder in this package can serialize it.
++	Cause error
++}
++
++// Error is one validated Structured Error. Every field is unexported and the
++// only encoder is MarshalJSON, so the closed Section 15.1 object is the only
++// shape this type can produce and the local cause cannot escape into it.
++//
++// The details map is owned outright rather than shared. New deep-copies the
++// caller's map on the way in and Detail deep-copies on the way out, so the
++// graph ValidateDetails checked is the graph this object encodes. A shallow
++// copy would leave every Section 15.1 detail bound - the four forbidden
++// classes, the 16 KiB canonical size, the depth-4 nesting limit, the admitted
++// value types - violable after construction through a retained nested
++// container, which is a bypass path around the gate rather than a gate.
++type Error struct {
++	version   Version
++	code      Code
++	message   string
++	exitCode  int
++	retryable bool
++	ids       IDs
++	details   Details
++	cause     error
++
++	// codeRegistered records whether the pinned registry carries this code for
++	// this version. It is false only for an object decoded from a conforming
++	// peer that used a code added in a later compatible minor.
++	codeRegistered bool
++}
++
++// New builds a Structured Error from spec. It refuses, in this order: an
++// unregistered version; a code the version does not register; a message outside
++// 1..4096 UTF-8 characters; a details map outside the Section 15.1 bounds or
++// carrying a Section 16.2 excluded class; a code whose typed details the pinned
++// document names and spec omits; a retryable claim the pinned document
++// forbids; and human text or a detail value that reproduces the local cause
++// verbatim.
++//
++// The exit status is never taken from the caller. It is resolved through
++// ExitCodeFor, so the returned object's exit_code is the exact Section 15.2
++// status the registry assigns to the code.
++//
++// The typed-detail requirement below is asymmetric on purpose.
++// target_auth_missing has exactly one declared use in Section 15.3 and that
++// clause names its five typed details, so the generic constructor may not emit
++// it with a weaker detail set than NewTargetAuthMissing produces.
++// capability_unavailable is a general exit-6 code whose typed details Section
++// 15.3 names only for the realm/broker-evidence case, so requiring them from
++// every capability_unavailable call site would invent a constraint the pinned
++// document does not state; NewRealmEvidenceUnavailable carries that
++// requirement for the case that does declare it.
++func New(spec Spec) (*Error, error) {
++	exitCode, err := ExitCodeFor(spec.Version, spec.Code)
++	if err != nil {
++		return nil, err
++	}
++	if err := validateMessage(spec.Message); err != nil {
++		return nil, err
++	}
++	if err := ValidateDetails(spec.Details); err != nil {
++		return nil, err
++	}
++	if spec.Code == "target_auth_missing" {
++		if err := requireDetailKeys(spec.Code, spec.Details, targetAuthMissingKeys); err != nil {
++			return nil, err
++		}
++	}
++	if spec.Retryable {
++		if reason, forbidden := RetryabilityRefusal(spec.Code, exitCode); forbidden {
++			return nil, fmt.Errorf(
++				"%w: %q may not claim retryable: %s", ErrInvalidStructuredError, spec.Code, reason)
++		}
++	}
++	if err := refuseCausalLeak(spec.Message, spec.Details, spec.Cause); err != nil {
++		return nil, err
++	}
++	return &Error{
++		version:        spec.Version,
++		code:           spec.Code,
++		message:        spec.Message,
++		exitCode:       exitCode,
++		retryable:      spec.Retryable,
++		ids:            spec.IDs,
++		details:        cloneDetails(spec.Details),
++		cause:          spec.Cause,
++		codeRegistered: true,
++	}, nil
++}
++
++// NewRealmEvidenceUnavailable builds the Section 15.3 capability_unavailable
++// failure for missing or unsafe broker, tmux server generation, or
++// functional-sentinel evidence, with the exact typed details that clause names.
++// It exists so that the realm case cannot be reported with an untyped detail
++// map, and so that no realm-specific code is minted while capability_unavailable
++// remains truthful.
++func NewRealmEvidenceUnavailable(version Version, message string, ids IDs, evidence RealmEvidence, cause error) (*Error, error) {
++	details, err := evidence.Details()
++	if err != nil {
++		return nil, err
++	}
++	return New(Spec{
++		Version: version,
++		Code:    "capability_unavailable",
++		Message: message,
++		IDs:     ids,
++		Details: details,
++		Cause:   cause,
++	})
++}
++
++// NewTargetAuthMissing builds the Section 15.3 target_auth_missing failure for
++// a missing or failed provider-auth smoke, with the exact typed details that
++// clause names.
++func NewTargetAuthMissing(version Version, message string, ids IDs, target TargetAuth, cause error) (*Error, error) {
++	details, err := target.Details()
++	if err != nil {
++		return nil, err
++	}
++	return New(Spec{
++		Version: version,
++		Code:    "target_auth_missing",
++		Message: message,
++		IDs:     ids,
++		Details: details,
++		Cause:   cause,
++	})
++}
++
++func validateMessage(message string) error {
++	if !utf8.ValidString(message) {
++		return fmt.Errorf("%w: message is not valid UTF-8", ErrInvalidStructuredError)
++	}
++	count := utf8.RuneCountInString(message)
++	if count < minMessageRunes || count > maxMessageRunes {
++		return fmt.Errorf(
++			"%w: message is %d UTF-8 characters, the bound is %d..%d",
++			ErrInvalidStructuredError, count, minMessageRunes, maxMessageRunes)
++	}
++	return nil
++}
++
++// Version reports the Structured Error version of this object.
++func (failure *Error) Version() Version { return failure.version }
++
++// Code reports the stable registry code. Automation branches on this and on
++// ExitCode, never on Message.
++func (failure *Error) Code() Code { return failure.code }
++
++// Message reports the human text. It carries no machine meaning.
++func (failure *Error) Message() string { return failure.message }
++
++// ExitCode reports the exact Section 15.2 status carried by this object. It is
++// never the success status.
++func (failure *Error) ExitCode() int { return failure.exitCode }
++
++// Retryable reports whether the identical request may safely be retried without
++// new authority or confirmation. It is false for every code and exit class the
++// pinned document disqualifies, on both the writing and the reading side.
++func (failure *Error) Retryable() bool { return failure.retryable }
++
++// IDs reports the optional identifiers this object carries.
++func (failure *Error) IDs() IDs { return failure.ids }
++
++// CodeRegistered reports whether the pinned registry carries this object's code
++// for this object's version. A false result is not an error: Section 15.3
++// admits a code added in a compatible minor, and such an object still carries
++// its envelope's exit class. It is reported rather than inferred so that a
++// caller never mistakes an unrecognized code for a recognized one.
++func (failure *Error) CodeRegistered() bool { return failure.codeRegistered }
++
++// Detail returns one diagnostic value as inert data. Section 15.1 says readers
++// "MUST never infer success, authority, or a remediation action from them", and
++// nothing in this package does: no accessor above consults the details map, so
++// an unknown or adversarial detail key cannot change Code, ExitCode, Retryable,
++// CodeRegistered, or any identifier.
++//
++// The returned value is a deep copy: a nested object or array handed to a
++// caller cannot be written back into this object, so a validated failure stays
++// exactly the object ValidateDetails admitted.
++func (failure *Error) Detail(key string) (any, bool) {
++	value, ok := failure.details[key]
++	if !ok {
++		return nil, false
++	}
++	return cloneDetailValue(value), true
++}
++
++// DetailKeys returns the diagnostic keys in sorted order.
++func (failure *Error) DetailKeys() []string { return sortedKeys(failure.details) }
++
++// Error implements the error interface. It renders the code and the human text
++// and never the cause, so wrapping this value with %v cannot copy untrusted or
++// sensitive cause text into a new message.
++func (failure *Error) Error() string {
++	return string(failure.code) + ": " + failure.message
++}
++
++// Unwrap exposes the local cause for errors.Is and errors.As. The cause is a
++// local Go value: it is never encoded, and MarshalJSON has no access to it.
++func (failure *Error) Unwrap() error { return failure.cause }
++
++// wireError is the closed Section 15.1 object. Its field set is exactly the
++// nine members the pinned table declares, and the two optional identifiers are
++// omitted when unknown rather than emitted as null.
++type wireError struct {
++	Schema        string  `json:"schema"`
++	SchemaVersion Version `json:"schema_version"`
++	Code          Code    `json:"code"`
++	Message       string  `json:"message"`
++	ExitCode      int     `json:"exit_code"`
++	Retryable     bool    `json:"retryable"`
++	OperationID   *string `json:"operation_id,omitempty"`
++	SessionID     *string `json:"session_id,omitempty"`
++	Details       Details `json:"details"`
++}
++
++// MarshalJSON encodes the closed Section 15.1 object. It is the only encoder in
++// this package, and it can reach neither the cause nor any other local field,
++// so no future field added to Error can leak onto the wire without being added
++// here as a declared member.
++func (failure *Error) MarshalJSON() ([]byte, error) {
++	object := wireError{
++		Schema:        Schema,
++		SchemaVersion: failure.version,
++		Code:          failure.code,
++		Message:       failure.message,
++		ExitCode:      failure.exitCode,
++		Retryable:     failure.retryable,
++		Details:       failure.details,
++	}
++	if operation, known := failure.ids.Operation(); known {
++		rendered := operation.String()
++		object.OperationID = &rendered
++	}
++	if session, known := failure.ids.Session(); known {
++		rendered := session.String()
++		object.SessionID = &rendered
++	}
++	var buffer bytes.Buffer
++	encoder := json.NewEncoder(&buffer)
++	encoder.SetEscapeHTML(false)
++	// The encode failure below is unreachable for a validated object: every
++	// member is a string, bool, int, or a details map whose values already
++	// passed ValidateDetails. It is reported rather than ignored so that a
++	// future member type cannot fail silently.
++	if err := encoder.Encode(object); err != nil {
++		return nil, fmt.Errorf("%w: encode: %v", ErrInvalidStructuredError, err)
++	}
++	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), nil
++}
++
++// cloneDetails deep-copies a validated diagnostic map. It always returns a
++// non-nil map, so the required details member is present in every encoded
++// object even when the constructing call site passed an empty one, and
++// MarshalJSON therefore needs no nil guard of its own.
++//
++// The copy is deep because a shallow one only isolates the top level. The
++// caller of New keeps whatever nested containers it passed, and a nested
++// container handed back by Detail is the same allocation; either one can be
++// written to after ValidateDetails has already run and passed.
++func cloneDetails(source Details) Details {
++	clone := make(Details, len(source))
++	for key, value := range source {
++		clone[key] = cloneDetailValue(value)
++	}
++	return clone
++}
++
++// cloneDetailValue deep-copies the two container kinds a detail value may open
++// and returns every other admitted value unchanged. That is safe rather than
++// partial: validateDetailValue admits only nil, bool, string, json.Number,
++// []any, and map[string]any, and the four scalar forms are immutable values in
++// Go. Any other type is refused before a value reaches this function, so no
++// mutable value can fall through the default arm into a constructed object.
++func cloneDetailValue(value any) any {
++	switch typed := value.(type) {
++	case map[string]any:
++		nested := make(map[string]any, len(typed))
++		for key, member := range typed {
++			nested[key] = cloneDetailValue(member)
++		}
++		return nested
++	case []any:
++		members := make([]any, len(typed))
++		for index, member := range typed {
++			members[index] = cloneDetailValue(member)
++		}
++		return members
++	default:
++		return value
++	}
++}
++
++var _ json.Marshaler = (*Error)(nil)
++var _ error = (*Error)(nil)
+diff --git a/internal/axerror/axerror_test.go b/internal/axerror/axerror_test.go
+new file mode 100644
+index 0000000..372f786
+--- /dev/null
++++ b/internal/axerror/axerror_test.go
+@@ -0,0 +1,255 @@
++package axerror
++
++import (
++	"encoding/json"
++	"errors"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// normativeExample is the Section 15.1 failure object, copied verbatim from the
++// pinned document at SPEC.md lines 10986-11000.
++const normativeExample = `{
++  "schema": "urn:ax:schema:error",
++  "schema_version": "1.0.0",
++  "code": "workspace_conflict",
++  "message": "destination differs from its last materialized checkpoint",
++  "exit_code": 5,
++  "retryable": false,
++  "operation_id": "0198f4c8-b180-7299-9273-1234567890ab",
++  "session_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "details": {
++    "expected_checkpoint": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
++    "remediations": ["diff", "copy", "worktree", "replace_managed_replica"]
++  }
++}`
++
++func mustUUIDv7(test *testing.T, value string) scalar.UUIDv7 {
++	test.Helper()
++	parsed, err := scalar.ParseUUIDv7(value)
++	if err != nil {
++		test.Fatalf("parse %q: %v", value, err)
++	}
++	return parsed
++}
++
++// TestNewProducesTheNormativeStructuredErrorObject drives the real constructor
++// and requires the encoded bytes to equal the canonical form of the pinned
++// example. The exit status is not supplied by the caller anywhere in this test:
++// it is resolved from the registry, so a wrong mapping would show up as a byte
++// difference here rather than as a missing assertion.
++func TestNewProducesTheNormativeStructuredErrorObject(test *testing.T) {
++	failure, err := New(Spec{
++		Version: Version100,
++		Code:    "workspace_conflict",
++		Message: "destination differs from its last materialized checkpoint",
++		IDs: NoIDs().
++			WithOperation(mustUUIDv7(test, "0198f4c8-b180-7299-9273-1234567890ab")).
++			WithSession(mustUUIDv7(test, "0198f4c8-3e70-7a11-8a2b-1234567890ab")),
++		Details: Details{
++			"expected_checkpoint": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
++			"remediations":        []any{"diff", "copy", "worktree", "replace_managed_replica"},
++		},
++	})
++	if err != nil {
++		test.Fatalf("New: %v", err)
++	}
++	if failure.ExitCode() != 5 {
++		test.Fatalf("exit_code = %d, the pinned example carries 5", failure.ExitCode())
++	}
++	if failure.Retryable() {
++		test.Fatal("retryable defaulted to true")
++	}
++	if failure.Version() != Version100 || failure.Code() != "workspace_conflict" {
++		test.Fatalf("envelope identity drifted: %s %s", failure.Version(), failure.Code())
++	}
++	if !failure.CodeRegistered() {
++		test.Fatal("a constructed code reports as unregistered")
++	}
++
++	encoded, err := json.Marshal(failure)
++	if err != nil {
++		test.Fatalf("marshal: %v", err)
++	}
++	got, err := canonicaljson.Canonicalize(encoded)
++	if err != nil {
++		test.Fatalf("canonicalize produced object: %v", err)
++	}
++	want, err := canonicaljson.Canonicalize([]byte(normativeExample))
++	if err != nil {
++		test.Fatalf("canonicalize pinned example: %v", err)
++	}
++	if string(got) != string(want) {
++		test.Fatalf("encoded object\n got %s\nwant %s", got, want)
++	}
++
++	// The pinned example round-trips through the reader as the same object.
++	decoded, err := Decode(Version100, []byte(normativeExample))
++	if err != nil {
++		test.Fatalf("Decode pinned example: %v", err)
++	}
++	roundTripped, err := json.Marshal(decoded)
++	if err != nil {
++		test.Fatalf("marshal decoded: %v", err)
++	}
++	canonicalRoundTrip, err := canonicaljson.Canonicalize(roundTripped)
++	if err != nil {
++		test.Fatalf("canonicalize round trip: %v", err)
++	}
++	if string(canonicalRoundTrip) != string(want) {
++		test.Fatalf("round trip\n got %s\nwant %s", canonicalRoundTrip, want)
++	}
++}
++
++// TestOptionalIdentifiersAreOmittedNotNulled checks the two optional members.
++// An object built with NoIDs carries neither member, and an object that knows
++// one carries exactly that one.
++func TestOptionalIdentifiersAreOmittedNotNulled(test *testing.T) {
++	failure, err := New(Spec{
++		Version: Version100,
++		Code:    "not_found",
++		Message: "no such session",
++		IDs:     NoIDs(),
++		Details: Details{},
++	})
++	if err != nil {
++		test.Fatalf("New: %v", err)
++	}
++	encoded, err := json.Marshal(failure)
++	if err != nil {
++		test.Fatalf("marshal: %v", err)
++	}
++	for _, absent := range []string{"operation_id", "session_id"} {
++		if strings.Contains(string(encoded), absent) {
++			test.Fatalf("unknown %s was emitted: %s", absent, encoded)
++		}
++	}
++	if !strings.Contains(string(encoded), `"details":{}`) {
++		test.Fatalf("required empty details member was not emitted: %s", encoded)
++	}
++	if _, known := failure.IDs().Operation(); known {
++		test.Fatal("NoIDs reported a known operation identifier")
++	}
++
++	sessionScoped, err := New(Spec{
++		Version: Version110,
++		Code:    "source_not_quiescent",
++		Message: "source session is still producing output",
++		IDs:     NoIDs().WithSession(mustUUIDv7(test, "0198f4c8-3e70-7a11-8a2b-1234567890ab")),
++		Details: Details{},
++	})
++	if err != nil {
++		test.Fatalf("New: %v", err)
++	}
++	encoded, err = json.Marshal(sessionScoped)
++	if err != nil {
++		test.Fatalf("marshal: %v", err)
++	}
++	if strings.Contains(string(encoded), "operation_id") {
++		test.Fatalf("unknown operation_id was emitted: %s", encoded)
++	}
++	if !strings.Contains(string(encoded), `"session_id":"0198f4c8-3e70-7a11-8a2b-1234567890ab"`) {
++		test.Fatalf("known session_id was not emitted: %s", encoded)
++	}
++}
++
++// TestUnknownDetailKeysNeverChangeAnyMachineAnswer is the Section 15.1 reader
++// obligation as a behavioural gate: readers "MUST never infer success,
++// authority, or a remediation action from" unknown detail keys. Each accessor
++// is compared between an object with an empty detail map and an object whose
++// details assert success, authority, and a remediation. Nothing may move.
++func TestUnknownDetailKeysNeverChangeAnyMachineAnswer(test *testing.T) {
++	build := func(details Details) *Error {
++		test.Helper()
++		failure, err := New(Spec{
++			Version: Version120,
++			Code:    "policy_refused",
++			Message: "the requested move is refused by policy",
++			IDs:     NoIDs(),
++			Details: details,
++		})
++		if err != nil {
++			test.Fatalf("New: %v", err)
++		}
++		return failure
++	}
++	plain := build(Details{})
++	adversarial := build(Details{
++		"ok":             true,
++		"success":        true,
++		"authorized":     true,
++		"authority":      "granted",
++		"retryable":      true,
++		"exit_code":      json.Number("0"),
++		"remediation":    "retry the identical request",
++		"schema_version": "1.3.0",
++	})
++
++	if plain.Code() != adversarial.Code() {
++		test.Fatalf("details changed the code: %s vs %s", plain.Code(), adversarial.Code())
++	}
++	if plain.ExitCode() != adversarial.ExitCode() {
++		test.Fatalf("details changed the exit status: %d vs %d", plain.ExitCode(), adversarial.ExitCode())
++	}
++	if plain.Retryable() != adversarial.Retryable() {
++		test.Fatalf("details changed retryability: %t vs %t", plain.Retryable(), adversarial.Retryable())
++	}
++	if plain.Version() != adversarial.Version() {
++		test.Fatalf("details changed the version: %s vs %s", plain.Version(), adversarial.Version())
++	}
++	if plain.CodeRegistered() != adversarial.CodeRegistered() {
++		test.Fatal("details changed the registered-code answer")
++	}
++	if _, known := adversarial.IDs().Operation(); known {
++		test.Fatal("details minted an operation identifier")
++	}
++	if _, known := adversarial.IDs().Session(); known {
++		test.Fatal("details minted a session identifier")
++	}
++	if adversarial.ExitCode() == 0 {
++		test.Fatal("a failure object reported the success exit status")
++	}
++	// The same holds after a decode, where the detail map came from a peer.
++	encoded, err := json.Marshal(adversarial)
++	if err != nil {
++		test.Fatalf("marshal: %v", err)
++	}
++	decoded, err := Decode(Version120, encoded)
++	if err != nil {
++		test.Fatalf("Decode: %v", err)
++	}
++	if decoded.Retryable() || decoded.ExitCode() != plain.ExitCode() || decoded.Code() != plain.Code() {
++		test.Fatalf("decoded object took a machine answer from its details: %+v", decoded)
++	}
++}
++
++// TestErrorRenderingAndCauseChain checks that the Go rendering carries the code
++// and the human text and never the cause, while errors.Is still reaches the
++// cause for local handling.
++func TestErrorRenderingAndCauseChain(test *testing.T) {
++	sentinel := errors.New("provider stderr: token=SECRET-VALUE-0001 refused")
++	failure, err := New(Spec{
++		Version: Version100,
++		Code:    "provider_process_failed",
++		Message: "the provider plugin exited before answering",
++		IDs:     NoIDs(),
++		Details: Details{},
++		Cause:   sentinel,
++	})
++	if err != nil {
++		test.Fatalf("New: %v", err)
++	}
++	rendered := failure.Error()
++	if !strings.HasPrefix(rendered, "provider_process_failed: ") {
++		test.Fatalf("rendering does not lead with the code: %q", rendered)
++	}
++	if strings.Contains(rendered, "SECRET-VALUE-0001") {
++		test.Fatalf("rendering carried the cause: %q", rendered)
++	}
++	if !errors.Is(failure, sentinel) {
++		test.Fatal("errors.Is cannot reach the local cause")
++	}
++}
+diff --git a/internal/axerror/binding.go b/internal/axerror/binding.go
+new file mode 100644
+index 0000000..c616fe5
+--- /dev/null
++++ b/internal/axerror/binding.go
+@@ -0,0 +1,89 @@
++package axerror
++
++import (
++	"errors"
++	"fmt"
++	"sort"
++
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++)
++
++// ErrUnboundContract reports a containing contract major that binds no
++// Structured Error version. It is returned rather than a default, because
++// guessing a version here is exactly the negotiation the pinned document
++// forbids.
++var ErrUnboundContract = errors.New("containing contract major binds no structured error version")
++
++// ContainingContract identifies a contract that embeds Structured Error.
++type ContainingContract struct {
++	// ID is the Section 1.5 schema identifier of the containing contract.
++	ID catalog.ContractID
++	// Major is the containing contract's major version.
++	Major int
++}
++
++// staticBindings is the complete Section 15.1, 15.3, and 17.1 binding table.
++// Section 17.1 states the rule this table implements: "None negotiates the
++// error schema separately. Compatibility is evaluated first for the containing
++// protocol and then against its fixed embedded-error validator."
++//
++// Every row is quoted from the pinned document:
++//   - 15.1: "Provider protocol 2.x, task-board bridge 1.x, and Mesh RPC 2.x
++//     each embed exactly Structured Error 1.0.0."
++//   - 15.1: "Session Adapter 1.0 and session.clone.* bind Structured Error
++//     1.1.0."
++//   - 14.2: "Legacy commands select CLI Result 1.0.0 and Structured Error
++//     1.0.0; every session.clone.* command selects CLI Result 2.0.0 on success
++//     and Structured Error 1.1.0 on failure."
++//   - 15.3: Structured Error 1.2.0 "is bound by Directory Node 1 and 2, Mesh
++//     RPC 3, CLI Result 3, and Directory Query 1".
++//   - 15.3: "Terminal Backend Protocol 1.0.0, Provider Protocol 3.0.0, Mesh RPC
++//     4.0.0, and CLI Result 4.0.0 statically bind Structured Error 1.3.0."
++var staticBindings = map[ContainingContract]Version{
++	{ID: "urn:ax:protocol:provider", Major: 2}:               Version100,
++	{ID: "urn:ax:protocol:provider", Major: 3}:               Version130,
++	{ID: "urn:ax:protocol:task-board-bridge", Major: 1}:      Version100,
++	{ID: "urn:ax:protocol:rpc", Major: 2}:                    Version100,
++	{ID: "urn:ax:protocol:rpc", Major: 3}:                    Version120,
++	{ID: "urn:ax:protocol:rpc", Major: 4}:                    Version130,
++	{ID: "urn:ax:protocol:session-adapter", Major: 1}:        Version110,
++	{ID: "urn:ax:schema:cli-result", Major: 1}:               Version100,
++	{ID: "urn:ax:schema:cli-result", Major: 2}:               Version110,
++	{ID: "urn:ax:schema:cli-result", Major: 3}:               Version120,
++	{ID: "urn:ax:schema:cli-result", Major: 4}:               Version130,
++	{ID: "urn:ax:protocol:session-directory-node", Major: 1}: Version120,
++	{ID: "urn:ax:protocol:session-directory-node", Major: 2}: Version120,
++	{ID: "urn:ax:schema:session-directory-query", Major: 1}:  Version120,
++	{ID: "urn:ax:protocol:terminal-backend", Major: 1}:       Version130,
++}
++
++// BindingFor returns the exact Structured Error version that a containing
++// contract major statically binds. There is no negotiation path: the version is
++// selected by the containing contract alone, as Section 15.1 requires — "the
++// containing protocol version is sufficient to select it".
++//
++// An unregistered contract or major is refused. A caller cannot fall back to a
++// neighbouring major, and no default is returned.
++func BindingFor(contract ContainingContract) (Version, error) {
++	version, bound := staticBindings[contract]
++	if !bound {
++		return "", fmt.Errorf("%w: %s major %d", ErrUnboundContract, contract.ID, contract.Major)
++	}
++	return version, nil
++}
++
++// BoundContracts returns every containing contract major that binds a
++// Structured Error version, in a stable order.
++func BoundContracts() []ContainingContract {
++	result := make([]ContainingContract, 0, len(staticBindings))
++	for contract := range staticBindings {
++		result = append(result, contract)
++	}
++	sort.Slice(result, func(left, right int) bool {
++		if result[left].ID != result[right].ID {
++			return result[left].ID < result[right].ID
++		}
++		return result[left].Major < result[right].Major
++	})
++	return result
++}
+diff --git a/internal/axerror/binding_test.go b/internal/axerror/binding_test.go
+new file mode 100644
+index 0000000..bdcb38e
+--- /dev/null
++++ b/internal/axerror/binding_test.go
+@@ -0,0 +1,111 @@
++package axerror
++
++import (
++	"errors"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++)
++
++// TestBindingForPinsEveryDeclaredContainingContract checks the static binding
++// table against the pinned rows one by one and reports the measured ratio. The
++// table is the whole of the "the containing protocol version is sufficient to
++// select it" rule: nothing else in this package chooses a version.
++func TestBindingForPinsEveryDeclaredContainingContract(test *testing.T) {
++	pinned := map[ContainingContract]Version{
++		{ID: "urn:ax:protocol:provider", Major: 2}:               Version100,
++		{ID: "urn:ax:protocol:task-board-bridge", Major: 1}:      Version100,
++		{ID: "urn:ax:protocol:rpc", Major: 2}:                    Version100,
++		{ID: "urn:ax:schema:cli-result", Major: 1}:               Version100,
++		{ID: "urn:ax:protocol:session-adapter", Major: 1}:        Version110,
++		{ID: "urn:ax:schema:cli-result", Major: 2}:               Version110,
++		{ID: "urn:ax:protocol:session-directory-node", Major: 1}: Version120,
++		{ID: "urn:ax:protocol:session-directory-node", Major: 2}: Version120,
++		{ID: "urn:ax:protocol:rpc", Major: 3}:                    Version120,
++		{ID: "urn:ax:schema:cli-result", Major: 3}:               Version120,
++		{ID: "urn:ax:schema:session-directory-query", Major: 1}:  Version120,
++		{ID: "urn:ax:protocol:terminal-backend", Major: 1}:       Version130,
++		{ID: "urn:ax:protocol:provider", Major: 3}:               Version130,
++		{ID: "urn:ax:protocol:rpc", Major: 4}:                    Version130,
++		{ID: "urn:ax:schema:cli-result", Major: 4}:               Version130,
++	}
++	bound := BoundContracts()
++	if len(bound) != len(pinned) {
++		test.Fatalf("binding table carries %d rows, the pinned set has %d", len(bound), len(pinned))
++	}
++	for contract, want := range pinned {
++		got, err := BindingFor(contract)
++		if err != nil {
++			test.Fatalf("BindingFor(%s major %d): %v", contract.ID, contract.Major, err)
++		}
++		if got != want {
++			test.Fatalf("%s major %d binds %s, the pinned binding is %s", contract.ID, contract.Major, got, want)
++		}
++	}
++	// Every bound contract identifier is a real Section 1.5 contract, so a typo
++	// cannot create a binding to a schema that does not exist.
++	known := make(map[catalog.ContractID]struct{})
++	for _, contract := range catalog.Current().Contracts {
++		known[contract.ID] = struct{}{}
++	}
++	for _, contract := range bound {
++		if _, ok := known[contract.ID]; !ok {
++			test.Fatalf("binding table names %q, which the v0.5.0 contract registry does not carry", contract.ID)
++		}
++	}
++	test.Logf("static binding coverage: %d/%d pinned containing-contract majors", len(bound), len(pinned))
++}
++
++// TestBindingForRefusesUnboundContractMajor narrows the refusal. Each case is a
++// contract or major that the pinned document does not bind, including
++// neighbours of bound rows, so a table that fell back to the nearest major or
++// to a default version would be caught.
++func TestBindingForRefusesUnboundContractMajor(test *testing.T) {
++	cases := []ContainingContract{
++		{ID: "urn:ax:protocol:provider", Major: 1},
++		{ID: "urn:ax:protocol:provider", Major: 4},
++		{ID: "urn:ax:protocol:rpc", Major: 1},
++		{ID: "urn:ax:protocol:rpc", Major: 5},
++		{ID: "urn:ax:protocol:task-board-bridge", Major: 2},
++		{ID: "urn:ax:schema:cli-result", Major: 5},
++		{ID: "urn:ax:protocol:session-adapter", Major: 2},
++		{ID: "urn:ax:schema:error", Major: 1},
++		{ID: "urn:ax:schema:session-record", Major: 3},
++		{ID: "urn:ax:protocol:provider", Major: 0},
++	}
++	for _, contract := range cases {
++		if _, err := BindingFor(contract); !errors.Is(err, ErrUnboundContract) {
++			test.Fatalf("%s major %d was bound to a version: %v", contract.ID, contract.Major, err)
++		}
++	}
++}
++
++// TestDecodeBoundSelectsTheVersionFromTheContainerNotThePayload proves that the
++// embedded version is chosen by the containing contract. A payload that names a
++// different registered version is refused rather than accepted on its own word.
++func TestDecodeBoundSelectsTheVersionFromTheContainerNotThePayload(test *testing.T) {
++	document := []byte(`{
++		"schema": "urn:ax:schema:error",
++		"schema_version": "1.3.0",
++		"code": "not_found",
++		"message": "no such session",
++		"exit_code": 4,
++		"retryable": false,
++		"details": {}
++	}`)
++	provider2 := ContainingContract{ID: "urn:ax:protocol:provider", Major: 2}
++	if _, err := DecodeBound(provider2, document); !errors.Is(err, ErrVersionMismatch) {
++		test.Fatalf("a provider 2 envelope accepted a 1.3.0 error payload: %v", err)
++	}
++	provider3 := ContainingContract{ID: "urn:ax:protocol:provider", Major: 3}
++	failure, err := DecodeBound(provider3, document)
++	if err != nil {
++		test.Fatalf("DecodeBound(provider 3): %v", err)
++	}
++	if failure.Version() != Version130 {
++		test.Fatalf("decoded version is %s, the provider 3 binding is 1.3.0", failure.Version())
++	}
++	if _, err := DecodeBound(ContainingContract{ID: "urn:ax:protocol:provider", Major: 9}, document); !errors.Is(err, ErrUnboundContract) {
++		test.Fatalf("an unbound containing major produced an error object: %v", err)
++	}
++}
+diff --git a/internal/axerror/decode.go b/internal/axerror/decode.go
+new file mode 100644
+index 0000000..68856a4
+--- /dev/null
++++ b/internal/axerror/decode.go
+@@ -0,0 +1,270 @@
++package axerror
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"regexp"
++	"strconv"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++var (
++	// ErrUnsupportedMajor reports a Structured Error document whose major is not
++	// 1. Section 17.2 rule 1 requires a reader to reject an unsupported major
++	// rather than parse it, and Section 15.1 forbids trusting a different
++	// major's code, retryable bit, details, or authority fields.
++	ErrUnsupportedMajor = errors.New("unsupported structured error major")
++
++	// ErrVersionMismatch reports a supported version that is not the one the
++	// containing contract statically binds.
++	ErrVersionMismatch = errors.New("structured error version differs from the bound version")
++)
++
++// semverPattern accepts only a full, unpadded semantic version triple.
++var semverPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
++
++// wireDocument is the closed decode target. Every member is a pointer so that
++// an omitted required member is distinguishable from a present zero value, and
++// DisallowUnknownFields makes any tenth member a refusal: an authority field
++// smuggled alongside the nine declared ones is rejected, not ignored.
++type wireDocument struct {
++	Schema        *string          `json:"schema"`
++	SchemaVersion *string          `json:"schema_version"`
++	Code          *string          `json:"code"`
++	Message       *string          `json:"message"`
++	ExitCode      *json.RawMessage `json:"exit_code"`
++	Retryable     *bool            `json:"retryable"`
++	OperationID   *json.RawMessage `json:"operation_id"`
++	SessionID     *json.RawMessage `json:"session_id"`
++	Details       *Details         `json:"details"`
++}
++
++// Decode reads one Structured Error document that is expected to carry exactly
++// version.
++//
++// The envelope identity is settled before any other member is consulted. A
++// document whose schema is not urn:ax:schema:error, whose major is not 1, or
++// whose supported minor is not the expected one is refused without this
++// function having read its code, retryable bit, details, or identifiers, so no
++// part of a wrong-version payload can be trusted on the way to that refusal.
++//
++// A code the registry does not carry is admitted, because Section 15.3 states
++// that "New error codes MAY be added in a compatible minor contract version".
++// Such an object keeps its envelope's exit class, is reported by
++// CodeRegistered as unrecognized, and is never a success: its exit status must
++// still be a registered Section 15.2 failure status, and the retryability
++// refusals that apply to that exit class still apply.
++func Decode(version Version, data []byte) (*Error, error) {
++	if !isRegisteredVersion(version) {
++		return nil, fmt.Errorf("%w: %q", ErrUnsupportedVersion, version)
++	}
++	document, err := decodeClosedDocument(data)
++	if err != nil {
++		return nil, err
++	}
++	if err := verifyEnvelopeIdentity(document, version); err != nil {
++		return nil, err
++	}
++	return decodeBody(version, document)
++}
++
++// DecodeBound reads a Structured Error embedded in a containing contract. The
++// version is resolved from the static binding table, never from the document,
++// so a peer cannot select its own error version by writing one into the
++// payload.
++func DecodeBound(contract ContainingContract, data []byte) (*Error, error) {
++	version, err := BindingFor(contract)
++	if err != nil {
++		return nil, err
++	}
++	return Decode(version, data)
++}
++
++func decodeClosedDocument(data []byte) (*wireDocument, error) {
++	decoder := json.NewDecoder(bytes.NewReader(data))
++	decoder.DisallowUnknownFields()
++	decoder.UseNumber()
++	var document wireDocument
++	if err := decoder.Decode(&document); err != nil {
++		return nil, fmt.Errorf("%w: decode: %v", ErrInvalidStructuredError, err)
++	}
++	var trailing any
++	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
++		return nil, fmt.Errorf("%w: document carries trailing content", ErrInvalidStructuredError)
++	}
++	return &document, nil
++}
++
++// verifyEnvelopeIdentity settles schema and version before anything else is
++// read. It is deliberately separate from decodeBody so that the ordering is
++// visible rather than incidental.
++func verifyEnvelopeIdentity(document *wireDocument, expected Version) error {
++	if document.Schema == nil || *document.Schema != Schema {
++		return fmt.Errorf("%w: schema is not %s", ErrInvalidStructuredError, Schema)
++	}
++	if document.SchemaVersion == nil {
++		return fmt.Errorf("%w: schema_version is required", ErrInvalidStructuredError)
++	}
++	raw := *document.SchemaVersion
++	matches := semverPattern.FindStringSubmatch(raw)
++	if matches == nil {
++		return fmt.Errorf("%w: schema_version %q is not a semantic version", ErrInvalidStructuredError, raw)
++	}
++	major, err := strconv.Atoi(matches[1])
++	if err != nil || major != 1 {
++		return fmt.Errorf("%w: %q", ErrUnsupportedMajor, raw)
++	}
++	candidate := Version(raw)
++	if !isRegisteredVersion(candidate) {
++		return fmt.Errorf("%w: %q", ErrUnsupportedVersion, raw)
++	}
++	if candidate != expected {
++		return fmt.Errorf("%w: document is %s, bound version is %s", ErrVersionMismatch, raw, expected)
++	}
++	return nil
++}
++
++func decodeBody(version Version, document *wireDocument) (*Error, error) {
++	if document.Code == nil {
++		return nil, fmt.Errorf("%w: code is required", ErrInvalidStructuredError)
++	}
++	code := Code(*document.Code)
++	if err := validateCodeGrammar(code); err != nil {
++		return nil, err
++	}
++	if document.Message == nil {
++		return nil, fmt.Errorf("%w: message is required", ErrInvalidStructuredError)
++	}
++	if err := validateMessage(*document.Message); err != nil {
++		return nil, err
++	}
++	if document.ExitCode == nil {
++		return nil, fmt.Errorf("%w: exit_code is required", ErrInvalidStructuredError)
++	}
++	exitCode, err := decodeExitStatus(*document.ExitCode)
++	if err != nil {
++		return nil, err
++	}
++	registered := true
++	expectedExit, lookupErr := ExitCodeFor(version, code)
++	switch {
++	case lookupErr == nil:
++		if exitCode != expectedExit {
++			return nil, fmt.Errorf(
++				"%w: %q maps to exit %d, document carries %d",
++				ErrInvalidStructuredError, code, expectedExit, exitCode)
++		}
++	case errors.Is(lookupErr, ErrUnregisteredCode):
++		// Section 15.3: an unknown code "retains the envelope's exit class and
++		// MUST NOT be interpreted as success". The class is retained by the
++		// registered-failure-status check above; success is impossible because
++		// decodeExitStatus refuses status 0.
++		registered = false
++	default:
++		return nil, lookupErr
++	}
++	if document.Retryable == nil {
++		return nil, fmt.Errorf("%w: retryable is required", ErrInvalidStructuredError)
++	}
++	if *document.Retryable {
++		if reason, forbidden := RetryabilityRefusal(code, exitCode); forbidden {
++			return nil, fmt.Errorf(
++				"%w: %q may not claim retryable: %s", ErrInvalidStructuredError, code, reason)
++		}
++	}
++	if document.Details == nil {
++		return nil, fmt.Errorf("%w: details is required", ErrInvalidStructuredError)
++	}
++	// This map was allocated by the decoder from the document bytes and no
++	// caller holds a reference to it, so the object below owns it already. New
++	// clones instead, because its map comes from a call site that keeps one.
++	details := *document.Details
++	if err := ValidateDetails(details); err != nil {
++		return nil, err
++	}
++	if code == "target_auth_missing" {
++		if err := requireDetailKeys(code, details, targetAuthMissingKeys); err != nil {
++			return nil, err
++		}
++	}
++	ids, err := decodeIDs(document)
++	if err != nil {
++		return nil, err
++	}
++	return &Error{
++		version:        version,
++		code:           code,
++		message:        *document.Message,
++		exitCode:       exitCode,
++		retryable:      *document.Retryable,
++		ids:            ids,
++		details:        details,
++		codeRegistered: registered,
++	}, nil
++}
++
++// decodeExitStatus reads exit_code from its raw bytes rather than through a
++// json.Number field. encoding/json will unmarshal the JSON string "9" into a
++// json.Number, which would let a peer write its exit status as text.
++//
++// Reading the raw bytes makes the JSON type part of the same parse that reads
++// the value, and there is deliberately no separate type guard in front of it:
++// the quotes of "9", the point of 9.0, the exponent of 1e1, and the letters of
++// true, null and [] are all bytes strconv.ParseInt refuses. A leading +, a
++// leading zero, or an underscore separator never reaches here, because the
++// document scanner rejects those before json.RawMessage captures a value.
++func decodeExitStatus(raw json.RawMessage) (int, error) {
++	text := string(bytes.TrimSpace(raw))
++	value, err := strconv.ParseInt(text, 10, 32)
++	if err != nil {
++		return 0, fmt.Errorf("%w: exit_code %s is not a JSON int32", ErrInvalidStructuredError, text)
++	}
++	status := int(value)
++	if !IsFailureExitStatus(status) {
++		return 0, fmt.Errorf("%w: exit_code %d", ErrUnregisteredExit, status)
++	}
++	return status, nil
++}
++
++func decodeOptionalUUIDv7(raw *json.RawMessage, name string) (scalar.UUIDv7, bool, error) {
++	if raw == nil {
++		return scalar.UUIDv7{}, false, nil
++	}
++	// Section 15.1 declares both identifiers optional and present when known. An
++	// explicit JSON null states the same absence the omitted member states, and
++	// encoding/json leaves the pointer above nil for both, so the two forms
++	// converge on the absent answer before this point.
++	trimmed := bytes.TrimSpace(*raw)
++	var text string
++	if err := json.Unmarshal(trimmed, &text); err != nil {
++		return scalar.UUIDv7{}, false, fmt.Errorf("%w: %s is not a string", ErrInvalidStructuredError, name)
++	}
++	parsed, err := scalar.ParseUUIDv7(text)
++	if err != nil {
++		return scalar.UUIDv7{}, false, fmt.Errorf("%w: %s: %v", ErrInvalidStructuredError, name, err)
++	}
++	return parsed, true, nil
++}
++
++func decodeIDs(document *wireDocument) (IDs, error) {
++	ids := NoIDs()
++	operation, present, err := decodeOptionalUUIDv7(document.OperationID, "operation_id")
++	if err != nil {
++		return IDs{}, err
++	}
++	if present {
++		ids = ids.WithOperation(operation)
++	}
++	session, present, err := decodeOptionalUUIDv7(document.SessionID, "session_id")
++	if err != nil {
++		return IDs{}, err
++	}
++	if present {
++		ids = ids.WithSession(session)
++	}
++	return ids, nil
++}
+diff --git a/internal/axerror/decode_test.go b/internal/axerror/decode_test.go
+new file mode 100644
+index 0000000..401eb00
+--- /dev/null
++++ b/internal/axerror/decode_test.go
+@@ -0,0 +1,352 @@
++package axerror
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++)
++
++const conformingDocument = `{
++	"schema": "urn:ax:schema:error",
++	"schema_version": "1.2.0",
++	"code": "observation_gap",
++	"message": "the inventory batch skipped a sequence",
++	"exit_code": 9,
++	"retryable": false,
++	"operation_id": "0198f4c8-b180-7299-9273-1234567890ab",
++	"session_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++	"details": {"observed_sequence": "17"}
++}`
++
++// TestDecodeRetainsUnknownCodeExitClassWithoutSuccess is the Section 15.3
++// reader rule: "an unknown code retains the envelope's exit class and MUST NOT
++// be interpreted as success". A code added by a compatible minor is admitted,
++// keeps its exit class, and is reported as unrecognized rather than silently
++// treated as a known one.
++func TestDecodeRetainsUnknownCodeExitClassWithoutSuccess(test *testing.T) {
++	document := strings.Replace(conformingDocument, `"observation_gap"`, `"observation_horizon_lost"`, 1)
++	failure, err := Decode(Version120, []byte(document))
++	if err != nil {
++		test.Fatalf("a code added by a compatible minor was refused: %v", err)
++	}
++	if failure.Code() != "observation_horizon_lost" {
++		test.Fatalf("code was rewritten to %q", failure.Code())
++	}
++	if failure.ExitCode() != 9 {
++		test.Fatalf("exit class was not retained: %d", failure.ExitCode())
++	}
++	if failure.CodeRegistered() {
++		test.Fatal("an unregistered code reported as registered")
++	}
++	if failure.ExitCode() == 0 {
++		test.Fatal("an unknown code produced the success exit status")
++	}
++
++	// The exit class still has to be a registered failure status, so an unknown
++	// code cannot smuggle success or an invented class in with it.
++	for _, status := range []string{"0", "1", "18", "99"} {
++		smuggled := strings.Replace(document, `"exit_code": 9`, `"exit_code": `+status, 1)
++		if smuggled == document {
++			test.Fatal("the exit status substitution did not apply")
++		}
++		if _, err := Decode(Version120, []byte(smuggled)); !errors.Is(err, ErrUnregisteredExit) {
++			test.Fatalf("exit status %s was admitted for an unknown code: %v", status, err)
++		}
++	}
++
++	// An unknown code on an authorization, refusal, or interrupt class still
++	// cannot claim a safe retry.
++	for _, item := range []struct{ status, name string }{{"7", "authorization"}, {"16", "refusal"}, {"130", "interrupt"}} {
++		forged := strings.Replace(document, `"exit_code": 9`, `"exit_code": `+item.status, 1)
++		forged = strings.Replace(forged, `"retryable": false`, `"retryable": true`, 1)
++		if _, err := Decode(Version120, []byte(forged)); !errors.Is(err, ErrInvalidStructuredError) {
++			test.Fatalf("an unknown code forged a retry claim on the %s class: %v", item.name, err)
++		}
++	}
++}
++
++// TestDecodeRefusesClosedShapeViolations narrows the reader. Every case is one
++// mutation of a document the reader otherwise accepts.
++func TestDecodeRefusesClosedShapeViolations(test *testing.T) {
++	if _, err := Decode(Version120, []byte(conformingDocument)); err != nil {
++		test.Fatalf("the conforming document was refused: %v", err)
++	}
++	cases := []struct {
++		name     string
++		document string
++		wantErr  error
++	}{
++		{
++			name:     "foreign schema",
++			document: strings.Replace(conformingDocument, "urn:ax:schema:error", "urn:ax:schema:cli-result", 1),
++			wantErr:  ErrInvalidStructuredError,
++		},
++		{
++			name:     "unsupported major",
++			document: strings.Replace(conformingDocument, `"1.2.0"`, `"2.0.0"`, 1),
++			wantErr:  ErrUnsupportedMajor,
++		},
++		{
++			name:     "unregistered minor",
++			document: strings.Replace(conformingDocument, `"1.2.0"`, `"1.9.0"`, 1),
++			wantErr:  ErrUnsupportedVersion,
++		},
++		{
++			name:     "supported but unbound minor",
++			document: strings.Replace(conformingDocument, `"1.2.0"`, `"1.3.0"`, 1),
++			wantErr:  ErrVersionMismatch,
++		},
++		{
++			name:     "unparseable version",
++			document: strings.Replace(conformingDocument, `"1.2.0"`, `"1.2"`, 1),
++			wantErr:  ErrInvalidStructuredError,
++		},
++		{
++			name: "tenth top-level member",
++			document: strings.Replace(
++				conformingDocument, `"details":`, `"authority": "granted", "details":`, 1),
++			wantErr: ErrInvalidStructuredError,
++		},
++		{
++			name: "extensions member borrowed from another contract",
++			document: strings.Replace(
++				conformingDocument, `"details":`, `"extensions": {}, "details":`, 1),
++			wantErr: ErrInvalidStructuredError,
++		},
++		{
++			name:     "missing details",
++			document: strings.Replace(conformingDocument, ",\n\t\"details\": {\"observed_sequence\": \"17\"}", "", 1),
++			wantErr:  ErrInvalidStructuredError,
++		},
++		{
++			name:     "null details",
++			document: strings.Replace(conformingDocument, `{"observed_sequence": "17"}`, "null", 1),
++			wantErr:  ErrInvalidStructuredError,
++		},
++		{
++			name:     "exit status that contradicts a registered code",
++			document: strings.Replace(conformingDocument, `"exit_code": 9`, `"exit_code": 5`, 1),
++			wantErr:  ErrInvalidStructuredError,
++		},
++		{
++			name:     "code outside the grammar",
++			document: strings.Replace(conformingDocument, `"observation_gap"`, `"Observation-Gap"`, 1),
++			wantErr:  ErrUnregisteredCode,
++		},
++		{
++			name:     "operation identifier that is not a UUIDv7",
++			document: strings.Replace(conformingDocument, "0198f4c8-b180-7299-9273-1234567890ab", "not-a-uuid", 1),
++			wantErr:  ErrInvalidStructuredError,
++		},
++		{
++			name: "operation identifier of the wrong UUID version",
++			document: strings.Replace(
++				conformingDocument, "0198f4c8-b180-7299-9273-1234567890ab", "0198f4c8-b180-4299-9273-1234567890ab", 1),
++			wantErr: ErrInvalidStructuredError,
++		},
++		{
++			name:     "trailing content after the object",
++			document: conformingDocument + `{"schema":"urn:ax:schema:error"}`,
++			wantErr:  ErrInvalidStructuredError,
++		},
++		{
++			name:     "detail key naming an excluded class",
++			document: strings.Replace(conformingDocument, `"observed_sequence"`, `"access_token"`, 1),
++			wantErr:  ErrInvalidDetails,
++		},
++		{
++			name:     "empty message",
++			document: strings.Replace(conformingDocument, `"the inventory batch skipped a sequence"`, `""`, 1),
++			wantErr:  ErrInvalidStructuredError,
++		},
++		{
++			name:     "forged retry claim on a refusal class",
++			document: retryClaimOn(`"code": "policy_refused"`, `"exit_code": 16`),
++			wantErr:  ErrInvalidStructuredError,
++		},
++		{
++			name:     "forged retry claim on an uncertain operation",
++			document: retryClaimOn(`"code": "operation_uncertain"`, `"exit_code": 12`),
++			wantErr:  ErrInvalidStructuredError,
++		},
++	}
++	for _, item := range cases {
++		test.Run(item.name, func(test *testing.T) {
++			if item.document == conformingDocument {
++				test.Fatal("the mutation did not apply; the case proves nothing")
++			}
++			if _, err := Decode(Version120, []byte(item.document)); !errors.Is(err, item.wantErr) {
++				test.Fatalf("error = %v, want %v", err, item.wantErr)
++			}
++		})
++	}
++}
++
++// TestDecodeRefusesAWrongVersionBeforeReadingItsBody is Section 15.1's
++// "Receivers MUST NOT parse a different major's payload far enough to trust its
++// error code, retryable bit, details, or authority fields". The document below
++// is wrong in every one of those members as well as in its major. The reader
++// must refuse on the major, and must return no object at all, so that nothing
++// downstream can read a value the payload supplied.
++func TestDecodeRefusesAWrongVersionBeforeReadingItsBody(test *testing.T) {
++	hostile := `{
++		"schema": "urn:ax:schema:error",
++		"schema_version": "2.0.0",
++		"code": "not_found",
++		"message": "ok",
++		"exit_code": 0,
++		"retryable": true,
++		"details": {"authorized": true}
++	}`
++	failure, err := Decode(Version100, []byte(hostile))
++	if !errors.Is(err, ErrUnsupportedMajor) {
++		test.Fatalf("error = %v, want %v", err, ErrUnsupportedMajor)
++	}
++	if failure != nil {
++		test.Fatalf("a different-major payload produced a usable object: %+v", failure)
++	}
++	if strings.Contains(err.Error(), "not_found") || strings.Contains(err.Error(), "authorized") {
++		test.Fatalf("the refusal quoted the untrusted body: %v", err)
++	}
++	if _, err := Decode(Version("2.0.0"), []byte(hostile)); !errors.Is(err, ErrUnsupportedVersion) {
++		test.Fatal("the reader can be asked to expect an unsupported major")
++	}
++}
++
++func retryClaimOn(code, exit string) string {
++	document := strings.Replace(conformingDocument, `"code": "observation_gap"`, code, 1)
++	document = strings.Replace(document, `"exit_code": 9`, exit, 1)
++	return strings.Replace(document, `"retryable": false`, `"retryable": true`, 1)
++}
++
++// TestReaderAndAccessorEdges covers the remaining reader branches: a
++// non-integer or out-of-range exit status, both optional identifiers in their
++// explicit-null and wrong-type forms, and the sorted key accessor.
++func TestReaderAndAccessorEdges(test *testing.T) {
++	// Every wrong JSON type is refused by the same parse over the raw document
++	// bytes: the quotes, the point, the exponent and the letters are all bytes
++	// strconv.ParseInt rejects. A reader that took exit_code through a
++	// json.Number field, or that stripped quotes before parsing, would admit
++	// the string form and let a peer write its exit status as text.
++	for _, exit := range []string{"9.5", "\"9\"", "\"\"", "1e1", "4294967296", "true", "[]", "{}", "[9]"} {
++		document := strings.Replace(conformingDocument, `"exit_code": 9`, `"exit_code": `+exit, 1)
++		if document == conformingDocument {
++			test.Fatal("the exit status substitution did not apply")
++		}
++		if _, err := Decode(Version120, []byte(document)); err == nil {
++			test.Fatalf("exit_code %s was admitted", exit)
++		}
++	}
++
++	nulled := strings.Replace(
++		conformingDocument, `"operation_id": "0198f4c8-b180-7299-9273-1234567890ab"`, `"operation_id": null`, 1)
++	if nulled == conformingDocument {
++		test.Fatal("the identifier substitution did not apply")
++	}
++	failure, err := Decode(Version120, []byte(nulled))
++	if err != nil {
++		test.Fatalf("an explicitly null optional identifier was refused: %v", err)
++	}
++	if _, known := failure.IDs().Operation(); known {
++		test.Fatal("an explicit null was read as a known identifier")
++	}
++	if _, known := failure.IDs().Session(); !known {
++		test.Fatal("the known session identifier was lost")
++	}
++
++	typed := strings.Replace(
++		conformingDocument, `"session_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab"`, `"session_id": 17`, 1)
++	if typed == conformingDocument {
++		test.Fatal("the identifier substitution did not apply")
++	}
++	if _, err := Decode(Version120, []byte(typed)); !errors.Is(err, ErrInvalidStructuredError) {
++		test.Fatalf("a non-string session identifier was admitted: %v", err)
++	}
++
++	keys := failure.DetailKeys()
++	if len(keys) != 1 || keys[0] != "observed_sequence" {
++		test.Fatalf("DetailKeys() = %v, want the one diagnostic key", keys)
++	}
++	if _, present := failure.Detail("absent"); present {
++		test.Fatal("Detail reported a key the object does not carry")
++	}
++}
++
++// TestCodesForRefusesAnUnregisteredVersion keeps the measured denominator from
++// being taken for a version the registry does not carry.
++func TestCodesForRefusesAnUnregisteredVersion(test *testing.T) {
++	for _, version := range []Version{"1.4.0", "2.0.0", "", "1.0"} {
++		if _, err := CodesFor(version); !errors.Is(err, ErrUnsupportedVersion) {
++			test.Fatalf("CodesFor(%q) returned a code set: %v", version, err)
++		}
++	}
++}
++
++// TestDecodeRequiresEveryClosedMember removes one required member at a time. A
++// reader that treated an absent member as a zero value would admit each of
++// these, and the resulting object would carry a code, a message, or a retry
++// claim nobody wrote.
++func TestDecodeRequiresEveryClosedMember(test *testing.T) {
++	members := map[string]string{
++		"schema":         `"schema": "urn:ax:schema:error",`,
++		"schema_version": `"schema_version": "1.2.0",`,
++		"code":           `"code": "observation_gap",`,
++		"message":        `"message": "the inventory batch skipped a sequence",`,
++		"exit_code":      `"exit_code": 9,`,
++		"retryable":      `"retryable": false,`,
++	}
++	for name, fragment := range members {
++		test.Run(name, func(test *testing.T) {
++			document := strings.Replace(conformingDocument, fragment, "", 1)
++			if document == conformingDocument {
++				test.Fatalf("the %s removal did not apply; the case proves nothing", name)
++			}
++			if _, err := Decode(Version120, []byte(document)); err == nil {
++				test.Fatalf("a document without %s was admitted", name)
++			}
++		})
++	}
++}
++
++// TestDecodeBodyGuardsAnUnregisteredVersion exercises the guard that Decode's
++// own entry check makes unreachable from outside the package. It is kept
++// because decodeBody resolves a code against a version, and a future caller
++// that reached it without the entry check must not receive an object built on
++// an unresolvable registry lookup.
++func TestDecodeBodyGuardsAnUnregisteredVersion(test *testing.T) {
++	exitCode := json.RawMessage("9")
++	schema, version, code := Schema, "1.4.0", "observation_gap"
++	message, retryable := "measured", false
++	details := Details{}
++	document := &wireDocument{
++		Schema:        &schema,
++		SchemaVersion: &version,
++		Code:          &code,
++		Message:       &message,
++		ExitCode:      &exitCode,
++		Retryable:     &retryable,
++		Details:       &details,
++	}
++	if _, err := decodeBody(Version("1.4.0"), document); !errors.Is(err, ErrUnsupportedVersion) {
++		test.Fatalf("decodeBody built an object on an unregistered version: %v", err)
++	}
++}
++
++// TestTypedDetailsAreCheckedOnTheReadingSideToo covers the reader's typed
++// detail requirement for values that are present but not usable text.
++func TestTypedDetailsAreCheckedOnTheReadingSideToo(test *testing.T) {
++	base := `{"schema":"urn:ax:schema:error","schema_version":"1.3.0","code":"target_auth_missing",` +
++		`"message":"provider auth smoke did not run","exit_code":7,"retryable":false,` +
++		`"details":{"provider_id":"codex","provider_build":"0.48.0","macos_version":"15.4",` +
++		`"tmux_server_generation":"7","remediation":%s}}`
++	if _, err := Decode(Version130, []byte(fmt.Sprintf(base, `"restart the broker"`))); err != nil {
++		test.Fatalf("a complete typed object was refused: %v", err)
++	}
++	for _, unusable := range []string{`""`, `17`, `null`, `["restart"]`} {
++		if _, err := Decode(Version130, []byte(fmt.Sprintf(base, unusable))); !errors.Is(err, ErrInvalidDetails) {
++			test.Fatalf("typed detail value %s was admitted: %v", unusable, err)
++		}
++	}
++}
+diff --git a/internal/axerror/details.go b/internal/axerror/details.go
+new file mode 100644
+index 0000000..00ad759
+--- /dev/null
++++ b/internal/axerror/details.go
+@@ -0,0 +1,360 @@
++package axerror
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"regexp"
++	"sort"
++	"strings"
++	"unicode/utf8"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++)
++
++// Details is the Section 15.1 diagnostic data map. The pinned document calls it
++// "an explicitly open diagnostic data map, not an implicit schema extension":
++// unknown keys are admitted as inert data, and nothing in this package derives
++// success, authority, or a remediation action from them.
++type Details map[string]any
++
++var (
++	// ErrInvalidDetails reports a diagnostic map outside the Section 15.1
++	// shape, bounds, or redaction rules.
++	ErrInvalidDetails = errors.New("invalid structured error details")
++
++	// ErrCausalLeak reports human text or a diagnostic value that reproduces
++	// the rendered text of the Go cause the failure was built from. The cause
++	// chain stays local; it is never copied onto the wire.
++	ErrCausalLeak = errors.New("structured error would carry its cause onto the wire")
++)
++
++// detailKeyPattern is the Section 15.1 constraint on detail keys, verbatim:
++// "0-64 keys matching [a-z][a-z0-9_]{0,63}".
++var detailKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
++
++const (
++	maxDetailKeys      = 64
++	maxDetailDepth     = 4
++	maxDetailCanonical = 16 * 1024
++	minRedactableCause = 8
++	maxMessageRunes    = 4096
++	minMessageRunes    = 1
++)
++
++// excludedDetailKeys is the best-effort scanner Section 16.2 says an
++// implementation SHOULD offer. It refuses a detail key that names one of the
++// four classes Section 15.1 forbids outright — "No detail may contain a
++// credential, raw transcript, environment secret, or opaque bundle content" —
++// and nothing else.
++//
++// Matching is exact, never by substring, and that is deliberate. A substring
++// rule refusing every key containing "token", "socket" or "credential" would
++// refuse "token_count", "socket_timeout_ms" and "credential_profile" — ordinary
++// diagnostics the specification admits — while still passing a secret written
++// under an innocuous name. That is pure false-positive surface with no
++// true-positive capability, and it is the exact defect removed from the
++// Configuration extension-key validator: where the pinned document is silent
++// about a name, be permissive.
++//
++// The list is also scoped to Section 15.1's four classes rather than to the
++// whole Section 16.2 exclusion table. Section 16.2 governs manifests and
++// bundles generated by ax; a diagnostic key naming a PID, a tmux socket or a
++// Terminal Instance Binding is not a credential, a transcript, an environment
++// secret, or bundle content, and refusing it here would invent a constraint the
++// error contract does not state.
++var excludedDetailKeys = map[string]string{
++	// Credential.
++	"access_token":       "credential",
++	"api_key":            "credential",
++	"auth_json":          "credential",
++	"cookie":             "credential",
++	"cookies":            "credential",
++	"credential":         "credential",
++	"credentials":        "credential",
++	"oauth_token":        "credential",
++	"passphrase":         "credential",
++	"password":           "credential",
++	"private_key":        "credential",
++	"refresh_token":      "credential",
++	"session_token":      "credential",
++	"ssh_private_key":    "credential",
++	"subscription_token": "credential",
++	// Raw transcript.
++	"raw_transcript":      "raw transcript",
++	"scrollback":          "raw transcript",
++	"terminal_scrollback": "raw transcript",
++	"transcript":          "raw transcript",
++	// Environment secret.
++	"dotenv":             "environment secret",
++	"env_secret":         "environment secret",
++	"environment_secret": "environment secret",
++	"secret":             "environment secret",
++	"secrets":            "environment secret",
++	// Opaque bundle content.
++	"bundle_bytes":   "opaque bundle content",
++	"bundle_content": "opaque bundle content",
++	"opaque_bundle":  "opaque bundle content",
++}
++
++// RedactionBound states what the gates below can and cannot decide. It is
++// quoted in README.md and asserted by this package's tests so that no caller
++// reads a refusal as a confidentiality guarantee. Section 16.2 is explicit:
++// "v0.5.0 does not claim reliable content-level secret scrubbing", and this
++// implementation claims no more than the pinned document does.
++const RedactionBound = "Detail redaction decides two things: whether a key exactly names one of the four classes " +
++	"Section 15.1 forbids, and whether human text or a diagnostic value reproduces the rendered local cause " +
++	"verbatim. It inspects no free-form value for secret content, matches no key by substring, and admits a " +
++	"secret written under an innocuously named key. Section 16.2 does not claim content-level scrubbing and " +
++	"neither does this package."
++
++// ValidateDetails checks a diagnostic map against every Section 15.1 bound: the
++// key count, the key grammar, the value nesting depth, the canonical byte size,
++// and the four Section 15.1 detail classes that an exact key name makes decidable.
++//
++// The nesting bound counts containers opened by a detail value, matching the
++// extension-value convention already used for canonical records: a value may
++// open four containers and the fifth is refused.
++func ValidateDetails(details Details) error {
++	if details == nil {
++		return fmt.Errorf("%w: details is required and must not be null", ErrInvalidDetails)
++	}
++	if len(details) > maxDetailKeys {
++		return fmt.Errorf("%w: %d keys exceed the maximum of %d", ErrInvalidDetails, len(details), maxDetailKeys)
++	}
++	for _, key := range sortedKeys(details) {
++		if !detailKeyPattern.MatchString(key) {
++			return fmt.Errorf("%w: key %q does not match [a-z][a-z0-9_]{0,63}", ErrInvalidDetails, key)
++		}
++		if err := refuseExcludedKey(key); err != nil {
++			return err
++		}
++		if err := validateDetailValue(key, details[key], 0); err != nil {
++			return err
++		}
++	}
++	measured, err := canonicaljson.CanonicalByteLength(map[string]any(details))
++	if err != nil {
++		return fmt.Errorf("%w: measure canonical details: %v", ErrInvalidDetails, err)
++	}
++	if measured > maxDetailCanonical {
++		return fmt.Errorf(
++			"%w: canonical details are %d bytes, maximum is %d", ErrInvalidDetails, measured, maxDetailCanonical)
++	}
++	return nil
++}
++
++func refuseExcludedKey(key string) error {
++	if class, excluded := excludedDetailKeys[key]; excluded {
++		return fmt.Errorf("%w: key %q names %s, which no detail may contain", ErrInvalidDetails, key, class)
++	}
++	return nil
++}
++
++func validateDetailValue(key string, value any, depth int) error {
++	switch typed := value.(type) {
++	case nil, bool, json.Number:
++		return nil
++	case string:
++		if !utf8.ValidString(typed) {
++			return fmt.Errorf("%w: details[%q] contains invalid UTF-8", ErrInvalidDetails, key)
++		}
++		return nil
++	case []any:
++		if depth == maxDetailDepth {
++			return fmt.Errorf("%w: details[%q] exceeds maximum nesting depth %d", ErrInvalidDetails, key, maxDetailDepth)
++		}
++		for _, member := range typed {
++			if err := validateDetailValue(key, member, depth+1); err != nil {
++				return err
++			}
++		}
++		return nil
++	case map[string]any:
++		if depth == maxDetailDepth {
++			return fmt.Errorf("%w: details[%q] exceeds maximum nesting depth %d", ErrInvalidDetails, key, maxDetailDepth)
++		}
++		for _, nested := range sortedKeys(typed) {
++			if !utf8.ValidString(nested) {
++				return fmt.Errorf("%w: details[%q] has an object key that is not valid UTF-8", ErrInvalidDetails, key)
++			}
++			if err := refuseExcludedKey(nested); err != nil {
++				return err
++			}
++			if err := validateDetailValue(key, typed[nested], depth+1); err != nil {
++				return err
++			}
++		}
++		return nil
++	default:
++		return fmt.Errorf("%w: details[%q] uses unsupported JSON type %T", ErrInvalidDetails, key, value)
++	}
++}
++
++// refuseCausalLeak refuses human text or diagnostic values that reproduce the
++// rendered text of the local cause verbatim. It exists because the ordinary way
++// to lose a secret is fmt.Errorf("...: %v", err) on a cause that wrapped a
++// command line, a transport payload, or a provider's stderr.
++//
++// What it decides is narrow and stated: verbatim containment of the whole
++// rendered cause, and of each of its wrapped links. A paraphrase, a truncation,
++// or a single extracted field of the cause is not detected. Causes shorter than
++// minRedactableCause characters are skipped, because a cause rendering as
++// "EOF" would otherwise refuse every message containing that substring.
++func refuseCausalLeak(message string, details Details, cause error) error {
++	for _, rendered := range causeChainText(cause) {
++		if utf8.RuneCountInString(rendered) < minRedactableCause {
++			continue
++		}
++		if strings.Contains(message, rendered) {
++			return fmt.Errorf("%w: message reproduces the local cause verbatim", ErrCausalLeak)
++		}
++		for _, key := range sortedKeys(details) {
++			if valueContains(details[key], rendered) {
++				return fmt.Errorf("%w: details[%q] reproduces the local cause verbatim", ErrCausalLeak, key)
++			}
++		}
++	}
++	return nil
++}
++
++// causeChainText renders every link of the cause chain. Checking only the
++// outermost rendering would miss a message that copied the innermost wrapped
++// error, which is the link most likely to hold the untrusted text.
++func causeChainText(cause error) []string {
++	var rendered []string
++	for current := cause; current != nil; {
++		rendered = append(rendered, current.Error())
++		switch unwrapped := current.(type) {
++		case interface{ Unwrap() error }:
++			current = unwrapped.Unwrap()
++		case interface{ Unwrap() []error }:
++			for _, joined := range unwrapped.Unwrap() {
++				rendered = append(rendered, causeChainText(joined)...)
++			}
++			current = nil
++		default:
++			current = nil
++		}
++	}
++	return rendered
++}
++
++func valueContains(value any, needle string) bool {
++	switch typed := value.(type) {
++	case string:
++		return strings.Contains(typed, needle)
++	case []any:
++		for _, member := range typed {
++			if valueContains(member, needle) {
++				return true
++			}
++		}
++	case map[string]any:
++		for _, member := range typed {
++			if valueContains(member, needle) {
++				return true
++			}
++		}
++	}
++	return false
++}
++
++func sortedKeys[Value any](source map[string]Value) []string {
++	keys := make([]string, 0, len(source))
++	for key := range source {
++		keys = append(keys, key)
++	}
++	sort.Strings(keys)
++	return keys
++}
++
++// RealmEvidence is the exact typed detail set Section 15.3 requires when
++// broker, tmux server generation, or functional-sentinel evidence is missing or
++// unsafe: "capability_unavailable with typed details containing capability,
++// caller_realm, broker_state, tmux_server_generation, and remediation".
++//
++// tmux_server_generation is carried here on that clause's explicit instruction.
++// The Section 16.2 exclusion of backend generations governs manifests and
++// bundles generated by ax, and the more specific clause licenses this one
++// diagnostic field.
++type RealmEvidence struct {
++	Capability           string
++	CallerRealm          string
++	BrokerState          string
++	TmuxServerGeneration string
++	Remediation          string
++}
++
++// Details renders the typed set. Every field is required, because a caller that
++// omits one has not produced the typed details the clause names.
++func (evidence RealmEvidence) Details() (Details, error) {
++	return requiredTypedDetails(map[string]string{
++		"capability":             evidence.Capability,
++		"caller_realm":           evidence.CallerRealm,
++		"broker_state":           evidence.BrokerState,
++		"tmux_server_generation": evidence.TmuxServerGeneration,
++		"remediation":            evidence.Remediation,
++	})
++}
++
++// TargetAuth is the exact typed detail set Section 15.3 requires for
++// target_auth_missing: "typed provider_id, provider_build, macos_version,
++// tmux_server_generation, and remediation".
++type TargetAuth struct {
++	ProviderID           string
++	ProviderBuild        string
++	MacOSVersion         string
++	TmuxServerGeneration string
++	Remediation          string
++}
++
++// Details renders the typed set. Every field is required.
++func (target TargetAuth) Details() (Details, error) {
++	return requiredTypedDetails(map[string]string{
++		"provider_id":            target.ProviderID,
++		"provider_build":         target.ProviderBuild,
++		"macos_version":          target.MacOSVersion,
++		"tmux_server_generation": target.TmuxServerGeneration,
++		"remediation":            target.Remediation,
++	})
++}
++
++// targetAuthMissingKeys is the presence requirement New enforces for
++// target_auth_missing, so the generic constructor cannot emit that code with a
++// weaker detail set than the typed constructor produces.
++var targetAuthMissingKeys = []string{
++	"macos_version",
++	"provider_build",
++	"provider_id",
++	"remediation",
++	"tmux_server_generation",
++}
++
++func requiredTypedDetails(fields map[string]string) (Details, error) {
++	details := make(Details, len(fields))
++	for _, key := range sortedKeys(fields) {
++		if fields[key] == "" {
++			return nil, fmt.Errorf("%w: typed detail %q is required and must not be empty", ErrInvalidDetails, key)
++		}
++		details[key] = fields[key]
++	}
++	if err := ValidateDetails(details); err != nil {
++		return nil, err
++	}
++	return details, nil
++}
++
++func requireDetailKeys(code Code, details Details, required []string) error {
++	for _, key := range required {
++		value, present := details[key]
++		if !present {
++			return fmt.Errorf("%w: %q requires typed detail %q", ErrInvalidDetails, code, key)
++		}
++		text, ok := value.(string)
++		if !ok || text == "" {
++			return fmt.Errorf("%w: %q requires a non-empty typed detail %q", ErrInvalidDetails, code, key)
++		}
++	}
++	return nil
++}
+diff --git a/internal/axerror/local.go b/internal/axerror/local.go
+new file mode 100644
+index 0000000..a2a4fbe
+--- /dev/null
++++ b/internal/axerror/local.go
+@@ -0,0 +1,136 @@
++package axerror
++
++import (
++	"errors"
++	"fmt"
++	"sort"
++)
++
++// ErrUnknownSurface reports a surface for which the pinned document states no
++// exact local failure mapping. It is returned instead of a plausible default,
++// because inventing a mapping here would put a code on the wire that no clause
++// assigns.
++var ErrUnknownSurface = errors.New("no pinned local failure mapping for surface")
++
++// Surface names a boundary at which ax reads output from a child process or a
++// peer. Only the surfaces whose local mapping the pinned document states
++// exactly are represented. Directory Node is deliberately absent: Section 15.3
++// says the caller emits "incompatible_protocol or
++// adapter_protocol_violation/transport_failure as applicable" without fixing
++// which, so this package reports the mapping as unknown rather than choosing
++// one and presenting the choice as the contract.
++type Surface string
++
++const (
++	// SurfaceProviderStdio is the Provider JSON-over-stdio row of the Section
++	// 15.1 bootstrap table.
++	SurfaceProviderStdio Surface = "provider_stdio"
++	// SurfaceTaskBoardBridge is the task-board bridge facade row.
++	SurfaceTaskBoardBridge Surface = "task_board_bridge"
++	// SurfaceMeshRPC is the Mesh RPC row.
++	SurfaceMeshRPC Surface = "mesh_rpc"
++	// SurfaceTerminalBackend is the Section 15.3 TerminalBackend paragraph.
++	SurfaceTerminalBackend Surface = "terminal_backend"
++)
++
++// UntrustedOutcome classifies what ax observed at the boundary. It is a
++// classification of the local read, not a value taken from the payload: the
++// payload is never parsed far enough to yield one.
++type UntrustedOutcome string
++
++const (
++	// OutcomeRecognizableMajorMismatch is the "recognizable major mismatch"
++	// branch of every row.
++	OutcomeRecognizableMajorMismatch UntrustedOutcome = "recognizable_major_mismatch"
++	// OutcomeUnusableFrame is the otherwise branch: invalid JSON, an oversize
++	// line, missing framing identity, or output that cannot be framed.
++	OutcomeUnusableFrame UntrustedOutcome = "unusable_frame"
++)
++
++type localMapping struct {
++	version       Version
++	majorMismatch Code
++	otherwise     Code
++}
++
++// localMappings is the Section 15.1 bootstrap table plus the Section 15.3
++// TerminalBackend paragraph, each row quoted in the comment above its entry.
++// The version is fixed per surface and is not a caller argument, so a local
++// failure cannot be emitted under a version the surface does not bind.
++var localMappings = map[Surface]localMapping{
++	// "the host accepts no child error object ... and emits its own local Error
++	// 1.0.0: incompatible_protocol for a recognizable major mismatch, otherwise
++	// provider_protocol_error".
++	SurfaceProviderStdio: {version: Version100, majorMismatch: "incompatible_protocol", otherwise: "provider_protocol_error"},
++	// "ax emits its own local Error 1.0.0: incompatible_protocol for a
++	// recognizable major mismatch, otherwise task_board_bridge_unavailable".
++	SurfaceTaskBoardBridge: {version: Version100, majorMismatch: "incompatible_protocol", otherwise: "task_board_bridge_unavailable"},
++	// "The initiator emits its own local Error 1.0.0: incompatible_protocol for
++	// a recognizable major mismatch, otherwise transport_failure".
++	SurfaceMeshRPC: {version: Version100, majorMismatch: "incompatible_protocol", otherwise: "transport_failure"},
++	// "the AX caller emits a local Error 1.3 terminal_backend_protocol_incompatible
++	// for a recognizable major mismatch and terminal_backend_protocol_error otherwise".
++	SurfaceTerminalBackend: {version: Version130, majorMismatch: "terminal_backend_protocol_incompatible", otherwise: "terminal_backend_protocol_error"},
++}
++
++// LocalFromUntrusted builds the ax-local failure for an unsupported major or an
++// unusable first frame at a child or peer boundary.
++//
++// It takes no part of the foreign payload. Its inputs are the surface, ax's own
++// classification of what it observed, human text ax wrote, the identifiers ax
++// itself knows, and a local Go cause. There is no parameter through which a
++// foreign code, retryable bit, detail map, or authority field could be adopted,
++// which is how Section 15.1's "Receivers MUST NOT parse a different major's
++// payload far enough to trust its error code, retryable bit, details, or
++// authority fields" is enforced rather than merely intended.
++//
++// The result is never retryable. Every code this table can emit either belongs
++// to a class the caller must inspect before repeating, or describes a boundary
++// that the identical request cannot get past; nothing observed at an unusable
++// frame licenses a safe-retry claim, so the constructor does not offer one.
++func LocalFromUntrusted(
++	surface Surface,
++	outcome UntrustedOutcome,
++	message string,
++	ids IDs,
++	details Details,
++	cause error,
++) (*Error, error) {
++	mapping, known := localMappings[surface]
++	if !known {
++		return nil, fmt.Errorf("%w: %q", ErrUnknownSurface, surface)
++	}
++	var code Code
++	switch outcome {
++	case OutcomeRecognizableMajorMismatch:
++		code = mapping.majorMismatch
++	case OutcomeUnusableFrame:
++		code = mapping.otherwise
++	default:
++		return nil, fmt.Errorf("%w: outcome %q is not a pinned classification", ErrInvalidStructuredError, outcome)
++	}
++	if details == nil {
++		details = Details{}
++	}
++	return New(Spec{
++		Version: mapping.version,
++		Code:    code,
++		Message: message,
++		IDs:     ids,
++		Details: details,
++		Cause:   cause,
++	})
++}
++
++// LocalSurfaces returns the surfaces with a pinned local failure mapping, in a
++// stable order. It is the measured denominator of this package's bootstrap
++// coverage: four of the five boundaries the pinned document names, with
++// Directory Node excluded for the reason stated on Surface.
++func LocalSurfaces() []Surface {
++	result := make([]Surface, 0, len(localMappings))
++	for surface := range localMappings {
++		result = append(result, surface)
++	}
++	sort.Slice(result, func(left, right int) bool { return result[left] < result[right] })
++	return result
++}
+diff --git a/internal/axerror/local_test.go b/internal/axerror/local_test.go
+new file mode 100644
+index 0000000..34fab9d
+--- /dev/null
++++ b/internal/axerror/local_test.go
+@@ -0,0 +1,147 @@
++package axerror
++
++import (
++	"encoding/json"
++	"errors"
++	"strings"
++	"testing"
++)
++
++// TestLocalFromUntrustedMatchesEveryPinnedBootstrapRow drives the real
++// constructor for each surface and outcome the pinned document maps exactly,
++// and reports the measured ratio. The mapping is a table of literal codes, so a
++// row that drifted to a plausible neighbour fails here.
++func TestLocalFromUntrustedMatchesEveryPinnedBootstrapRow(test *testing.T) {
++	pinned := []struct {
++		surface Surface
++		outcome UntrustedOutcome
++		version Version
++		code    Code
++		exit    int
++	}{
++		{SurfaceProviderStdio, OutcomeRecognizableMajorMismatch, Version100, "incompatible_protocol", 6},
++		{SurfaceProviderStdio, OutcomeUnusableFrame, Version100, "provider_protocol_error", 13},
++		{SurfaceTaskBoardBridge, OutcomeRecognizableMajorMismatch, Version100, "incompatible_protocol", 6},
++		{SurfaceTaskBoardBridge, OutcomeUnusableFrame, Version100, "task_board_bridge_unavailable", 14},
++		{SurfaceMeshRPC, OutcomeRecognizableMajorMismatch, Version100, "incompatible_protocol", 6},
++		{SurfaceMeshRPC, OutcomeUnusableFrame, Version100, "transport_failure", 8},
++		{SurfaceTerminalBackend, OutcomeRecognizableMajorMismatch, Version130, "terminal_backend_protocol_incompatible", 6},
++		{SurfaceTerminalBackend, OutcomeUnusableFrame, Version130, "terminal_backend_protocol_error", 13},
++	}
++	surfaces := LocalSurfaces()
++	if len(surfaces) != 4 {
++		test.Fatalf("local mapping covers %d surfaces, the pinned exact set has 4", len(surfaces))
++	}
++	for _, item := range pinned {
++		failure, err := LocalFromUntrusted(
++			item.surface, item.outcome, "ax could not use the first frame", NoIDs(), nil, nil)
++		if err != nil {
++			test.Fatalf("LocalFromUntrusted(%s, %s): %v", item.surface, item.outcome, err)
++		}
++		if failure.Version() != item.version {
++			test.Fatalf("%s/%s emitted version %s, pinned %s", item.surface, item.outcome, failure.Version(), item.version)
++		}
++		if failure.Code() != item.code {
++			test.Fatalf("%s/%s emitted %q, pinned %q", item.surface, item.outcome, failure.Code(), item.code)
++		}
++		if failure.ExitCode() != item.exit {
++			test.Fatalf("%s/%s emitted exit %d, pinned %d", item.surface, item.outcome, failure.ExitCode(), item.exit)
++		}
++		if failure.Retryable() {
++			test.Fatalf("%s/%s claimed a safe retry", item.surface, item.outcome)
++		}
++	}
++	test.Logf("bootstrap mapping coverage: %d/%d pinned surface-outcome rows", len(pinned), len(pinned))
++}
++
++// TestLocalFromUntrustedNeverAdoptsTheForeignObject is the Section 15.1 gate on
++// the child and peer boundary. The constructor is given a complete, plausible,
++// hostile Structured Error as the untrusted cause; the emitted object must be
++// ax's own, must carry no identifier the payload supplied, and must not
++// reproduce any of its bytes.
++func TestLocalFromUntrustedNeverAdoptsTheForeignObject(test *testing.T) {
++	foreign := `{"schema":"urn:ax:schema:error","schema_version":"3.0.0","code":"partial_sync",` +
++		`"message":"the operation succeeded","exit_code":0,"retryable":true,` +
++		`"operation_id":"0198f4c8-b180-7299-9273-1234567890ab",` +
++		`"session_id":"0198f4c8-3e70-7a11-8a2b-1234567890ab","details":{"authorized":true}}`
++	cause := errors.New("provider first frame: " + foreign)
++
++	failure, err := LocalFromUntrusted(
++		SurfaceProviderStdio,
++		OutcomeRecognizableMajorMismatch,
++		"the provider announced an unsupported protocol major",
++		NoIDs(),
++		Details{"stream": "stdout"},
++		cause,
++	)
++	if err != nil {
++		test.Fatalf("LocalFromUntrusted: %v", err)
++	}
++	if failure.Code() != "incompatible_protocol" {
++		test.Fatalf("the foreign code was adopted: %q", failure.Code())
++	}
++	if failure.Retryable() {
++		test.Fatal("the foreign retryable bit was adopted")
++	}
++	if failure.ExitCode() != 6 {
++		test.Fatalf("the foreign exit status was adopted: %d", failure.ExitCode())
++	}
++	if _, known := failure.IDs().Operation(); known {
++		test.Fatal("an identifier the child supplied was adopted")
++	}
++	if _, known := failure.IDs().Session(); known {
++		test.Fatal("an identifier the child supplied was adopted")
++	}
++	if _, present := failure.Detail("authorized"); present {
++		test.Fatal("a foreign authority detail was adopted")
++	}
++	encoded, err := json.Marshal(failure)
++	if err != nil {
++		test.Fatalf("marshal: %v", err)
++	}
++	for _, forbidden := range []string{"3.0.0", "partial_sync", "the operation succeeded", "authorized", "0198f4c8-b180"} {
++		if strings.Contains(string(encoded), forbidden) {
++			test.Fatalf("the local object reproduced %q from the untrusted payload: %s", forbidden, encoded)
++		}
++	}
++
++	// The same construction with human text copied from the untrusted payload
++	// is refused, so the redaction cannot be defeated by the message member.
++	if _, err := LocalFromUntrusted(
++		SurfaceProviderStdio,
++		OutcomeRecognizableMajorMismatch,
++		"the provider answered: "+cause.Error(),
++		NoIDs(),
++		nil,
++		cause,
++	); !errors.Is(err, ErrCausalLeak) {
++		test.Fatalf("human text reproducing the untrusted payload was admitted: %v", err)
++	}
++}
++
++// TestLocalFromUntrustedRefusesUnpinnedInputs keeps the constructor from
++// inventing a mapping. Directory Node is the case that matters: Section 15.3
++// leaves its local code "as applicable", so this package reports the mapping as
++// unknown rather than choosing one and presenting the choice as the contract.
++func TestLocalFromUntrustedRefusesUnpinnedInputs(test *testing.T) {
++	if _, err := LocalFromUntrusted(
++		Surface("directory_node"), OutcomeUnusableFrame, "unusable frame", NoIDs(), nil, nil,
++	); !errors.Is(err, ErrUnknownSurface) {
++		test.Fatalf("an unmapped surface produced a code: %v", err)
++	}
++	if _, err := LocalFromUntrusted(
++		Surface(""), OutcomeUnusableFrame, "unusable frame", NoIDs(), nil, nil,
++	); !errors.Is(err, ErrUnknownSurface) {
++		test.Fatalf("an empty surface produced a code: %v", err)
++	}
++	if _, err := LocalFromUntrusted(
++		SurfaceMeshRPC, UntrustedOutcome("child_reported_failure"), "peer said so", NoIDs(), nil, nil,
++	); !errors.Is(err, ErrInvalidStructuredError) {
++		test.Fatalf("an unpinned outcome classification produced a code: %v", err)
++	}
++	if _, err := LocalFromUntrusted(
++		SurfaceMeshRPC, OutcomeUnusableFrame, "", NoIDs(), nil, nil,
++	); !errors.Is(err, ErrInvalidStructuredError) {
++		test.Fatalf("an empty message was admitted: %v", err)
++	}
++}
+diff --git a/internal/axerror/ownership_test.go b/internal/axerror/ownership_test.go
+new file mode 100644
+index 0000000..30750e6
+--- /dev/null
++++ b/internal/axerror/ownership_test.go
+@@ -0,0 +1,193 @@
++package axerror
++
++import (
++	"encoding/json"
++	"strings"
++	"testing"
++)
++
++// The tests in this file pin one property: a validated Structured Error owns
++// its diagnostic graph outright. They exist because revision 1 of this package
++// copied only the top level of the details map and handed the live nested
++// container back from Detail, so every Section 15.1 detail bound could be
++// violated after ValidateDetails had already run and passed. That is a bypass
++// path around the gate rather than a gate, and no test covered it: the suite
++// only ever validated maps nobody mutated afterwards.
++//
++// Each case mutates a container the caller or the accessor retains and then
++// asserts two things about the object itself - that its encoded bytes did not
++// move, and that its own reader still accepts them. The containers are taken
++// at three depths and on both sides of an array, so a deep copy narrowed to
++// one level fails these tests rather than only a copy deleted outright.
++
++// violateEveryDetailBound writes each Section 15.1 detail bound into container:
++// a key naming a forbidden class, a value past the 16 KiB canonical size, a
++// value past the depth-4 nesting limit, and a Go type validateDetailValue
++// refuses. If any of it reaches the object, ValidateDetails validated a graph
++// the object does not own.
++func violateEveryDetailBound(container map[string]any) {
++	container["password"] = "hunter2"
++	container["blob"] = strings.Repeat("x", 32*1024)
++	var deep any = "leaf"
++	for level := 0; level < 6; level++ {
++		deep = map[string]any{"n": deep}
++	}
++	container["deep"] = deep
++	container["count"] = 7
++}
++
++// detailGraph builds a conforming nested diagnostic graph and returns every
++// mutable container inside it, named for the position the mutation attacks.
++func detailGraph() (Details, map[string]map[string]any) {
++	depth2 := map[string]any{"stream": "stdout"}
++	depth1 := map[string]any{"frame": depth2}
++	firstFrame := map[string]any{"line": "first"}
++	nestedFrame := map[string]any{"line": "second"}
++	details := Details{
++		"context": depth1,
++		"frames":  []any{firstFrame, []any{nestedFrame}},
++	}
++	return details, map[string]map[string]any{
++		"map at depth 1":            depth1,
++		"map at depth 2":            depth2,
++		"map inside an array":       firstFrame,
++		"map inside a nested array": nestedFrame,
++	}
++}
++
++func mustConstruct(test *testing.T, details Details) *Error {
++	test.Helper()
++	failure, err := New(Spec{
++		Version: Version100,
++		Code:    "provider_protocol_error",
++		Message: "unusable first frame",
++		IDs:     NoIDs(),
++		Details: details,
++	})
++	if err != nil {
++		test.Fatalf("a conforming failure was refused: %v", err)
++	}
++	return failure
++}
++
++func mustEncode(test *testing.T, failure *Error) string {
++	test.Helper()
++	encoded, err := json.Marshal(failure)
++	if err != nil {
++		test.Fatalf("marshal: %v", err)
++	}
++	return string(encoded)
++}
++
++// assertUnmovedAndSelfReadable states the two consequences that matter. The
++// bytes are the object's whole observable output, and Decode is the reader the
++// same package ships: an object whose own reader refuses it has already put a
++// document on the wire that no conforming peer can use.
++func assertUnmovedAndSelfReadable(test *testing.T, failure *Error, baseline, position string) {
++	test.Helper()
++	current := mustEncode(test, failure)
++	if current != baseline {
++		test.Fatalf("mutating the %s changed the encoded object\n before: %s\n  after: %s",
++			position, baseline, current)
++	}
++	if _, err := Decode(Version100, []byte(current)); err != nil {
++		test.Fatalf("after mutating the %s the writer emits an object its own reader refuses: %v",
++			position, err)
++	}
++}
++
++// TestConstructionDoesNotAliasTheCallerDetailGraph drives New with a graph the
++// call site keeps a reference to, which is the ordinary way a caller builds
++// details, and then writes every forbidden shape into the containers it kept.
++func TestConstructionDoesNotAliasTheCallerDetailGraph(test *testing.T) {
++	details, retained := detailGraph()
++	failure := mustConstruct(test, details)
++	baseline := mustEncode(test, failure)
++
++	for position, container := range retained {
++		violateEveryDetailBound(container)
++		assertUnmovedAndSelfReadable(test, failure, baseline, "caller's retained "+position)
++	}
++
++	// The top-level map is the arm revision 1 did get right; it is kept here
++	// so a copy deleted outright fails on this row too.
++	details["secret"] = "environment secret written after validation"
++	assertUnmovedAndSelfReadable(test, failure, baseline, "caller's retained top-level map")
++
++	// Replacing an array member is a mutation of the slice rather than of a
++	// map inside it, and a copy that clones maps but shares slices admits it.
++	details["frames"].([]any)[0] = map[string]any{"password": "hunter2"}
++	assertUnmovedAndSelfReadable(test, failure, baseline, "caller's retained array")
++}
++
++// TestDetailAccessorDoesNotHandOutTheLiveContainer attacks the package's own
++// exported accessor, which needs no cooperation from the constructing call site
++// at all: any holder of a validated *Error could reach the live graph through
++// it.
++func TestDetailAccessorDoesNotHandOutTheLiveContainer(test *testing.T) {
++	details, _ := detailGraph()
++	failure := mustConstruct(test, details)
++	baseline := mustEncode(test, failure)
++
++	context, present := failure.Detail("context")
++	if !present {
++		test.Fatal("Detail did not report a key the object carries")
++	}
++	depth1, ok := context.(map[string]any)
++	if !ok {
++		test.Fatalf("Detail returned %T, the object carries a map", context)
++	}
++	violateEveryDetailBound(depth1)
++	assertUnmovedAndSelfReadable(test, failure, baseline, "container returned by Detail")
++
++	depth2, ok := depth1["frame"].(map[string]any)
++	if !ok {
++		test.Fatalf("the returned graph lost its nested map: %#v", depth1["frame"])
++	}
++	violateEveryDetailBound(depth2)
++	assertUnmovedAndSelfReadable(test, failure, baseline, "second-level container returned by Detail")
++
++	frames, present := failure.Detail("frames")
++	if !present {
++		test.Fatal("Detail did not report the array key the object carries")
++	}
++	members, ok := frames.([]any)
++	if !ok {
++		test.Fatalf("Detail returned %T for an array member", frames)
++	}
++	violateEveryDetailBound(members[0].(map[string]any))
++	violateEveryDetailBound(members[1].([]any)[0].(map[string]any))
++	members[0] = "replaced"
++	assertUnmovedAndSelfReadable(test, failure, baseline, "array returned by Detail")
++
++	// A second read is unaffected by what was written into the first, so the
++	// isolation is per call rather than a single defensive copy shared by all
++	// callers.
++	second, _ := failure.Detail("context")
++	if _, leaked := second.(map[string]any)["password"]; leaked {
++		test.Fatal("a second Detail read carries a key written into the first read's copy")
++	}
++}
++
++// TestDecodedObjectsOwnTheirDetailsToo pins the same property on the reading
++// side. Decode builds its map from the document bytes rather than from a
++// caller's graph, so only the accessor arm applies here - and it is the arm a
++// peer-supplied object would be attacked through.
++func TestDecodedObjectsOwnTheirDetailsToo(test *testing.T) {
++	details, _ := detailGraph()
++	source := mustConstruct(test, details)
++	wire := mustEncode(test, source)
++
++	failure, err := Decode(Version100, []byte(wire))
++	if err != nil {
++		test.Fatalf("Decode refused this package's own output: %v", err)
++	}
++	baseline := mustEncode(test, failure)
++
++	context, present := failure.Detail("context")
++	if !present {
++		test.Fatal("the decoded object lost its context detail")
++	}
++	violateEveryDetailBound(context.(map[string]any))
++	assertUnmovedAndSelfReadable(test, failure, baseline, "container returned by Detail on a decoded object")
++}
+diff --git a/internal/axerror/redaction_test.go b/internal/axerror/redaction_test.go
+new file mode 100644
+index 0000000..3d42a22
+--- /dev/null
++++ b/internal/axerror/redaction_test.go
+@@ -0,0 +1,338 @@
++package axerror
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++)
++
++// TestDetailsRefuseExcludedClasses measures the best-effort scanner against
++// its own registry: every key it carries is refused at the top level and inside
++// a nested diagnostic object, and the four Section 15.1 classes are all
++// represented. A gate deleted entirely fails on all of them; a gate narrowed to
++// one class fails on the other three.
++//
++// The admitted set below is the half that matters more. Each of those keys was
++// refused by the first revision of this gate, which matched key substrings.
++// That rule refused "token_count", "socket_timeout_ms" and "credential_profile"
++// - ordinary diagnostics - while still admitting a secret written under an
++// innocuous name: false-positive surface with no true-positive capability, and
++// the same defect BUG-260902-2faftr removed from the Configuration
++// extension-key validator. These rows keep it from coming back.
++func TestDetailsRefuseExcludedClasses(test *testing.T) {
++	// The registry is pinned here rather than iterated, because a test that
++	// ranges over the production map is its own oracle: dropping a key from the
++	// map drops its own test case and the suite stays green. A mutant that
++	// removed "password" survived exactly that way before this table existed.
++	pinned := map[string]string{
++		"access_token":        "credential",
++		"api_key":             "credential",
++		"auth_json":           "credential",
++		"cookie":              "credential",
++		"cookies":             "credential",
++		"credential":          "credential",
++		"credentials":         "credential",
++		"oauth_token":         "credential",
++		"passphrase":          "credential",
++		"password":            "credential",
++		"private_key":         "credential",
++		"refresh_token":       "credential",
++		"session_token":       "credential",
++		"ssh_private_key":     "credential",
++		"subscription_token":  "credential",
++		"raw_transcript":      "raw transcript",
++		"scrollback":          "raw transcript",
++		"terminal_scrollback": "raw transcript",
++		"transcript":          "raw transcript",
++		"dotenv":              "environment secret",
++		"env_secret":          "environment secret",
++		"environment_secret":  "environment secret",
++		"secret":              "environment secret",
++		"secrets":             "environment secret",
++		"bundle_bytes":        "opaque bundle content",
++		"bundle_content":      "opaque bundle content",
++		"opaque_bundle":       "opaque bundle content",
++	}
++	if len(excludedDetailKeys) != len(pinned) {
++		test.Fatalf("scanner registry carries %d keys, the reviewed table has %d",
++			len(excludedDetailKeys), len(pinned))
++	}
++	classes := map[string]int{}
++	for key, class := range pinned {
++		if got, present := excludedDetailKeys[key]; !present || got != class {
++			test.Fatalf("scanner registry maps %q to %q, the reviewed table maps it to %q", key, got, class)
++		}
++		classes[class]++
++		test.Run("refused/"+key, func(test *testing.T) {
++			if err := ValidateDetails(Details{key: "value"}); !errors.Is(err, ErrInvalidDetails) {
++				test.Fatalf("detail key %q naming %s was admitted", key, class)
++			}
++			// Section 15.1 says no detail may contain the class, so one level
++			// of wrapping does not defeat the scanner either.
++			if err := ValidateDetails(Details{"context": map[string]any{key: "value"}}); !errors.Is(err, ErrInvalidDetails) {
++				test.Fatalf("nested detail key %q was admitted", key)
++			}
++		})
++	}
++	for _, class := range []string{"credential", "raw transcript", "environment secret", "opaque bundle content"} {
++		if classes[class] == 0 {
++			test.Fatalf("Section 15.1 class %q has no key in the scanner registry", class)
++		}
++	}
++	test.Logf("detail scanner coverage: %d/%d reviewed keys over %d of the 4 Section 15.1 classes",
++		len(excludedDetailKeys), len(pinned), len(classes))
++
++	admitted := []string{
++		// Diagnostics the first revision of this gate refused by substring.
++		"token_count",
++		"socket_timeout_ms",
++		"credential_profile",
++		"api_key_id",
++		"secret_scan_status",
++		"transcript_byte_count",
++		"cookie_policy",
++		// Section 16.2 manifest and bundle exclusions, which are not Section
++		// 15.1 detail classes and must not be refused here.
++		"pid",
++		"tmux_socket_path",
++		"terminal_instance_binding",
++		"process_handle",
++		// The typed detail sets Section 15.3 names.
++		"capability",
++		"caller_realm",
++		"broker_state",
++		"tmux_server_generation",
++		"remediation",
++		"provider_id",
++		"provider_build",
++		"macos_version",
++		// Ordinary diagnostics from the pinned example.
++		"expected_checkpoint",
++		"remediations",
++		"peer_host_id",
++	}
++	for _, key := range admitted {
++		test.Run("admitted/"+key, func(test *testing.T) {
++			if err := ValidateDetails(Details{key: "value"}); err != nil {
++				test.Fatalf("ordinary diagnostic key %q was refused: %v", key, err)
++			}
++		})
++	}
++}
++
++// TestCauseNeverReachesTheWire is the causal-redaction gate. It proves two
++// distinct things: that a message or detail reproducing the local cause is
++// refused at construction, and that a cause carried by a valid object is
++// structurally absent from the encoded bytes.
++func TestCauseNeverReachesTheWire(test *testing.T) {
++	const secret = "AUTH_TOKEN=ghp_00000000000000000000000000000000"
++	inner := errors.New("provider stderr: " + secret)
++	wrapped := fmt.Errorf("read provider first frame: %w", inner)
++
++	// The accident this gate exists for: a message built from the cause.
++	if _, err := New(Spec{
++		Version: Version100,
++		Code:    "provider_protocol_error",
++		Message: fmt.Sprintf("provider first frame is unusable: %v", wrapped),
++		IDs:     NoIDs(),
++		Details: Details{},
++		Cause:   wrapped,
++	}); !errors.Is(err, ErrCausalLeak) {
++		test.Fatalf("a message reproducing the cause was admitted: %v", err)
++	}
++
++	// The inner link is checked as well as the outermost rendering.
++	if _, err := New(Spec{
++		Version: Version100,
++		Code:    "provider_protocol_error",
++		Message: "provider first frame is unusable: " + inner.Error(),
++		IDs:     NoIDs(),
++		Details: Details{},
++		Cause:   wrapped,
++	}); !errors.Is(err, ErrCausalLeak) {
++		test.Fatalf("a message reproducing an inner cause link was admitted: %v", err)
++	}
++
++	// A joined cause chain is walked too.
++	joined := errors.Join(errors.New("harmless local failure"), inner)
++	if _, err := New(Spec{
++		Version: Version100,
++		Code:    "provider_protocol_error",
++		Message: "provider first frame is unusable",
++		IDs:     NoIDs(),
++		Details: Details{"observed": inner.Error()},
++		Cause:   joined,
++	}); !errors.Is(err, ErrCausalLeak) {
++		test.Fatalf("a detail reproducing a joined cause link was admitted: %v", err)
++	}
++
++	// Nested detail values are walked.
++	if _, err := New(Spec{
++		Version: Version100,
++		Code:    "provider_protocol_error",
++		Message: "provider first frame is unusable",
++		IDs:     NoIDs(),
++		Details: Details{"context": map[string]any{"observed": []any{inner.Error()}}},
++		Cause:   wrapped,
++	}); !errors.Is(err, ErrCausalLeak) {
++		test.Fatalf("a nested detail reproducing the cause was admitted: %v", err)
++	}
++
++	// The valid construction: the cause stays local and nothing on the wire
++	// carries it.
++	failure, err := New(Spec{
++		Version: Version100,
++		Code:    "provider_protocol_error",
++		Message: "provider first frame is unusable",
++		IDs:     NoIDs(),
++		Details: Details{"stream": "stdout"},
++		Cause:   wrapped,
++	})
++	if err != nil {
++		test.Fatalf("New: %v", err)
++	}
++	encoded, err := json.Marshal(failure)
++	if err != nil {
++		test.Fatalf("marshal: %v", err)
++	}
++	for _, forbidden := range []string{secret, "provider stderr", "read provider first frame"} {
++		if strings.Contains(string(encoded), forbidden) {
++			test.Fatalf("encoded object carried %q: %s", forbidden, encoded)
++		}
++	}
++	if !errors.Is(failure, inner) {
++		test.Fatal("the local cause chain was lost")
++	}
++	// Encoding a second time cannot start carrying it either: the encoder has
++	// no access to the field.
++	if strings.Contains(fmt.Sprintf("%v", failure), secret) {
++		test.Fatalf("the default rendering carried the cause: %v", failure)
++	}
++}
++
++// TestCausalLeakGateStatesItsBound checks the documented limits rather than
++// letting them be discovered. A short cause is not used as a refusal substring,
++// and a paraphrase is not detected. Both are stated in RedactionBound and in
++// the doc comment on refuseCausalLeak; this test fails if the behaviour stops
++// matching what is written down.
++func TestCausalLeakGateStatesItsBound(test *testing.T) {
++	for _, stated := range []string{
++		"does not claim content-level scrubbing",
++		"matches no key by substring",
++		"inspects no free-form value for secret content",
++	} {
++		if !strings.Contains(RedactionBound, stated) {
++			test.Fatalf("RedactionBound no longer states %q: %q", stated, RedactionBound)
++		}
++	}
++	short := errors.New("EOF")
++	if _, err := New(Spec{
++		Version: Version100,
++		Code:    "transport_failure",
++		Message: "the peer closed before the hello response: EOF was observed",
++		IDs:     NoIDs(),
++		Details: Details{},
++		Cause:   short,
++	}); err != nil {
++		test.Fatalf("a cause shorter than the redactable bound was treated as a leak: %v", err)
++	}
++	long := errors.New("dial tcp 203.0.113.7:2222: connection refused by peer host")
++	paraphrased, err := New(Spec{
++		Version: Version100,
++		Code:    "transport_failure",
++		Message: "the peer refused the connection",
++		IDs:     NoIDs(),
++		Details: Details{},
++		Cause:   long,
++	})
++	if err != nil {
++		test.Fatalf("a paraphrase was refused: %v", err)
++	}
++	if paraphrased.Message() == long.Error() {
++		test.Fatal("the paraphrase test did not actually paraphrase")
++	}
++}
++
++// TestDetailValueShapeRefusals covers the value-shape arm of the details gate:
++// an array nested one container too deep, an invalid UTF-8 string reaching the
++// validator from a Go call site, and a nested unsupported Go type.
++func TestDetailValueShapeRefusals(test *testing.T) {
++	cases := []struct {
++		name    string
++		details Details
++	}{
++		{name: "array nested one container too deep", details: Details{"list": nestedArray(5)}},
++		{name: "invalid UTF-8 string value", details: Details{"observed": string([]byte{0xff})}},
++		{name: "nested invalid UTF-8 string value", details: Details{"c": map[string]any{"o": string([]byte{0xff})}}},
++		{name: "unsupported Go type nested in an array", details: Details{"list": []any{7}}},
++		{name: "unsupported Go type nested in an object", details: Details{"c": map[string]any{"n": 7.5}}},
++	}
++	for _, item := range cases {
++		test.Run(item.name, func(test *testing.T) {
++			if err := ValidateDetails(item.details); !errors.Is(err, ErrInvalidDetails) {
++				test.Fatal("an unsupported detail value shape was admitted")
++			}
++		})
++	}
++	if err := ValidateDetails(Details{"list": nestedArray(4)}); err != nil {
++		test.Fatalf("an array at the declared depth bound was refused: %v", err)
++	}
++}
++
++// TestTypedDetailConstructorsRefuseEveryEmptyField exercises both typed
++// constructors symmetrically, so neither can drift into accepting a partial set.
++func TestTypedDetailConstructorsRefuseEveryEmptyField(test *testing.T) {
++	complete := TargetAuth{
++		ProviderID:           "codex",
++		ProviderBuild:        "0.48.0",
++		MacOSVersion:         "15.4",
++		TmuxServerGeneration: "7",
++		Remediation:          "run the provider auth smoke in the login realm",
++	}
++	if _, err := complete.Details(); err != nil {
++		test.Fatalf("a complete typed set was refused: %v", err)
++	}
++	for index, partial := range []TargetAuth{
++		{ProviderBuild: "0.48.0", MacOSVersion: "15.4", TmuxServerGeneration: "7", Remediation: "r"},
++		{ProviderID: "codex", MacOSVersion: "15.4", TmuxServerGeneration: "7", Remediation: "r"},
++		{ProviderID: "codex", ProviderBuild: "0.48.0", TmuxServerGeneration: "7", Remediation: "r"},
++		{ProviderID: "codex", ProviderBuild: "0.48.0", MacOSVersion: "15.4", Remediation: "r"},
++		{ProviderID: "codex", ProviderBuild: "0.48.0", MacOSVersion: "15.4", TmuxServerGeneration: "7"},
++	} {
++		if _, err := NewTargetAuthMissing(Version130, "auth smoke missing", NoIDs(), partial, nil); !errors.Is(err, ErrInvalidDetails) {
++			test.Fatalf("partial target auth set %d was admitted", index)
++		}
++	}
++}
++
++// nestedArray builds a value that opens exactly depth array containers.
++func nestedArray(depth int) any {
++	var value any = "leaf"
++	for index := 0; index < depth; index++ {
++		value = []any{value}
++	}
++	return value
++}
++
++// TestDetailsRefuseValuesThatCannotBeMeasuredCanonically covers the arm where a
++// value passes the Go type switch but has no canonical JSON encoding, so the
++// declared 16 KiB bound could not be measured for it.
++func TestDetailsRefuseValuesThatCannotBeMeasuredCanonically(test *testing.T) {
++	if err := ValidateDetails(Details{"count": json.Number("not-a-number")}); !errors.Is(err, ErrInvalidDetails) {
++		test.Fatal("a value with no canonical encoding was admitted")
++	}
++	if err := ValidateDetails(Details{"context": map[string]any{string([]byte{0xff}): "v"}}); !errors.Is(err, ErrInvalidDetails) {
++		test.Fatal("an object key that is not valid UTF-8 was admitted")
++	}
++	if _, err := (TargetAuth{
++		ProviderID:           string([]byte{0xff}),
++		ProviderBuild:        "0.48.0",
++		MacOSVersion:         "15.4",
++		TmuxServerGeneration: "7",
++		Remediation:          "restart",
++	}).Details(); !errors.Is(err, ErrInvalidDetails) {
++		test.Fatal("a typed detail value that is not valid UTF-8 was admitted")
++	}
++}
+diff --git a/internal/axerror/refusal_test.go b/internal/axerror/refusal_test.go
+new file mode 100644
+index 0000000..6e5dc6d
+--- /dev/null
++++ b/internal/axerror/refusal_test.go
+@@ -0,0 +1,353 @@
++package axerror
++
++import (
++	"encoding/json"
++	"errors"
++	"strings"
++	"testing"
++)
++
++func baseSpec() Spec {
++	return Spec{
++		Version: Version130,
++		Code:    "not_found",
++		Message: "no such session",
++		IDs:     NoIDs(),
++		Details: Details{},
++	}
++}
++
++// TestNewRefusesShapeAndBoundViolations narrows every Section 15.1 bound in
++// turn. A validator that dropped any one of these would still admit the valid
++// object above and every other case here, so each row proves its own bound.
++func TestNewRefusesShapeAndBoundViolations(test *testing.T) {
++	if _, err := New(baseSpec()); err != nil {
++		test.Fatalf("the valid base object was refused: %v", err)
++	}
++	cases := []struct {
++		name    string
++		mutate  func(Spec) Spec
++		wantErr error
++	}{
++		{
++			name:    "empty message",
++			mutate:  func(spec Spec) Spec { spec.Message = ""; return spec },
++			wantErr: ErrInvalidStructuredError,
++		},
++		{
++			name:    "message one character past the bound",
++			mutate:  func(spec Spec) Spec { spec.Message = strings.Repeat("a", 4097); return spec },
++			wantErr: ErrInvalidStructuredError,
++		},
++		{
++			name:    "message counted in bytes rather than characters",
++			mutate:  func(spec Spec) Spec { spec.Message = strings.Repeat("é", 4097); return spec },
++			wantErr: ErrInvalidStructuredError,
++		},
++		{
++			name:    "invalid UTF-8 message",
++			mutate:  func(spec Spec) Spec { spec.Message = string([]byte{0xff, 0xfe}); return spec },
++			wantErr: ErrInvalidStructuredError,
++		},
++		{
++			name:    "null details",
++			mutate:  func(spec Spec) Spec { spec.Details = nil; return spec },
++			wantErr: ErrInvalidDetails,
++		},
++		{
++			name:    "sixty-five detail keys",
++			mutate:  func(spec Spec) Spec { spec.Details = countedDetails(65); return spec },
++			wantErr: ErrInvalidDetails,
++		},
++		{
++			name:    "detail key outside the grammar",
++			mutate:  func(spec Spec) Spec { spec.Details = Details{"Expected": "value"}; return spec },
++			wantErr: ErrInvalidDetails,
++		},
++		{
++			name: "detail key one byte past the grammar length",
++			mutate: func(spec Spec) Spec {
++				spec.Details = Details{"a" + strings.Repeat("b", 64): "value"}
++				return spec
++			},
++			wantErr: ErrInvalidDetails,
++		},
++		{
++			name:    "detail value nested one container too deep",
++			mutate:  func(spec Spec) Spec { spec.Details = Details{"nested": nestedValue(5)}; return spec },
++			wantErr: ErrInvalidDetails,
++		},
++		{
++			name: "detail map past sixteen kibibytes",
++			mutate: func(spec Spec) Spec {
++				spec.Details = Details{"blob": strings.Repeat("x", 16*1024)}
++				return spec
++			},
++			wantErr: ErrInvalidDetails,
++		},
++		{
++			name:    "detail value of an unsupported Go type",
++			mutate:  func(spec Spec) Spec { spec.Details = Details{"count": 7}; return spec },
++			wantErr: ErrInvalidDetails,
++		},
++		{
++			name:    "unregistered code",
++			mutate:  func(spec Spec) Spec { spec.Code = "terminal_realm_unavailable"; return spec },
++			wantErr: ErrUnregisteredCode,
++		},
++		{
++			name: "code registered only by a later version",
++			mutate: func(spec Spec) Spec {
++				spec.Version = Version100
++				spec.Code = "terminal_backend_untrusted"
++				return spec
++			},
++			wantErr: ErrUnregisteredCode,
++		},
++		{
++			name:    "unregistered version",
++			mutate:  func(spec Spec) Spec { spec.Version = "1.4.0"; return spec },
++			wantErr: ErrUnsupportedVersion,
++		},
++	}
++	for _, item := range cases {
++		test.Run(item.name, func(test *testing.T) {
++			if _, err := New(item.mutate(baseSpec())); !errors.Is(err, item.wantErr) {
++				test.Fatalf("error = %v, want %v", err, item.wantErr)
++			}
++		})
++	}
++}
++
++// TestNewAdmitsEveryBoundaryValue is the complement: the bounds are refused one
++// step past the limit and admitted exactly at it, so the refusals above are not
++// passing because the validator refuses everything.
++func TestNewAdmitsEveryBoundaryValue(test *testing.T) {
++	cases := []struct {
++		name   string
++		mutate func(Spec) Spec
++	}{
++		{name: "one-character message", mutate: func(spec Spec) Spec { spec.Message = "x"; return spec }},
++		{
++			name:   "message exactly at the character bound",
++			mutate: func(spec Spec) Spec { spec.Message = strings.Repeat("é", 4096); return spec },
++		},
++		{name: "sixty-four detail keys", mutate: func(spec Spec) Spec { spec.Details = countedDetails(64); return spec }},
++		{
++			name:   "detail key exactly at the grammar length",
++			mutate: func(spec Spec) Spec { spec.Details = Details{"a" + strings.Repeat("b", 63): "v"}; return spec },
++		},
++		{
++			name:   "detail value nested exactly four containers deep",
++			mutate: func(spec Spec) Spec { spec.Details = Details{"nested": nestedValue(4)}; return spec },
++		},
++	}
++	for _, item := range cases {
++		test.Run(item.name, func(test *testing.T) {
++			if _, err := New(item.mutate(baseSpec())); err != nil {
++				test.Fatalf("a value at the declared bound was refused: %v", err)
++			}
++		})
++	}
++}
++
++// TestRetryableRefusedForEveryForbiddenClass proves the retryability gate by
++// narrowing it. Each forbidden class and each individually disqualified code is
++// exercised separately, so a policy that kept only one of them would fail here;
++// and one representative code from every other exit class is admitted, so a
++// policy that refused everything would fail too.
++func TestRetryableRefusedForEveryForbiddenClass(test *testing.T) {
++	forbidden := []struct {
++		name    string
++		version Version
++		code    Code
++	}{
++		{name: "exit 7 authentication", version: Version100, code: "authentication_failed"},
++		{name: "exit 7 allowlist", version: Version100, code: "peer_not_allowlisted"},
++		{name: "exit 7 directory field", version: Version120, code: "field_forbidden"},
++		{name: "exit 7 terminal authorization", version: Version130, code: "terminal_backend_unauthorized"},
++		{name: "exit 16 confirmation", version: Version100, code: "confirmation_required"},
++		{name: "exit 16 policy", version: Version100, code: "policy_refused"},
++		{name: "exit 16 secret policy", version: Version100, code: "secret_policy_violation"},
++		{name: "exit 130 interrupt", version: Version100, code: "interrupted"},
++		{name: "ambiguous transaction effect", version: Version110, code: "transaction_unknown"},
++		{name: "uncertain operation", version: Version120, code: "operation_uncertain"},
++		{name: "stale backend generation", version: Version130, code: "terminal_backend_stale_generation"},
++	}
++	for _, item := range forbidden {
++		test.Run("refused/"+item.name, func(test *testing.T) {
++			spec := baseSpec()
++			spec.Version = item.version
++			spec.Code = item.code
++			spec.Retryable = true
++			if _, err := New(spec); !errors.Is(err, ErrInvalidStructuredError) {
++				test.Fatalf("retryable was admitted for %s: %v", item.code, err)
++			}
++			// The same object without the claim is valid, so the refusal is
++			// about the retry claim and not about the code.
++			spec.Retryable = false
++			if _, err := New(spec); err != nil {
++				test.Fatalf("%s is not constructible at all: %v", item.code, err)
++			}
++			if _, forbiddenNow := RetryabilityRefusal(item.code, 0); !forbiddenNow {
++				status, err := ExitCodeFor(item.version, item.code)
++				if err != nil {
++					test.Fatalf("ExitCodeFor: %v", err)
++				}
++				if _, byClass := RetryabilityRefusal(item.code, status); !byClass {
++					test.Fatalf("%s is refused by neither code nor exit class", item.code)
++				}
++			}
++		})
++	}
++
++	admitted := []struct {
++		version Version
++		code    Code
++	}{
++		{version: Version100, code: "transport_failure"},
++		{version: Version100, code: "owner_unreachable"},
++		{version: Version100, code: "quiesce_timeout"},
++		{version: Version100, code: "provider_timeout"},
++		{version: Version100, code: "workspace_group_busy"},
++		{version: Version120, code: "host_offline"},
++	}
++	for _, item := range admitted {
++		test.Run("admitted/"+string(item.code), func(test *testing.T) {
++			spec := baseSpec()
++			spec.Version = item.version
++			spec.Code = item.code
++			spec.Retryable = true
++			failure, err := New(spec)
++			if err != nil {
++				test.Fatalf("a retry claim outside every forbidden class was refused: %v", err)
++			}
++			if !failure.Retryable() {
++				test.Fatal("the retry claim was silently dropped")
++			}
++		})
++	}
++}
++
++// TestTypedDetailsAreRequiredWhereThePinnedDocumentNamesThem checks the two
++// code-to-detail bindings Section 15.3 states, on both the writing and the
++// reading side.
++func TestTypedDetailsAreRequiredWhereThePinnedDocumentNamesThem(test *testing.T) {
++	target := TargetAuth{
++		ProviderID:           "codex",
++		ProviderBuild:        "0.48.0",
++		MacOSVersion:         "15.4",
++		TmuxServerGeneration: "7",
++		Remediation:          "run the provider auth smoke in the login realm",
++	}
++	failure, err := NewTargetAuthMissing(Version130, "provider auth smoke did not run", NoIDs(), target, nil)
++	if err != nil {
++		test.Fatalf("NewTargetAuthMissing: %v", err)
++	}
++	if failure.ExitCode() != 7 {
++		test.Fatalf("target_auth_missing carries exit %d, the pinned mapping is 7", failure.ExitCode())
++	}
++	for _, key := range targetAuthMissingKeys {
++		if _, present := failure.Detail(key); !present {
++			test.Fatalf("typed detail %q is missing", key)
++		}
++	}
++
++	for _, missing := range targetAuthMissingKeys {
++		test.Run("writer/"+missing, func(test *testing.T) {
++			details, err := target.Details()
++			if err != nil {
++				test.Fatalf("Details: %v", err)
++			}
++			delete(details, missing)
++			_, err = New(Spec{
++				Version: Version130,
++				Code:    "target_auth_missing",
++				Message: "provider auth smoke did not run",
++				IDs:     NoIDs(),
++				Details: details,
++			})
++			if !errors.Is(err, ErrInvalidDetails) {
++				test.Fatalf("target_auth_missing without %q was admitted: %v", missing, err)
++			}
++		})
++	}
++
++	encoded, err := json.Marshal(failure)
++	if err != nil {
++		test.Fatalf("marshal: %v", err)
++	}
++	if _, err := Decode(Version130, encoded); err != nil {
++		test.Fatalf("Decode of a complete typed object: %v", err)
++	}
++	stripped := strings.Replace(
++		string(encoded), `"remediation":"run the provider auth smoke in the login realm",`, "", 1)
++	if stripped == string(encoded) {
++		test.Fatal("the reader case did not actually remove the typed detail")
++	}
++	if _, err := Decode(Version130, []byte(stripped)); !errors.Is(err, ErrInvalidDetails) {
++		test.Fatalf("a peer object missing a required typed detail was admitted: %v", err)
++	}
++
++	for _, empty := range []RealmEvidence{
++		{CallerRealm: "aqua", BrokerState: "absent", TmuxServerGeneration: "7", Remediation: "restart the broker"},
++		{Capability: "terminal_attach", BrokerState: "absent", TmuxServerGeneration: "7", Remediation: "restart the broker"},
++		{Capability: "terminal_attach", CallerRealm: "aqua", TmuxServerGeneration: "7", Remediation: "restart the broker"},
++		{Capability: "terminal_attach", CallerRealm: "aqua", BrokerState: "absent", Remediation: "restart the broker"},
++		{Capability: "terminal_attach", CallerRealm: "aqua", BrokerState: "absent", TmuxServerGeneration: "7"},
++	} {
++		if _, err := NewRealmEvidenceUnavailable(Version130, "broker evidence is unsafe", NoIDs(), empty, nil); !errors.Is(err, ErrInvalidDetails) {
++			test.Fatalf("an incomplete realm evidence set was admitted: %v", err)
++		}
++	}
++	complete, err := NewRealmEvidenceUnavailable(Version130, "broker evidence is unsafe", NoIDs(), RealmEvidence{
++		Capability:           "terminal_attach",
++		CallerRealm:          "aqua",
++		BrokerState:          "absent",
++		TmuxServerGeneration: "7",
++		Remediation:          "restart the broker in the login realm",
++	}, nil)
++	if err != nil {
++		test.Fatalf("NewRealmEvidenceUnavailable: %v", err)
++	}
++	if complete.Code() != "capability_unavailable" || complete.ExitCode() != 6 {
++		test.Fatalf("realm evidence failure is %s/%d, want capability_unavailable/6", complete.Code(), complete.ExitCode())
++	}
++}
++
++func countedDetails(count int) Details {
++	details := make(Details, count)
++	for index := 0; index < count; index++ {
++		details[detailName(index)] = "v"
++	}
++	return details
++}
++
++func detailName(index int) string {
++	name := "k"
++	for _, digit := range []byte(itoa(index)) {
++		name += string(rune('a' + digit - '0'))
++	}
++	return name
++}
++
++func itoa(value int) string {
++	if value == 0 {
++		return "0"
++	}
++	var digits []byte
++	for value > 0 {
++		digits = append([]byte{byte('0' + value%10)}, digits...)
++		value /= 10
++	}
++	return string(digits)
++}
++
++// nestedValue builds a value that opens exactly depth containers.
++func nestedValue(depth int) any {
++	var value any = "leaf"
++	for index := 0; index < depth; index++ {
++		value = map[string]any{"n": value}
++	}
++	return value
++}
+diff --git a/internal/axerror/registry.go b/internal/axerror/registry.go
+new file mode 100644
+index 0000000..75661f3
+--- /dev/null
++++ b/internal/axerror/registry.go
+@@ -0,0 +1,270 @@
++package axerror
++
++import (
++	"errors"
++	"fmt"
++	"regexp"
++	"sort"
++
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++)
++
++// Schema is the exact Structured Error schema identifier of Section 15.1.
++const Schema = "urn:ax:schema:error"
++
++// Version is one registered Structured Error version. The set is closed: the
++// pinned Section 1.5 registry lists exactly these four, and a value outside it
++// is refused rather than coerced to the nearest neighbour.
++type Version string
++
++const (
++	// Version100 is bound by Provider protocol 2.x, task-board bridge 1.x,
++	// Mesh RPC 2.x, and CLI Result 1.0.0.
++	Version100 Version = "1.0.0"
++	// Version110 is bound by Session Adapter 1.0, session.clone.*, and
++	// CLI Result 2.0.0.
++	Version110 Version = "1.1.0"
++	// Version120 is bound by Directory Node 1 and 2, Mesh RPC 3, CLI Result 3,
++	// and Directory Query 1.
++	Version120 Version = "1.2.0"
++	// Version130 is bound by Terminal Backend Protocol 1.0.0, Provider Protocol
++	// 3.0.0, Mesh RPC 4.0.0, and CLI Result 4.0.0.
++	Version130 Version = "1.3.0"
++)
++
++// Code is one stable lower-snake-case Structured Error code.
++type Code string
++
++var (
++	// ErrUnsupportedVersion reports a Structured Error version outside the
++	// pinned registry, including any major other than 1.
++	ErrUnsupportedVersion = errors.New("unsupported structured error version")
++
++	// ErrUnregisteredCode reports a code that the requested version does not
++	// register. A writer may never mint one; see RetryabilityRefusal and
++	// Decode for the reader's separate tolerance rule.
++	ErrUnregisteredCode = errors.New("unregistered structured error code")
++
++	// ErrUnregisteredExit reports an exit status outside the closed Section
++	// 15.2 registry, or the success status 0 in a failure object.
++	ErrUnregisteredExit = errors.New("unregistered structured error exit code")
++)
++
++// versionOrder is the registry order of the four registered versions. Index
++// position is the only ordering used; the strings are never compared
++// lexically, because "1.10.0" would sort before "1.2.0" if they were.
++var versionOrder = []Version{Version100, Version110, Version120, Version130}
++
++// codePattern is the Section 15.1 constraint on code, verbatim: "string[1..128]
++// | Stable lower-snake-case registry value".
++var codePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
++
++const maxCodeLength = 128
++
++// exitMeanings is the Section 15.2 exit-code registry: nineteen rows, closed.
++// The table is stated in the pinned document without RFC 2119 keywords, so no
++// clause-level coverage is claimed for it; it is reproduced here because every
++// code-to-exit mapping in Section 15.3 has to resolve against it.
++var exitMeanings = map[int]string{
++	0:   "Requested operation succeeded",
++	2:   "Usage, invalid flag, or interactive choice required",
++	3:   "Configuration or local precondition invalid",
++	4:   "Session, checkpoint, peer, provider, or task-board identity not found",
++	5:   "Workspace/native-store conflict; no silent overwrite",
++	6:   "Capability unsupported, unknown, conditional, or incompatible",
++	7:   "Authentication/authorization/allowlist failure",
++	8:   "SSH/RPC transport failure; staging can be resumable",
++	9:   "Integrity, schema, hash, or unsafe-path failure",
++	10:  "Ownership/lease/fencing failure",
++	11:  "Busy, quiesce timeout, or graceful stop timeout",
++	12:  "Staging/materialization/rollback failure",
++	13:  "Provider plugin/process failure",
++	14:  "Task-board bridge/bundle/validation failure",
++	15:  "Partial success: immutable sync succeeded but a requested materialization or peer did not",
++	16:  "Explicit policy refusal, including missing destructive confirmation",
++	17:  "Contract/schema migration required",
++	130: "Interrupted by operator signal before a clean response; inspect authority before retry",
++}
++
++// successExit is the one registered status that is not a failure class. A
++// Structured Error is a failure object, so it can never carry it.
++const successExit = 0
++
++type registryEntry struct {
++	exitCode int
++	versions map[Version]struct{}
++}
++
++// codeRegistry is derived from the reviewed catalog rather than retyped here,
++// so a code added to the pinned registry cannot exist in one place only.
++var codeRegistry = mustBuildCodeRegistry(catalog.Current().Errors)
++
++func mustBuildCodeRegistry(rows []catalog.ErrorCode) map[Code]registryEntry {
++	built, err := buildCodeRegistry(rows)
++	if err != nil {
++		panic(fmt.Sprintf("structured error registry is invalid: %v", err))
++	}
++	return built
++}
++
++// buildCodeRegistry projects the catalog error rows into the code-to-exit
++// registry. It refuses a row that does not belong to the Structured Error
++// contract, names an exit status outside Section 15.2, claims success, carries
++// no version, names an unregistered version, or repeats a code, so a drifted
++// catalog fails at load rather than silently widening the admitted set.
++func buildCodeRegistry(rows []catalog.ErrorCode) (map[Code]registryEntry, error) {
++	if len(rows) == 0 {
++		return nil, fmt.Errorf("catalog carries no Structured Error rows")
++	}
++	registry := make(map[Code]registryEntry, len(rows))
++	for _, row := range rows {
++		code := Code(row.Code)
++		if string(row.ContractID) != Schema {
++			return nil, fmt.Errorf("code %q belongs to contract %q, not %s", code, row.ContractID, Schema)
++		}
++		if err := validateCodeGrammar(code); err != nil {
++			return nil, err
++		}
++		if _, ok := exitMeanings[row.ExitCode]; !ok {
++			return nil, fmt.Errorf("code %q maps to exit %d, which Section 15.2 does not register", code, row.ExitCode)
++		}
++		if row.ExitCode == successExit {
++			return nil, fmt.Errorf("code %q maps to the success exit status", code)
++		}
++		if len(row.ContractVersions) == 0 {
++			return nil, fmt.Errorf("code %q registers no Structured Error version", code)
++		}
++		versions := make(map[Version]struct{}, len(row.ContractVersions))
++		for _, raw := range row.ContractVersions {
++			version := Version(raw)
++			if !isRegisteredVersion(version) {
++				return nil, fmt.Errorf("code %q names unregistered version %q", code, raw)
++			}
++			versions[version] = struct{}{}
++		}
++		if _, duplicate := registry[code]; duplicate {
++			return nil, fmt.Errorf("code %q is registered twice", code)
++		}
++		registry[code] = registryEntry{exitCode: row.ExitCode, versions: versions}
++	}
++	return registry, nil
++}
++
++func validateCodeGrammar(code Code) error {
++	if len(code) == 0 || len(code) > maxCodeLength {
++		return fmt.Errorf("%w: code %q is not 1..%d bytes", ErrUnregisteredCode, code, maxCodeLength)
++	}
++	if !codePattern.MatchString(string(code)) {
++		return fmt.Errorf("%w: code %q is not lower snake case", ErrUnregisteredCode, code)
++	}
++	return nil
++}
++
++func isRegisteredVersion(version Version) bool {
++	for _, candidate := range versionOrder {
++		if candidate == version {
++			return true
++		}
++	}
++	return false
++}
++
++// Versions returns the registered Structured Error versions in registry order.
++func Versions() []Version {
++	return append([]Version(nil), versionOrder...)
++}
++
++// ExitCodeFor returns the exact Section 15.2 exit status that version assigns
++// to code. It refuses an unregistered version, a code the pinned registry does
++// not carry, and a code that a later version added but the requested one does
++// not register, so a 1.3.0-only TerminalBackend code cannot be emitted inside a
++// 1.0.0 envelope.
++func ExitCodeFor(version Version, code Code) (int, error) {
++	if !isRegisteredVersion(version) {
++		return 0, fmt.Errorf("%w: %q", ErrUnsupportedVersion, version)
++	}
++	entry, known := codeRegistry[code]
++	if !known {
++		return 0, fmt.Errorf("%w: %q is not a Structured Error code", ErrUnregisteredCode, code)
++	}
++	if _, admitted := entry.versions[version]; !admitted {
++		return 0, fmt.Errorf("%w: %q is not registered by Structured Error %s", ErrUnregisteredCode, code, version)
++	}
++	return entry.exitCode, nil
++}
++
++// ExitStatusMeaning returns the Section 15.2 meaning of a registered exit
++// status. The second result is false for any status the registry does not
++// carry, so an unregistered status is reported as unknown rather than given a
++// plausible meaning.
++func ExitStatusMeaning(status int) (string, bool) {
++	meaning, ok := exitMeanings[status]
++	return meaning, ok
++}
++
++// IsFailureExitStatus reports whether status is a registered Section 15.2
++// status other than success. Every Structured Error carries one of these.
++func IsFailureExitStatus(status int) bool {
++	if status == successExit {
++		return false
++	}
++	_, ok := exitMeanings[status]
++	return ok
++}
++
++// CodesFor returns every code the given version registers, sorted. It is the
++// measured denominator of this package's registry coverage; callers that want
++// a prose summary instead have to state the ratio themselves.
++func CodesFor(version Version) ([]Code, error) {
++	if !isRegisteredVersion(version) {
++		return nil, fmt.Errorf("%w: %q", ErrUnsupportedVersion, version)
++	}
++	var result []Code
++	for code, entry := range codeRegistry {
++		if _, ok := entry.versions[version]; ok {
++			result = append(result, code)
++		}
++	}
++	sort.Slice(result, func(left, right int) bool { return result[left] < result[right] })
++	return result, nil
++}
++
++// retryabilityRefusalsByExitStatus records the exit classes whose whole meaning
++// contradicts the Section 15.1 definition of retryable: "True only when the
++// identical request may safely be retried without new authority or
++// confirmation". Each entry quotes the Section 15.2 row that licenses it.
++var retryabilityRefusalsByExitStatus = map[int]string{
++	7:   `exit 7 is "Authentication/authorization/allowlist failure"; the identical request cannot succeed without new authority`,
++	16:  `exit 16 is "Explicit policy refusal, including missing destructive confirmation"; the identical request cannot succeed without new confirmation`,
++	130: `exit 130 is "Interrupted by operator signal before a clean response; inspect authority before retry"`,
++}
++
++// retryabilityRefusalsByCode records the three codes the pinned document
++// disqualifies individually, each with the sentence that disqualifies it.
++// These are quoted, not inferred: no code is added here because retrying it
++// merely looks unwise.
++var retryabilityRefusalsByCode = map[Code]string{
++	"operation_uncertain":               `Section 15.3: "operation_uncertain is not retry permission: status/recovery inspection is mandatory"`,
++	"terminal_backend_stale_generation": `Section 15.3: terminal_backend_stale_generation "requires status/recovery before retry and is never retryable solely because the caller can submit the same bytes"`,
++	"transaction_unknown":               `Section 15.1: "Transaction unknown is a parked ambiguous effect, never success or absence"`,
++}
++
++// RetryabilityRefusal reports why retryable = true is forbidden for a code, and
++// whether such a refusal exists. Both the code and its exit status are
++// consulted: an unknown code still retains its envelope's exit class, so a
++// reader that cannot resolve the code can still refuse a forged retry claim on
++// an authorization, refusal, or interrupt class.
++//
++// The complement is deliberately not a permission. This function never reports
++// that retrying is safe; it reports only where the pinned document forbids the
++// claim. Every other code carries whatever the constructing call site declared,
++// and this package makes no assertion about it.
++func RetryabilityRefusal(code Code, exitStatus int) (string, bool) {
++	if reason, forbidden := retryabilityRefusalsByCode[code]; forbidden {
++		return reason, true
++	}
++	if reason, forbidden := retryabilityRefusalsByExitStatus[exitStatus]; forbidden {
++		return reason, true
++	}
++	return "", false
++}
+diff --git a/internal/axerror/registry_test.go b/internal/axerror/registry_test.go
+new file mode 100644
+index 0000000..c1215a4
+--- /dev/null
++++ b/internal/axerror/registry_test.go
+@@ -0,0 +1,259 @@
++package axerror
++
++import (
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++)
++
++// pinnedVersionCodeCounts is the measured denominator of this package's code
++// registry, taken from the reviewed catalog projection of the pinned Section
++// 15.3 tables. It is written down so that a coverage assertion cannot pass by
++// measuring an empty registry against itself: 0 of 0 is not 109 of 109.
++var pinnedVersionCodeCounts = map[Version]int{
++	Version100: 47,
++	Version110: 66,
++	Version120: 94,
++	Version130: 109,
++}
++
++const pinnedTotalCodeCount = 109
++
++// TestExitCodeForMatchesThePinnedRegistry measures the registry against every
++// catalog row and reports the ratio it measured. Both directions are checked:
++// every catalog row resolves through ExitCodeFor to the exit status the catalog
++// assigns, and every version admits exactly the number of codes the pinned
++// tables carry.
++func TestExitCodeForMatchesThePinnedRegistry(test *testing.T) {
++	rows := catalog.Current().Errors
++	if len(rows) != pinnedTotalCodeCount {
++		test.Fatalf("catalog carries %d Structured Error codes, pinned count is %d", len(rows), pinnedTotalCodeCount)
++	}
++	resolved := 0
++	for _, row := range rows {
++		for _, rawVersion := range row.ContractVersions {
++			version := Version(rawVersion)
++			status, err := ExitCodeFor(version, Code(row.Code))
++			if err != nil {
++				test.Fatalf("ExitCodeFor(%s, %s): %v", version, row.Code, err)
++			}
++			if status != row.ExitCode {
++				test.Fatalf("ExitCodeFor(%s, %s) = %d, catalog assigns %d", version, row.Code, status, row.ExitCode)
++			}
++			if !IsFailureExitStatus(status) {
++				test.Fatalf("code %s resolves to exit %d, which is not a registered failure status", row.Code, status)
++			}
++			resolved++
++		}
++	}
++	expected := 0
++	for _, version := range Versions() {
++		codes, err := CodesFor(version)
++		if err != nil {
++			test.Fatalf("CodesFor(%s): %v", version, err)
++		}
++		want := pinnedVersionCodeCounts[version]
++		if len(codes) != want {
++			test.Fatalf("Structured Error %s registers %d codes, pinned count is %d", version, len(codes), want)
++		}
++		expected += want
++	}
++	if resolved != expected {
++		test.Fatalf("resolved %d of %d registered code-version pairs", resolved, expected)
++	}
++	test.Logf("code-to-exit registry coverage: %d/%d registered code-version pairs", resolved, expected)
++}
++
++// TestExitCodeForRefusesVersionAndCodeDrift narrows the registry gate rather
++// than deleting it. Each case would be admitted by a validator that checked
++// only membership in the union of all versions, only the code grammar, or only
++// the version string's shape.
++func TestExitCodeForRefusesVersionAndCodeDrift(test *testing.T) {
++	cases := []struct {
++		name    string
++		version Version
++		code    Code
++		wantErr error
++	}{
++		{
++			name:    "code added by a later minor is not admitted by an earlier one",
++			version: Version100,
++			code:    "terminal_backend_not_found",
++			wantErr: ErrUnregisteredCode,
++		},
++		{
++			name:    "clone code is not admitted by the base version",
++			version: Version100,
++			code:    "source_not_quiescent",
++			wantErr: ErrUnregisteredCode,
++		},
++		{
++			name:    "directory code is not admitted by the clone version",
++			version: Version110,
++			code:    "observation_gap",
++			wantErr: ErrUnregisteredCode,
++		},
++		{
++			name:    "terminal code is not admitted by the directory version",
++			version: Version120,
++			code:    "terminal_backend_stale_generation",
++			wantErr: ErrUnregisteredCode,
++		},
++		{
++			name:    "well-formed but unminted code is refused",
++			version: Version130,
++			code:    "realm_broker_unavailable",
++			wantErr: ErrUnregisteredCode,
++		},
++		{
++			name:    "unregistered minor is refused",
++			version: Version("1.4.0"),
++			code:    "not_found",
++			wantErr: ErrUnsupportedVersion,
++		},
++		{
++			name:    "unsupported major is refused",
++			version: Version("2.0.0"),
++			code:    "not_found",
++			wantErr: ErrUnsupportedVersion,
++		},
++	}
++	for _, item := range cases {
++		test.Run(item.name, func(test *testing.T) {
++			if _, err := ExitCodeFor(item.version, item.code); !errors.Is(err, item.wantErr) {
++				test.Fatalf("ExitCodeFor(%s, %s) error = %v, want %v", item.version, item.code, err, item.wantErr)
++			}
++		})
++	}
++}
++
++// TestExitStatusRegistryIsClosed checks the Section 15.2 table itself: every
++// row the pinned document states is present with its meaning, success is not a
++// failure class, and a status the table does not carry is reported unknown
++// rather than given a plausible meaning.
++func TestExitStatusRegistryIsClosed(test *testing.T) {
++	pinned := map[int]string{
++		0:   "Requested operation succeeded",
++		2:   "Usage, invalid flag, or interactive choice required",
++		3:   "Configuration or local precondition invalid",
++		4:   "Session, checkpoint, peer, provider, or task-board identity not found",
++		5:   "Workspace/native-store conflict; no silent overwrite",
++		6:   "Capability unsupported, unknown, conditional, or incompatible",
++		7:   "Authentication/authorization/allowlist failure",
++		8:   "SSH/RPC transport failure; staging can be resumable",
++		9:   "Integrity, schema, hash, or unsafe-path failure",
++		10:  "Ownership/lease/fencing failure",
++		11:  "Busy, quiesce timeout, or graceful stop timeout",
++		12:  "Staging/materialization/rollback failure",
++		13:  "Provider plugin/process failure",
++		14:  "Task-board bridge/bundle/validation failure",
++		15:  "Partial success: immutable sync succeeded but a requested materialization or peer did not",
++		16:  "Explicit policy refusal, including missing destructive confirmation",
++		17:  "Contract/schema migration required",
++		130: "Interrupted by operator signal before a clean response; inspect authority before retry",
++	}
++	if len(exitMeanings) != len(pinned) {
++		test.Fatalf("exit registry carries %d rows, the pinned table has %d", len(exitMeanings), len(pinned))
++	}
++	for status, meaning := range pinned {
++		got, ok := ExitStatusMeaning(status)
++		if !ok {
++			test.Fatalf("exit status %d is missing from the registry", status)
++		}
++		if got != meaning {
++			test.Fatalf("exit status %d means %q, pinned meaning is %q", status, got, meaning)
++		}
++	}
++	if IsFailureExitStatus(0) {
++		test.Fatal("success status 0 is reported as a failure class")
++	}
++	for _, absent := range []int{1, 18, 19, 20, 129, 131, -1} {
++		if _, ok := ExitStatusMeaning(absent); ok {
++			test.Fatalf("exit status %d is not in the pinned table but the registry carries it", absent)
++		}
++		if IsFailureExitStatus(absent) {
++			test.Fatalf("exit status %d is not registered but is reported as a failure class", absent)
++		}
++	}
++}
++
++// TestBuildCodeRegistryRefusesDriftedCatalogRows narrows the load-time gate.
++// Each row would be admitted by a builder that only copied the catalog.
++func TestBuildCodeRegistryRefusesDriftedCatalogRows(test *testing.T) {
++	valid := catalog.ErrorCode{
++		Code:             "not_found",
++		ExitCode:         4,
++		ContractID:       Schema,
++		ContractVersions: []string{"1.0.0"},
++	}
++	if _, err := buildCodeRegistry([]catalog.ErrorCode{valid}); err != nil {
++		test.Fatalf("valid row was refused: %v", err)
++	}
++	cases := []struct {
++		name string
++		rows []catalog.ErrorCode
++	}{
++		{name: "empty catalog", rows: nil},
++		{name: "foreign contract", rows: []catalog.ErrorCode{withContract(valid, "urn:ax:schema:cli-result")}},
++		{name: "unregistered exit status", rows: []catalog.ErrorCode{withExit(valid, 18)}},
++		{name: "success exit status", rows: []catalog.ErrorCode{withExit(valid, 0)}},
++		{name: "no version", rows: []catalog.ErrorCode{withVersions(valid)}},
++		{name: "unregistered version", rows: []catalog.ErrorCode{withVersions(valid, "1.4.0")}},
++		{name: "unsupported major", rows: []catalog.ErrorCode{withVersions(valid, "2.0.0")}},
++		{name: "code grammar", rows: []catalog.ErrorCode{withCode(valid, "Not_Found")}},
++		{name: "empty code", rows: []catalog.ErrorCode{withCode(valid, "")}},
++		{name: "duplicate code", rows: []catalog.ErrorCode{valid, valid}},
++	}
++	for _, item := range cases {
++		test.Run(item.name, func(test *testing.T) {
++			if _, err := buildCodeRegistry(item.rows); err == nil {
++				test.Fatal("drifted catalog rows were admitted")
++			}
++		})
++	}
++}
++
++func withContract(row catalog.ErrorCode, id catalog.ContractID) catalog.ErrorCode {
++	row.ContractID = id
++	return row
++}
++
++func withExit(row catalog.ErrorCode, status int) catalog.ErrorCode {
++	row.ExitCode = status
++	return row
++}
++
++func withVersions(row catalog.ErrorCode, versions ...string) catalog.ErrorCode {
++	row.ContractVersions = versions
++	return row
++}
++
++func withCode(row catalog.ErrorCode, code catalog.ErrorName) catalog.ErrorCode {
++	row.Code = code
++	return row
++}
++
++// TestMustBuildCodeRegistryFailsClosedOnADriftedCatalog pins the load-time
++// behaviour. The registry is package state built at initialisation, so a
++// drifted catalog has to stop the program rather than leave a partial registry
++// in place for every later caller to resolve codes against.
++func TestMustBuildCodeRegistryFailsClosedOnADriftedCatalog(test *testing.T) {
++	defer func() {
++		recovered := recover()
++		if recovered == nil {
++			test.Fatal("a drifted catalog produced a usable registry")
++		}
++		if !strings.Contains(fmt.Sprint(recovered), "structured error registry is invalid") {
++			test.Fatalf("panic did not name the registry failure: %v", recovered)
++		}
++	}()
++	mustBuildCodeRegistry([]catalog.ErrorCode{{
++		Code:             "not_found",
++		ExitCode:         0,
++		ContractID:       Schema,
++		ContractVersions: []string{"1.0.0"},
++	}})
++}
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index 6bc050d..c7f3a92 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,8 +22,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=43 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
+-		"section coverage: bindings=48 full=1 partial=0 sliver=1 unevidenced=43 unmeasured=3 unowned=2 clauses_discharged=2/394\n"
++	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=53 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
++		"section coverage: bindings=48 full=1 partial=2 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=9/394\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+ 	}
+@@ -55,8 +55,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=43 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
+-		"section coverage: bindings=48 full=1 partial=0 sliver=1 unevidenced=43 unmeasured=3 unowned=2 clauses_discharged=2/394\n"
++	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=53 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
++		"section coverage: bindings=48 full=1 partial=2 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=9/394\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+ 	}
+@@ -139,7 +139,9 @@ func TestRunRefusesEveryAssignedSectionThatOnlySlivers(t *testing.T) {
+ 		{"10.3", "discharges 1/3 normative clauses, which is sliver coverage"},
+ 		{"10.4", "discharges 0/25 normative clauses, which is unevidenced coverage"},
+ 		{"13.14.5", "discharges 0/0 normative clauses, which is unmeasured coverage"},
++		{"15.1", "discharges 5/7 normative clauses, which is partial coverage"},
+ 		{"15.2", "discharges 0/0 normative clauses, which is unmeasured coverage"},
++		{"15.3", "discharges 2/3 normative clauses, which is partial coverage"},
+ 		{"17.1", "discharges 0/6 normative clauses, which is unevidenced coverage"},
+ 		{"17.2", "discharges 0/1 normative clauses, which is unevidenced coverage"},
+ 		{"17.3", "discharges 0/3 normative clauses, which is unevidenced coverage"},
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 6cf5a68..139cb16 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -1551,6 +1551,192 @@
+           "declaration": "TestSourceCheckerAcceptsNativeFuzzAndRejectsNonExecutableHelpers"
+         }
+       ]
++    },
++    {
++      "id": "structured-error-exact-object",
++      "production": {
++        "path": "internal/axerror/axerror.go",
++        "declaration": "New"
++      },
++      "tests": [
++        {
++          "path": "internal/axerror/axerror_test.go",
++          "declaration": "TestNewProducesTheNormativeStructuredErrorObject"
++        },
++        {
++          "path": "internal/axerror/axerror_test.go",
++          "declaration": "TestOptionalIdentifiersAreOmittedNotNulled"
++        }
++      ]
++    },
++    {
++      "id": "structured-error-shape-refusal",
++      "production": {
++        "path": "internal/axerror/axerror.go",
++        "declaration": "New"
++      },
++      "tests": [
++        {
++          "path": "internal/axerror/refusal_test.go",
++          "declaration": "TestNewRefusesShapeAndBoundViolations"
++        },
++        {
++          "path": "internal/axerror/refusal_test.go",
++          "declaration": "TestNewAdmitsEveryBoundaryValue"
++        },
++        {
++          "path": "internal/axerror/decode_test.go",
++          "declaration": "TestDecodeRefusesClosedShapeViolations"
++        }
++      ]
++    },
++    {
++      "id": "structured-error-detail-redaction",
++      "production": {
++        "path": "internal/axerror/details.go",
++        "declaration": "ValidateDetails"
++      },
++      "tests": [
++        {
++          "path": "internal/axerror/redaction_test.go",
++          "declaration": "TestDetailsRefuseExcludedClasses"
++        },
++        {
++          "path": "internal/axerror/redaction_test.go",
++          "declaration": "TestCauseNeverReachesTheWire"
++        },
++        {
++          "path": "internal/axerror/redaction_test.go",
++          "declaration": "TestCausalLeakGateStatesItsBound"
++        }
++      ]
++    },
++    {
++      "id": "structured-error-detail-inertness",
++      "production": {
++        "path": "internal/axerror/axerror.go",
++        "declaration": "Detail"
++      },
++      "tests": [
++        {
++          "path": "internal/axerror/axerror_test.go",
++          "declaration": "TestUnknownDetailKeysNeverChangeAnyMachineAnswer"
++        },
++        {
++          "path": "internal/axerror/axerror_test.go",
++          "declaration": "TestErrorRenderingAndCauseChain"
++        }
++      ]
++    },
++    {
++      "id": "structured-error-code-exit-registry",
++      "production": {
++        "path": "internal/axerror/registry.go",
++        "declaration": "ExitCodeFor"
++      },
++      "tests": [
++        {
++          "path": "internal/axerror/registry_test.go",
++          "declaration": "TestExitCodeForMatchesThePinnedRegistry"
++        },
++        {
++          "path": "internal/axerror/registry_test.go",
++          "declaration": "TestExitCodeForRefusesVersionAndCodeDrift"
++        },
++        {
++          "path": "internal/axerror/registry_test.go",
++          "declaration": "TestExitStatusRegistryIsClosed"
++        },
++        {
++          "path": "internal/axerror/registry_test.go",
++          "declaration": "TestBuildCodeRegistryRefusesDriftedCatalogRows"
++        }
++      ]
++    },
++    {
++      "id": "structured-error-retryability",
++      "production": {
++        "path": "internal/axerror/registry.go",
++        "declaration": "RetryabilityRefusal"
++      },
++      "tests": [
++        {
++          "path": "internal/axerror/refusal_test.go",
++          "declaration": "TestRetryableRefusedForEveryForbiddenClass"
++        }
++      ]
++    },
++    {
++      "id": "structured-error-static-binding",
++      "production": {
++        "path": "internal/axerror/binding.go",
++        "declaration": "BindingFor"
++      },
++      "tests": [
++        {
++          "path": "internal/axerror/binding_test.go",
++          "declaration": "TestBindingForPinsEveryDeclaredContainingContract"
++        },
++        {
++          "path": "internal/axerror/binding_test.go",
++          "declaration": "TestBindingForRefusesUnboundContractMajor"
++        },
++        {
++          "path": "internal/axerror/binding_test.go",
++          "declaration": "TestDecodeBoundSelectsTheVersionFromTheContainerNotThePayload"
++        }
++      ]
++    },
++    {
++      "id": "structured-error-unknown-code-reader",
++      "production": {
++        "path": "internal/axerror/decode.go",
++        "declaration": "Decode"
++      },
++      "tests": [
++        {
++          "path": "internal/axerror/decode_test.go",
++          "declaration": "TestDecodeRetainsUnknownCodeExitClassWithoutSuccess"
++        },
++        {
++          "path": "internal/axerror/decode_test.go",
++          "declaration": "TestDecodeRefusesAWrongVersionBeforeReadingItsBody"
++        }
++      ]
++    },
++    {
++      "id": "structured-error-local-untrusted",
++      "production": {
++        "path": "internal/axerror/local.go",
++        "declaration": "LocalFromUntrusted"
++      },
++      "tests": [
++        {
++          "path": "internal/axerror/local_test.go",
++          "declaration": "TestLocalFromUntrustedMatchesEveryPinnedBootstrapRow"
++        },
++        {
++          "path": "internal/axerror/local_test.go",
++          "declaration": "TestLocalFromUntrustedNeverAdoptsTheForeignObject"
++        },
++        {
++          "path": "internal/axerror/local_test.go",
++          "declaration": "TestLocalFromUntrustedRefusesUnpinnedInputs"
++        }
++      ]
++    },
++    {
++      "id": "structured-error-typed-details",
++      "production": {
++        "path": "internal/axerror/details.go",
++        "declaration": "TargetAuth"
++      },
++      "tests": [
++        {
++          "path": "internal/axerror/refusal_test.go",
++          "declaration": "TestTypedDetailsAreRequiredWhereThePinnedDocumentNamesThem"
++        }
++      ]
+     }
+   ],
+   "ownership": [
+@@ -2397,14 +2583,65 @@
+         "section:15.1"
+       ],
+       "production": {
+-        "path": "internal/catalog/catalog.go",
+-        "declaration": "ForRelease"
++        "path": "internal/axerror/axerror.go",
++        "declaration": "New"
+       },
+       "acceptance_cases": [
+-        "catalog-v050-exact"
+-      ],
+-      "coverage": "unevidenced",
+-      "gap": "ForRelease only returns the reviewed typed catalog rows that reference 15.1; no clause of 15.1 is enumerated against an acceptance case, so the registry makes no clause-level claim about the 7 obligations it carries."
++        "structured-error-exact-object",
++        "structured-error-shape-refusal",
++        "structured-error-detail-redaction",
++        "structured-error-detail-inertness",
++        "structured-error-static-binding",
++        "structured-error-unknown-code-reader",
++        "structured-error-local-untrusted"
++      ],
++      "coverage": "partial",
++      "gap": "Two of the seven Section 15.1 clauses stay unimplemented here. Clause 15.1#5 is the RPC hello obligation - an error contract key must never be advertised or negotiated in a hello frame - and New builds a failure object rather than a hello frame; this repository contains no RPC hello builder at all, so BindingFor is a static table with no negotiation path rather than a refusal of one. Clause 15.1#6 is the Provider JSON-over-stdio bootstrap row, whose only RFC 2119 sentence is that the plugin MUST NOT masquerade a different-major object as v2; that obligation binds the provider plugin and this repository builds no provider plugin, only the cataloggen and tracecheck binaries. LocalFromUntrusted implements the host half of the same row, but that half states no RFC 2119 keyword, so it discharges nothing the clause scanner measures and is claimed for clause 15.1#7 instead.",
++      "clauses": [
++        {
++          "id": "15.1#1",
++          "line": 11002,
++          "excerpt": "MUST be present when known. Messages are for humans; automation MUST branch on",
++          "acceptance_cases": [
++            "structured-error-exact-object",
++            "structured-error-detail-inertness"
++          ]
++        },
++        {
++          "id": "15.1#2",
++          "line": 11003,
++          "excerpt": "<code>code</code> and <code>exit_code</code>. Details MUST be redacted and",
++          "acceptance_cases": [
++            "structured-error-detail-redaction"
++          ]
++        },
++        {
++          "id": "15.1#3",
++          "line": 11010,
++          "excerpt": "maximum canonical size 16 KiB. Readers MAY ignore unknown detail keys and MUST",
++          "acceptance_cases": [
++            "structured-error-shape-refusal",
++            "structured-error-detail-inertness"
++          ]
++        },
++        {
++          "id": "15.1#4",
++          "line": 11019,
++          "excerpt": "supported-major failure MUST use that exact object; the containing protocol",
++          "acceptance_cases": [
++            "structured-error-static-binding"
++          ]
++        },
++        {
++          "id": "15.1#7",
++          "line": 11053,
++          "excerpt": "IDs and records redacted diagnostics only. Receivers MUST NOT parse a different",
++          "acceptance_cases": [
++            "structured-error-local-untrusted",
++            "structured-error-unknown-code-reader"
++          ]
++        }
++      ]
+     },
+     {
+       "kind": "section_binding",
+@@ -2412,14 +2649,14 @@
+         "section:15.2"
+       ],
+       "production": {
+-        "path": "internal/catalog/catalog.go",
+-        "declaration": "ForRelease"
++        "path": "internal/axerror/registry.go",
++        "declaration": "ExitCodeFor"
+       },
+       "acceptance_cases": [
+-        "catalog-v050-exact"
++        "structured-error-code-exit-registry"
+       ],
+       "coverage": "unmeasured",
+-      "gap": "ForRelease only returns the reviewed typed catalog rows that reference 15.2; the RFC 2119 scanner measures no clause line under 15.2, because its 19-row exit-code registry is a normative table stated without uppercase keywords, so the gate cannot measure this section - and no exit-code mapping is implemented, the only os.Exit calls in the tree being the exit(1) failure paths of cataloggen and tracecheck."
++      "gap": "Section 15.2 states its nineteen-row exit-code registry as a table with no RFC 2119 keyword, so the clause scanner measures zero obligations and ExitCodeFor cannot discharge a clause this gate can see. The table is implemented and checked row by row against the pinned text, but the process exit status that Section 14.2 requires to equal it is not implemented anywhere in this repository."
+     },
+     {
+       "kind": "section_binding",
+@@ -2427,14 +2664,35 @@
+         "section:15.3"
+       ],
+       "production": {
+-        "path": "internal/catalog/catalog.go",
+-        "declaration": "ForRelease"
++        "path": "internal/axerror/registry.go",
++        "declaration": "ExitCodeFor"
+       },
+       "acceptance_cases": [
+-        "catalog-v050-exact"
++        "structured-error-code-exit-registry",
++        "structured-error-unknown-code-reader",
++        "structured-error-typed-details"
+       ],
+-      "coverage": "unevidenced",
+-      "gap": "ForRelease only returns the reviewed typed catalog rows that reference 15.3; no clause of 15.3 is enumerated against an acceptance case, so the registry makes no clause-level claim about the 3 obligations it carries."
++      "coverage": "partial",
++      "gap": "Clause 15.3#3 additionally forbids Structured Error from appearing as an RPC hello key or a TerminalBackend capability, and ExitCodeFor resolves a code-to-exit mapping rather than building either advertisement. No RPC hello frame and no TerminalBackend capability set is built anywhere in this repository, so Section 15.3 keeps that clause unimplemented.",
++      "clauses": [
++        {
++          "id": "15.3#1",
++          "line": 11121,
++          "excerpt": "unknown code retains the envelope's exit class and MUST NOT be interpreted as",
++          "acceptance_cases": [
++            "structured-error-unknown-code-reader"
++          ]
++        },
++        {
++          "id": "15.3#2",
++          "line": 11133,
++          "excerpt": "continues to use <code>interactive_choice_required</code>. Implementations MUST",
++          "acceptance_cases": [
++            "structured-error-code-exit-registry",
++            "structured-error-typed-details"
++          ]
++        }
++      ]
+     },
+     {
+       "kind": "section_binding",
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 8db3de6..7009afe 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "23e2f7a62fa93b329a5efb52c65b61b3972b62ca3ef4414c7aed3ad8419178b9"
++	reviewedOwnershipCanonicalSHA256 = "b6254945a7ed78d3ea6996e2a12224f36836d62bf52befeca2801d3665d069b2"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 96ba5d6..36658c1 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -29,17 +29,18 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              60,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        43,
++		AcceptanceCases:        53,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 		SectionBindings:        48,
+ 		FullCoverage:           1,
++		PartialCoverage:        2,
+ 		SliverCoverage:         1,
+-		UnevidencedCoverage:    43,
++		UnevidencedCoverage:    41,
+ 		UnmeasuredCoverage:     3,
+ 		UnownedSections:        2,
+ 		NormativeClauses:       394,
+-		DischargedClauses:      2,
++		DischargedClauses:      9,
+ 	}
+ 	if !reflect.DeepEqual(report, want) {
+ 		t.Fatalf("VerifyRepository() report = %#v, want %#v", report, want)
+@@ -622,7 +623,9 @@ func TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers(t *testing.T)
+ 		{"10.3", `binding "section:10.3" discharges 1/3 normative clauses, which is sliver coverage`},
+ 		{"10.4", `binding "section:10.4" discharges 0/25 normative clauses, which is unevidenced coverage`},
+ 		{"13.14.5", `binding "section:13.14.5" discharges 0/0 normative clauses, which is unmeasured coverage`},
++		{"15.1", `binding "section:15.1" discharges 5/7 normative clauses, which is partial coverage`},
+ 		{"15.2", `binding "section:15.2" discharges 0/0 normative clauses, which is unmeasured coverage`},
++		{"15.3", `binding "section:15.3" discharges 2/3 normative clauses, which is partial coverage`},
+ 		{"17.1", `binding "section:17.1" discharges 0/6 normative clauses, which is unevidenced coverage`},
+ 		{"17.2", `binding "section:17.2" discharges 0/1 normative clauses, which is unevidenced coverage`},
+ 		{"17.3", `binding "section:17.3" discharges 0/3 normative clauses, which is unevidenced coverage`},
+@@ -846,7 +849,7 @@ func TestPlantedSliverRedensTheProductionEntryPoints(t *testing.T) {
+ 				sectionBinding(t, registry, "section:15.2").Gap =
+ 					"Section 15.2 is not fully covered here yet, and it will be covered later."
+ 			},
+-			contains: `gap does not name the production declaration "ForRelease" the binding is registered to`,
++			contains: `gap does not name the production declaration "ExitCodeFor" the binding is registered to`,
+ 		},
+ 		{
+ 			name: "an unmeasured binding relabels itself unevidenced",
