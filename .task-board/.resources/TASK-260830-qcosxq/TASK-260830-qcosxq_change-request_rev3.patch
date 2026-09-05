@@ -1,0 +1,4116 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index baae8ae..10b6c8e 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -37,5 +37,8 @@ jobs:
+       - name: Vet
+         run: go vet ./...
+ 
++      - name: Vet Windows build-tagged sources
++        run: GOOS=windows go vet ./...
++
+       - name: Build
+         run: go build ./...
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 871de38..8bd20b2 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,35 @@
+ 
+ ## 2026-09-05
+ 
++### 0435 — Provider JSONL host leaf round-2 rework: arm identity, exact bounds, production-site pins
++
++- SCOPE: TASK-260830-qcosxq round-1 verdict (changes requested, 44/66 killed, 18 real survivors). Test-only rework in `internal/provhost` plus README/LOGBOOK honesty items; production untouched. Uncommitted per the CR-shape instruction.
++- FIX (F25, structural, first): every refusal row now names its arm — `requireFrameRefusal` (code + `member` detail + rule detail + non-retryable) for frame refusals, `requireLocalRefusal` (code + rule detail + non-retryable) for invalid_config/integrity/timeout/process arms, plus `observed`-version assertions on both mismatch paths and `status_state` on unknown. Zero code-only refusal rows remain outside the two helpers, the bound-child surfacing check, and mismatch checks paired with identity assertions. Matches the sibling leaf's 0/29 → all-asserted shape.
++- FIX (F21): five foreign-major malformed versions (`3.0`, `3.0.0.0`, `.0.0`, `3..0`, `3.b.c`) asserting `provider_protocol_error`; each of the four deleted `parseMajor` arms now promotes its shape to `incompatible_protocol` and reddens.
++- FIX (F22): token floor pinned two-sided — 31 decoded bytes refused, 32 accepted. Floors `< 8`, `< 16` killed by the 31-byte row; `< 48` killed by the 32-byte row and the 38-byte valid fixture.
++- FIX (F23): `readCapped` cap path tested both halves — over-cap cut to exactly cap bytes with prefix content (kills truncation removal), error-past-the-cap never reached (kills limiter removal), under/exact-cap passthrough.
++- FIX (F24): request side gains the exact-boundary test the response side had — limit+1 refused with arm identity, limit accepted. Halving the request bound reddens.
++- FIX (F26): `exit 3` / `exit 0` silent plugins driven through production `ExecRunner` + `Host.Call`; the both-sites-cleared exit-code mutant reproduces the reviewer's exact `process_failed` → `protocol_error` flip and is killed.
++- FIX (F27): stdin capture through production `ExecRunner` asserts frame + one `\n`; the omitted-terminator mutant reddens.
++- FIX (F28/F29): orphaned discovery paragraph moved back above the JSONL section; the "proven by narrowing mutants" sentence restated to what the tests pin (arm identities, 31/32 token bytes, both exact frame bounds).
++- FINDING: the crash-exit test as first written was flaky — a plugin that exits without draining stdin races stdin writes into EPIPE, surfacing `runner reported no result` instead of the exit-code path. Fixed by draining stdin in the fixture scripts; the flake is in the fixture, not production.
++- EQUIVALENT (declared, not chased): M09b — narrowing the `checkResponseMembers` required list to drop `"ok"` changes nothing observable, because the missing-`ok` pre-check in `DecodeResponse` fires first on every input missing `ok`. The list entry is unreachable defense in depth. Single-site R17 (clearing only the `ExitError`-branch reassignment) is likewise a no-op because the `Result` literal already carries `ProcessState.ExitCode()`; the behavior-bearing mutant clears both sites and is killed.
++- EVIDENCE: 19-mutant verify sweep (`/tmp/rev2-verify.sh`, cp-aside/cp-back per mutant, presence asserted, restore byte-verified): 18 killed, 1 declared equivalent (M09b). True two-site R17 verified killed separately with the reviewer's exact flip. `go test ./...` exit 0 (15/15), `-race` on provhost exit 0, `go vet` and `GOOS=windows go vet` exit 0, gofmt gate clean, `go build` on linux/windows exit 0, `tracecheck` exit 0 unchanged (17/403, 74 cases). provhost cover 86.1% → 88.1%.
++- BOUND (stated plainly, widened the wrong way): `provhost` does not import `internal/provider` (only a comment at `runner.go:44`), so this leaf is not the first production caller; `provhost` itself has no production caller and there is no `cmd/ax`. Two orphaned packages, every `Host.Call` assertion made from a test. The non-retryability sentence in `doc.go` is now asserted on every refusal row rather than standing on prose.
++- STATUS: Ready for review, handed off uncommitted.
++
++### 0429 — Provider JSONL host leaf: protocol transport, three inherited findings, one repeated harness failure
++
++- SCOPE: TASK-260830-qcosxq (story leaf 2). New `internal/provhost` (§7.2 framing/lifecycle, §7.5 dispatch names, status recovery; bodies opaque except status rules), plus F18/F19/F20 closures in `internal/provider` and `.github/workflows/ci.yml`. Uncommitted per the CR-shape instruction.
++- FINDING: F18 closed with the verdict's four-line pin (`ownerAttester` pointer-equals `fileOwnerUID`); SEAM1 verified red before restore. F19 closed by planting a distinct-ID candidate in each absolute dir of `TestDiscoverRefusesRelativePluginDir`; the `return out` mutant returns 1 candidate and reddens. F20 closed with a `GOOS=windows go vet ./...` CI step; a planted type error in `os_windows_test.go` verified the step sees the file.
++- FINDING: the §7.3/§7.5 operation registry counts 15, not 16 — the manifest JSON and the §7.5 table both list manifest, probe, launch, identify-session, quiesce, native-store-plan, capture, materialize, materialize-status, materialize-commit, materialize-rollback, resume, fork, stop, doctor. The ownership gap prose saying "16-entry" miscounts; the registry test derives the 15 from the pinned table in order.
++- ANOMALY: repeated entry 2113 exactly — the mutant sweep restored via `git checkout` on untracked files, silently no-opping, so mutants accumulated and every verdict after the first was taken on a red mask. Caught because later mutants stopped compiling. Recovery: byte-level reversal of every applied pair (one 2x over-replace repaired by hand), then a clean re-run with `cp` backups, per-mutant presence assertions, and restore verification.
++- DECISION: transport lives in `internal/provhost`, not `internal/provider` — leaf 1's `TestDiscoveryReachesNoProcess` fails any `os/exec` import in the discovery package, and weakening that scan would resurrect a round-3 kill. Local failures are `*axerror.Error` via six instrumented constructors (audited bidirectionally with a closed six-code set); child failures surface through `DecodeBound` under the static provider-major-2 binding and `LocalFromUntrusted` for first-frame faults.
++- ANOMALY: the sleep-past-deadline test exposed a real defect, not a test artifact — killing only the direct child leaves grandchildren holding the pipes, hanging the wait past the deadline. Fixed with process-group kill on unix (direct-child kill on Windows, stated) plus `WaitDelay` and stream abandonment; the test bounds elapsed time below the drain delay to pin it.
++- BOUND: provhost cover 86.1% statements; the remainder is constructor-error propagation branches (constructors proven total by an explicit test) and `ExecRunner` stdin-failure races. Full body vocabularies and mutation idempotency receipts belong to the conformance leaf; no §7.2 clause newly discharged (`tracecheck` unchanged at 17/403, 74 cases).
++- EVIDENCE: 25 narrowing mutants, each verified present, compiling, and restored — 25 killed, 0 survivors. `go test ./...` exit 0 (15/15), `-race` exit 0 in batches over all 15, `go vet` and `GOOS=windows go vet` exit 0, `gofmt` clean, `tracecheck` exit 0, catalog generate current.
++- STATUS: Ready for review, handed off uncommitted.
++
+ ### 0327 — The fourth enumeration failure: the refusal inventory could derive nothing and pass
+ 
+ - SCOPE: `internal/provider` round-3 rework of TASK-260830-2890sd (findings F11–F17).
+diff --git a/README.md b/README.md
+index 9f7a5ac..a8c0f25 100644
+--- a/README.md
++++ b/README.md
+@@ -422,6 +422,72 @@ equal the closed three-code set. Section 7.1 citations in its tests resolve
+ against the digest-pinned document in `internal/specdoc`, quoting the exact
+ line each claim begins on.
+ 
++## Provider Plugin JSONL Protocol
++
++[`internal/provhost`](internal/provhost) implements the ax host side of
++the Section 7.2 provider plugin JSON-over-stdio protocol: one-frame JSONL
++transport, deadlines, size limits, stdout/stderr separation, operation
++dispatch, and status recovery. `Host.Call` is the production entry point.
++It frames one request envelope (`protocol`, `protocol_version`,
++`request_id`, `operation`, `deadline`, `body`), starts one plugin process
++per operation, enforces the request deadline, and interprets the single
++response frame. Unknown operations, stale deadlines, and unframeable
++bodies are refused with `invalid_config` before any process starts.
++
++Each stdout line must be one complete UTF-8 JSON object no larger than 8
++MiB; stdout carries the single response frame while diagnostics stay on
++stderr and never enter failure text. A recognizable foreign major yields
++`incompatible_protocol` without trusting the payload; every other
++unusable frame yields `provider_protocol_error`, both as local Structured
++Error 1.0.0 objects built without adopting any child-supplied code,
++retryable bit, details, or authority. A plugin that exceeds its deadline
++is terminated (as a process group on unix; direct-child kill on Windows)
++and reported as `provider_timeout`; a
++crash without a response is `provider_process_failed`. On success the raw
++body is returned for the operation layer; on failure the bound child
++error is returned itself. All six codes are pinned against the contract
++registry with their exact exits (3, 13, 6, 13, 13, 9).
++
++Dispatch covers exactly the 15 Section 7.5 operations in manifest order,
++derived from the pinned specification text, and refuses any other name
++without spawning. Status recovery interprets `materialize-status` bodies
++through the Section 7.5 state rules: unknown fails closed with
++`integrity_failure` for quarantine, prepared requires plan, token, and
++discovery, terminal states require plan and discovery with no token, and
++identity members must equal the requested transaction. Reads evolve —
++prepared under one envelope may be committed under the next — and each
++call starts a fresh process, so recovery observes durable state through
++the passed authority with no host-side mutation cache. Full request and
++success body vocabularies and mutation idempotency receipts belong to the
++conformance leaf of this story, not here; bodies cross this package
++opaquely except for the object-shape and status rules above.
++
++Run the focused tests and coverage with:
++
++```bash
++go test ./internal/provhost -count=1
++go test ./internal/provhost -cover -count=1
++```
++
++The package derives its refusal inventory from its own source: every
++refusal constructor call site must have an exercised negative path, no
++Structured Error may be built outside the six constructors, no raw error
++may be minted, and the observed code set must equal the closed six-code
++set. Every refusal assertion names the arm it must reach (the refused
++member and the rule detail), so a gate deleted from a required-member list
++slides to a lower arm and reddens instead of passing silently. The
++rollback-token entropy floor is pinned at exactly 31 refused / 32 accepted
++decoded bytes, both frame-size bounds are pinned at exactly limit refused /
++limit accepted from both directions, and the operation registry is pinned
++against the Section 7.5 table in order. Refusal arms are derived from
++production source rather than listed: every frameFault literal,
++integrity detail, and parseMajor classification branch must carry a
++witness at the production entry, and every witness must name a derived
++arm, so a planted arm or a deleted branch reddens in either direction.
++stdoutCap is pinned at MaxFrameBytes+2 in both directions, with a
++maximal-frame-plus-junk probe through the production runner proving the
++probe byte is load-bearing.
++
+ ## Canonical JSON and Immutable Object Identities
+ 
+ [`internal/canonicaljson`](internal/canonicaljson) exposes the production RFC
+diff --git a/internal/provhost/doc.go b/internal/provhost/doc.go
+new file mode 100644
+index 0000000..7bcc97d
+--- /dev/null
++++ b/internal/provhost/doc.go
+@@ -0,0 +1,46 @@
++// Package provhost implements the ax host side of the provider plugin
++// JSON-over-stdio protocol of pinned specification Section 7.2: one-frame
++// JSONL transport, deadlines, size limits, stdout/stderr separation,
++// operation dispatch, and status recovery.
++//
++// The actor every Section 7.2 RFC 2119 keyword governs here is the ax host
++// (this repository). The provider plugin is a child process this package
++// starts but never trusts: every byte it emits is attacker-influenced, so
++// every frame is validated before any member is used, and a different-major
++// payload is never parsed far enough to trust its error code, retryable
++// bit, details, or authority fields (Section 15.1).
++//
++// This package owns the envelope layer only. Operation dispatch means the
++// host maps an operation name to one plugin invocation and refuses unknown
++// names locally without spawning: the exact request and success body shapes
++// of Section 7.5, the manifest/probe/capability vocabularies of Sections
++// 7.3-7.4, profile mapping (7.7), quiescence semantics (7.6), and mutation
++// idempotency receipts are owned by the conformance leaf of this story, not
++// here. Request and success bodies cross this package opaquely except for
++// two structural checks the framing layer needs: a body must be a JSON
++// object, and the materialize-status body this package interprets for
++// recovery must satisfy the state/nullability/identity rules Section 7.5
++// states for ProviderTransactionStatus.
++//
++// A failed read is never an absence: a crashed, timed-out, oversized,
++// unparsable, or correlation-mismatched invocation fails with a local
++// Structured Error 1.0.0, never with a partial response the caller could
++// mistake for a result. Status recovery is fail-closed the same way: an
++// unknown or integrity-invalid transaction fails with integrity_failure
++// and must be quarantined rather than represented as a successful status.
++//
++// The package mutates no durable state of its own and keeps no cross-call
++// cache: Host starts one plugin process per operation, so successive calls
++// are separate processes observing durable state through the authority the
++// caller passes, which is the property the cross-process recovery cases
++// rest on. Retry decisions belong to the caller; every local failure this
++// package emits is non-retryable, because nothing observed at an unusable
++// frame licenses a safe-retry claim.
++//
++// Stated bounds: stderr capture is capped at 1 MiB (an implementation
++// resource bound, not a protocol limit); error details carry the failure
++// class, member names, and the observed version string only — never
++// environment or stderr content. Mutation idempotency ((operation,
++// operation_id) receipts, byte-identical replay, idempotency_mismatch)
++// is not implemented here.
++package provhost
+diff --git a/internal/provhost/inventory_test.go b/internal/provhost/inventory_test.go
+new file mode 100644
+index 0000000..144a823
+--- /dev/null
++++ b/internal/provhost/inventory_test.go
+@@ -0,0 +1,536 @@
++package provhost
++
++import (
++	"flag"
++	"fmt"
++	"go/ast"
++	"go/parser"
++	"go/token"
++	"os"
++	"path/filepath"
++	"regexp"
++	"runtime"
++	"sort"
++	"strings"
++	"sync"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/catalog"
++	"github.com/relux-works/agent-session-manager/internal/specdoc"
++)
++
++// exercisedRefusalSites records the production file:line that constructed
++// a refusal, for every instrumented refusal constructor call made during
++// the test run. observedCodes records every stable code those refusals
++// carried.
++var exercisedRefusalSites sync.Map
++var observedCodes sync.Map
++
++func recordRefusalSite(code string) {
++	observedCodes.Store(code, struct{}{})
++	if _, file, line, ok := runtime.Caller(2); ok {
++		exercisedRefusalSites.Store(fmt.Sprintf("%s:%d", filepath.Base(file), line), struct{}{})
++	}
++}
++
++func TestMain(main *testing.M) {
++	origInvalid, origProtocol, origMismatch := failInvalid, failProtocol, failMismatch
++	origProcess, origTimeout, origIntegrity := failProcess, failTimeout, failIntegrity
++	failInvalid = func(detail string) (*axerror.Error, error) {
++		failure, err := origInvalid(detail)
++		if err == nil {
++			recordRefusalSite(string(failure.Code()))
++		}
++		return failure, err
++	}
++	failProtocol = func(detail, member string) (*axerror.Error, error) {
++		failure, err := origProtocol(detail, member)
++		if err == nil {
++			recordRefusalSite(string(failure.Code()))
++		}
++		return failure, err
++	}
++	failMismatch = func(detail, observed string) (*axerror.Error, error) {
++		failure, err := origMismatch(detail, observed)
++		if err == nil {
++			recordRefusalSite(string(failure.Code()))
++		}
++		return failure, err
++	}
++	failProcess = func(detail string, cause error) (*axerror.Error, error) {
++		failure, err := origProcess(detail, cause)
++		if err == nil {
++			recordRefusalSite(string(failure.Code()))
++		}
++		return failure, err
++	}
++	failTimeout = func(millisDetail string, millis int64) (*axerror.Error, error) {
++		failure, err := origTimeout(millisDetail, millis)
++		if err == nil {
++			recordRefusalSite(string(failure.Code()))
++		}
++		return failure, err
++	}
++	failIntegrity = func(detail, statusState, materializationID, transactionID string) (*axerror.Error, error) {
++		failure, err := origIntegrity(detail, statusState, materializationID, transactionID)
++		if err == nil {
++			recordRefusalSite(string(failure.Code()))
++		}
++		return failure, err
++	}
++	code := main.Run()
++	if code == 0 && fullPackageTestRun() {
++		if failures := auditRefusalInventory(); len(failures) != 0 {
++			for _, failure := range failures {
++				fmt.Fprintln(os.Stderr, failure)
++			}
++			code = 1
++		}
++	}
++	os.Exit(code)
++}
++
++func fullPackageTestRun() bool {
++	selected := flag.Lookup("test.run")
++	return selected == nil || selected.Value.String() == ""
++}
++
++// auditRefusalInventory derives the refusal inventory from package
++// source, never from memory: every production call to a refusal
++// constructor must have an exercised negative path, no Structured Error
++// may be built outside the six constructors, no raw error may be minted,
++// and the observed code set must equal the closed code set exactly.
++func auditRefusalInventory() []string {
++	directory, err := os.Getwd()
++	if err != nil {
++		return []string{fmt.Sprintf("derive provhost refusal inventory: %v", err)}
++	}
++	inventory, err := deriveRefusalInventory(directory)
++	if err != nil {
++		return []string{fmt.Sprintf("derive provhost refusal inventory: %v", err)}
++	}
++	var failures []string
++	// Floor: a derived domain that can silently derive nothing is not a
++	// measurement. An empty derivation must fail closed, never pass
++	// vacuously — the same "the scan is blind" floor the discovery
++	// package carries on its own scans.
++	if len(inventory.ScannedFiles) == 0 {
++		failures = append(failures, "scanned no production sources; the check is blind")
++	}
++	if len(inventory.Sites) == 0 {
++		failures = append(failures, "derived no refusal sites; the scan is blind")
++	}
++	// Reverse direction: every exercised refusal site must resolve to a
++	// derived site. The exercised set comes from the test run, not from
++	// a hand list, so a truncated derivation reddens here even though
++	// the forward check passes vacuously.
++	derived := map[string]bool{}
++	for _, site := range inventory.Sites {
++		derived[site] = true
++	}
++	var outside []string
++	exercisedRefusalSites.Range(func(key, _ any) bool {
++		site := key.(string)
++		if !derived[site] {
++			outside = append(outside, site)
++		}
++		return true
++	})
++	sort.Strings(outside)
++	if len(outside) != 0 {
++		failures = append(failures, "exercised refusal sites outside the derived inventory; the derivation is short: "+strings.Join(outside, ", "))
++	}
++	if len(inventory.StrayBuilders) != 0 {
++		sort.Strings(inventory.StrayBuilders)
++		failures = append(failures, "provhost failures built outside the refusal constructors: "+strings.Join(inventory.StrayBuilders, ", "))
++	}
++	if len(inventory.RawConstructors) != 0 {
++		sort.Strings(inventory.RawConstructors)
++		failures = append(failures, "provhost raw error construction: "+strings.Join(inventory.RawConstructors, ", "))
++	}
++	var missing []string
++	for _, site := range inventory.Sites {
++		if _, ok := exercisedRefusalSites.Load(site); !ok {
++			missing = append(missing, site)
++		}
++	}
++	sort.Strings(missing)
++	if len(missing) != 0 {
++		failures = append(failures, "provhost refusal call sites without an exercised negative path: "+strings.Join(missing, ", "))
++	}
++	var codes []string
++	observedCodes.Range(func(key, _ any) bool {
++		codes = append(codes, key.(string))
++		return true
++	})
++	sort.Strings(codes)
++	want := []string{"incompatible_protocol", "integrity_failure", "invalid_config", "provider_process_failed", "provider_protocol_error", "provider_timeout"}
++	if fmt.Sprintf("%v", codes) != fmt.Sprintf("%v", want) {
++		failures = append(failures, fmt.Sprintf("observed refusal codes = %v, want closed set %v", codes, want))
++	}
++	return failures
++}
++
++// refusalInventory is derived from package sources.
++type refusalInventory struct {
++	// ScannedFiles are the production source basenames the derivation
++	// parsed. The audit fails closed when this is empty.
++	ScannedFiles []string
++	// Sites are file:line positions of production refusal constructor
++	// calls. Every constructor call must sit on a single source line so
++	// the runtime site and the parsed site agree.
++	Sites []string
++	// StrayBuilders are axerror.New or axerror.LocalFromUntrusted calls
++	// outside a constructor body.
++	StrayBuilders []string
++	// RawConstructors are errors.New, fmt.Errorf, or panic calls
++	// anywhere in production code. There is no allowlist: dynamic facts
++	// travel in Structured Error details, never in Go error text.
++	RawConstructors []string
++}
++
++var refusalConstructors = map[string]bool{
++	"failInvalid":   true,
++	"failProtocol":  true,
++	"failMismatch":  true,
++	"failProcess":   true,
++	"failTimeout":   true,
++	"failIntegrity": true,
++}
++
++func deriveRefusalInventory(directory string) (refusalInventory, error) {
++	entries, err := os.ReadDir(directory)
++	if err != nil {
++		return refusalInventory{}, err
++	}
++	var inventory refusalInventory
++	fileSet := token.NewFileSet()
++	for _, entry := range entries {
++		name := entry.Name()
++		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
++			continue
++		}
++		inventory.ScannedFiles = append(inventory.ScannedFiles, name)
++		path := filepath.Join(directory, name)
++		source, err := os.ReadFile(path)
++		if err != nil {
++			return refusalInventory{}, err
++		}
++		syntax, err := parser.ParseFile(fileSet, path, source, parser.ParseComments)
++		if err != nil {
++			return refusalInventory{}, err
++		}
++		// Map each constructor's own body span so builder calls inside
++		// it are not mistaken for strays.
++		constructorBodies := map[*ast.FuncLit]bool{}
++		for _, decl := range syntax.Decls {
++			general, ok := decl.(*ast.GenDecl)
++			if !ok {
++				continue
++			}
++			for _, spec := range general.Specs {
++				values, ok := spec.(*ast.ValueSpec)
++				if !ok {
++					continue
++				}
++				for i, ident := range values.Names {
++					if !refusalConstructors[ident.Name] || i >= len(values.Values) {
++						continue
++					}
++					if literal, ok := values.Values[i].(*ast.FuncLit); ok {
++						constructorBodies[literal] = true
++					}
++				}
++			}
++		}
++		insideConstructor := func(pos token.Pos) bool {
++			for body := range constructorBodies {
++				if pos >= body.Pos() && pos <= body.End() {
++					return true
++				}
++			}
++			return false
++		}
++		ast.Inspect(syntax, func(node ast.Node) bool {
++			call, ok := node.(*ast.CallExpr)
++			if !ok {
++				return true
++			}
++			position := fileSet.Position(call.Pos())
++			site := fmt.Sprintf("%s:%d", filepath.Base(position.Filename), position.Line)
++			if ident, ok := call.Fun.(*ast.Ident); ok {
++				if refusalConstructors[ident.Name] {
++					inventory.Sites = append(inventory.Sites, site)
++					return true
++				}
++				if ident.Name == "panic" {
++					inventory.RawConstructors = append(inventory.RawConstructors, site+" panic")
++					return true
++				}
++			}
++			selector, ok := call.Fun.(*ast.SelectorExpr)
++			if !ok {
++				return true
++			}
++			if qualifier, ok := selector.X.(*ast.Ident); ok {
++				qualified := qualifier.Name + "." + selector.Sel.Name
++				switch qualified {
++				case "axerror.New", "axerror.LocalFromUntrusted":
++					if !insideConstructor(call.Pos()) {
++						inventory.StrayBuilders = append(inventory.StrayBuilders, site+" "+qualified)
++					}
++					return true
++				case "errors.New", "fmt.Errorf":
++					inventory.RawConstructors = append(inventory.RawConstructors, site+" "+qualified)
++					return true
++				}
++			}
++			if selector.Sel.Name == "panic" {
++				inventory.RawConstructors = append(inventory.RawConstructors, site+" panic")
++			}
++			return true
++		})
++	}
++	return inventory, nil
++}
++
++// sectionLines joins the pinned document lines for a section, failing
++// when the section boundaries move. Every citation below resolves
++// against the real text, never against a restatement in this repository.
++func sectionLines(t *testing.T, document *specdoc.Document, section string, first, last int) string {
++	t.Helper()
++	for _, line := range []int{first, last} {
++		got, ok := document.SectionID(line)
++		if !ok || got != section {
++			t.Fatalf("SPEC.md line %d is in section %q, want %q", line, got, section)
++		}
++	}
++	var body strings.Builder
++	for line := first; line <= last; line++ {
++		text, ok := document.Line(line)
++		if !ok {
++			t.Fatalf("SPEC.md line %d is missing", line)
++		}
++		body.WriteString(text)
++		body.WriteString("\n")
++	}
++	return body.String()
++}
++
++// requireQuote asserts the excerpt occurs verbatim in the pinned
++// document and begins on a line inside the cited section.
++func requireQuote(t *testing.T, document *specdoc.Document, excerpt, section string) {
++	t.Helper()
++	if !document.Contains(excerpt) {
++		t.Fatalf("pinned document does not contain %q", excerpt)
++	}
++	lines := document.QuoteLines(excerpt)
++	if len(lines) == 0 {
++		t.Fatalf("pinned document quotes no line for %q", excerpt)
++	}
++	got, ok := document.SectionID(lines[0])
++	if !ok || got != section {
++		t.Fatalf("%q begins on SPEC.md line %d in section %q, want %q", excerpt, lines[0], got, section)
++	}
++	t.Logf("%q begins on SPEC.md line %d", excerpt, lines[0])
++}
++
++var operationCellPattern = regexp.MustCompile(`^\| <code>([a-z-]+)</code> \|`)
++
++// TestOperationRegistryIsDerivedFromSpec proves the dispatch registry is
++// exactly the Section 7.5 operation table in order: every table row must
++// appear in Operations() at the same position, and nothing else may.
++// A dropped, added, or reordered entry reddens here.
++func TestOperationRegistryIsDerivedFromSpec(t *testing.T) {
++	document, err := specdoc.Load()
++	if err != nil {
++		t.Fatalf("specdoc.Load: %v", err)
++	}
++	window := sectionLines(t, document, "7.5", 3070, 3086)
++	var derived []string
++	for _, line := range strings.Split(window, "\n") {
++		if match := operationCellPattern.FindStringSubmatch(line); match != nil {
++			derived = append(derived, match[1])
++		}
++	}
++	if len(derived) == 0 {
++		t.Fatal("derived no operations from the Section 7.5 table; the check is blind")
++	}
++	got := Operations()
++	if fmt.Sprintf("%v", got) != fmt.Sprintf("%v", derived) {
++		t.Fatalf("Operations() = %v, want the Section 7.5 table %v", got, derived)
++	}
++	t.Logf("operation registry coverage: %d/%d table entries dispatched", len(got), len(derived))
++}
++
++// TestSection72FramingIsPinned quotes every Section 7.2 sentence this
++// package implements: the framing limits, the process model, the
++// envelope shapes, the closed-member rule, and the deadline/redaction
++// duties.
++func TestSection72FramingIsPinned(t *testing.T) {
++	document, err := specdoc.Load()
++	if err != nil {
++		t.Fatalf("specdoc.Load: %v", err)
++	}
++	for _, excerpt := range []string{
++		"Each line MUST be one complete UTF-8",
++		"JSON object no larger than 8 MiB",
++		"Stdout MUST contain protocol frames only",
++		"human diagnostics go to stderr",
++		"starts one plugin process per operation",
++		"After one response, <code>ax</code> closes stdin and the",
++		"Exit 0 requires a successful response",
++		"A structured error",
++		"response SHOULD exit 0 because the protocol succeeded",
++		"a crash, invalid frame,",
++		"or missing response is a provider-host failure",
++		"The deadline MUST be in the future when the host writes the frame",
++		"A failure envelope contains",
++		"and MUST NOT contain <code>body</code>",
++		"Envelope and body",
++		"unknown members are protocol errors under major version 2",
++		"The host MUST terminate a plugin that exceeds its deadline and report",
++		"<code>provider_timeout</code>",
++		"It MUST redact environment and stderr before",
++		"logging",
++	} {
++		requireQuote(t, document, excerpt, "7.2")
++	}
++}
++
++// TestSection151ProviderRowIsPinned quotes the Section 15.1 provider
++// row behind the local failure mapping: recognizable majors yield
++// incompatible_protocol, everything else unusable yields
++// provider_protocol_error, and a different major's payload is never
++// trusted.
++func TestSection151ProviderRowIsPinned(t *testing.T) {
++	document, err := specdoc.Load()
++	if err != nil {
++		t.Fatalf("specdoc.Load: %v", err)
++	}
++	for _, excerpt := range []string{
++		"The host accepts no child error object, terminates/waits for exit as applicable, and emits its own local Error 1.0.0",
++		"<code>incompatible_protocol</code> for a recognizable major mismatch, otherwise <code>provider_protocol_error</code>",
++		"Receivers MUST NOT parse a different major",
++		"payload far enough to trust its error code, retryable bit, details, or",
++	} {
++		requireQuote(t, document, excerpt, "15.1")
++	}
++}
++
++// TestStatusRecoveryRulesArePinned quotes the Section 7.5 recovery
++// sentences behind DecodeStatusOutcome: the evolving status read, the
++// unknown quarantine, and the state/nullability table.
++func TestStatusRecoveryRulesArePinned(t *testing.T) {
++	document, err := specdoc.Load()
++	if err != nil {
++		t.Fatalf("specdoc.Load: %v", err)
++	}
++	for _, excerpt := range []string{
++		"is the required evolving lost-response recovery",
++		"An unknown transaction MUST return state",
++		"<code>unknown</code>; the host MUST NOT infer success",
++		"An unreadable or",
++		"integrity-invalid transaction MUST fail with <code>integrity_failure</code> and",
++		"MUST be quarantined rather than represented as a successful status object",
++		"<code>unknown</code> requires null",
++		"requires all three non-null",
++	} {
++		requireQuote(t, document, excerpt, "7.5")
++	}
++}
++
++// TestStableCodesAreRegistered pins every refusal code this package
++// emits against the pinned error registry and the exact exit the host
++// surfaces, and agrees with the axerror wire table.
++func TestStableCodesAreRegistered(t *testing.T) {
++	registered := map[string]int{}
++	for _, row := range catalog.Current().Errors {
++		registered[string(row.Code)] = row.ExitCode
++	}
++	for code, wantExit := range map[string]int{
++		"invalid_config":          3,
++		"provider_protocol_error": 13,
++		"incompatible_protocol":   6,
++		"provider_process_failed": 13,
++		"provider_timeout":        13,
++		"integrity_failure":       9,
++	} {
++		gotExit, ok := registered[code]
++		if !ok {
++			t.Fatalf("code %q is not in the pinned error registry", code)
++		}
++		if gotExit != wantExit {
++			t.Fatalf("code %q exit = %d, want %d", code, gotExit, wantExit)
++		}
++		gotWire, err := axerror.ExitCodeFor(axerror.Version100, axerror.Code(code))
++		if err != nil {
++			t.Fatalf("ExitCodeFor(1.0.0, %q): %v", code, err)
++		}
++		if gotWire != wantExit {
++			t.Fatalf("wire exit for %q = %d, want %d", code, gotWire, wantExit)
++		}
++	}
++	t.Logf("refusal code coverage: 6/6 package codes registered with pinned exits")
++}
++
++// TestRefusalConstructorsAreTotal proves the fallible-constructor error
++// path never fires in practice: every constructor returns a failure and
++// a nil error across representative dynamic causes. The sites recorded
++// here are test lines, not production sites, so every key this test adds
++// to the exercised set is removed before it returns, keeping the
++// reverse-direction audit exact.
++func TestRefusalConstructorsAreTotal(t *testing.T) {
++	var beforeSites, beforeCodes []any
++	exercisedRefusalSites.Range(func(key, _ any) bool { beforeSites = append(beforeSites, key); return true })
++	observedCodes.Range(func(key, _ any) bool { beforeCodes = append(beforeCodes, key); return true })
++	t.Cleanup(func() {
++		keepSites := map[any]bool{}
++		for _, key := range beforeSites {
++			keepSites[key] = true
++		}
++		exercisedRefusalSites.Range(func(key, _ any) bool {
++			if !keepSites[key] {
++				exercisedRefusalSites.Delete(key)
++			}
++			return true
++		})
++		keepCodes := map[any]bool{}
++		for _, key := range beforeCodes {
++			keepCodes[key] = true
++		}
++		observedCodes.Range(func(key, _ any) bool {
++			if !keepCodes[key] {
++				observedCodes.Delete(key)
++			}
++			return true
++		})
++	})
++	cause := fmt.Errorf("fake: dynamic cause")
++	longCause := fmt.Errorf("fake: %s", strings.Repeat("x", 300))
++	for _, kase := range []struct {
++		name string
++		call func() (*axerror.Error, error)
++		code string
++	}{
++		{"invalid", func() (*axerror.Error, error) { return failInvalid("fake") }, "invalid_config"},
++		{"protocol", func() (*axerror.Error, error) { return failProtocol("fake", "member") }, "provider_protocol_error"},
++		{"mismatch", func() (*axerror.Error, error) { return failMismatch("fake", "3.0.0") }, "incompatible_protocol"},
++		{"process with cause", func() (*axerror.Error, error) { return failProcess("fake", cause) }, "provider_process_failed"},
++		{"process with long cause", func() (*axerror.Error, error) { return failProcess("fake", longCause) }, "provider_process_failed"},
++		{"process without cause", func() (*axerror.Error, error) { return failProcess("fake", nil) }, "provider_process_failed"},
++		{"timeout", func() (*axerror.Error, error) { return failTimeout("fake", 100) }, "provider_timeout"},
++		{"integrity", func() (*axerror.Error, error) { return failIntegrity("fake", "unknown", "m", "t") }, "integrity_failure"},
++	} {
++		t.Run(kase.name, func(t *testing.T) {
++			failure, err := kase.call()
++			if err != nil {
++				t.Fatalf("constructor error = %v, want nil", err)
++			}
++			if failure == nil || string(failure.Code()) != kase.code {
++				t.Fatalf("constructor failure = %v, want code %s", failure, kase.code)
++			}
++		})
++	}
++}
+diff --git a/internal/provhost/protocol.go b/internal/provhost/protocol.go
+new file mode 100644
+index 0000000..7ac81c6
+--- /dev/null
++++ b/internal/provhost/protocol.go
+@@ -0,0 +1,501 @@
++package provhost
++
++import (
++	"bytes"
++	"encoding/json"
++	"io"
++	"strconv"
++	"strings"
++	"time"
++	"unicode/utf8"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// Wire constants of pinned specification Section 7.2. The protocol
++// identifier and version are exact: a different major is never negotiated,
++// and anything other than 2.0.0 on the wire is refused or reported as a
++// major mismatch, never accepted.
++const (
++	// ProtocolID is the exact protocol member every request and response
++	// envelope carries.
++	ProtocolID = "urn:ax:protocol:provider"
++	// ProtocolVersion is the exact protocol_version member this host
++	// writes and the only one it accepts a response under.
++	ProtocolVersion = "2.0.0"
++	// ProtocolMajor is the major this host implements. Responses under
++	// any other recognizable major are reported as incompatible_protocol
++	// without trusting their payload.
++	ProtocolMajor = 2
++	// MaxFrameBytes bounds one JSONL line in either direction: Section
++	// 7.2 requires every line to be one complete UTF-8 JSON object no
++	// larger than 8 MiB.
++	MaxFrameBytes = 8 << 20
++	// StderrCapBytes caps captured plugin stderr. It is an implementation
++	// resource bound, not a protocol limit: diagnostics beyond it are
++	// dropped. Failure details carry the failure class and member names
++	// only, never stderr content.
++	StderrCapBytes = 1 << 20
++)
++
++// Operation names one Section 7.5 registry entry. The registry is closed:
++// dispatch refuses any other name locally, before any process starts.
++type Operation string
++
++// Section 7.5 operation registry in the Section 7.3 manifest order. The
++// inventory test derives this list from the pinned specification text and
++// requires exact ordered equality, so a dropped, added, or reordered entry
++// reddens there rather than passing silently.
++const (
++	OpManifest            Operation = "manifest"
++	OpProbe               Operation = "probe"
++	OpLaunch              Operation = "launch"
++	OpIdentifySession     Operation = "identify-session"
++	OpQuiesce             Operation = "quiesce"
++	OpNativeStorePlan     Operation = "native-store-plan"
++	OpCapture             Operation = "capture"
++	OpMaterialize         Operation = "materialize"
++	OpMaterializeStatus   Operation = "materialize-status"
++	OpMaterializeCommit   Operation = "materialize-commit"
++	OpMaterializeRollback Operation = "materialize-rollback"
++	OpResume              Operation = "resume"
++	OpFork                Operation = "fork"
++	OpStop                Operation = "stop"
++	OpDoctor              Operation = "doctor"
++)
++
++// operationOrder is the single construction site of the dispatch registry.
++var operationOrder = []Operation{
++	OpManifest,
++	OpProbe,
++	OpLaunch,
++	OpIdentifySession,
++	OpQuiesce,
++	OpNativeStorePlan,
++	OpCapture,
++	OpMaterialize,
++	OpMaterializeStatus,
++	OpMaterializeCommit,
++	OpMaterializeRollback,
++	OpResume,
++	OpFork,
++	OpStop,
++	OpDoctor,
++}
++
++// Operations returns the dispatch registry in manifest order. The result
++// is a copy; the registry cannot be mutated through it.
++func Operations() []string {
++	out := make([]string, 0, len(operationOrder))
++	for _, operation := range operationOrder {
++		out = append(out, string(operation))
++	}
++	return out
++}
++
++// validOperation reports whether the name is a registry member.
++func validOperation(name string) bool {
++	for _, operation := range operationOrder {
++		if string(operation) == name {
++			return true
++		}
++	}
++	return false
++}
++
++// The refusal constructors below are declared as variables so the
++// inventory gate can observe every exercised refusal site. Each is the
++// single construction site for its failure class; production code must
++// not build *axerror.Error any other way.
++//
++// failInvalid reports a caller error caught before any process starts:
++// an unknown operation, a stale deadline, or an unframeable request body.
++// failProtocol reports an unusable plugin frame through the Section 15.1
++// provider-stdio otherwise branch. failMismatch reports a recognizable
++// major mismatch through the same table's mismatch branch, without
++// trusting the foreign payload. failProcess reports a crash or transport
++// failure. failTimeout reports a plugin that exceeded its request
++// deadline. failIntegrity reports a status observation that cannot be
++// reconciled to durable state.
++var failInvalid = func(detail string) (*axerror.Error, error) {
++	return axerror.New(axerror.Spec{Version: axerror.Version100, Code: "invalid_config", Message: "provider host refused the request: " + detail, Details: axerror.Details{}})
++}
++
++var failProtocol = func(detail string, member string) (*axerror.Error, error) {
++	return axerror.LocalFromUntrusted(axerror.SurfaceProviderStdio, axerror.OutcomeUnusableFrame, "provider host rejected the plugin frame: "+detail, axerror.NoIDs(), axerror.Details{"member": member}, nil)
++}
++
++var failMismatch = func(detail string, observed string) (*axerror.Error, error) {
++	return axerror.LocalFromUntrusted(axerror.SurfaceProviderStdio, axerror.OutcomeRecognizableMajorMismatch, "provider host rejected a foreign protocol major: "+detail, axerror.NoIDs(), axerror.Details{"observed": observed}, nil)
++}
++
++var failProcess = func(detail string, cause error) (*axerror.Error, error) {
++	return axerror.New(axerror.Spec{Version: axerror.Version100, Code: "provider_process_failed", Message: "provider plugin process failed: " + detail, Details: axerror.Details{}, Cause: cause})
++}
++
++var failTimeout = func(detail string, millis int64) (*axerror.Error, error) {
++	return axerror.New(axerror.Spec{Version: axerror.Version100, Code: "provider_timeout", Message: "provider plugin exceeded its deadline: " + detail, Details: axerror.Details{"deadline_ms": json.Number(strconv.FormatInt(millis, 10))}})
++}
++
++var failIntegrity = func(detail string, statusState string, materializationID string, transactionID string) (*axerror.Error, error) {
++	return axerror.New(axerror.Spec{Version: axerror.Version100, Code: "integrity_failure", Message: "provider status observation is not durable state: " + detail, Details: axerror.Details{"status_state": statusState, "materialization_id": materializationID, "transaction_id": transactionID}})
++}
++
++// Request is one Section 7.2 request envelope. Body crosses the transport
++// opaquely: it must be a JSON object, and its members are interpreted by
++// the operation layer, except for the status recovery read.
++type Request struct {
++	Operation Operation
++	RequestID scalar.UUIDv7
++	Deadline  scalar.Timestamp
++	Body      json.RawMessage
++}
++
++// Response is one accepted success envelope. Body is the raw
++// operation-specific object for the operation layer to interpret. A
++// failure envelope never produces a Response: DecodeResponse returns the
++// bound child error instead, and a failure envelope carrying a body is
++// refused outright.
++type Response struct {
++	Body json.RawMessage
++}
++
++// wireRequest is the exact emitted member set: protocol, protocol_version,
++// request_id, operation, deadline, and body, in this fixed order.
++type wireRequest struct {
++	Protocol        string           `json:"protocol"`
++	ProtocolVersion string           `json:"protocol_version"`
++	RequestID       scalar.UUIDv7    `json:"request_id"`
++	Operation       string           `json:"operation"`
++	Deadline        scalar.Timestamp `json:"deadline"`
++	Body            json.RawMessage  `json:"body"`
++}
++
++// EncodeRequest frames one request as a single JSONL line without the
++// terminator. The deadline must be in the future at now, which the caller
++// supplies so tests stay deterministic; Host passes its clock.
++func EncodeRequest(req Request, now time.Time) ([]byte, error) {
++	frame, _, err := encodeFrame(req, now)
++	return frame, err
++}
++
++// encodeFrame validates and frames a request, also returning the parsed
++// deadline instant so Host.Call validates once at a single site.
++func encodeFrame(req Request, now time.Time) ([]byte, time.Time, error) {
++	if !validOperation(string(req.Operation)) {
++		failure, err := failInvalid("unknown operation")
++		if err != nil {
++			return nil, time.Time{}, err
++		}
++		return nil, time.Time{}, failure
++	}
++	if _, err := scalar.ParseUUIDv7(req.RequestID.String()); err != nil {
++		failure, fault := failInvalid("request_id is not a UUIDv7")
++		if fault != nil {
++			return nil, time.Time{}, fault
++		}
++		return nil, time.Time{}, failure
++	}
++	deadline, err := req.Deadline.Time()
++	if err != nil {
++		failure, fault := failInvalid("deadline is not a timestamp")
++		if fault != nil {
++			return nil, time.Time{}, fault
++		}
++		return nil, time.Time{}, failure
++	}
++	if !deadline.After(now) {
++		failure, fault := failInvalid("deadline is not in the future")
++		if fault != nil {
++			return nil, time.Time{}, fault
++		}
++		return nil, time.Time{}, failure
++	}
++	if !isJSONObject(req.Body) {
++		failure, fault := failInvalid("body is not a JSON object")
++		if fault != nil {
++			return nil, time.Time{}, fault
++		}
++		return nil, time.Time{}, failure
++	}
++	// The operation, request ID, deadline, and body above were each
++	// validated before this marshal, so it cannot fail on a reachable
++	// path: the error propagates as a plain Go error rather than
++	// through a refusal site no negative test could exercise.
++	frame, err := json.Marshal(wireRequest{Protocol: ProtocolID, ProtocolVersion: ProtocolVersion, RequestID: req.RequestID, Operation: string(req.Operation), Deadline: req.Deadline, Body: req.Body})
++	if err != nil {
++		return nil, time.Time{}, err
++	}
++	if len(frame) > MaxFrameBytes {
++		failure, fault := failInvalid("request frame exceeds 8 MiB")
++		if fault != nil {
++			return nil, time.Time{}, fault
++		}
++		return nil, time.Time{}, failure
++	}
++	return frame, deadline, nil
++}
++
++// isJSONObject reports whether data is well-formed JSON whose top-level
++// value is an object. Bodies cross the transport opaquely, so this is the
++// only body check here: member vocabularies belong to the operation layer.
++func isJSONObject(data []byte) bool {
++	trimmed := bytes.TrimSpace(data)
++	if len(trimmed) == 0 || trimmed[0] != '{' {
++		return false
++	}
++	return json.Valid(trimmed)
++}
++
++// frameFault classifies a malformed plugin frame without minting error
++// values: dynamic facts travel in axerror details, never in Go error text,
++// so production code builds no raw errors.
++type frameFault struct {
++	detail string
++	member string
++}
++
++// decodeStrictObject parses one complete JSON object with duplicate
++// member detection. A repeated member has no single value, so it is a
++// fault, not a last-wins read.
++func decodeStrictObject(data []byte) (map[string]json.RawMessage, *frameFault) {
++	decoder := json.NewDecoder(bytes.NewReader(data))
++	token, err := decoder.Token()
++	if err != nil {
++		return nil, &frameFault{detail: "not a JSON object", member: ""}
++	}
++	delim, ok := token.(json.Delim)
++	if !ok || delim != '{' {
++		return nil, &frameFault{detail: "not a JSON object", member: ""}
++	}
++	members := map[string]json.RawMessage{}
++	for decoder.More() {
++		keyToken, err := decoder.Token()
++		if err != nil {
++			return nil, &frameFault{detail: "not a JSON object", member: ""}
++		}
++		key, ok := keyToken.(string)
++		if !ok {
++			return nil, &frameFault{detail: "not a JSON object", member: ""}
++		}
++		if _, duplicate := members[key]; duplicate {
++			return nil, &frameFault{detail: "duplicate member", member: key}
++		}
++		var raw json.RawMessage
++		if err := decoder.Decode(&raw); err != nil {
++			return nil, &frameFault{detail: "not a JSON object", member: key}
++		}
++		members[key] = raw
++	}
++	if token, err := decoder.Token(); err != nil {
++		return nil, &frameFault{detail: "not a JSON object", member: ""}
++	} else if delim, ok := token.(json.Delim); !ok || delim != '}' {
++		return nil, &frameFault{detail: "not a JSON object", member: ""}
++	}
++	if _, err := decoder.Token(); err != io.EOF {
++		return nil, &frameFault{detail: "trailing data after the object", member: ""}
++	}
++	return members, nil
++}
++
++// responseMembers is the exact Section 7.2 response member set: the four
++// framing members plus body on success or error on failure, never both,
++// never neither, and nothing else.
++func checkResponseMembers(members map[string]json.RawMessage, ok bool) *frameFault {
++	required := []string{"protocol", "protocol_version", "request_id", "ok"}
++	for _, name := range required {
++		if _, present := members[name]; !present {
++			return &frameFault{detail: "missing member", member: name}
++		}
++	}
++	if ok {
++		if _, present := members["body"]; !present {
++			return &frameFault{detail: "missing member", member: "body"}
++		}
++		if _, forbidden := members["error"]; forbidden {
++			return &frameFault{detail: "success envelope carries error", member: "error"}
++		}
++	} else {
++		if _, present := members["error"]; !present {
++			return &frameFault{detail: "missing member", member: "error"}
++		}
++		if _, forbidden := members["body"]; forbidden {
++			return &frameFault{detail: "failure envelope carries body", member: "body"}
++		}
++	}
++	for name := range members {
++		switch name {
++		case "protocol", "protocol_version", "request_id", "ok", "body", "error":
++		default:
++			return &frameFault{detail: "unknown member", member: name}
++		}
++	}
++	return nil
++}
++
++// parseMajor extracts the major from a strict numeric X.Y.Z version.
++// Anything else is not a recognizable major, so the frame is unusable
++// rather than a mismatch.
++func parseMajor(version string) (int, bool) {
++	parts := strings.Split(version, ".")
++	if len(parts) != 3 {
++		return 0, false
++	}
++	major := 0
++	for i := 0; i < len(parts[0]); i++ {
++		digit := parts[0][i]
++		if digit < '0' || digit > '9' {
++			return 0, false
++		}
++		major = major*10 + int(digit-'0')
++	}
++	if len(parts[0]) == 0 {
++		return 0, false
++	}
++	for _, rest := range parts[1:] {
++		if len(rest) == 0 {
++			return 0, false
++		}
++		for i := 0; i < len(rest); i++ {
++			if rest[i] < '0' || rest[i] > '9' {
++				return 0, false
++			}
++		}
++	}
++	return major, true
++}
++
++// providerContract is the static Section 7.2 binding every failure
++// envelope is decoded under: provider protocol major 2 binds Structured
++// Error 1.0.0. The version is never taken from the document.
++var providerContract = axerror.ContainingContract{ID: "urn:ax:protocol:provider", Major: 2}
++
++// DecodeResponse validates one stdout line as the single response frame
++// for the request carrying wantRequestID. It returns the success body, or
++// the bound child failure, or a local failure that trusts nothing from
++// the frame. A recognizable foreign major yields incompatible_protocol;
++// every other unusable frame yields provider_protocol_error.
++func DecodeResponse(frame []byte, wantRequestID scalar.UUIDv7) (Response, error) {
++	if len(frame) > MaxFrameBytes {
++		failure, err := failProtocol("frame exceeds 8 MiB", "")
++		if err != nil {
++			return Response{}, err
++		}
++		return Response{}, failure
++	}
++	if !utf8.Valid(frame) {
++		failure, err := failProtocol("frame is not UTF-8", "")
++		if err != nil {
++			return Response{}, err
++		}
++		return Response{}, failure
++	}
++	members, fault := decodeStrictObject(frame)
++	if fault != nil {
++		failure, err := failProtocol(fault.detail, fault.member)
++		if err != nil {
++			return Response{}, err
++		}
++		return Response{}, failure
++	}
++	var ok bool
++	if raw, present := members["ok"]; !present {
++		failure, err := failProtocol("missing member", "ok")
++		if err != nil {
++			return Response{}, err
++		}
++		return Response{}, failure
++	} else if err := json.Unmarshal(raw, &ok); err != nil {
++		failure, fault := failProtocol("member is not a boolean", "ok")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	if fault := checkResponseMembers(members, ok); fault != nil {
++		failure, err := failProtocol(fault.detail, fault.member)
++		if err != nil {
++			return Response{}, err
++		}
++		return Response{}, failure
++	}
++	var protocol string
++	if err := json.Unmarshal(members["protocol"], &protocol); err != nil || protocol != ProtocolID {
++		failure, fault := failProtocol("not a provider envelope", "protocol")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	var version string
++	if err := json.Unmarshal(members["protocol_version"], &version); err != nil {
++		failure, fault := failProtocol("member is not a string", "protocol_version")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	if version != ProtocolVersion {
++		if major, recognized := parseMajor(version); recognized && major != ProtocolMajor {
++			failure, err := failMismatch("foreign protocol major", version)
++			if err != nil {
++				return Response{}, err
++			}
++			return Response{}, failure
++		}
++		failure, fault := failProtocol("unsupported protocol version", "protocol_version")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	var requestID string
++	if err := json.Unmarshal(members["request_id"], &requestID); err != nil {
++		failure, fault := failProtocol("member is not a string", "request_id")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	if _, err := scalar.ParseUUIDv7(requestID); err != nil {
++		failure, fault := failProtocol("request_id is not a UUIDv7", "request_id")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	if requestID != wantRequestID.String() {
++		failure, fault := failProtocol("request_id does not match the request", "request_id")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	if ok {
++		if !isJSONObject(members["body"]) {
++			failure, fault := failProtocol("body is not a JSON object", "body")
++			if fault != nil {
++				return Response{}, fault
++			}
++			return Response{}, failure
++		}
++		return Response{Body: append(json.RawMessage(nil), members["body"]...)}, nil
++	}
++	if !isJSONObject(members["error"]) {
++		failure, fault := failProtocol("error is not a JSON object", "error")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	child, err := axerror.DecodeBound(providerContract, members["error"])
++	if err != nil {
++		failure, fault := failProtocol("error is not a bound Structured Error 1.0.0", "error")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	return Response{}, child
++}
+diff --git a/internal/provhost/protocol_test.go b/internal/provhost/protocol_test.go
+new file mode 100644
+index 0000000..67eef08
+--- /dev/null
++++ b/internal/provhost/protocol_test.go
+@@ -0,0 +1,472 @@
++package provhost
++
++import (
++	"encoding/json"
++	"errors"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// asError unwraps err to an *axerror.Error without hiding the chain.
++func asError(t *testing.T, err error, failure **axerror.Error) bool {
++	t.Helper()
++	return errors.As(err, failure)
++}
++
++const (
++	testRequestID = "0198f4c8-8e50-7f66-8f70-1234567890ab"
++	testOtherID   = "0198f4c8-e4b0-75cc-9576-1234567890ab"
++	testDeadline  = "2026-08-19T04:05:00.000Z"
++	testNow       = "2026-08-19T04:00:00.000Z"
++)
++
++func mustUUIDv7(t *testing.T, value string) scalar.UUIDv7 {
++	t.Helper()
++	parsed, err := scalar.ParseUUIDv7(value)
++	if err != nil {
++		t.Fatalf("ParseUUIDv7(%q): %v", value, err)
++	}
++	return parsed
++}
++
++func mustTimestamp(t *testing.T, value string) scalar.Timestamp {
++	t.Helper()
++	parsed, err := scalar.ParseTimestamp(value)
++	if err != nil {
++		t.Fatalf("ParseTimestamp(%q): %v", value, err)
++	}
++	return parsed
++}
++
++func mustInstant(t *testing.T, value string) time.Time {
++	t.Helper()
++	instant, err := mustTimestamp(t, value).Time()
++	if err != nil {
++		t.Fatalf("Timestamp(%q).Time(): %v", value, err)
++	}
++	return instant
++}
++
++// testRequest builds the Section 7.2 request-envelope fixture: a doctor
++// operation with a future deadline. The production entry point for
++// framing is EncodeRequest.
++func testRequest(t *testing.T) Request {
++	t.Helper()
++	return Request{
++		Operation: OpDoctor,
++		RequestID: mustUUIDv7(t, testRequestID),
++		Deadline:  mustTimestamp(t, testDeadline),
++		Body:      json.RawMessage(`{"platform":"macos","architecture":"arm64","provider_executable":null,"identity":null}`),
++	}
++}
++
++// failureCode extracts the Structured Error code from err, failing when
++// err is not an *axerror.Error. Every failure below is a 1.0.0 object,
++// local or child-bound.
++func failureCode(t *testing.T, err error) axerror.Code {
++	t.Helper()
++	if err == nil {
++		t.Fatal("want a failure, got nil")
++	}
++	var failure *axerror.Error
++	if !asError(t, err, &failure) {
++		t.Fatalf("error %v is not a Structured Error", err)
++	}
++	return failure.Code()
++}
++
++func failureExit(t *testing.T, err error) int {
++	t.Helper()
++	var failure *axerror.Error
++	if !asError(t, err, &failure) {
++		t.Fatalf("error %v is not a Structured Error", err)
++	}
++	return failure.ExitCode()
++}
++
++// failureObject unwraps err to the Structured Error itself, so arm
++// identity beyond the stable code can be asserted.
++func failureObject(t *testing.T, err error) *axerror.Error {
++	t.Helper()
++	if err == nil {
++		t.Fatal("want a failure, got nil")
++	}
++	var failure *axerror.Error
++	if !asError(t, err, &failure) {
++		t.Fatalf("error %v is not a Structured Error", err)
++	}
++	return failure
++}
++
++// failureMember returns the "member" diagnostic of a frame refusal. Every
++// provider_protocol_error arm names the member it refused on, so asserting
++// it pins the arm: a missing-member gate deleted from checkResponseMembers
++// slides to a lower arm carrying the same code with a different member or
++// detail, and the slide reddens here instead of passing silently.
++func failureMember(t *testing.T, err error) string {
++	t.Helper()
++	failure := failureObject(t, err)
++	member, ok := failure.Detail("member")
++	if !ok {
++		t.Fatalf("refusal %v carries no member detail", err)
++	}
++	text, ok := member.(string)
++	if !ok {
++		t.Fatalf("refusal %v member detail is %T, want string", err, member)
++	}
++	return text
++}
++
++// requireFrameRefusal asserts the full arm identity of a plugin-frame
++// refusal: the stable code, the refused member, the detail naming the
++// rule, and the non-retryable bit doc.go promises for every local
++// failure this package emits.
++func requireFrameRefusal(t *testing.T, err error, member, detail string) {
++	t.Helper()
++	if failureCode(t, err) != "provider_protocol_error" {
++		t.Fatalf("DecodeResponse code = %v, want provider_protocol_error", err)
++	}
++	if got := failureMember(t, err); got != member {
++		t.Fatalf("DecodeResponse member = %q, want %q (detail: %v)", got, member, err)
++	}
++	if !strings.Contains(err.Error(), detail) {
++		t.Fatalf("DecodeResponse error = %v, want detail containing %q", err, detail)
++	}
++	if failureObject(t, err).Retryable() {
++		t.Fatalf("DecodeResponse error = %v, want non-retryable", err)
++	}
++}
++
++// requireLocalRefusal asserts the arm identity of a refusal that carries
++// no member detail (invalid_config framing refusals and integrity_failure
++// status refusals): the stable code, the detail naming the rule in the
++// human text, and the non-retryable bit.
++func requireLocalRefusal(t *testing.T, err error, code axerror.Code, detail string) {
++	t.Helper()
++	if failureCode(t, err) != code {
++		t.Fatalf("code = %v, want %s", err, code)
++	}
++	if !strings.Contains(err.Error(), detail) {
++		t.Fatalf("error = %v, want detail containing %q", err, detail)
++	}
++	if failureObject(t, err).Retryable() {
++		t.Fatalf("error = %v, want non-retryable", err)
++	}
++}
++
++// TestEncodeRequestEmitsExactFrame pins the request wire bytes: the six
++// exact members in fixed order, with the body passed through verbatim.
++func TestEncodeRequestEmitsExactFrame(t *testing.T) {
++	frame, err := EncodeRequest(testRequest(t), mustInstant(t, testNow))
++	if err != nil {
++		t.Fatalf("EncodeRequest: %v", err)
++	}
++	want := `{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"0198f4c8-8e50-7f66-8f70-1234567890ab","operation":"doctor","deadline":"2026-08-19T04:05:00.000Z","body":{"platform":"macos","architecture":"arm64","provider_executable":null,"identity":null}}`
++	if string(frame) != want {
++		t.Fatalf("EncodeRequest frame = %s, want %s", frame, want)
++	}
++}
++
++// TestEncodeRequestDispatchesEveryRegistryOperation proves dispatch
++// reaches every registry entry: each of the 15 operations frames with
++// its own name. The registry list itself is pinned against the
++// specification text by the inventory test.
++func TestEncodeRequestDispatchesEveryRegistryOperation(t *testing.T) {
++	now := mustInstant(t, testNow)
++	for _, name := range Operations() {
++		req := testRequest(t)
++		req.Operation = Operation(name)
++		frame, err := EncodeRequest(req, now)
++		if err != nil {
++			t.Fatalf("EncodeRequest(%q): %v", name, err)
++		}
++		var decoded struct {
++			Operation string `json:"operation"`
++		}
++		if err := json.Unmarshal(frame, &decoded); err != nil {
++			t.Fatalf("EncodeRequest(%q) frame is not JSON: %v", name, err)
++		}
++		if decoded.Operation != name {
++			t.Fatalf("EncodeRequest(%q) frame carries operation %q", name, decoded.Operation)
++		}
++	}
++}
++
++// TestEncodeRequestRefusals proves framing fails closed before any
++// process starts: unknown operations, non-UUIDv7 request IDs, stale or
++// malformed deadlines, non-object bodies, and oversize frames are all
++// invalid_config from EncodeRequest. The production entry point is
++// EncodeRequest.
++func TestEncodeRequestRefusals(t *testing.T) {
++	now := mustInstant(t, testNow)
++	for _, kase := range []struct {
++		name   string
++		mutate func(*Request)
++		detail string
++	}{
++		{"unknown operation", func(req *Request) { req.Operation = "reboot" }, "unknown operation"},
++		{"empty operation", func(req *Request) { req.Operation = "" }, "unknown operation"},
++		{"zero request id", func(req *Request) { req.RequestID = scalar.UUIDv7{} }, "request_id is not a UUIDv7"},
++		{"zero deadline", func(req *Request) { req.Deadline = scalar.Timestamp{} }, "deadline is not a timestamp"},
++		{"past deadline", func(req *Request) { req.Deadline = mustTimestamp(t, testNow) }, "deadline is not in the future"},
++		{"deadline long past", func(req *Request) { req.Deadline = mustTimestamp(t, "2020-01-01T00:00:00.000Z") }, "deadline is not in the future"},
++		{"array body", func(req *Request) { req.Body = json.RawMessage(`[1,2]`) }, "body is not a JSON object"},
++		{"string body", func(req *Request) { req.Body = json.RawMessage(`"x"`) }, "body is not a JSON object"},
++		{"scalar body", func(req *Request) { req.Body = json.RawMessage(`3`) }, "body is not a JSON object"},
++		{"empty body", func(req *Request) { req.Body = nil }, "body is not a JSON object"},
++		{"blank body", func(req *Request) { req.Body = json.RawMessage(`  `) }, "body is not a JSON object"},
++		{"malformed body", func(req *Request) { req.Body = json.RawMessage(`{oops`) }, "body is not a JSON object"},
++		{"oversize frame", func(req *Request) {
++			req.Body = json.RawMessage(`{"pad":"` + strings.Repeat("a", specFrameLimitBytes) + `"}`)
++		}, "request frame exceeds 8 MiB"},
++	} {
++		t.Run(kase.name, func(t *testing.T) {
++			req := testRequest(t)
++			kase.mutate(&req)
++			_, err := EncodeRequest(req, now)
++			requireLocalRefusal(t, err, "invalid_config", kase.detail)
++		})
++	}
++}
++
++// successFrame builds a minimal valid success envelope for want.
++func successFrame(t *testing.T, want, body string) []byte {
++	t.Helper()
++	return []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + want + `","ok":true,"body":` + body + `}`)
++}
++
++// childFailureFrame builds a failure envelope carrying a genuine bound
++// child error, constructed through the production axerror entry point.
++func childFailureFrame(t *testing.T, want string) []byte {
++	t.Helper()
++	child, err := axerror.New(axerror.Spec{
++		Version: axerror.Version100,
++		Code:    "capability_unavailable",
++		Message: "portable store is not available for this provider build",
++		Details: axerror.Details{},
++	})
++	if err != nil {
++		t.Fatalf("axerror.New: %v", err)
++	}
++	raw, err := json.Marshal(child)
++	if err != nil {
++		t.Fatalf("Marshal child: %v", err)
++	}
++	return []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + want + `","ok":false,"error":` + string(raw) + `}`)
++}
++
++// TestDecodeResponseAcceptsSuccess proves the positive path returns the
++// body verbatim for correlation-matched frames.
++func TestDecodeResponseAcceptsSuccess(t *testing.T) {
++	body := `{"provider_id":"pi","provider_version":"0.73.1","findings":[]}`
++	got, err := DecodeResponse(successFrame(t, testRequestID, body), mustUUIDv7(t, testRequestID))
++	if err != nil {
++		t.Fatalf("DecodeResponse: %v", err)
++	}
++	if string(got.Body) != body {
++		t.Fatalf("DecodeResponse body = %s, want %s", got.Body, body)
++	}
++}
++
++// TestDecodeResponseReturnsChildFailure proves a failure envelope
++// surfaces the bound child error itself, with its own code and exit.
++func TestDecodeResponseReturnsChildFailure(t *testing.T) {
++	_, err := DecodeResponse(childFailureFrame(t, testRequestID), mustUUIDv7(t, testRequestID))
++	if failureCode(t, err) != "capability_unavailable" {
++		t.Fatalf("DecodeResponse code = %v, want the bound child code capability_unavailable", err)
++	}
++	if failureExit(t, err) != 6 {
++		t.Fatalf("DecodeResponse exit = %d, want 6", failureExit(t, err))
++	}
++}
++
++// TestDecodeResponseRecognizableMajorMismatch proves a foreign major is
++// reported as incompatible_protocol without trusting the payload: the
++// frame carries a forged error object whose code must never surface.
++func TestDecodeResponseRecognizableMajorMismatch(t *testing.T) {
++	for _, version := range []string{"3.0.0", "1.0.0", "10.2.3"} {
++		frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"` + version + `","request_id":"` + testRequestID + `","ok":false,"error":{"schema":"urn:ax:schema:error","schema_version":"9.9.9","code":"forged_code","message":"forged","exit_code":0,"retryable":true,"details":{}}}`)
++		_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++		if failureCode(t, err) != "incompatible_protocol" {
++			t.Fatalf("DecodeResponse(%s) code = %v, want incompatible_protocol", version, err)
++		}
++		observed, ok := failureObject(t, err).Detail("observed")
++		if !ok || observed != version {
++			t.Fatalf("DecodeResponse(%s) observed = %v, want the foreign version %q", version, observed, version)
++		}
++		if failureExit(t, err) != 6 {
++			t.Fatalf("DecodeResponse(%s) exit = %d, want 6", version, failureExit(t, err))
++		}
++		if strings.Contains(err.Error(), "forged_code") {
++			t.Fatalf("foreign payload leaked into the local failure: %v", err)
++		}
++	}
++}
++
++// TestDecodeResponseRefusals proves every unusable frame shape fails with
++// provider_protocol_error, never with a partial result. The production
++// entry point is DecodeResponse.
++func TestDecodeResponseRefusals(t *testing.T) {
++	want := mustUUIDv7(t, testRequestID)
++	okFrame := func(members string) []byte {
++		return []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `",` + members + `}`)
++	}
++	validBody := `{"provider_id":"pi"}`
++	// Each row names the refusal arm it must reach: the member detail
++	// and the rule detail. A deleted required-member gate slides the
++	// missing member to a lower arm with the same code but a different
++	// member or detail, and the slide reddens here. The malformed
++	// versions below carry a foreign major ("3" or empty) so a deleted
++	// parseMajor arm promotes them to incompatible_protocol instead of
++	// collapsing back onto this code. The non-numeric-major rows carry a
++	// numeric rest (".0.0") so only the major-digit branch can refuse
++	// them: with a non-numeric rest the rest-digit branch would fire
++	// first and the misclassification would collapse back to this code.
++	// The full five-branch parseMajor enumeration lives in the derived
++	// refusal-arm inventory; these rows are its entry-point witnesses.
++	versionFrame := func(version string) []byte {
++		return []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"` + version + `","request_id":"` + testRequestID + `","ok":true,"body":{}}`)
++	}
++	for _, kase := range []struct {
++		name   string
++		frame  []byte
++		member string
++		detail string
++	}{
++		{"empty", []byte{}, "", "not a JSON object"},
++		{"not JSON", []byte(`not json`), "", "not a JSON object"},
++		{"truncated", []byte(`{"protocol":`), "protocol", "not a JSON object"},
++		{"array", []byte(`[1,2]`), "", "not a JSON object"},
++		{"scalar", []byte(`true`), "", "not a JSON object"},
++		{"trailing data", append(successFrame(t, testRequestID, validBody), 'x'), "", "trailing data after the object"},
++		{"trailing valid value", append(successFrame(t, testRequestID, validBody), ' ', '{', '}'), "", "trailing data after the object"},
++		{"duplicate member", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `","request_id":"` + testRequestID + `","ok":true,"body":{}}`), "request_id", "duplicate member"},
++		{"missing protocol", []byte(`{"protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":true,"body":{}}`), "protocol", "missing member"},
++		{"missing version", []byte(`{"protocol":"urn:ax:protocol:provider","request_id":"` + testRequestID + `","ok":true,"body":{}}`), "protocol_version", "missing member"},
++		{"missing request id", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","ok":true,"body":{}}`), "request_id", "missing member"},
++		{"missing ok", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `"}`), "ok", "missing member"},
++		{"missing body on success", okFrame(`"ok":true`), "body", "missing member"},
++		{"missing error on failure", okFrame(`"ok":false`), "error", "missing member"},
++		{"body on failure", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":false,"error":{"schema":"urn:ax:schema:error","schema_version":"1.0.0","code":"capability_unavailable","message":"m","exit_code":6,"retryable":false,"details":{}},"body":{}}`), "body", "failure envelope carries body"},
++		{"error on success", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":true,"body":{},"error":{"schema":"urn:ax:schema:error","schema_version":"1.0.0","code":"capability_unavailable","message":"m","exit_code":6,"retryable":false,"details":{}}}`), "error", "success envelope carries error"},
++		{"unknown member", okFrame(`"ok":true,"body":{},"diagnostics":[]`), "diagnostics", "unknown member"},
++		{"ok not boolean", okFrame(`"ok":"yes","body":{}`), "ok", "member is not a boolean"},
++		{"wrong protocol", []byte(`{"protocol":"urn:ax:protocol:rpc","protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":true,"body":{}}`), "protocol", "not a provider envelope"},
++		{"protocol not string", []byte(`{"protocol":7,"protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":true,"body":{}}`), "protocol", "not a provider envelope"},
++		{"minor version", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.1.0","request_id":"` + testRequestID + `","ok":true,"body":{}}`), "protocol_version", "unsupported protocol version"},
++		{"garbage version", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"v2","request_id":"` + testRequestID + `","ok":true,"body":{}}`), "protocol_version", "unsupported protocol version"},
++		{"short version", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0","request_id":"` + testRequestID + `","ok":true,"body":{}}`), "protocol_version", "unsupported protocol version"},
++		{"empty version part", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2..0","request_id":"` + testRequestID + `","ok":true,"body":{}}`), "protocol_version", "unsupported protocol version"},
++		{"non-numeric version", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"a.b.c","request_id":"` + testRequestID + `","ok":true,"body":{}}`), "protocol_version", "unsupported protocol version"},
++		{"foreign two-part version", versionFrame("3.0"), "protocol_version", "unsupported protocol version"},
++		{"foreign four-part version", versionFrame("3.0.0.0"), "protocol_version", "unsupported protocol version"},
++		{"foreign empty major", versionFrame(".0.0"), "protocol_version", "unsupported protocol version"},
++		{"foreign empty minor", versionFrame("3..0"), "protocol_version", "unsupported protocol version"},
++		{"foreign non-numeric rest", versionFrame("3.b.c"), "protocol_version", "unsupported protocol version"},
++		{"foreign non-numeric major", versionFrame("a.0.0"), "protocol_version", "unsupported protocol version"},
++		{"foreign alphanumeric major", versionFrame("2a.0.0"), "protocol_version", "unsupported protocol version"},
++		{"foreign negative major", versionFrame("-1.0.0"), "protocol_version", "unsupported protocol version"},
++		{"foreign plus major", versionFrame("+3.0.0"), "protocol_version", "unsupported protocol version"},
++		{"version not string", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":2,"request_id":"` + testRequestID + `","ok":true,"body":{}}`), "protocol_version", "member is not a string"},
++		{"empty version", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"","request_id":"` + testRequestID + `","ok":true,"body":{}}`), "protocol_version", "unsupported protocol version"},
++		{"request id not string", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":7,"ok":true,"body":{}}`), "request_id", "member is not a string"},
++		{"request id not UUIDv7", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"not-a-uuid","ok":true,"body":{}}`), "request_id", "request_id is not a UUIDv7"},
++		{"request id mismatch", successFrame(t, testOtherID, validBody), "request_id", "request_id does not match the request"},
++		{"body array on success", okFrame(`"ok":true,"body":[]`), "body", "body is not a JSON object"},
++		{"body scalar on success", okFrame(`"ok":true,"body":1`), "body", "body is not a JSON object"},
++		{"error scalar on failure", okFrame(`"ok":false,"error":1`), "error", "error is not a JSON object"},
++		{"error unbound version", []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":false,"error":{"schema":"urn:ax:schema:error","schema_version":"9.9.9","code":"capability_unavailable","message":"m","exit_code":6,"retryable":false,"details":{}}}`), "error", "error is not a bound Structured Error 1.0.0"},
++	} {
++		t.Run(kase.name, func(t *testing.T) {
++			_, err := DecodeResponse(kase.frame, want)
++			requireFrameRefusal(t, err, kase.member, kase.detail)
++		})
++	}
++}
++
++// TestDecodeResponseRefusesOversizeFrame proves the 8 MiB bound from the
++// decoding side: a frame one byte over the limit fails without being
++// parsed, and a frame exactly at the limit is accepted.
++// specFrameLimitBytes is the absolute Section 7.2 bound, stated as a
++// literal rather than derived from MaxFrameBytes: the fixtures below pin
++// the constant to the specification text, so weakening the constant
++// reddens here instead of scaling the fixtures along with it.
++const specFrameLimitBytes = 8 << 20
++
++func TestDecodeResponseRefusesOversizeFrame(t *testing.T) {
++	if MaxFrameBytes != specFrameLimitBytes {
++		t.Fatalf("MaxFrameBytes = %d, want the specified %d", MaxFrameBytes, specFrameLimitBytes)
++	}
++	want := mustUUIDv7(t, testRequestID)
++	build := func(pad int) []byte {
++		return successFrame(t, testRequestID, `{"pad":"`+strings.Repeat("a", pad)+`"}`)
++	}
++	// The pad contributes exactly pad bytes, so base+pad is the frame
++	// size. One byte over the limit must fail; exactly at it must pass.
++	base := len(build(0))
++	over := build(specFrameLimitBytes - base + 1)
++	if len(over) != specFrameLimitBytes+1 {
++		t.Fatalf("oversize fixture is %d bytes, want exactly %d", len(over), specFrameLimitBytes+1)
++	}
++	_, err := DecodeResponse(over, want)
++	requireFrameRefusal(t, err, "", "frame exceeds 8 MiB")
++	frame := build(specFrameLimitBytes - base)
++	if len(frame) != specFrameLimitBytes {
++		t.Fatalf("boundary fixture is %d bytes, want exactly %d", len(frame), specFrameLimitBytes)
++	}
++	if _, err := DecodeResponse(frame, want); err != nil {
++		t.Fatalf("boundary DecodeResponse: %v", err)
++	}
++}
++
++// TestDecodeResponseRefusesNonUTF8 proves the UTF-8 gate: invalid bytes
++// fail even when the surrounding shape would parse.
++func TestDecodeResponseRefusesNonUTF8(t *testing.T) {
++	frame := append([]byte{}, successFrame(t, testRequestID, `{"provider_id":"pi"}`)...)
++	frame[len(frame)-3] = 0xff
++	_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++	requireFrameRefusal(t, err, "", "frame is not UTF-8")
++}
++
++// TestEncodeRequestRefusesOversizeFrame proves the 8 MiB bound from the
++// framing side with the same exact-boundary technique as the decoding
++// side: a request one byte over the limit fails, and a request exactly at
++// the limit frames. The pad contributes exactly pad bytes, so a halved or
++// doubled bound reddens here instead of scaling along.
++func TestEncodeRequestRefusesOversizeFrame(t *testing.T) {
++	if MaxFrameBytes != specFrameLimitBytes {
++		t.Fatalf("MaxFrameBytes = %d, want the specified %d", MaxFrameBytes, specFrameLimitBytes)
++	}
++	now := mustInstant(t, testNow)
++	build := func(pad int) (Request, int) {
++		req := testRequest(t)
++		req.Body = json.RawMessage(`{"pad":"` + strings.Repeat("a", pad) + `"}`)
++		frame, err := EncodeRequest(req, now)
++		if err != nil {
++			return req, -1
++		}
++		return req, len(frame)
++	}
++	_, base := build(0)
++	overPad := specFrameLimitBytes - base + 1
++	overReq, overSize := build(overPad)
++	if overSize != -1 {
++		t.Fatalf("oversize request framed at %d bytes, want refusal over %d", overSize, specFrameLimitBytes)
++	}
++	if _, err := EncodeRequest(overReq, now); err == nil {
++		t.Fatal("oversize EncodeRequest succeeded, want invalid_config")
++	} else {
++		requireLocalRefusal(t, err, "invalid_config", "request frame exceeds 8 MiB")
++	}
++	boundaryReq, boundarySize := build(specFrameLimitBytes - base)
++	if boundarySize != specFrameLimitBytes {
++		t.Fatalf("boundary request is %d bytes, want exactly %d", boundarySize, specFrameLimitBytes)
++	}
++	if _, err := EncodeRequest(boundaryReq, now); err != nil {
++		t.Fatalf("boundary EncodeRequest: %v", err)
++	}
++}
+diff --git a/internal/provhost/refusal_arm_inventory_test.go b/internal/provhost/refusal_arm_inventory_test.go
+new file mode 100644
+index 0000000..d70670f
+--- /dev/null
++++ b/internal/provhost/refusal_arm_inventory_test.go
+@@ -0,0 +1,809 @@
++package provhost
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"go/ast"
++	"go/parser"
++	"go/token"
++	"os"
++	"path/filepath"
++	"sort"
++	"strconv"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// This file is the derived refusal-arm inventory. It exists because the
++// constructor call-site audit in inventory_test.go enumerates constructor
++// call SITES, and every frameFault literal and every integrity(...) detail
++// funnels through a shared site: planting a new arm through an existing
++// site (a new &frameFault literal in checkResponseMembers, a new
++// integrity(...) detail in DecodeStatusOutcome) leaves the whole suite
++// green. Two review rounds each missed a row by hand, so the arm set is
++// derived from production source by parsing it, never by listing it.
++//
++// Derivation (deriveRefusalArms): every &frameFault{...} literal yields
++// frame|<detail>|<member source>; every integrity(...) call with a string
++// literal yields integrity|<detail>; the single wrapping site
++// integrity("status body is "+fault.detail, ...) expands over the derived
++// frame detail set, so each wrapped refusal is its own obligation; every
++// rejection branch of parseMajor (a return 0, false) yields
++// parse|<enclosing condition source>; every literal first argument to one
++// of the six refusal constructors yields ctor|<constructor>|<detail>.
++// Non-literal shapes land as expr:<source> obligations rather than passing
++// silently, and a missing parseMajor fails the derivation outright.
++//
++// Both directions are checked: TestDerivedRefusalArmsAreAllWitnessed
++// (every derived arm carries a witness) and
++// TestWitnessedArmsAreAllDerived (every witness names a derived arm, so a
++// truncated derivation reddens on the orphaned witnesses instead of
++// passing vacuously). TestEveryArmWitnessRefusesAtTheProductionEntry
++// drives each witness through the production entry and requires the
++// refusal to come from the arm under test. Empty, single-file, or
++// unparseable derivations fail closed: a domain that silently derives
++// nothing is not a measurement.
++//
++// Stated bound: arms sharing one (constructor, detail) identity merge to
++// one obligation (the two timeout sites, the two empty-response sites,
++// the six identical "not a JSON object" sites). Deleting one of a merged
++// pair is a behavioral mutant the entry-point tests must catch, not this
++// inventory.
++
++// refusalArmCensusFloor is the derived arm count this test was written
++// against. It is a tripwire, not an enumeration: a derivation returning
++// fewer arms fails closed even when every surviving arm is witnessed,
++// which is what catches a silently truncated scan. Raising it is routine
++// when production gains a refusal; lowering it requires saying why.
++const refusalArmCensusFloor = 60
++
++func deriveRefusalArms(t *testing.T) map[string]struct{} {
++	t.Helper()
++	directory, err := os.Getwd()
++	if err != nil {
++		t.Fatalf("derive refusal arms: %v", err)
++	}
++	arms, scanned, err := refusalArmsIn(directory)
++	if err != nil {
++		t.Fatalf("derive refusal arms: %v", err)
++	}
++	if len(scanned) == 0 {
++		t.Fatal("derived refusal arms from zero production files; the scanner is broken, not the package")
++	}
++	if len(arms) == 0 {
++		t.Fatal("derived zero refusal arms from the package sources; the scanner is broken, not the package")
++	}
++	if len(arms) < refusalArmCensusFloor {
++		t.Fatalf("derived %d refusal arms, below the %d census floor; the derivation is short, not the package", len(arms), refusalArmCensusFloor)
++	}
++	t.Logf("refusal arm coverage domain: %d derived arms across %d production files", len(arms), len(scanned))
++	return arms
++}
++
++func refusalArmsIn(directory string) (map[string]struct{}, []string, error) {
++	entries, err := os.ReadDir(directory)
++	if err != nil {
++		return nil, nil, err
++	}
++	arms := map[string]struct{}{}
++	var scanned []string
++	parseBranches := 0
++	fileSet := token.NewFileSet()
++	type productionFile struct {
++		syntax *ast.File
++		source []byte
++	}
++	var files []productionFile
++	for _, entry := range entries {
++		name := entry.Name()
++		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
++			continue
++		}
++		scanned = append(scanned, name)
++		path := filepath.Join(directory, name)
++		source, err := os.ReadFile(path)
++		if err != nil {
++			return nil, nil, err
++		}
++		syntax, err := parser.ParseFile(fileSet, path, source, parser.ParseComments)
++		if err != nil {
++			return nil, nil, err
++		}
++		files = append(files, productionFile{syntax: syntax, source: source})
++	}
++	// First pass, package-wide: the decodeStrictObject fault detail
++	// set, which the integrity wrapper site expands over. The wrapper
++	// only wraps decodeStrictObject faults, so checkResponseMembers
++	// arms ("missing member", "unknown member", ...) are not in this
++	// set: expanding over every frameFault literal would invent arms
++	// production can never emit. The pass must span files because the
++	// literals live in protocol.go while the wrapper lives in status.go.
++	var strictDetails []string
++	seenDetail := map[string]bool{}
++	for _, file := range files {
++		for _, decl := range file.syntax.Decls {
++			function, ok := decl.(*ast.FuncDecl)
++			if !ok || function.Name.Name != "decodeStrictObject" {
++				continue
++			}
++			ast.Inspect(function.Body, func(node ast.Node) bool {
++				literal, ok := frameFaultLiteral(node)
++				if !ok {
++					return true
++				}
++				detail, ok := literalStringField(file.source, fileSet, literal, "detail")
++				if !ok {
++					return true
++				}
++				if !seenDetail[detail] {
++					seenDetail[detail] = true
++					strictDetails = append(strictDetails, detail)
++				}
++				return true
++			})
++		}
++	}
++	for _, file := range files {
++		source, syntax := file.source, file.syntax
++		parseBranches += armParseBranches(source, fileSet, syntax, arms)
++		ast.Inspect(syntax, func(node ast.Node) bool {
++			if literal, ok := frameFaultLiteral(node); ok {
++				detail, ok := literalStringField(source, fileSet, literal, "detail")
++				if !ok {
++					arms["frame|expr:"+nodeSource(source, fileSet, node)] = struct{}{}
++					return true
++				}
++				member := ""
++				if kv := literalField(literal, "member"); kv != nil {
++					member = nodeSource(source, fileSet, kv.Value)
++				}
++				arms["frame|"+detail+"|"+member] = struct{}{}
++				return true
++			}
++			call, ok := node.(*ast.CallExpr)
++			if !ok {
++				return true
++			}
++			ident, ok := call.Fun.(*ast.Ident)
++			if !ok || len(call.Args) == 0 {
++				return true
++			}
++			switch ident.Name {
++			case "integrity":
++				if literal, ok := call.Args[0].(*ast.BasicLit); ok && literal.Kind == token.STRING {
++					detail, err := strconv.Unquote(literal.Value)
++					if err != nil {
++						arms["integrity|expr:"+nodeSource(source, fileSet, call.Args[0])] = struct{}{}
++						return true
++					}
++					arms["integrity|"+detail] = struct{}{}
++					return true
++				}
++				if prefix, ok := integrityPrefix(call.Args[0]); ok {
++					if len(strictDetails) == 0 {
++						arms["integrity|expr:"+nodeSource(source, fileSet, call.Args[0])] = struct{}{}
++						return true
++					}
++					for _, detail := range strictDetails {
++						arms["integrity|"+prefix+detail] = struct{}{}
++					}
++					return true
++				}
++				arms["integrity|expr:"+nodeSource(source, fileSet, call.Args[0])] = struct{}{}
++			case "failInvalid", "failProtocol", "failMismatch", "failProcess", "failTimeout":
++				if literal, ok := call.Args[0].(*ast.BasicLit); ok && literal.Kind == token.STRING {
++					detail, err := strconv.Unquote(literal.Value)
++					if err != nil {
++						return true
++					}
++					arms["ctor|"+ident.Name+"|"+detail] = struct{}{}
++				}
++				// Non-literal first arguments are the fault conduits
++				// (fault.detail, detail variables): the arms behind
++				// them are the frame arms above, so there is no
++				// separate obligation here.
++			}
++			return true
++		})
++	}
++	if parseBranches == 0 {
++		return nil, nil, fmt.Errorf("parseMajor carries no rejection branch anywhere; the classification-branch enumeration is blind")
++	}
++	sort.Strings(scanned)
++	return arms, scanned, nil
++}
++
++// frameFaultLiteral reports whether node is a &frameFault{...} literal.
++func frameFaultLiteral(node ast.Node) (*ast.CompositeLit, bool) {
++	target := node
++	if unary, ok := node.(*ast.UnaryExpr); ok && unary.Op == token.AND {
++		target = unary.X
++	}
++	literal, ok := target.(*ast.CompositeLit)
++	if !ok {
++		return nil, false
++	}
++	ident, ok := literal.Type.(*ast.Ident)
++	if !ok || ident.Name != "frameFault" {
++		return nil, false
++	}
++	return literal, true
++}
++
++func literalField(literal *ast.CompositeLit, name string) *ast.KeyValueExpr {
++	for _, element := range literal.Elts {
++		if kv, ok := element.(*ast.KeyValueExpr); ok {
++			if ident, ok := kv.Key.(*ast.Ident); ok && ident.Name == name {
++				return kv
++			}
++		}
++	}
++	return nil
++}
++
++func literalStringField(source []byte, fileSet *token.FileSet, literal *ast.CompositeLit, name string) (string, bool) {
++	kv := literalField(literal, name)
++	if kv == nil {
++		return "", false
++	}
++	basic, ok := kv.Value.(*ast.BasicLit)
++	if !ok || basic.Kind != token.STRING {
++		return "", false
++	}
++	detail, err := strconv.Unquote(basic.Value)
++	if err != nil {
++		return "", false
++	}
++	return detail, true
++}
++
++// integrityPrefix matches "prefix" + <expr>, the wrapping shape whose
++// arms expand over the derived frame detail set.
++func integrityPrefix(arg ast.Expr) (string, bool) {
++	binary, ok := arg.(*ast.BinaryExpr)
++	if !ok || binary.Op != token.ADD {
++		return "", false
++	}
++	prefix, ok := binary.X.(*ast.BasicLit)
++	if !ok || prefix.Kind != token.STRING {
++		return "", false
++	}
++	text, err := strconv.Unquote(prefix.Value)
++	if err != nil {
++		return "", false
++	}
++	return text, true
++}
++
++func nodeSource(source []byte, fileSet *token.FileSet, node ast.Node) string {
++	start := fileSet.Position(node.Pos()).Offset
++	end := fileSet.Position(node.End()).Offset
++	if start < 0 || end > len(source) || start >= end {
++		return "?"
++	}
++	return strings.Join(strings.Fields(string(source[start:end])), " ")
++}
++
++// armParseBranches derives one obligation per parseMajor rejection
++// branch in this file: every return 0, false inside parseMajor, keyed by
++// its innermost enclosing condition, and returns how many it derived. A
++// new branch adds a key no witness names; a deleted branch orphans its
++// witness; narrowing || to && rewrites the key and does both. The caller
++// fails closed when no file derives any branch.
++func armParseBranches(source []byte, fileSet *token.FileSet, syntax *ast.File, arms map[string]struct{}) int {
++	var body *ast.BlockStmt
++	for _, decl := range syntax.Decls {
++		function, ok := decl.(*ast.FuncDecl)
++		if ok && function.Name.Name == "parseMajor" {
++			body = function.Body
++		}
++	}
++	if body == nil {
++		return 0
++	}
++	count := 0
++	var conditions []string
++	var walk func(node ast.Node)
++	walk = func(node ast.Node) {
++		branch, ok := node.(*ast.IfStmt)
++		if !ok {
++			for _, child := range childNodes(node) {
++				walk(child)
++			}
++			return
++		}
++		conditions = append(conditions, nodeSource(source, fileSet, branch.Cond))
++		for _, stmt := range branch.Body.List {
++			if ret, ok := stmt.(*ast.ReturnStmt); ok && isFalsePair(ret) {
++				arms["parse|"+conditions[len(conditions)-1]] = struct{}{}
++				count++
++			}
++		}
++		for _, child := range childNodes(node) {
++			walk(child)
++		}
++		conditions = conditions[:len(conditions)-1]
++	}
++	walk(body)
++	return count
++}
++
++func isFalsePair(ret *ast.ReturnStmt) bool {
++	if len(ret.Results) != 2 {
++		return false
++	}
++	zero, ok := ret.Results[0].(*ast.BasicLit)
++	if !ok || zero.Kind != token.INT || zero.Value != "0" {
++		return false
++	}
++	no, ok := ret.Results[1].(*ast.Ident)
++	return ok && no.Name == "false"
++}
++
++func childNodes(node ast.Node) []ast.Node {
++	var children []ast.Node
++	ast.Inspect(node, func(child ast.Node) bool {
++		if child == nil || child == node {
++			return true
++		}
++		children = append(children, child)
++		return false
++	})
++	return children
++}
++
++// armWitness proves one derived refusal arm at the production entry.
++// The arm key must equal the derived key exactly: TestWitnessedArmsAreAllDerived
++// fails a witness that names nothing production declares, so a deleted or
++// narrowed production branch orphans its witness instead of passing
++// silently. The prove function must drive the production entry point and
++// require the refusal attributed to THIS arm, not merely any refusal.
++type armWitness struct {
++	arm   string
++	name  string
++	prove func(*testing.T)
++}
++
++// requireIntegrityRefusal asserts the full identity of a status refusal:
++// the integrity_failure code, the rule detail, the status_state detail
++// every integrity arm carries (AS6: asserted on all 18 arms, not just
++// the unknown row), exit 9, and the non-retryable bit. It is separate
++// from requireLocalRefusal because that helper also serves codes with no
++// status_state detail.
++func requireIntegrityRefusal(t *testing.T, err error, detail, wantState string) {
++	t.Helper()
++	requireLocalRefusal(t, err, "integrity_failure", detail)
++	state, ok := failureObject(t, err).Detail("status_state")
++	if !ok || state != wantState {
++		t.Fatalf("integrity refusal status_state = %v, want %q (%v)", state, wantState, err)
++	}
++	if failureExit(t, err) != 9 {
++		t.Fatalf("integrity refusal exit = %d, want 9", failureExit(t, err))
++	}
++}
++
++func armVersionFrame(version string) []byte {
++	return []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"` + version + `","request_id":"` + testRequestID + `","ok":true,"body":{}}`)
++}
++
++func armMemberFrame(members string) []byte {
++	return []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `",` + members + `}`)
++}
++
++func armOversizeResponse(t *testing.T) []byte {
++	t.Helper()
++	build := func(pad int) []byte {
++		return successFrame(t, testRequestID, `{"pad":"`+strings.Repeat("a", pad)+`"}`)
++	}
++	base := len(build(0))
++	over := build(specFrameLimitBytes - base + 1)
++	if len(over) != specFrameLimitBytes+1 {
++		t.Fatalf("oversize fixture is %d bytes, want exactly %d", len(over), specFrameLimitBytes+1)
++	}
++	return over
++}
++
++func declaredArmWitnesses() []armWitness {
++	return []armWitness{
++		// decodeStrictObject frame arms, through DecodeResponse.
++		{arm: `frame|not a JSON object|""`, name: "array is not an object", prove: func(t *testing.T) {
++			_, err := DecodeResponse([]byte(`[1,2]`), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "", "not a JSON object")
++		}},
++		{arm: `frame|not a JSON object|key`, name: "truncated value names its member", prove: func(t *testing.T) {
++			_, err := DecodeResponse([]byte(`{"protocol":`), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "protocol", "not a JSON object")
++		}},
++		{arm: `frame|duplicate member|key`, name: "repeated member", prove: func(t *testing.T) {
++			frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `","request_id":"` + testRequestID + `","ok":true,"body":{}}`)
++			_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "request_id", "duplicate member")
++		}},
++		{arm: `frame|trailing data after the object|""`, name: "trailing byte", prove: func(t *testing.T) {
++			_, err := DecodeResponse(append(successFrame(t, testRequestID, `{"provider_id":"pi"}`), 'x'), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "", "trailing data after the object")
++		}},
++		{arm: `frame|missing member|name`, name: "missing protocol", prove: func(t *testing.T) {
++			frame := []byte(`{"protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":true,"body":{}}`)
++			_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "protocol", "missing member")
++		}},
++		{arm: `frame|missing member|"body"`, name: "success without body", prove: func(t *testing.T) {
++			_, err := DecodeResponse(armMemberFrame(`"ok":true`), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "body", "missing member")
++		}},
++		{arm: `frame|success envelope carries error|"error"`, name: "error on success", prove: func(t *testing.T) {
++			frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":true,"body":{},"error":{"schema":"urn:ax:schema:error","schema_version":"1.0.0","code":"capability_unavailable","message":"m","exit_code":6,"retryable":false,"details":{}}}`)
++			_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "error", "success envelope carries error")
++		}},
++		{arm: `frame|missing member|"error"`, name: "failure without error", prove: func(t *testing.T) {
++			_, err := DecodeResponse(armMemberFrame(`"ok":false`), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "error", "missing member")
++		}},
++		{arm: `frame|failure envelope carries body|"body"`, name: "body on failure", prove: func(t *testing.T) {
++			frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":false,"error":{"schema":"urn:ax:schema:error","schema_version":"1.0.0","code":"capability_unavailable","message":"m","exit_code":6,"retryable":false,"details":{}},"body":{}}`)
++			_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "body", "failure envelope carries body")
++		}},
++		{arm: `frame|unknown member|name`, name: "diagnostics member", prove: func(t *testing.T) {
++			_, err := DecodeResponse(armMemberFrame(`"ok":true,"body":{},"diagnostics":[]`), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "diagnostics", "unknown member")
++		}},
++		// encodeFrame refusals, through EncodeRequest.
++		{arm: `ctor|failInvalid|unknown operation`, name: "unknown operation never frames", prove: func(t *testing.T) {
++			req := testRequest(t)
++			req.Operation = "reboot"
++			_, err := EncodeRequest(req, mustInstant(t, testNow))
++			requireLocalRefusal(t, err, "invalid_config", "unknown operation")
++		}},
++		{arm: `ctor|failInvalid|request_id is not a UUIDv7`, name: "zero request id", prove: func(t *testing.T) {
++			bad := testRequest(t)
++			var zero scalar.UUIDv7
++			bad.RequestID = zero
++			_, err := EncodeRequest(bad, mustInstant(t, testNow))
++			requireLocalRefusal(t, err, "invalid_config", "request_id is not a UUIDv7")
++		}},
++		{arm: `ctor|failInvalid|deadline is not a timestamp`, name: "zero deadline", prove: func(t *testing.T) {
++			req := testRequest(t)
++			req.Deadline = mustTimestamp(t, testDeadline)
++			var zero scalar.Timestamp
++			req.Deadline = zero
++			_, err := EncodeRequest(req, mustInstant(t, testNow))
++			requireLocalRefusal(t, err, "invalid_config", "deadline is not a timestamp")
++		}},
++		{arm: `ctor|failInvalid|deadline is not in the future`, name: "stale deadline", prove: func(t *testing.T) {
++			req := testRequest(t)
++			req.Deadline = mustTimestamp(t, testNow)
++			_, err := EncodeRequest(req, mustInstant(t, testNow))
++			requireLocalRefusal(t, err, "invalid_config", "deadline is not in the future")
++		}},
++		{arm: `ctor|failInvalid|body is not a JSON object`, name: "array body", prove: func(t *testing.T) {
++			req := testRequest(t)
++			req.Body = json.RawMessage(`[1,2]`)
++			_, err := EncodeRequest(req, mustInstant(t, testNow))
++			requireLocalRefusal(t, err, "invalid_config", "body is not a JSON object")
++		}},
++		{arm: `ctor|failInvalid|request frame exceeds 8 MiB`, name: "oversize request", prove: func(t *testing.T) {
++			req := testRequest(t)
++			req.Body = json.RawMessage(`{"pad":"` + strings.Repeat("a", specFrameLimitBytes) + `"}`)
++			_, err := EncodeRequest(req, mustInstant(t, testNow))
++			requireLocalRefusal(t, err, "invalid_config", "request frame exceeds 8 MiB")
++		}},
++		// DecodeResponse refusals, through DecodeResponse.
++		{arm: `ctor|failProtocol|frame exceeds 8 MiB`, name: "oversize response", prove: func(t *testing.T) {
++			_, err := DecodeResponse(armOversizeResponse(t), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "", "frame exceeds 8 MiB")
++		}},
++		{arm: `ctor|failProtocol|frame is not UTF-8`, name: "invalid UTF-8", prove: func(t *testing.T) {
++			frame := append([]byte{}, successFrame(t, testRequestID, `{"provider_id":"pi"}`)...)
++			frame[len(frame)-3] = 0xff
++			_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "", "frame is not UTF-8")
++		}},
++		{arm: `ctor|failProtocol|missing member`, name: "missing ok", prove: func(t *testing.T) {
++			frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `"}`)
++			_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "ok", "missing member")
++		}},
++		{arm: `ctor|failProtocol|member is not a boolean`, name: "ok is a string", prove: func(t *testing.T) {
++			_, err := DecodeResponse(armMemberFrame(`"ok":"yes","body":{}`), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "ok", "member is not a boolean")
++		}},
++		{arm: `ctor|failProtocol|not a provider envelope`, name: "foreign protocol id", prove: func(t *testing.T) {
++			frame := []byte(`{"protocol":"urn:ax:protocol:rpc","protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":true,"body":{}}`)
++			_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "protocol", "not a provider envelope")
++		}},
++		{arm: `ctor|failProtocol|member is not a string`, name: "version is a number", prove: func(t *testing.T) {
++			frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":2,"request_id":"` + testRequestID + `","ok":true,"body":{}}`)
++			_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "protocol_version", "member is not a string")
++		}},
++		{arm: `ctor|failProtocol|unsupported protocol version`, name: "minor bump", prove: func(t *testing.T) {
++			_, err := DecodeResponse(armVersionFrame("2.1.0"), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "protocol_version", "unsupported protocol version")
++		}},
++		{arm: `ctor|failProtocol|request_id is not a UUIDv7`, name: "garbage request id", prove: func(t *testing.T) {
++			frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"not-a-uuid","ok":true,"body":{}}`)
++			_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "request_id", "request_id is not a UUIDv7")
++		}},
++		{arm: `ctor|failProtocol|request_id does not match the request`, name: "crossed response", prove: func(t *testing.T) {
++			_, err := DecodeResponse(successFrame(t, testOtherID, `{"provider_id":"pi"}`), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "request_id", "request_id does not match the request")
++		}},
++		{arm: `ctor|failProtocol|body is not a JSON object`, name: "array body on success", prove: func(t *testing.T) {
++			_, err := DecodeResponse(armMemberFrame(`"ok":true,"body":[]`), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "body", "body is not a JSON object")
++		}},
++		{arm: `ctor|failProtocol|error is not a JSON object`, name: "scalar error on failure", prove: func(t *testing.T) {
++			_, err := DecodeResponse(armMemberFrame(`"ok":false,"error":1`), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "error", "error is not a JSON object")
++		}},
++		{arm: `ctor|failProtocol|error is not a bound Structured Error 1.0.0`, name: "unbound child version", prove: func(t *testing.T) {
++			frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":false,"error":{"schema":"urn:ax:schema:error","schema_version":"9.9.9","code":"capability_unavailable","message":"m","exit_code":6,"retryable":false,"details":{}}}`)
++			_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "error", "error is not a bound Structured Error 1.0.0")
++		}},
++		{arm: `ctor|failMismatch|foreign protocol major`, name: "foreign major is not trusted", prove: func(t *testing.T) {
++			frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"3.0.0","request_id":"` + testRequestID + `","ok":false,"error":{"schema":"urn:ax:schema:error","schema_version":"9.9.9","code":"forged_code","message":"forged","exit_code":0,"retryable":true,"details":{}}}`)
++			_, err := DecodeResponse(frame, mustUUIDv7(t, testRequestID))
++			if failureCode(t, err) != "incompatible_protocol" {
++				t.Fatalf("DecodeResponse(3.0.0) code = %v, want incompatible_protocol", err)
++			}
++			if observed, ok := failureObject(t, err).Detail("observed"); !ok || observed != "3.0.0" {
++				t.Fatalf("DecodeResponse(3.0.0) observed = %v, want the foreign version", observed)
++			}
++			if failureExit(t, err) != 6 {
++				t.Fatalf("DecodeResponse(3.0.0) exit = %d, want 6", failureExit(t, err))
++			}
++			if strings.Contains(err.Error(), "forged_code") {
++				t.Fatalf("foreign payload leaked into the local failure: %v", err)
++			}
++		}},
++		// Host refusals, through Host.Call over the scripted runner.
++		{arm: `ctor|failInvalid|host has no runner`, name: "runnerless host", prove: func(t *testing.T) {
++			host := Host{Now: time.Now}
++			_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t))
++			requireLocalRefusal(t, err, "invalid_config", "host has no runner")
++		}},
++		{arm: `ctor|failTimeout|no response before the request deadline`, name: "late empty answer", prove: func(t *testing.T) {
++			runner := &scriptRunner{steps: []scriptStep{okStep(Result{ExitCode: 1})}, delay: 400 * time.Millisecond}
++			host := liveHost(runner)
++			req := liveRequest(t)
++			req.Deadline = futureDeadline(t, 150*time.Millisecond)
++			_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", req)
++			requireLocalRefusal(t, err, "provider_timeout", "no response before the request deadline")
++			if failureExit(t, err) != 13 {
++				t.Fatalf("Call exit = %d, want 13", failureExit(t, err))
++			}
++		}},
++		{arm: `ctor|failProcess|runner reported no result`, name: "transport failure with time left", prove: func(t *testing.T) {
++			runner := &scriptRunner{steps: []scriptStep{failStep(errors.New("fake: fork failed"))}}
++			host := liveHost(runner)
++			_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t))
++			requireLocalRefusal(t, err, "provider_process_failed", "runner reported no result")
++		}},
++		{arm: `ctor|failProtocol|stdout carries more than one frame`, name: "second line", prove: func(t *testing.T) {
++			stdout := append(successFrame(t, testRequestID, `{}`), '\n', 'x', '\n')
++			runner := &scriptRunner{steps: []scriptStep{okStep(Result{Stdout: stdout, ExitCode: 0})}}
++			host := liveHost(runner)
++			_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t))
++			requireFrameRefusal(t, err, "", "stdout carries more than one frame")
++		}},
++		{arm: `ctor|failProcess|plugin exited without a response`, name: "crash without a frame", prove: func(t *testing.T) {
++			runner := &scriptRunner{steps: []scriptStep{okStep(Result{ExitCode: 3})}}
++			host := liveHost(runner)
++			_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t))
++			requireLocalRefusal(t, err, "provider_process_failed", "plugin exited without a response")
++		}},
++		{arm: `ctor|failProtocol|plugin exited without a response`, name: "clean exit without a frame", prove: func(t *testing.T) {
++			runner := &scriptRunner{steps: []scriptStep{okStep(Result{ExitCode: 0})}}
++			host := liveHost(runner)
++			_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t))
++			requireFrameRefusal(t, err, "", "plugin exited without a response")
++		}},
++	}
++}
++
++func declaredIntegrityWitnesses() []armWitness {
++	good := string(preparedBody())
++	withOp := func(fragment string) []byte {
++		return []byte(strings.Replace(good, `"materialization_id"`, fragment+`"materialization_id"`, 1))
++	}
++	return []armWitness{
++		{arm: `integrity|status body is not a JSON object`, name: "status body is not JSON", prove: func(t *testing.T) {
++			_, err := DecodeStatusOutcome([]byte(`oops`), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status body is not a JSON object", "")
++		}},
++		{arm: `integrity|status body is not a JSON object`, name: "status body value is truncated", prove: func(t *testing.T) {
++			_, err := DecodeStatusOutcome([]byte(`{"materialization_id":`), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status body is not a JSON object", "")
++		}},
++		{arm: `integrity|status body is duplicate member`, name: "status body repeats state", prove: func(t *testing.T) {
++			body := strings.Replace(good, `"state":"prepared"`, `"state":"prepared","state":"committed"`, 1)
++			_, err := DecodeStatusOutcome([]byte(body), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status body is duplicate member", "")
++		}},
++		{arm: `integrity|status body is trailing data after the object`, name: "status body has trailing byte", prove: func(t *testing.T) {
++			_, err := DecodeStatusOutcome([]byte(good+"x"), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status body is trailing data after the object", "")
++		}},
++		{arm: `integrity|status body carries unknown member`, name: "status body carries phase", prove: func(t *testing.T) {
++			body := strings.Replace(good, `"state":"prepared"`, `"state":"prepared","phase":"prepared"`, 1)
++			_, err := DecodeStatusOutcome([]byte(body), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status body carries unknown member", "")
++		}},
++		{arm: `integrity|status body misses a required member`, name: "status body misses state", prove: func(t *testing.T) {
++			body := strings.Replace(good, `,"state":"prepared"`, ``, 1)
++			_, err := DecodeStatusOutcome([]byte(body), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status body misses a required member", "")
++		}},
++		{arm: `integrity|status names another materialization`, name: "foreign materialization", prove: func(t *testing.T) {
++			body := statusBody("0198f4c8-aaaa-73aa-9374-1234567890ab", testTransactionID, testAuthorityID, testPlanID, "prepared", testRollbackToken, testDiscovery)
++			_, err := DecodeStatusOutcome(body, testStatusIDs())
++			requireIntegrityRefusal(t, err, "status names another materialization", "")
++		}},
++		{arm: `integrity|status names another transaction`, name: "foreign transaction", prove: func(t *testing.T) {
++			body := statusBody(testMaterializationID, "0198f4c8-aaaa-73aa-9374-1234567890ab", testAuthorityID, testPlanID, "prepared", testRollbackToken, testDiscovery)
++			_, err := DecodeStatusOutcome(body, testStatusIDs())
++			requireIntegrityRefusal(t, err, "status names another transaction", "")
++		}},
++		{arm: `integrity|status names another transaction authority`, name: "foreign authority", prove: func(t *testing.T) {
++			body := statusBody(testMaterializationID, testTransactionID, "another_authority", testPlanID, "prepared", testRollbackToken, testDiscovery)
++			_, err := DecodeStatusOutcome(body, testStatusIDs())
++			requireIntegrityRefusal(t, err, "status names another transaction authority", "")
++		}},
++		{arm: `integrity|status operation_id is not a string`, name: "numeric operation id", prove: func(t *testing.T) {
++			_, err := DecodeStatusOutcome(withOp(`"operation_id":7,`), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status operation_id is not a string", "")
++		}},
++		{arm: `integrity|status operation_id is not a UUIDv7`, name: "bogus operation id", prove: func(t *testing.T) {
++			_, err := DecodeStatusOutcome(withOp(`"operation_id":"bogus",`), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status operation_id is not a UUIDv7", "")
++		}},
++		{arm: `integrity|status state is not a registry member`, name: "preparing state", prove: func(t *testing.T) {
++			body := strings.Replace(good, `"prepared"`, `"preparing"`, 1)
++			_, err := DecodeStatusOutcome([]byte(body), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status state is not a registry member", "")
++		}},
++		{arm: `integrity|status plan_id is not a string`, name: "numeric plan id", prove: func(t *testing.T) {
++			body := strings.Replace(good, `"plan_id":"`+testPlanID+`"`, `"plan_id":7`, 1)
++			_, err := DecodeStatusOutcome([]byte(body), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status plan_id is not a string", "prepared")
++		}},
++		{arm: `integrity|status plan_id is not a digest`, name: "malformed digest", prove: func(t *testing.T) {
++			body := strings.Replace(good, testPlanID, "sha256:xyz", 1)
++			_, err := DecodeStatusOutcome([]byte(body), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status plan_id is not a digest", "prepared")
++		}},
++		{arm: `integrity|status rollback_token is not a string`, name: "numeric token", prove: func(t *testing.T) {
++			body := strings.Replace(good, `"rollback_token":"`+testRollbackToken+`"`, `"rollback_token":7`, 1)
++			_, err := DecodeStatusOutcome([]byte(body), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status rollback_token is not a string", "prepared")
++		}},
++		{arm: `integrity|status rollback_token is shorter than 256 bits`, name: "short token", prove: func(t *testing.T) {
++			body := strings.Replace(good, testRollbackToken, "YWJj", 1)
++			_, err := DecodeStatusOutcome([]byte(body), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status rollback_token is shorter than 256 bits", "prepared")
++		}},
++		{arm: `integrity|status native_discovery is not an object`, name: "scalar discovery", prove: func(t *testing.T) {
++			body := strings.Replace(good, `"native_discovery":`+testDiscovery, `"native_discovery":7`, 1)
++			_, err := DecodeStatusOutcome([]byte(body), testStatusIDs())
++			requireIntegrityRefusal(t, err, "status native_discovery is not an object", "prepared")
++		}},
++		{arm: `integrity|unknown status carries plan, token, or discovery`, name: "unknown with plan", prove: func(t *testing.T) {
++			body := statusBody(testMaterializationID, testTransactionID, testAuthorityID, testPlanID, "unknown", "null", "null")
++			_, err := DecodeStatusOutcome(body, testStatusIDs())
++			requireIntegrityRefusal(t, err, "unknown status carries plan, token, or discovery", "unknown")
++		}},
++		{arm: `integrity|transaction state is unknown`, name: "well-shaped unknown quarantines", prove: func(t *testing.T) {
++			body := statusBody(testMaterializationID, testTransactionID, testAuthorityID, "null", "unknown", "null", "null")
++			state, err := DecodeStatusOutcome(body, testStatusIDs())
++			if state != "" {
++				t.Fatalf("DecodeStatusOutcome = %q for unknown, want no status", state)
++			}
++			requireIntegrityRefusal(t, err, "transaction state is unknown", "unknown")
++		}},
++		{arm: `integrity|prepared status misses plan, token, or discovery`, name: "prepared without plan", prove: func(t *testing.T) {
++			body := statusBody(testMaterializationID, testTransactionID, testAuthorityID, "null", "prepared", testRollbackToken, testDiscovery)
++			_, err := DecodeStatusOutcome(body, testStatusIDs())
++			requireIntegrityRefusal(t, err, "prepared status misses plan, token, or discovery", "prepared")
++		}},
++		{arm: `integrity|terminal status misses plan or discovery or keeps a token`, name: "committed keeping token", prove: func(t *testing.T) {
++			body := statusBody(testMaterializationID, testTransactionID, testAuthorityID, testPlanID, "committed", testRollbackToken, testDiscovery)
++			_, err := DecodeStatusOutcome(body, testStatusIDs())
++			requireIntegrityRefusal(t, err, "terminal status misses plan or discovery or keeps a token", "committed")
++		}},
++	}
++}
++
++// declaredParseWitnesses proves each parseMajor rejection branch at the
++// production entry. Every value below carries a numeric rest (or no rest
++// at all), so only the named branch can refuse it; the prove function
++// additionally requires parseMajor itself to reject the version, which
++// attributes the DecodeResponse refusal to the classification branch
++// rather than to any frame gate. Exit 13 distinguishes the unusable-frame
++// path from the exit-6 mismatch path a deleted branch promotes to.
++func declaredParseWitnesses() []armWitness {
++	proveUnrecognized := func(version string) func(*testing.T) {
++		return func(t *testing.T) {
++			t.Helper()
++			if major, recognized := parseMajor(version); recognized {
++				t.Fatalf("parseMajor(%q) = (%d, true), want unrecognized", version, major)
++			}
++			_, err := DecodeResponse(armVersionFrame(version), mustUUIDv7(t, testRequestID))
++			requireFrameRefusal(t, err, "protocol_version", "unsupported protocol version")
++			if failureExit(t, err) != 13 {
++				t.Fatalf("DecodeResponse(%q) exit = %d, want 13", version, failureExit(t, err))
++			}
++		}
++	}
++	return []armWitness{
++		{arm: `parse|len(parts) != 3`, name: "two-part version", prove: proveUnrecognized("3.0")},
++		{arm: `parse|digit < '0' || digit > '9'`, name: "non-numeric major", prove: proveUnrecognized("a.0.0")},
++		{arm: `parse|digit < '0' || digit > '9'`, name: "alphanumeric major", prove: proveUnrecognized("2a.0.0")},
++		{arm: `parse|digit < '0' || digit > '9'`, name: "negative major", prove: proveUnrecognized("-1.0.0")},
++		{arm: `parse|digit < '0' || digit > '9'`, name: "plus major", prove: proveUnrecognized("+3.0.0")},
++		{arm: `parse|len(parts[0]) == 0`, name: "empty major", prove: proveUnrecognized(".0.0")},
++		{arm: `parse|len(rest) == 0`, name: "empty minor", prove: proveUnrecognized("3..0")},
++		{arm: `parse|rest[i] < '0' || rest[i] > '9'`, name: "non-numeric rest", prove: proveUnrecognized("3.b.c")},
++	}
++}
++
++// TestDerivedRefusalArmsAreAllWitnessed is the forward direction: every
++// arm derived from production must carry a witness. A planted arm (a new
++// frameFault literal or integrity detail through an existing constructor
++// site) lands here as an unwitnessed arm.
++func TestDerivedRefusalArmsAreAllWitnessed(t *testing.T) {
++	derived := deriveRefusalArms(t)
++	witnessed := map[string]int{}
++	for _, witness := range append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...) {
++		witnessed[witness.arm]++
++	}
++	var missing []string
++	for arm := range derived {
++		if witnessed[arm] == 0 {
++			missing = append(missing, arm)
++		}
++	}
++	sort.Strings(missing)
++	if len(missing) > 0 {
++		t.Fatalf("derived refusal arm(s) with no witness at the production entry:\n  %s", strings.Join(missing, "\n  "))
++	}
++	t.Logf("refusal arm coverage: %d/%d derived arms witnessed", len(derived)-len(missing), len(derived))
++}
++
++// TestWitnessedArmsAreAllDerived is the reverse direction: every witness
++// must name an arm production declares. A deleted or narrowed production
++// branch orphans its witness and fails here, which is also what makes a
++// truncated derivation fail instead of passing vacuously.
++func TestWitnessedArmsAreAllDerived(t *testing.T) {
++	derived := deriveRefusalArms(t)
++	var orphans []string
++	for _, witness := range append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...) {
++		if _, ok := derived[witness.arm]; !ok {
++			orphans = append(orphans, witness.arm+" ("+witness.name+")")
++		}
++	}
++	sort.Strings(orphans)
++	if len(orphans) > 0 {
++		t.Fatalf("witness(es) naming no derived production arm:\n  %s", strings.Join(orphans, "\n  "))
++	}
++}
++
++// TestEveryArmWitnessRefusesAtTheProductionEntry drives every witness
++// through its production entry point and requires the attributed refusal.
++func TestEveryArmWitnessRefusesAtTheProductionEntry(t *testing.T) {
++	for _, witness := range append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...) {
++		t.Run(witness.arm+"/"+witness.name, func(t *testing.T) {
++			witness.prove(t)
++		})
++	}
++}
+diff --git a/internal/provhost/runner.go b/internal/provhost/runner.go
+new file mode 100644
+index 0000000..9bfd0dc
+--- /dev/null
++++ b/internal/provhost/runner.go
+@@ -0,0 +1,280 @@
++package provhost
++
++import (
++	"bytes"
++	"context"
++	"io"
++	"os/exec"
++	"time"
++)
++
++// waitDrainDelay bounds how long Wait lingers for pipe EOF after the
++// deadline kill before giving up on detached grandchildren.
++const waitDrainDelay = 2 * time.Second
++
++// stdoutCap bounds captured plugin stdout: one maximal frame, its line
++// terminator, and one probe byte, so a maximal frame followed by any
++// trailing byte is still distinguishable from a clean end. Anything
++// beyond is cut; the splitFrame length checks stay exact on the capped
++// capture.
++const stdoutCap = MaxFrameBytes + 2
++
++// Result is what a plugin process produced: captured stdout and stderr
++// and the process exit code. Stdout and stderr are kept separate end to
++// end: diagnostics never enter frame parsing, and frame bytes never
++// enter diagnostics. Captures are capped (stdout at one frame plus a
++// probe byte, stderr at StderrCapBytes); beyond the cap the stream is cut
++// and the failure is decided from what was captured, which the length
++// checks keep exact.
++type Result struct {
++	Stdout   []byte
++	Stderr   []byte
++	ExitCode int
++}
++
++// Runner starts one plugin process for one operation frame. Production
++// code supplies ExecRunner; tests supply a scripted fake. A Runner moves
++// bytes and reports process fate; it never parses frames and never
++// decides failures.
++type Runner interface {
++	Run(ctx context.Context, executable string, stdin []byte) (Result, error)
++}
++
++// ExecRunner is the production Runner: it starts the trusted executable
++// discovered by internal/provider, writes exactly one frame to its stdin,
++// closes stdin, and waits under the caller's context. Environment and
++// stderr content never enter failure human text: Result carries the raw
++// streams, and failures built from a Result carry the failure class and
++// member names only, never content.
++type ExecRunner struct{}
++
++// Run starts executable with stdin on its stdin and captures both streams
++// with caps. A nil error with a nonzero exit code is an ordinary result:
++// a syntactically valid frame governs regardless of the exit status,
++// because SHOULD exit 0 is not MUST. A non-nil error means the process
++// never produced a result to judge: start failure, signal death, or
++// context end.
++func (ExecRunner) Run(ctx context.Context, executable string, stdin []byte) (Result, error) {
++	command := newCommandContext(ctx, executable)
++	command.WaitDelay = waitDrainDelay
++	stdinPipe, err := command.StdinPipe()
++	if err != nil {
++		return Result{}, err
++	}
++	stdoutPipe, err := command.StdoutPipe()
++	if err != nil {
++		return Result{}, err
++	}
++	stderrPipe, err := command.StderrPipe()
++	if err != nil {
++		return Result{}, err
++	}
++	if err := command.Start(); err != nil {
++		return Result{}, err
++	}
++	// Drain both streams while stdin is written: a plugin that answers
++	// without reading stdin would otherwise deadlock against a full
++	// pipe once either direction exceeds its buffer.
++	type streamResult struct {
++		data []byte
++		err  error
++	}
++	stdoutDone := make(chan streamResult, 1)
++	stderrDone := make(chan streamResult, 1)
++	go func() {
++		data, err := readCapped(stdoutPipe, stdoutCap)
++		stdoutDone <- streamResult{data: data, err: err}
++	}()
++	go func() {
++		data, err := readCapped(stderrPipe, StderrCapBytes)
++		stderrDone <- streamResult{data: data, err: err}
++	}()
++	wrote, writeErr := stdinPipe.Write(stdin)
++	if writeErr == nil && wrote < len(stdin) {
++		writeErr = io.ErrShortWrite
++	}
++	if writeErr == nil {
++		_, writeErr = stdinPipe.Write([]byte{'\n'})
++	}
++	closeErr := stdinPipe.Close()
++	waitErr := command.Wait()
++	if ctx.Err() != nil {
++		// The wait ended by deadline or cancellation: the kill was
++		// already signaled, but a detached grandchild may hold the
++		// pipes open past WaitDelay. Close them rather than waiting
++		// for streams that can no longer decide anything: with the
++		// deadline gone there is no valid response to read.
++		stdoutPipe.Close()
++		stderrPipe.Close()
++		<-stdoutDone
++		<-stderrDone
++		return Result{}, ctx.Err()
++	}
++	stdoutResult := <-stdoutDone
++	stderrResult := <-stderrDone
++	if stdoutResult.err != nil {
++		return Result{}, stdoutResult.err
++	}
++	if stderrResult.err != nil {
++		return Result{}, stderrResult.err
++	}
++	stdout := stdoutResult.data
++	stderr := stderrResult.data
++	// A stdin write failure after the process ran is still a result when
++	// the process produced one: the frame may have arrived whole while
++	// the close raced the plugin's exit. Report write and close failures
++	// only when no result can be judged; otherwise the frame governs.
++	result := Result{Stdout: stdout, Stderr: stderr, ExitCode: command.ProcessState.ExitCode()}
++	if waitErr == nil {
++		if writeErr != nil {
++			return Result{}, writeErr
++		}
++		return result, closeErr
++	}
++	if exit, ok := waitErr.(*exec.ExitError); ok {
++		result.ExitCode = exit.ExitCode()
++		if writeErr != nil {
++			return Result{}, writeErr
++		}
++		return result, closeErr
++	}
++	return Result{}, waitErr
++}
++
++// readCapped drains stream up to cap bytes and cuts the rest. Memory
++// stays bounded no matter what the plugin emits, and the splitFrame
++// length checks stay exact on the capped capture.
++func readCapped(stream io.Reader, cap int) ([]byte, error) {
++	data, err := io.ReadAll(io.LimitReader(stream, int64(cap)+1))
++	if err != nil {
++		return nil, err
++	}
++	if len(data) > cap {
++		return data[:cap], nil
++	}
++	return data, nil
++}
++
++// Host invokes provider plugins: one process per operation, one frame in,
++// one frame out, under the request deadline. Host keeps no cross-call
++// state, so successive calls are separate processes observing durable
++// state through the authority the caller passes.
++type Host struct {
++	// Runner starts the plugin process. It must be set; a nil Runner is
++	// a caller error, refused before any frame is built.
++	Runner Runner
++	// Now is the clock deadlines are checked against. Nil means the
++	// system clock; tests supply a fixed instant.
++	Now func() time.Time
++}
++
++func (host Host) now() time.Time {
++	if host.Now == nil {
++		return time.Now()
++	}
++	return host.Now()
++}
++
++// splitFrame separates the single response line from anything following
++// it. oversize reports a first line beyond MaxFrameBytes; extra reports
++// any bytes after the first line terminator. An empty line is neither:
++// it is a missing response, judged with the exit code by the caller.
++//
++// The checks are length-only and exact: stdout capture holds at most
++// MaxFrameBytes+2 bytes, so a first line beyond the limit, or any
++// trailing byte, is always visible in the captured length. No separate
++// truncation flag participates; a narrowed or dropped disjunct here
++// would be equivalent, not coverage.
++func splitFrame(captured []byte) (line []byte, oversize bool, extra bool) {
++	if index := bytes.IndexByte(captured, '\n'); index >= 0 {
++		return captured[:index], len(captured[:index]) > MaxFrameBytes, index+1 < len(captured)
++	}
++	return captured, len(captured) > MaxFrameBytes, false
++}
++
++// Call dispatches one operation: it frames the request, starts one plugin
++// process, enforces the request deadline, and interprets the single
++// response frame. Encode failures return before the Runner is touched, so
++// an unknown operation never starts a process. A success envelope returns
++// its body; a failure envelope returns the bound child error; anything
++// else returns a local failure that trusts nothing from the plugin.
++//
++// Deadline accounting is exact: the wait ends under a context cut at the
++// request deadline, and provider_timeout is reported only when that
++// instant actually passed. A parent cancellation first, or any other
++// runner failure with time remaining, is provider_process_failed. An
++// empty stdout with time remaining is a missing response:
++// provider_protocol_error on exit 0, provider_process_failed otherwise.
++// An empty stdout after the deadline passed is provider_timeout, and a
++// valid frame governs regardless of lateness or exit status.
++func (host Host) Call(ctx context.Context, executable string, req Request) (Response, error) {
++	if host.Runner == nil {
++		failure, err := failInvalid("host has no runner")
++		if err != nil {
++			return Response{}, err
++		}
++		return Response{}, failure
++	}
++	frame, deadline, err := encodeFrame(req, host.now())
++	if err != nil {
++		return Response{}, err
++	}
++	deadlineCtx, cancel := context.WithDeadline(ctx, deadline)
++	defer cancel()
++	result, err := host.Runner.Run(deadlineCtx, executable, frame)
++	if err != nil {
++		now := host.now()
++		if !now.Before(deadline) || deadlineCtx.Err() == context.DeadlineExceeded {
++			failure, fault := failTimeout("no response before the request deadline", deadline.UnixMilli())
++			if fault != nil {
++				return Response{}, fault
++			}
++			return Response{}, failure
++		}
++		failure, fault := failProcess("runner reported no result", err)
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	line, oversize, extra := splitFrame(result.Stdout)
++	if oversize {
++		failure, fault := failProtocol("frame exceeds 8 MiB", "")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	if extra {
++		failure, fault := failProtocol("stdout carries more than one frame", "")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	if len(line) == 0 {
++		// No valid response arrived. When the request deadline passed,
++		// this is the timeout even if the process also exited badly:
++		// the host waited the full allowance and got nothing usable.
++		if !host.now().Before(deadline) || deadlineCtx.Err() == context.DeadlineExceeded {
++			failure, fault := failTimeout("no response before the request deadline", deadline.UnixMilli())
++			if fault != nil {
++				return Response{}, fault
++			}
++			return Response{}, failure
++		}
++		if result.ExitCode != 0 {
++			failure, fault := failProcess("plugin exited without a response", nil)
++			if fault != nil {
++				return Response{}, fault
++			}
++			return Response{}, failure
++		}
++		failure, fault := failProtocol("plugin exited without a response", "")
++		if fault != nil {
++			return Response{}, fault
++		}
++		return Response{}, failure
++	}
++	return DecodeResponse(line, req.RequestID)
++}
+diff --git a/internal/provhost/runner_test.go b/internal/provhost/runner_test.go
+new file mode 100644
+index 0000000..1c2c572
+--- /dev/null
++++ b/internal/provhost/runner_test.go
+@@ -0,0 +1,632 @@
++package provhost
++
++import (
++	"context"
++	"errors"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"strconv"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// futureDeadline returns a deadline duration ahead of the real clock,
++// so Host deadline accounting runs against live time.
++func futureDeadline(t *testing.T, ahead time.Duration) scalar.Timestamp {
++	t.Helper()
++	parsed, err := scalar.ParseTimestamp(time.Now().Add(ahead).UTC().Format("2006-01-02T15:04:05.000Z"))
++	if err != nil {
++		t.Fatalf("ParseTimestamp: %v", err)
++	}
++	return parsed
++}
++
++// liveRequest is testRequest with a live future deadline for Host calls,
++// which enforce the deadline against a real context.
++func liveRequest(t *testing.T) Request {
++	t.Helper()
++	req := testRequest(t)
++	req.Deadline = futureDeadline(t, 5*time.Minute)
++	return req
++}
++
++// liveHost builds a Host on the real clock.
++func liveHost(runner *scriptRunner) Host {
++	return Host{Runner: runner, Now: time.Now}
++}
++
++// scriptCall records one Runner invocation.
++type scriptCall struct {
++	executable string
++	stdin      []byte
++}
++
++// scriptRunner is a scripted Runner: it replays canned results, records
++// every invocation, and optionally blocks until the context ends to
++// simulate a hung plugin. It proves Host behavior without real processes;
++// the ExecRunner integration test below drives the production call site.
++// scriptStep is one canned invocation outcome: either a result or a
++// transport error, consumed in listed order.
++type scriptStep struct {
++	result Result
++	err    error
++}
++
++func okStep(result Result) scriptStep { return scriptStep{result: result} }
++
++func failStep(err error) scriptStep { return scriptStep{err: err} }
++
++type scriptRunner struct {
++	mu    sync.Mutex
++	calls []scriptCall
++	steps []scriptStep
++	block bool
++	// delay sleeps past the request deadline before replaying, so the
++	// runner returns a result after the deadline instead of an error.
++	delay time.Duration
++}
++
++func (runner *scriptRunner) Run(ctx context.Context, executable string, stdin []byte) (Result, error) {
++	runner.mu.Lock()
++	runner.calls = append(runner.calls, scriptCall{executable: executable, stdin: append([]byte(nil), stdin...)})
++	index := len(runner.calls) - 1
++	runner.mu.Unlock()
++	if runner.block {
++		<-ctx.Done()
++		return Result{}, ctx.Err()
++	}
++	if runner.delay > 0 {
++		time.Sleep(runner.delay)
++	}
++	if index < len(runner.steps) {
++		step := runner.steps[index]
++		return step.result, step.err
++	}
++	return Result{}, errors.New("script: no step canned")
++}
++
++func (runner *scriptRunner) spawned() int {
++	runner.mu.Lock()
++	defer runner.mu.Unlock()
++	return len(runner.calls)
++}
++
++func successResult(t *testing.T, id, body string) Result {
++	t.Helper()
++	return Result{Stdout: successFrame(t, id, body), ExitCode: 0}
++}
++
++// TestCallSendsOneFrameToOneProcess proves the dispatch path: the exact
++// request frame reaches exactly one process of the named executable.
++func TestCallSendsOneFrameToOneProcess(t *testing.T) {
++	runner := &scriptRunner{steps: []scriptStep{okStep(successResult(t, testRequestID, `{"provider_id":"pi"}`))}}
++	host := liveHost(runner)
++	req := liveRequest(t)
++	got, err := host.Call(context.Background(), "/plugins/ax-provider-pi", req)
++	if err != nil {
++		t.Fatalf("Call: %v", err)
++	}
++	if string(got.Body) != `{"provider_id":"pi"}` {
++		t.Fatalf("Call body = %s", got.Body)
++	}
++	if runner.spawned() != 1 {
++		t.Fatalf("Call spawned %d processes, want exactly one per operation", runner.spawned())
++	}
++	call := runner.calls[0]
++	if call.executable != "/plugins/ax-provider-pi" {
++		t.Fatalf("Call executable = %q", call.executable)
++	}
++	frame, err := EncodeRequest(req, time.Now())
++	if err != nil {
++		t.Fatalf("EncodeRequest: %v", err)
++	}
++	if string(call.stdin) != string(frame) {
++		t.Fatalf("Call stdin = %q, want the single request frame", call.stdin)
++	}
++}
++
++// TestCallUnknownOperationStartsNoProcess proves dispatch refuses an
++// unregistered operation locally: the failure is invalid_config and the
++// Runner is never touched.
++func TestCallUnknownOperationStartsNoProcess(t *testing.T) {
++	runner := &scriptRunner{}
++	host := liveHost(runner)
++	req := liveRequest(t)
++	req.Operation = "reboot"
++	_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", req)
++	requireLocalRefusal(t, err, "invalid_config", "unknown operation")
++	if runner.spawned() != 0 {
++		t.Fatalf("Call spawned %d processes for an unknown operation, want none", runner.spawned())
++	}
++}
++
++// TestCallNilRunnerRefuses proves a host without a Runner fails closed
++// before framing.
++func TestCallNilRunnerRefuses(t *testing.T) {
++	host := Host{Now: time.Now}
++	_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t))
++	requireLocalRefusal(t, err, "invalid_config", "host has no runner")
++}
++
++// TestCallUsesSystemClockWhenUnset proves the nil-clock branch: a Host
++// without Now enforces live deadlines.
++func TestCallUsesSystemClockWhenUnset(t *testing.T) {
++	runner := &scriptRunner{steps: []scriptStep{okStep(successResult(t, testRequestID, `{"provider_id":"pi"}`))}}
++	host := Host{Runner: runner}
++	req := testRequest(t)
++	req.Deadline = futureDeadline(t, 5*time.Minute)
++	if _, err := host.Call(context.Background(), "/plugins/ax-provider-pi", req); err != nil {
++		t.Fatalf("Call with unset clock: %v", err)
++	}
++}
++
++// failingReader always errors, exercising the capped-read failure path.
++type failingReader struct{}
++
++func (failingReader) Read([]byte) (int, error) { return 0, errors.New("fake: read failed") }
++
++// TestReadCappedReportsStreamErrors proves a stream failure surfaces
++// instead of an empty capture.
++func TestReadCappedReportsStreamErrors(t *testing.T) {
++	if _, err := readCapped(failingReader{}, 1024); err == nil {
++		t.Fatal("readCapped swallowed a stream error")
++	}
++}
++
++// TestReadCappedEnforcesCap proves the memory bound runner.go promises:
++// a stream far beyond the cap is cut to exactly cap bytes carrying the
++// stream prefix, while under-cap and exact-cap streams pass through
++// untouched. Removing the limiter returns the whole stream; removing the
++// truncation returns cap+1 bytes; both redden here.
++func TestReadCappedEnforcesCap(t *testing.T) {
++	const cap = 16
++	over := strings.Repeat("a", 4*cap) + strings.Repeat("b", 4*cap)
++	got, err := readCapped(strings.NewReader(over), cap)
++	if err != nil {
++		t.Fatalf("readCapped: %v", err)
++	}
++	if len(got) != cap {
++		t.Fatalf("readCapped cut %d input bytes to %d, want exactly %d", len(over), len(got), cap)
++	}
++	if string(got) != strings.Repeat("a", cap) {
++		t.Fatalf("readCapped kept %q, want the stream prefix", got)
++	}
++	for _, size := range []int{0, 1, cap - 1, cap} {
++		want := strings.Repeat("c", size)
++		got, err := readCapped(strings.NewReader(want), cap)
++		if err != nil {
++			t.Fatalf("readCapped(%d): %v", size, err)
++		}
++		if string(got) != want {
++			t.Fatalf("readCapped(%d) = %q, want passthrough", size, got)
++		}
++	}
++}
++
++// errAfterReader yields filler bytes up to a budget, then fails. It proves
++// readCapped stops consuming at cap+1: with the limiter the error past the
++// cap is never reached, while a limiter removed (reading the whole stream
++// into memory first) surfaces it.
++type errAfterReader struct {
++	remaining int
++	filler    byte
++}
++
++func (reader *errAfterReader) Read(into []byte) (int, error) {
++	if reader.remaining <= 0 {
++		return 0, errors.New("fake: past the cap")
++	}
++	n := len(into)
++	if n > reader.remaining {
++		n = reader.remaining
++	}
++	for i := 0; i < n; i++ {
++		into[i] = reader.filler
++	}
++	reader.remaining -= n
++	return n, nil
++}
++
++// TestReadCappedStopsConsumingAtTheCap proves the limiter half of the
++// memory bound: a stream that fails past four caps is still cut cleanly,
++// because reads stop one byte past the cap instead of draining the
++// stream. Removing the limiter surfaces the stream error here.
++func TestReadCappedStopsConsumingAtTheCap(t *testing.T) {
++	const cap = 16
++	got, err := readCapped(&errAfterReader{remaining: 4 * cap, filler: 'd'}, cap)
++	if err != nil {
++		t.Fatalf("readCapped reached past the cap: %v", err)
++	}
++	if string(got) != strings.Repeat("d", cap) {
++		t.Fatalf("readCapped kept %q, want %d prefix bytes", got, cap)
++	}
++}
++
++// TestCallTimesOutHungPlugin proves the deadline path: a plugin that
++// never answers is terminated at the request deadline and reported as
++// provider_timeout with exit 13.
++func TestCallTimesOutHungPlugin(t *testing.T) {
++	runner := &scriptRunner{block: true}
++	host := liveHost(runner)
++	req := liveRequest(t)
++	req.Deadline = futureDeadline(t, 150*time.Millisecond)
++	start := time.Now()
++	_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", req)
++	if elapsed := time.Since(start); elapsed > 10*time.Second {
++		t.Fatalf("Call took %v, want deadline enforcement near 100ms", elapsed)
++	}
++	requireLocalRefusal(t, err, "provider_timeout", "no response before the request deadline")
++	if failureExit(t, err) != 13 {
++		t.Fatalf("Call exit = %d, want 13", failureExit(t, err))
++	}
++}
++
++// TestCallEmptyResultAfterDeadlineIsTimeout proves the late-empty
++// path: a runner that answers with nothing after the deadline still
++// reports provider_timeout, even though the process exited on its own.
++func TestCallEmptyResultAfterDeadlineIsTimeout(t *testing.T) {
++	runner := &scriptRunner{steps: []scriptStep{okStep(Result{ExitCode: 1})}, delay: 400 * time.Millisecond}
++	host := liveHost(runner)
++	req := liveRequest(t)
++	req.Deadline = futureDeadline(t, 150*time.Millisecond)
++	_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", req)
++	requireLocalRefusal(t, err, "provider_timeout", "no response before the request deadline")
++}
++
++// TestCallRunnerErrorBeforeDeadlineIsProcessFailure proves a transport
++// failure with time remaining is provider_process_failed, not a timeout.
++func TestCallRunnerErrorBeforeDeadlineIsProcessFailure(t *testing.T) {
++	runner := &scriptRunner{steps: []scriptStep{failStep(errors.New("fake: fork failed"))}}
++	host := liveHost(runner)
++	_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t))
++	requireLocalRefusal(t, err, "provider_process_failed", "runner reported no result")
++}
++
++// TestCallParentCancelIsNotTimeout proves a caller abort with time
++// remaining is provider_process_failed: the deadline never passed, so no
++// timeout may be claimed.
++func TestCallParentCancelIsNotTimeout(t *testing.T) {
++	runner := &scriptRunner{block: true}
++	host := liveHost(runner)
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	_, err := host.Call(ctx, "/plugins/ax-provider-pi", liveRequest(t))
++	requireLocalRefusal(t, err, "provider_process_failed", "runner reported no result")
++}
++
++// TestCallMissingResponse proves an empty stdout is a missing response:
++// provider_process_failed on a crash exit, provider_protocol_error when
++// the plugin claimed success by exiting 0.
++func TestCallMissingResponse(t *testing.T) {
++	for _, kase := range []struct {
++		name   string
++		code   int
++		want   string
++		member string
++	}{
++		{"crash exit", 3, "provider_process_failed", ""},
++		{"signal-like exit", 137, "provider_process_failed", ""},
++		{"clean exit", 0, "provider_protocol_error", ""},
++	} {
++		t.Run(kase.name, func(t *testing.T) {
++			runner := &scriptRunner{steps: []scriptStep{okStep(Result{ExitCode: kase.code})}}
++			host := liveHost(runner)
++			_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t))
++			if kase.want == "provider_protocol_error" {
++				requireFrameRefusal(t, err, kase.member, "plugin exited without a response")
++			} else {
++				requireLocalRefusal(t, err, axerror.Code(kase.want), "plugin exited without a response")
++			}
++		})
++	}
++}
++
++// TestCallRefusesUnusableStdout proves crashes, garbage, and
++// correlation breaks map to the Section 7.2 host-failure classes. The
++// production entry point is Host.Call.
++func TestCallRefusesUnusableStdout(t *testing.T) {
++	for _, kase := range []struct {
++		name   string
++		result Result
++		want   string
++		member string
++		detail string
++	}{
++		{"garbage", Result{Stdout: []byte("not json\n"), Stderr: []byte("traceback\n"), ExitCode: 1}, "provider_protocol_error", "", "not a JSON object"},
++		{"crash no output", Result{ExitCode: 1}, "provider_process_failed", "", "plugin exited without a response"},
++		{"wrong request id", Result{Stdout: successFrame(t, testOtherID, `{}`), ExitCode: 0}, "provider_protocol_error", "request_id", "request_id does not match the request"},
++		{"extra line", Result{Stdout: append(successFrame(t, testRequestID, `{}`), '\n', 'x', '\n'), ExitCode: 0}, "provider_protocol_error", "", "stdout carries more than one frame"},
++		{"foreign major", Result{Stdout: []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"3.0.0","request_id":"` + testRequestID + `","ok":true,"body":{}}`), ExitCode: 0}, "incompatible_protocol", "", ""},
++	} {
++		t.Run(kase.name, func(t *testing.T) {
++			runner := &scriptRunner{steps: []scriptStep{okStep(kase.result)}}
++			host := liveHost(runner)
++			_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t))
++			switch kase.want {
++			case "provider_protocol_error":
++				requireFrameRefusal(t, err, kase.member, kase.detail)
++			case "incompatible_protocol":
++				if failureCode(t, err) != "incompatible_protocol" {
++					t.Fatalf("Call code = %v, want incompatible_protocol", err)
++				}
++				if observed, ok := failureObject(t, err).Detail("observed"); !ok || observed != "3.0.0" {
++					t.Fatalf("Call observed = %v, want the foreign version", observed)
++				}
++			default:
++				requireLocalRefusal(t, err, axerror.Code(kase.want), kase.detail)
++			}
++		})
++	}
++}
++
++// TestCallSeparatesStderr proves stdout/stderr separation two ways: a
++// valid frame succeeds despite noisy diagnostics, and a failing
++// invocation never carries stderr content in its human text.
++func TestCallSeparatesStderr(t *testing.T) {
++	secret := "sk-fake-secret-in-stderr"
++	runner := &scriptRunner{steps: []scriptStep{okStep(Result{
++		Stdout:   successFrame(t, testRequestID, `{"provider_id":"pi"}`),
++		Stderr:   []byte("diagnostic: using " + secret + "\n"),
++		ExitCode: 0,
++	})}}
++	host := liveHost(runner)
++	if _, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t)); err != nil {
++		t.Fatalf("Call with stderr diagnostics: %v", err)
++	}
++
++	bad := &scriptRunner{steps: []scriptStep{okStep(Result{Stdout: []byte("garbage\n"), Stderr: []byte(secret + "\n"), ExitCode: 1})}}
++	host = liveHost(bad)
++	_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t))
++	requireFrameRefusal(t, err, "", "not a JSON object")
++	if strings.Contains(err.Error(), secret) {
++		t.Fatalf("stderr content leaked into the failure text: %v", err)
++	}
++}
++
++// TestStdoutCapIsPinned pins the stdout capture bound in both
++// directions: one maximal frame, its line terminator, and one probe
++// byte. Narrowing it to MaxFrameBytes+1 makes the host accept a maximal
++// frame followed by one junk byte (behaviorally proven by
++// TestExecRunnerRefusesMaximalFramePlusJunk); widening it holds 4x the
++// memory bound with the suite green. Neither direction is observable
++// from the scripted runner, which never passes through readCapped, so
++// the constant itself is asserted here.
++func TestStdoutCapIsPinned(t *testing.T) {
++	const specStdoutCapBytes = (8 << 20) + 2
++	if stdoutCap != specStdoutCapBytes {
++		t.Fatalf("stdoutCap = %d, want the specified %d", stdoutCap, specStdoutCapBytes)
++	}
++	if stdoutCap != MaxFrameBytes+2 {
++		t.Fatalf("stdoutCap = %d, want one maximal frame plus terminator plus probe byte", stdoutCap)
++	}
++}
++
++// TestExecRunnerRefusesMaximalFramePlusJunk proves the probe byte is
++// load-bearing through the production path: a real plugin emitting a
++// frame of exactly MaxFrameBytes, a terminator, and one junk byte is
++// refused with "stdout carries more than one frame". With the cap
++// narrowed by one byte the capture holds only frame plus terminator,
++// the junk is cut before splitFrame can see it, and the host accepts an
++// 8 MiB body the wire forbids — the narrowing reddens here with err=nil.
++// The production entry point is Host.Call over ExecRunner.
++func TestExecRunnerRefusesMaximalFramePlusJunk(t *testing.T) {
++	if _, err := exec.LookPath("sh"); err != nil {
++		t.Skip("no sh on PATH; cannot run the production runner")
++	}
++	req := liveRequest(t)
++	prefix := `{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + req.RequestID.String() + `","ok":true,"body":{"pad":"`
++	suffix := `"}}`
++	padLen := MaxFrameBytes - len(prefix) - len(suffix)
++	if padLen <= 0 {
++		t.Fatalf("frame overhead exceeds MaxFrameBytes; cannot build a maximal frame")
++	}
++	if len(prefix)+padLen+len(suffix) != MaxFrameBytes {
++		t.Fatalf("maximal frame is %d bytes, want exactly %d", len(prefix)+padLen+len(suffix), MaxFrameBytes)
++	}
++	script := filepath.Join(t.TempDir(), "ax-provider-maxframe")
++	plugin := "#!/bin/sh\ncat > /dev/null\nprintf '%s' \"$AX_FRAME_PREFIX\"\nyes a | tr -d '\\n' | head -c \"$AX_PAD_LEN\"\nprintf '%s' \"$AX_FRAME_SUFFIX\"\nprintf '\\nX'\nexit 0\n"
++	if err := os.WriteFile(script, []byte(plugin), 0o700); err != nil {
++		t.Fatalf("WriteFile: %v", err)
++	}
++	t.Setenv("AX_FRAME_PREFIX", prefix)
++	t.Setenv("AX_FRAME_SUFFIX", suffix)
++	t.Setenv("AX_PAD_LEN", strconv.Itoa(padLen))
++	host := Host{Runner: ExecRunner{}, Now: time.Now}
++	_, err := host.Call(context.Background(), script, req)
++	requireFrameRefusal(t, err, "", "stdout carries more than one frame")
++}
++
++// TestCallOversizeStdoutRefuses proves a first line one byte over 8 MiB
++// fails as provider_protocol_error through the full Call path.
++func TestCallOversizeStdoutRefuses(t *testing.T) {
++	pad := strings.Repeat("a", specFrameLimitBytes)
++	frame := successFrame(t, testRequestID, `{"pad":"`+pad+`"}`)
++	if len(frame) <= specFrameLimitBytes {
++		t.Fatalf("oversize stdout is %d bytes, want over %d", len(frame), specFrameLimitBytes)
++	}
++	runner := &scriptRunner{steps: []scriptStep{okStep(Result{Stdout: frame, ExitCode: 0})}}
++	host := liveHost(runner)
++	_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", liveRequest(t))
++	requireFrameRefusal(t, err, "", "frame exceeds 8 MiB")
++}
++
++// TestCallOneProcessPerCall proves the single-flight cross-process
++// property: two calls start two processes with distinct request IDs.
++func TestCallOneProcessPerCall(t *testing.T) {
++	runner := &scriptRunner{steps: []scriptStep{
++		okStep(successResult(t, testRequestID, `{}`)),
++		okStep(successResult(t, testOtherID, `{}`)),
++	}}
++	host := liveHost(runner)
++	first := liveRequest(t)
++	if _, err := host.Call(context.Background(), "/plugins/ax-provider-pi", first); err != nil {
++		t.Fatalf("first Call: %v", err)
++	}
++	second := liveRequest(t)
++	second.RequestID = mustUUIDv7(t, testOtherID)
++	if _, err := host.Call(context.Background(), "/plugins/ax-provider-pi", second); err != nil {
++		t.Fatalf("second Call: %v", err)
++	}
++	if runner.spawned() != 2 {
++		t.Fatalf("two Calls spawned %d processes, want one per operation", runner.spawned())
++	}
++	if string(runner.calls[0].stdin) == string(runner.calls[1].stdin) {
++		t.Fatal("successive calls sent byte-identical frames; request IDs must differ")
++	}
++}
++
++// TestExecRunnerEchoRoundTrip drives the production call site end to
++// end: a real plugin script receives the frame on stdin and answers on
++// stdout while logging diagnostics to stderr.
++func TestExecRunnerEchoRoundTrip(t *testing.T) {
++	if _, err := exec.LookPath("sh"); err != nil {
++		t.Skip("no sh on PATH; cannot run the production runner")
++	}
++	root := t.TempDir()
++	script := filepath.Join(root, "ax-provider-echo")
++	plugin := `#!/bin/sh
++echo "diagnostic: starting" >&2
++frame=$(cat)
++id=$(printf '%s' "$frame" | sed 's/.*"request_id":"\([^"]*\)".*/\1/')
++printf '{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"%s","ok":true,"body":{"provider_id":"echo"}}' "$id"
++exit 0
++`
++	if err := os.WriteFile(script, []byte(plugin), 0o700); err != nil {
++		t.Fatalf("WriteFile: %v", err)
++	}
++	host := Host{Runner: ExecRunner{}, Now: time.Now}
++	got, err := host.Call(context.Background(), script, liveRequest(t))
++	if err != nil {
++		t.Fatalf("Call through ExecRunner: %v", err)
++	}
++	if string(got.Body) != `{"provider_id":"echo"}` {
++		t.Fatalf("Call body = %s", got.Body)
++	}
++}
++
++// TestExecRunnerEnforcesDeadline drives the production kill path: a
++// plugin that sleeps past the deadline is terminated and reported as
++// provider_timeout.
++func TestExecRunnerEnforcesDeadline(t *testing.T) {
++	if _, err := exec.LookPath("sh"); err != nil {
++		t.Skip("no sh on PATH; cannot run the production runner")
++	}
++	script := filepath.Join(t.TempDir(), "ax-provider-sleep")
++	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 30\n"), 0o700); err != nil {
++		t.Fatalf("WriteFile: %v", err)
++	}
++	host := Host{Runner: ExecRunner{}, Now: time.Now}
++	req := liveRequest(t)
++	stamp, err := scalar.ParseTimestamp(time.Now().Add(300 * time.Millisecond).UTC().Format("2006-01-02T15:04:05.000Z"))
++	if err != nil {
++		t.Fatalf("ParseTimestamp: %v", err)
++	}
++	req.Deadline = stamp
++	start := time.Now()
++	_, err = host.Call(context.Background(), script, req)
++	elapsed := time.Since(start)
++	if elapsed > 20*time.Second {
++		t.Fatalf("Call took %v, want termination near the deadline", elapsed)
++	}
++	// Returning before the drain delay shows the wait did not linger
++	// for pipe EOF after the deadline kill. What the group kill buys
++	// beyond Setpgid/Kill consistency is unknown on this platform:
++	// removing the Cancel alone still returns in ~300ms here, while
++	// disabling Setpgid delays past 2s — so this pins termination
++	// latency, not detached-descendant fate.
++	if elapsed >= waitDrainDelay {
++		t.Fatalf("Call took %v, want group termination well before the %v drain delay", elapsed, waitDrainDelay)
++	}
++	requireLocalRefusal(t, err, "provider_timeout", "no response before the request deadline")
++}
++
++// TestExecRunnerReportsCrashExit drives the production exit-code path: a
++// real plugin that exits 3 without answering is provider_process_failed,
++// while one that exits 0 without answering is provider_protocol_error.
++// Discarding ExitCode in ExecRunner promotes the crash to a protocol
++// error, and the promotion reddens here. The production entry point is
++// Host.Call over ExecRunner.
++func TestExecRunnerReportsCrashExit(t *testing.T) {
++	if _, err := exec.LookPath("sh"); err != nil {
++		t.Skip("no sh on PATH; cannot run the production runner")
++	}
++	for _, kase := range []struct {
++		name   string
++		script string
++		code   string
++		detail string
++	}{
++		{"crash exit", "#!/bin/sh\ncat > /dev/null\nexit 3\n", "provider_process_failed", "plugin exited without a response"},
++		{"clean exit", "#!/bin/sh\ncat > /dev/null\nexit 0\n", "provider_protocol_error", "plugin exited without a response"},
++	} {
++		t.Run(kase.name, func(t *testing.T) {
++			plugin := filepath.Join(t.TempDir(), "ax-provider-exit")
++			if err := os.WriteFile(plugin, []byte(kase.script), 0o700); err != nil {
++				t.Fatalf("WriteFile: %v", err)
++			}
++			host := Host{Runner: ExecRunner{}, Now: time.Now}
++			_, err := host.Call(context.Background(), plugin, liveRequest(t))
++			if kase.code == "provider_protocol_error" {
++				requireFrameRefusal(t, err, "", kase.detail)
++			} else {
++				requireLocalRefusal(t, err, axerror.Code(kase.code), kase.detail)
++			}
++		})
++	}
++}
++
++// TestExecRunnerWritesOneTerminatedFrame drives the production stdin
++// path: the exact request frame plus the Section 7.2 line terminator must
++// reach the plugin. The script saves its stdin aside and answers from it,
++// so the captured bytes pin what ExecRunner wrote. Omitting the newline
++// reddens the byte comparison here.
++func TestExecRunnerWritesOneTerminatedFrame(t *testing.T) {
++	if _, err := exec.LookPath("sh"); err != nil {
++		t.Skip("no sh on PATH; cannot run the production runner")
++	}
++	root := t.TempDir()
++	capture := filepath.Join(root, "stdin-capture")
++	script := filepath.Join(root, "ax-provider-capture")
++	plugin := `#!/bin/sh
++cat > "$AX_STDIN_CAPTURE"
++frame=$(cat "$AX_STDIN_CAPTURE")
++id=$(printf '%s' "$frame" | sed 's/.*"request_id":"\([^"]*\)".*/\1/')
++printf '{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"%s","ok":true,"body":{"provider_id":"echo"}}' "$id"
++exit 0
++`
++	if err := os.WriteFile(script, []byte(plugin), 0o700); err != nil {
++		t.Fatalf("WriteFile: %v", err)
++	}
++	t.Setenv("AX_STDIN_CAPTURE", capture)
++	host := Host{Runner: ExecRunner{}, Now: time.Now}
++	req := liveRequest(t)
++	if _, err := host.Call(context.Background(), script, req); err != nil {
++		t.Fatalf("Call through ExecRunner: %v", err)
++	}
++	frame, err := EncodeRequest(req, time.Now())
++	if err != nil {
++		t.Fatalf("EncodeRequest: %v", err)
++	}
++	want := append(append([]byte(nil), frame...), '\n')
++	got, err := os.ReadFile(capture)
++	if err != nil {
++		t.Fatalf("ReadFile capture: %v", err)
++	}
++	if string(got) != string(want) {
++		t.Fatalf("plugin stdin is %d bytes ending %q, want the %d-byte frame plus one newline", len(got), lastByte(got), len(want))
++	}
++}
++
++// lastByte renders the final stdin byte for the terminator failure text.
++func lastByte(data []byte) string {
++	if len(data) == 0 {
++		return "empty"
++	}
++	return string(data[len(data)-1:])
++}
+diff --git a/internal/provhost/runner_unix.go b/internal/provhost/runner_unix.go
+new file mode 100644
+index 0000000..9d54576
+--- /dev/null
++++ b/internal/provhost/runner_unix.go
+@@ -0,0 +1,23 @@
++//go:build !windows
++
++package provhost
++
++import (
++	"context"
++	"os/exec"
++	"syscall"
++)
++
++// newCommandContext starts the plugin in its own process group so the
++// deadline kill reaches the whole tree: provider CLIs routinely spawn
++// children, and killing only the parent would leave grandchildren holding
++// the pipes open, hanging the wait past the deadline. A grandchild that
++// deliberately escapes with setsid is beyond this bound; see doc.go.
++func newCommandContext(ctx context.Context, executable string) *exec.Cmd {
++	command := exec.CommandContext(ctx, executable)
++	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
++	command.Cancel = func() error {
++		return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
++	}
++	return command
++}
+diff --git a/internal/provhost/runner_windows.go b/internal/provhost/runner_windows.go
+new file mode 100644
+index 0000000..cf579f3
+--- /dev/null
++++ b/internal/provhost/runner_windows.go
+@@ -0,0 +1,16 @@
++//go:build windows
++
++package provhost
++
++import (
++	"context"
++	"os/exec"
++)
++
++// newCommandContext is the Windows process start: the default
++// context kill applies to the direct child only. A child tree holding
++// the pipes past the kill is a stated bound on this platform; the wait
++// still ends via WaitDelay and the call still reports provider_timeout.
++func newCommandContext(ctx context.Context, executable string) *exec.Cmd {
++	return exec.CommandContext(ctx, executable)
++}
+diff --git a/internal/provhost/status.go b/internal/provhost/status.go
+new file mode 100644
+index 0000000..dc298b9
+--- /dev/null
++++ b/internal/provhost/status.go
+@@ -0,0 +1,180 @@
++package provhost
++
++import (
++	"encoding/base64"
++	"encoding/json"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// StatusState is the reconciled durable state of a materialization
++// transaction. Unknown is fail-closed: the host must quarantine the
++// transaction root rather than infer prepare or commit.
++type StatusState string
++
++// ProviderTransactionStatus states Section 7.5 defines.
++const (
++	StatusUnknown    StatusState = "unknown"
++	StatusPrepared   StatusState = "prepared"
++	StatusCommitted  StatusState = "committed"
++	StatusRolledBack StatusState = "rolled_back"
++)
++
++// validStatusState reports whether the state is a registry member.
++func validStatusState(state string) bool {
++	switch StatusState(state) {
++	case StatusUnknown, StatusPrepared, StatusCommitted, StatusRolledBack:
++		return true
++	}
++	return false
++}
++
++// StatusIDs identifies the transaction a status read must describe: the
++// caller-supplied materialization and transaction IDs and the exact
++// transaction authority the request located it through. A status naming
++// any other transaction is not this transaction's durable state.
++type StatusIDs struct {
++	MaterializationID      string
++	TransactionID          string
++	TransactionAuthorityID string
++}
++
++// statusBodyMembers is the exact member set DecodeStatusOutcome accepts:
++// the ProviderTransactionStatus row of Section 7.5, where operation_id is
++// the mutation key the status request omits. A well-formed operation_id is
++// ignored — it is not this read's identity — but a malformed one makes
++// the observation integrity-invalid, as does any unknown member.
++var statusBodyMembers = map[string]bool{
++	"operation_id":             true,
++	"materialization_id":       true,
++	"transaction_id":           true,
++	"transaction_authority_id": true,
++	"plan_id":                  true,
++	"state":                    true,
++	"rollback_token":           true,
++	"native_discovery":         true,
++}
++
++// DecodeStatusOutcome reconciles one materialize-status success body to
++// the current durable state. It enforces the Section 7.5 recovery rules:
++// unknown requires null plan, token, and discovery; prepared requires all
++// three non-null; committed and rolled_back require a non-null plan and
++// discovery with a null token. Identity members must equal the requested
++// transaction.
++//
++// Every uninterpretable observation fails with integrity_failure,
++// including a state of unknown: the caller must quarantine the
++// transaction root and must not infer success. Status reads are evolving
++// observations, so no byte-identical replay rule applies: the same
++// transaction may report prepared under one envelope request_id and
++// committed under the next, and both readings are returned as-is.
++//
++// Only the charset and length of a rollback token are checked here (at
++// least 256 bits of base64url); its entropy is not observable. The shapes
++// of native_discovery and plan contents belong to the operation layer.
++func DecodeStatusOutcome(body []byte, want StatusIDs) (StatusState, error) {
++	integrity := func(detail string, state string) (StatusState, error) {
++		failure, err := failIntegrity(detail, state, want.MaterializationID, want.TransactionID)
++		if err != nil {
++			return "", err
++		}
++		return "", failure
++	}
++	members, fault := decodeStrictObject(body)
++	if fault != nil {
++		return integrity("status body is "+fault.detail, "")
++	}
++	for name := range members {
++		if !statusBodyMembers[name] {
++			return integrity("status body carries unknown member", "")
++		}
++	}
++	for _, name := range []string{"materialization_id", "transaction_id", "transaction_authority_id", "plan_id", "state", "rollback_token", "native_discovery"} {
++		if _, present := members[name]; !present {
++			return integrity("status body misses a required member", "")
++		}
++	}
++	stringMember := func(name string) (string, bool) {
++		var value string
++		if err := json.Unmarshal(members[name], &value); err != nil {
++			return "", false
++		}
++		return value, true
++	}
++	materializationID, ok := stringMember("materialization_id")
++	if !ok || materializationID != want.MaterializationID {
++		return integrity("status names another materialization", "")
++	}
++	transactionID, ok := stringMember("transaction_id")
++	if !ok || transactionID != want.TransactionID {
++		return integrity("status names another transaction", "")
++	}
++	authorityID, ok := stringMember("transaction_authority_id")
++	if !ok || authorityID != want.TransactionAuthorityID {
++		return integrity("status names another transaction authority", "")
++	}
++	if raw, present := members["operation_id"]; present {
++		var operationID string
++		if err := json.Unmarshal(raw, &operationID); err != nil {
++			return integrity("status operation_id is not a string", "")
++		}
++		if _, err := scalar.ParseUUIDv7(operationID); err != nil {
++			return integrity("status operation_id is not a UUIDv7", "")
++		}
++	}
++	state, ok := stringMember("state")
++	if !ok || !validStatusState(state) {
++		return integrity("status state is not a registry member", "")
++	}
++	planNull := isNull(members["plan_id"])
++	tokenNull := isNull(members["rollback_token"])
++	discoveryNull := isNull(members["native_discovery"])
++	if !planNull {
++		var digest string
++		if err := json.Unmarshal(members["plan_id"], &digest); err != nil {
++			return integrity("status plan_id is not a string", state)
++		}
++		if _, err := scalar.ParseDigest(digest); err != nil {
++			return integrity("status plan_id is not a digest", state)
++		}
++	}
++	if !tokenNull {
++		var token string
++		if err := json.Unmarshal(members["rollback_token"], &token); err != nil {
++			return integrity("status rollback_token is not a string", state)
++		}
++		raw, err := base64.RawURLEncoding.DecodeString(token)
++		if err != nil || len(raw) < 32 {
++			return integrity("status rollback_token is shorter than 256 bits", state)
++		}
++	}
++	if !discoveryNull && !isJSONObject(members["native_discovery"]) {
++		return integrity("status native_discovery is not an object", state)
++	}
++	switch StatusState(state) {
++	case StatusUnknown:
++		// Unknown is not a usable state: whether or not the
++		// nullability shape holds, the host must fail closed and
++		// quarantine the transaction root rather than infer prepare
++		// or commit. The shape violation names its own rule; a
++		// well-shaped unknown still refuses as unknown.
++		if !planNull || !tokenNull || !discoveryNull {
++			return integrity("unknown status carries plan, token, or discovery", state)
++		}
++		return integrity("transaction state is unknown", state)
++	case StatusPrepared:
++		if planNull || tokenNull || discoveryNull {
++			return integrity("prepared status misses plan, token, or discovery", state)
++		}
++	case StatusCommitted, StatusRolledBack:
++		if planNull || discoveryNull || !tokenNull {
++			return integrity("terminal status misses plan or discovery or keeps a token", state)
++		}
++	}
++	return StatusState(state), nil
++}
++
++// isNull reports whether the raw member is a JSON null literal.
++func isNull(raw json.RawMessage) bool {
++	return string(raw) == "null"
++}
+diff --git a/internal/provhost/status_test.go b/internal/provhost/status_test.go
+new file mode 100644
+index 0000000..d9682f1
+--- /dev/null
++++ b/internal/provhost/status_test.go
+@@ -0,0 +1,368 @@
++package provhost
++
++import (
++	"bytes"
++	"context"
++	"encoding/base64"
++	"encoding/json"
++	"strings"
++	"testing"
++	"time"
++)
++
++const (
++	testMaterializationID = "0198f4c8-c290-73aa-9374-1234567890ab"
++	testTransactionID     = "0198f4c8-f5c0-76dd-9677-1234567890ab"
++	testAuthorityID       = "provider_transaction"
++	testPlanID            = "sha256:64644a5ad573d36c0c13f44f56ef25ab93cff33001ff2a3371b082603910f2dd"
++	testRollbackToken     = "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXowMTIzNDU2Nzg5QUI"
++	testDiscovery         = `{"native_session_id":"11111111-2222-4333-8444-555555555555","discovered":true,"discovery_root":"/srv/provider/sessions","backend_resolved":false}`
++)
++
++func testStatusIDs() StatusIDs {
++	return StatusIDs{
++		MaterializationID:      testMaterializationID,
++		TransactionID:          testTransactionID,
++		TransactionAuthorityID: testAuthorityID,
++	}
++}
++
++// statusBody builds a ProviderTransactionStatus body. Null members are
++// passed as the literal null.
++func statusBody(materializationID, transactionID, authorityID, planID, state, token, discovery string) []byte {
++	quote := func(value, fallback string) string {
++		if value == "null" {
++			return "null"
++		}
++		if value == "" {
++			return fallback
++		}
++		return `"` + value + `"`
++	}
++	return []byte(`{"materialization_id":` + quote(materializationID, `"x"`) +
++		`,"transaction_id":` + quote(transactionID, `"x"`) +
++		`,"transaction_authority_id":` + quote(authorityID, `"x"`) +
++		`,"plan_id":` + quote(planID, `"x"`) +
++		`,"state":"` + state + `"` +
++		`,"rollback_token":` + quote(token, `"x"`) +
++		`,"native_discovery":` + discovery + `}`)
++}
++
++func preparedBody() []byte {
++	return statusBody(testMaterializationID, testTransactionID, testAuthorityID, testPlanID, "prepared", testRollbackToken, testDiscovery)
++}
++
++// TestDecodeStatusOutcomeAcceptsTerminalStates proves the positive
++// recovery path: prepared, committed, and rolled_back observations with
++// the state their nullability rules require are returned as-is.
++func TestDecodeStatusOutcomeAcceptsTerminalStates(t *testing.T) {
++	for _, kase := range []struct {
++		name  string
++		body  []byte
++		state StatusState
++	}{
++		{"prepared", preparedBody(), StatusPrepared},
++		{"committed", statusBody(testMaterializationID, testTransactionID, testAuthorityID, testPlanID, "committed", "null", testDiscovery), StatusCommitted},
++		{"rolled back", statusBody(testMaterializationID, testTransactionID, testAuthorityID, testPlanID, "rolled_back", "null", testDiscovery), StatusRolledBack},
++	} {
++		t.Run(kase.name, func(t *testing.T) {
++			got, err := DecodeStatusOutcome(kase.body, testStatusIDs())
++			if err != nil {
++				t.Fatalf("DecodeStatusOutcome: %v", err)
++			}
++			if got != kase.state {
++				t.Fatalf("DecodeStatusOutcome = %q, want %q", got, kase.state)
++			}
++		})
++	}
++}
++
++// TestDecodeStatusOutcomeUnknownFailsClosed proves the quarantine rule:
++// state unknown fails with integrity_failure and names the state in the
++// details, and never returns a usable status.
++func TestDecodeStatusOutcomeUnknownFailsClosed(t *testing.T) {
++	body := statusBody(testMaterializationID, testTransactionID, testAuthorityID, "null", "unknown", "null", "null")
++	got, err := DecodeStatusOutcome(body, testStatusIDs())
++	if got != "" {
++		t.Fatalf("DecodeStatusOutcome = %q for unknown, want no status", got)
++	}
++	requireLocalRefusal(t, err, "integrity_failure", "transaction state is unknown")
++	if state, ok := failureObject(t, err).Detail("status_state"); !ok || state != "unknown" {
++		t.Fatalf("DecodeStatusOutcome status_state = %v, want unknown", state)
++	}
++	if failureExit(t, err) != 9 {
++		t.Fatalf("DecodeStatusOutcome exit = %d, want 9", failureExit(t, err))
++	}
++}
++
++// TestDecodeStatusOutcomeNullabilityMatrix proves every state enforces
++// its null/non-null rule: unknown carries nothing, prepared carries
++// plan, token, and discovery, and terminal states carry plan and
++// discovery with no token. Each violation is integrity_failure. The
++// production entry point is DecodeStatusOutcome.
++func TestDecodeStatusOutcomeNullabilityMatrix(t *testing.T) {
++	for _, kase := range []struct {
++		name     string
++		state    string
++		plan     string
++		token    string
++		discover string
++		detail   string
++	}{
++		{"unknown with plan", "unknown", testPlanID, "null", "null", "unknown status carries plan, token, or discovery"},
++		{"unknown with token", "unknown", "null", testRollbackToken, "null", "unknown status carries plan, token, or discovery"},
++		{"unknown with discovery", "unknown", "null", "null", testDiscovery, "unknown status carries plan, token, or discovery"},
++		{"unknown with all", "unknown", testPlanID, testRollbackToken, testDiscovery, "unknown status carries plan, token, or discovery"},
++		{"prepared without plan", "prepared", "null", testRollbackToken, testDiscovery, "prepared status misses plan, token, or discovery"},
++		{"prepared without token", "prepared", testPlanID, "null", testDiscovery, "prepared status misses plan, token, or discovery"},
++		{"prepared without discovery", "prepared", testPlanID, testRollbackToken, "null", "prepared status misses plan, token, or discovery"},
++		{"prepared empty", "prepared", "null", "null", "null", "prepared status misses plan, token, or discovery"},
++		{"committed without plan", "committed", "null", "null", testDiscovery, "terminal status misses plan or discovery or keeps a token"},
++		{"committed without discovery", "committed", testPlanID, "null", "null", "terminal status misses plan or discovery or keeps a token"},
++		{"committed keeping token", "committed", testPlanID, testRollbackToken, testDiscovery, "terminal status misses plan or discovery or keeps a token"},
++		{"rolled back without plan", "rolled_back", "null", "null", testDiscovery, "terminal status misses plan or discovery or keeps a token"},
++		{"rolled back without discovery", "rolled_back", testPlanID, "null", "null", "terminal status misses plan or discovery or keeps a token"},
++		{"rolled back keeping token", "rolled_back", testPlanID, testRollbackToken, testDiscovery, "terminal status misses plan or discovery or keeps a token"},
++	} {
++		t.Run(kase.name, func(t *testing.T) {
++			body := statusBody(testMaterializationID, testTransactionID, testAuthorityID, kase.plan, kase.state, kase.token, kase.discover)
++			_, err := DecodeStatusOutcome(body, testStatusIDs())
++			requireLocalRefusal(t, err, "integrity_failure", kase.detail)
++		})
++	}
++}
++
++// TestDecodeStatusOutcomeRefusesForeignTransactions proves identity
++// binding: a status naming another materialization, transaction, or
++// authority is not this transaction's durable state.
++func TestDecodeStatusOutcomeRefusesForeignTransactions(t *testing.T) {
++	other := "0198f4c8-aaaa-73aa-9374-1234567890ab"
++	for _, kase := range []struct {
++		name   string
++		body   []byte
++		detail string
++	}{
++		{"other materialization", statusBody(other, testTransactionID, testAuthorityID, testPlanID, "prepared", testRollbackToken, testDiscovery), "status names another materialization"},
++		{"other transaction", statusBody(testMaterializationID, other, testAuthorityID, testPlanID, "prepared", testRollbackToken, testDiscovery), "status names another transaction"},
++		{"other authority", statusBody(testMaterializationID, testTransactionID, "another_authority", testPlanID, "prepared", testRollbackToken, testDiscovery), "status names another transaction authority"},
++		{"non-string materialization", statusBody("", testTransactionID, testAuthorityID, testPlanID, "prepared", testRollbackToken, testDiscovery), "status names another materialization"},
++	} {
++		t.Run(kase.name, func(t *testing.T) {
++			body := kase.body
++			if strings.Contains(kase.name, "non-string") {
++				body = []byte(`{"materialization_id":7,"transaction_id":"` + testTransactionID + `","transaction_authority_id":"` + testAuthorityID + `","plan_id":"` + testPlanID + `","state":"prepared","rollback_token":"` + testRollbackToken + `","native_discovery":` + testDiscovery + `}`)
++			}
++			_, err := DecodeStatusOutcome(body, testStatusIDs())
++			requireLocalRefusal(t, err, "integrity_failure", kase.detail)
++		})
++	}
++}
++
++// TestDecodeStatusOutcomeRefusesMalformedBodies proves uninterpretable
++// observations fail closed with integrity_failure rather than as absent
++// or partial states.
++func TestDecodeStatusOutcomeRefusesMalformedBodies(t *testing.T) {
++	good := string(preparedBody())
++	for _, kase := range []struct {
++		name   string
++		body   string
++		detail string
++	}{
++		{"empty", ``, "status body is not a JSON object"},
++		{"not JSON", `oops`, "status body is not a JSON object"},
++		{"array", `[]`, "status body is not a JSON object"},
++		{"scalar", `1`, "status body is not a JSON object"},
++		{"trailing data", good + "x", "status body is trailing data after the object"},
++		{"duplicate member", strings.Replace(good, `"state":"prepared"`, `"state":"prepared","state":"committed"`, 1), "status body is duplicate member"},
++		{"unknown member", strings.Replace(good, `"state":"prepared"`, `"state":"prepared","phase":"prepared"`, 1), "status body carries unknown member"},
++		{"missing plan", strings.Replace(good, `"plan_id":"`+testPlanID+`",`, ``, 1), "status body misses a required member"},
++		{"missing state", strings.Replace(good, `,"state":"prepared"`, ``, 1), "status body misses a required member"},
++		{"bad state", strings.Replace(good, `"prepared"`, `"preparing"`, 1), "status state is not a registry member"},
++		{"non-string state", strings.Replace(good, `"state":"prepared"`, `"state":7`, 1), "status state is not a registry member"},
++		{"malformed digest", strings.Replace(good, testPlanID, "sha256:xyz", 1), "status plan_id is not a digest"},
++		{"non-string digest", strings.Replace(good, `"plan_id":"`+testPlanID+`"`, `"plan_id":7`, 1), "status plan_id is not a string"},
++		{"short token", strings.Replace(good, testRollbackToken, "YWJj", 1), "status rollback_token is shorter than 256 bits"},
++		{"non-base64 token", strings.Replace(good, testRollbackToken, "!!!not-base64!!!", 1), "status rollback_token is shorter than 256 bits"},
++		{"non-string token", strings.Replace(good, `"rollback_token":"`+testRollbackToken+`"`, `"rollback_token":7`, 1), "status rollback_token is not a string"},
++		{"scalar discovery", strings.Replace(good, `"native_discovery":`+testDiscovery, `"native_discovery":7`, 1), "status native_discovery is not an object"},
++		{"malformed operation id", strings.Replace(good, `"materialization_id"`, `"operation_id":"bogus","materialization_id"`, 1), "status operation_id is not a UUIDv7"},
++		{"non-string operation id", strings.Replace(good, `"materialization_id"`, `"operation_id":7,"materialization_id"`, 1), "status operation_id is not a string"},
++	} {
++		t.Run(kase.name, func(t *testing.T) {
++			_, err := DecodeStatusOutcome([]byte(kase.body), testStatusIDs())
++			requireLocalRefusal(t, err, "integrity_failure", kase.detail)
++		})
++	}
++}
++
++// tokenWithDecodedBytes builds a base64url rollback token decoding to
++// exactly n bytes, so the 256-bit floor is pinned from both sides rather
++// than only somewhere between the 3-byte short fixture and the 38-byte
++// valid one.
++func tokenWithDecodedBytes(t *testing.T, n int) string {
++	t.Helper()
++	token := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x9e}, n))
++	raw, err := base64.RawURLEncoding.DecodeString(token)
++	if err != nil {
++		t.Fatalf("DecodeString: %v", err)
++	}
++	if len(raw) != n {
++		t.Fatalf("token decodes to %d bytes, want exactly %d", len(raw), n)
++	}
++	return token
++}
++
++// TestDecodeStatusOutcomeEnforcesTokenEntropyFloor proves the 256-bit
++// rollback-token floor exactly: a token decoding to 31 bytes fails, and
++// one decoding to 32 bytes is accepted. Any weakened floor at or below
++// 248 bits admits the 31-byte token; any raised floor rejects the valid
++// 32-byte observation. The production entry point is DecodeStatusOutcome.
++func TestDecodeStatusOutcomeEnforcesTokenEntropyFloor(t *testing.T) {
++	short := statusBody(testMaterializationID, testTransactionID, testAuthorityID, testPlanID, "prepared", tokenWithDecodedBytes(t, 31), testDiscovery)
++	_, err := DecodeStatusOutcome(short, testStatusIDs())
++	requireLocalRefusal(t, err, "integrity_failure", "status rollback_token is shorter than 256 bits")
++
++	floor := statusBody(testMaterializationID, testTransactionID, testAuthorityID, testPlanID, "prepared", tokenWithDecodedBytes(t, 32), testDiscovery)
++	if got, err := DecodeStatusOutcome(floor, testStatusIDs()); err != nil || got != StatusPrepared {
++		t.Fatalf("32-byte-token recovery = %q, %v; want prepared", got, err)
++	}
++}
++
++// TestDecodeStatusOutcomeIgnoresWellFormedOperationID proves a present
++// mutation key does not alias the read: status identity is the
++// materialization/transaction pair, so a well-formed operation_id is
++// accepted and ignored.
++func TestDecodeStatusOutcomeIgnoresWellFormedOperationID(t *testing.T) {
++	body := strings.Replace(string(preparedBody()), `"materialization_id"`, `"operation_id":"0198f4c8-e4b0-75cc-9576-1234567890ab","materialization_id"`, 1)
++	got, err := DecodeStatusOutcome([]byte(body), testStatusIDs())
++	if err != nil {
++		t.Fatalf("DecodeStatusOutcome with operation_id: %v", err)
++	}
++	if got != StatusPrepared {
++		t.Fatalf("DecodeStatusOutcome = %q, want prepared", got)
++	}
++}
++
++// TestStatusReadsEvolve proves no byte-identical replay rule applies to
++// status observations: the same transaction may report prepared under
++// one envelope and committed under the next, and both readings succeed.
++func TestStatusReadsEvolve(t *testing.T) {
++	ids := testStatusIDs()
++	first, err := DecodeStatusOutcome(preparedBody(), ids)
++	if err != nil {
++		t.Fatalf("first read: %v", err)
++	}
++	second, err := DecodeStatusOutcome(statusBody(testMaterializationID, testTransactionID, testAuthorityID, testPlanID, "committed", "null", testDiscovery), ids)
++	if err != nil {
++		t.Fatalf("second read: %v", err)
++	}
++	if first != StatusPrepared || second != StatusCommitted {
++		t.Fatalf("evolving reads = %q then %q, want prepared then committed", first, second)
++	}
++}
++
++// TestStatusRecoveryAcrossProcesses proves the cross-process recovery
++// shape over the real entry points: two status Calls start two separate
++// processes with frames identical except request_id, and each durable
++// observation reconciles independently.
++func TestStatusRecoveryAcrossProcesses(t *testing.T) {
++	committed := statusBody(testMaterializationID, testTransactionID, testAuthorityID, testPlanID, "committed", "null", testDiscovery)
++	runner := &scriptRunner{steps: []scriptStep{
++		okStep(Result{Stdout: successFrame(t, testRequestID, string(preparedBody())), ExitCode: 0}),
++		okStep(Result{Stdout: successFrame(t, testOtherID, string(committed)), ExitCode: 0}),
++	}}
++	host := liveHost(runner)
++	firstReq := liveRequest(t)
++	firstReq.Operation = OpMaterializeStatus
++	firstReq.RequestID = mustUUIDv7(t, testRequestID)
++	first, err := host.Call(context.Background(), "/plugins/ax-provider-pi", firstReq)
++	if err != nil {
++		t.Fatalf("first status Call: %v", err)
++	}
++	secondReq := liveRequest(t)
++	secondReq.Operation = OpMaterializeStatus
++	secondReq.RequestID = mustUUIDv7(t, testOtherID)
++	second, err := host.Call(context.Background(), "/plugins/ax-provider-pi", secondReq)
++	if err != nil {
++		t.Fatalf("second status Call: %v", err)
++	}
++	if runner.spawned() != 2 {
++		t.Fatalf("two status reads spawned %d processes, want one per read", runner.spawned())
++	}
++	if firstState, err := DecodeStatusOutcome(first.Body, testStatusIDs()); err != nil || firstState != StatusPrepared {
++		t.Fatalf("first recovery = %q, %v; want prepared", firstState, err)
++	}
++	if secondState, err := DecodeStatusOutcome(second.Body, testStatusIDs()); err != nil || secondState != StatusCommitted {
++		t.Fatalf("second recovery = %q, %v; want committed", secondState, err)
++	}
++}
++
++// TestLostMutationRecoversThroughStatus proves the lost-prepare shape: a
++// mutation Call whose response is lost is followed by a status read, and
++// the runner observes exactly one mutation frame — the host never
++// re-issues the mutation on its own, so no second destination mutation
++// can occur.
++func TestLostMutationRecoversThroughStatus(t *testing.T) {
++	runner := &scriptRunner{
++		steps: []scriptStep{
++			failStep(context.DeadlineExceeded),
++			okStep(Result{Stdout: successFrame(t, testOtherID, string(preparedBody())), ExitCode: 0}),
++		},
++	}
++	// The runner error above fires with a live deadline, so it is a
++	// transport failure, not a timeout.
++	host := Host{Runner: runner, Now: time.Now}
++	mutation := liveRequest(t)
++	mutation.Operation = OpMaterialize
++	_, err := host.Call(context.Background(), "/plugins/ax-provider-pi", mutation)
++	requireLocalRefusal(t, err, "provider_process_failed", "runner reported no result")
++	status := liveRequest(t)
++	status.Operation = OpMaterializeStatus
++	status.RequestID = mustUUIDv7(t, testOtherID)
++	got, err := host.Call(context.Background(), "/plugins/ax-provider-pi", status)
++	if err != nil {
++		t.Fatalf("status Call: %v", err)
++	}
++	state, err := DecodeStatusOutcome(got.Body, testStatusIDs())
++	if err != nil || state != StatusPrepared {
++		t.Fatalf("recovery = %q, %v; want prepared", state, err)
++	}
++	if runner.spawned() != 2 {
++		t.Fatalf("recovery spawned %d processes, want mutation plus one status read", runner.spawned())
++	}
++	mutations := 0
++	for _, call := range runner.calls {
++		var decoded struct {
++			Operation string `json:"operation"`
++		}
++		if err := json.Unmarshal(call.stdin, &decoded); err != nil {
++			t.Fatalf("recorded stdin is not JSON: %v", err)
++		}
++		if decoded.Operation == string(OpMaterialize) {
++			mutations++
++		}
++	}
++	if mutations != 1 {
++		t.Fatalf("runner observed %d mutation frames, want exactly one and no blind retry", mutations)
++	}
++}
++
++// TestUnknownTransactionQuarantinesThroughCall proves the unknown
++// transaction path end to end: a status body of unknown surfaces
++// integrity_failure from the composed read, never a status.
++func TestUnknownTransactionQuarantinesThroughCall(t *testing.T) {
++	unknown := statusBody(testMaterializationID, testTransactionID, testAuthorityID, "null", "unknown", "null", "null")
++	runner := &scriptRunner{steps: []scriptStep{okStep(Result{Stdout: successFrame(t, testRequestID, string(unknown)), ExitCode: 0})}}
++	host := liveHost(runner)
++	req := liveRequest(t)
++	req.Operation = OpMaterializeStatus
++	got, err := host.Call(context.Background(), "/plugins/ax-provider-pi", req)
++	if err != nil {
++		t.Fatalf("status Call: %v", err)
++	}
++	state, err := DecodeStatusOutcome(got.Body, testStatusIDs())
++	if state != "" {
++		t.Fatalf("unknown recovery = %q, want no status", state)
++	}
++	requireLocalRefusal(t, err, "integrity_failure", "transaction state is unknown")
++}
+diff --git a/internal/provider/discovery_test.go b/internal/provider/discovery_test.go
+index 8bc9ae5..3cc4b52 100644
+--- a/internal/provider/discovery_test.go
++++ b/internal/provider/discovery_test.go
+@@ -291,11 +291,17 @@ func TestDiscoverRefusesRelativePluginDir(t *testing.T) {
+ 		{"/abs/a", "/abs/b", "relative/deep"},
+ 	} {
+ 		fake := newFakeSystem()
+-		// Absolute entries resolve to an empty directory so discovery
+-		// reaches the relative entry it must refuse.
++		// Absolute entries carry a real candidate (a distinct provider
++		// ID per directory, so no duplicate refusal fires first) so
++		// discovery reaches the relative entry it must refuse with a
++		// non-empty candidate set: returning that set alongside the
++		// refusal would contradict the no-partial-set promise.
++		planted := 0
+ 		for _, dir := range dirs {
+ 			if len(dir) > 0 && dir[0] == '/' {
+-				fake.entries[dir] = []string{}
++				planted++
++				name := "ax-provider-planted" + string(rune('a'+planted))
++				fake.addFile(dir, name, []byte("#!/bin/sh\nexit 0\n"), fakeUID)
+ 			}
+ 		}
+ 		got, err := Discover(fakeConfig(dirs...), fakeOwner(), fake)
+diff --git a/internal/provider/os_test.go b/internal/provider/os_test.go
+index 92132e9..3090fe7 100644
+--- a/internal/provider/os_test.go
++++ b/internal/provider/os_test.go
+@@ -6,6 +6,7 @@ import (
+ 	"errors"
+ 	"os"
+ 	"path/filepath"
++	"reflect"
+ 	"strings"
+ 	"testing"
+ 	"time"
+@@ -280,6 +281,19 @@ func TestOSSystemInspectReportsAttestationFailure(t *testing.T) {
+ 	}
+ }
+ 
++// TestOwnerAttesterIsUnreassigned pins the os.go invariant that production
++// code never reassigns ownerAttester: the seam must attest exactly what
++// fileOwnerUID attests. A production init() substituting a weaker attester
++// (for example, one returning the operator for every file) reddens here,
++// while the identical weakening written into fileOwnerUID itself is already
++// killed by TestFileOwnerUIDRefusesWithoutMetadata. The production call
++// site is OSSystem.Inspect.
++func TestOwnerAttesterIsUnreassigned(t *testing.T) {
++	if reflect.ValueOf(ownerAttester).Pointer() != reflect.ValueOf(fileOwnerUID).Pointer() {
++		t.Fatal("ownerAttester does not attest as fileOwnerUID; production code reassigned the seam")
++	}
++}
++
+ // unattestedFileInfo is an os.FileInfo with no ownership metadata: Sys
+ // returns nil, which the unix seam must refuse rather than attest as uid 0.
+ type unattestedFileInfo struct{}

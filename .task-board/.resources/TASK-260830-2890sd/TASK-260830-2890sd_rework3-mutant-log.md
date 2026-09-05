@@ -1,0 +1,21 @@
+RED              B1-refusal-empty-domain
+RED              B2-refusal-short-domain
+RED              H4-skip-provider-go
+RED              B5-wrong-cwd-plus-stray
+RED              H1-symbols-empty
+RED              G33-readdir-as-absence
+RED              G35-inspect-stat-fabricated
+RED              G36-inspect-attest-uid0
+RED              G38-attest-uid0-nometa
+RED              G40-admin-wildcard
+GREEN-SURVIVED   G40b-getuid-for-geteuid
+RED              G37-pathdirs-keep-empty
+RED              G9del-canon-fallback
+RED              G10del-inspect-fabricated
+RED              G19del-verify-reinspect-fabricated
+RED              G42-cut-not-cutprefix
+RED              G54-partial-set-with-refusal
+RED              G55-empty-owner-skips-gate
+RED              G32-builtins-live-slice
+restore-ok
+18/19 killed

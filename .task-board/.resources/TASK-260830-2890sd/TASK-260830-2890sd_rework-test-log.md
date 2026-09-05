@@ -1,0 +1,192 @@
+=== RUN   TestDiscoverIsDeterministic
+--- PASS: TestDiscoverIsDeterministic (0.00s)
+=== RUN   TestDiscoverIgnoresFilesystemOrder
+--- PASS: TestDiscoverIgnoresFilesystemOrder (0.00s)
+=== RUN   TestDiscoverEnumeratesSourcesInSectionOrder
+--- PASS: TestDiscoverEnumeratesSourcesInSectionOrder (0.00s)
+=== RUN   TestDiscoverSortsEntriesWithinADirectory
+--- PASS: TestDiscoverSortsEntriesWithinADirectory (0.00s)
+=== RUN   TestDiscoverSkipsPATHWhenDisallowed
+--- PASS: TestDiscoverSkipsPATHWhenDisallowed (0.00s)
+=== RUN   TestDiscoverRecordsTrustFacts
+--- PASS: TestDiscoverRecordsTrustFacts (0.00s)
+=== RUN   TestDiscoverIgnoresNonCandidateEntries
+--- PASS: TestDiscoverIgnoresNonCandidateEntries (0.00s)
+=== RUN   TestDiscoverRefusesMalformedNames
+--- PASS: TestDiscoverRefusesMalformedNames (0.00s)
+=== RUN   TestDiscoverRefusesNonRegularTargets
+=== RUN   TestDiscoverRefusesNonRegularTargets/directory_entry
+=== RUN   TestDiscoverRefusesNonRegularTargets/symlink_to_directory
+--- PASS: TestDiscoverRefusesNonRegularTargets (0.00s)
+    --- PASS: TestDiscoverRefusesNonRegularTargets/directory_entry (0.00s)
+    --- PASS: TestDiscoverRefusesNonRegularTargets/symlink_to_directory (0.00s)
+=== RUN   TestDiscoverRefusesUnapprovedOwners
+--- PASS: TestDiscoverRefusesUnapprovedOwners (0.00s)
+=== RUN   TestDiscoverRefusesRelativePluginDir
+--- PASS: TestDiscoverRefusesRelativePluginDir (0.00s)
+=== RUN   TestDiscoverRefusesPartialReads
+=== RUN   TestDiscoverRefusesPartialReads/unreadable_directory
+=== RUN   TestDiscoverRefusesPartialReads/unresolvable_symlink
+=== RUN   TestDiscoverRefusesPartialReads/uninspectable_target
+=== RUN   TestDiscoverRefusesPartialReads/undigestible_target
+=== RUN   TestDiscoverRefusesPartialReads/cause_is_preserved
+--- PASS: TestDiscoverRefusesPartialReads (0.00s)
+    --- PASS: TestDiscoverRefusesPartialReads/unreadable_directory (0.00s)
+    --- PASS: TestDiscoverRefusesPartialReads/unresolvable_symlink (0.00s)
+    --- PASS: TestDiscoverRefusesPartialReads/uninspectable_target (0.00s)
+    --- PASS: TestDiscoverRefusesPartialReads/undigestible_target (0.00s)
+    --- PASS: TestDiscoverRefusesPartialReads/cause_is_preserved (0.00s)
+=== RUN   TestBuiltinCandidatesCarryNoTrustFacts
+--- PASS: TestBuiltinCandidatesCarryNoTrustFacts (0.00s)
+=== RUN   TestDiscoverRefusesDuplicates
+=== RUN   TestDiscoverRefusesDuplicates/plugin_against_plugin
+=== RUN   TestDiscoverRefusesDuplicates/plugin_against_builtin
+=== RUN   TestDiscoverRefusesDuplicates/plugin_against_PATH
+=== RUN   TestDiscoverRefusesDuplicates/builtin_against_PATH
+=== RUN   TestDiscoverRefusesDuplicates/same_file_observed_through_two_PATH_dirs
+--- PASS: TestDiscoverRefusesDuplicates (0.00s)
+    --- PASS: TestDiscoverRefusesDuplicates/plugin_against_plugin (0.00s)
+    --- PASS: TestDiscoverRefusesDuplicates/plugin_against_builtin (0.00s)
+    --- PASS: TestDiscoverRefusesDuplicates/plugin_against_PATH (0.00s)
+    --- PASS: TestDiscoverRefusesDuplicates/builtin_against_PATH (0.00s)
+    --- PASS: TestDiscoverRefusesDuplicates/same_file_observed_through_two_PATH_dirs (0.00s)
+=== RUN   TestDuplicateRefusalNamesBothSources
+--- PASS: TestDuplicateRefusalNamesBothSources (0.00s)
+=== RUN   TestDuplicateRefusalPrecedesAnyProbeOrExecution
+--- PASS: TestDuplicateRefusalPrecedesAnyProbeOrExecution (0.00s)
+=== RUN   TestDistinctIDsCoexist
+--- PASS: TestDistinctIDsCoexist (0.00s)
+=== RUN   TestSection71BuiltinRegistryIsDocumentOrder
+    enumeration_test.go:89: "Built-in support covers" begins on SPEC.md line 2624
+--- PASS: TestSection71BuiltinRegistryIsDocumentOrder (0.01s)
+=== RUN   TestSection71DiscoveryOrderIsPinned
+    enumeration_test.go:105: "configured <code>providers.plugin_dirs</code> in listed order" begins on SPEC.md line 2632
+    enumeration_test.go:105: "built-in adapters" begins on SPEC.md line 2633
+    enumeration_test.go:105: "<code>PATH</code>, only when <code>allow_path_plugins</code> is true" begins on SPEC.md line 2634
+    enumeration_test.go:105: "The order does not establish precedence" begins on SPEC.md line 2642
+--- PASS: TestSection71DiscoveryOrderIsPinned (0.01s)
+=== RUN   TestSection71DuplicateRefusalIsPinned
+    enumeration_test.go:116: "discovery MUST fail with <code>invalid_config</code> before either candidate is probed or executed" begins on SPEC.md line 2643
+    enumeration_test.go:119: "the operator must remove or rename one candidate" begins on SPEC.md line 2645
+--- PASS: TestSection71DuplicateRefusalIsPinned (0.01s)
+=== RUN   TestSection71TrustRulesArePinned
+    enumeration_test.go:139: "External provider executables are named <code>ax-provider-&lt;id&gt;</code>" begins on SPEC.md line 2626
+    enumeration_test.go:139: "<code>id</code> matches <code>[a-z][a-z0-9-]{0,31}</code>" begins on SPEC.md line 2627
+    enumeration_test.go:139: "the canonical absolute executable path and SHA-256 digest MUST be recorded at trust time" begins on SPEC.md line 2646
+    enumeration_test.go:139: "Symlinks MUST be resolved before comparison" begins on SPEC.md line 2648
+    enumeration_test.go:139: "the target MUST be a regular file owned by the operator or an administrator-approved identity" begins on SPEC.md line 2648
+    enumeration_test.go:139: "a changed path target or digest MUST require renewed trust" begins on SPEC.md line 2649
+    enumeration_test.go:139: "they MUST receive only the minimum operation-specific inputs" begins on SPEC.md line 2651
+--- PASS: TestSection71TrustRulesArePinned (0.02s)
+=== RUN   TestSection71AdvertisesNoPublicSDK
+    enumeration_test.go:151: "M0 MUST NOT advertise a public stable plugin SDK" begins on SPEC.md line 2637
+--- PASS: TestSection71AdvertisesNoPublicSDK (0.01s)
+=== RUN   TestCandidatesAdvertiseNoCapability
+    enumeration_test.go:179: scanned 10 Candidate/TrustRecord members, none carries capability state
+--- PASS: TestCandidatesAdvertiseNoCapability (0.00s)
+=== RUN   TestDiscoveryReachesNoProcess
+--- PASS: TestDiscoveryReachesNoProcess (0.00s)
+=== RUN   TestStableCodesAreRegistered
+    enumeration_test.go:252: refusal code coverage: 3/3 package codes registered with pinned exits
+--- PASS: TestStableCodesAreRegistered (0.00s)
+=== RUN   TestOSSystemEndToEnd
+=== RUN   TestOSSystemEndToEnd/retargeted_symlink_requires_renewed_trust
+=== RUN   TestOSSystemEndToEnd/changed_bytes_require_renewed_trust
+=== RUN   TestOSSystemEndToEnd/non-regular_replacement_requires_renewed_trust
+=== RUN   TestOSSystemEndToEnd/direct_executable_without_symlink
+--- PASS: TestOSSystemEndToEnd (0.01s)
+    --- PASS: TestOSSystemEndToEnd/retargeted_symlink_requires_renewed_trust (0.00s)
+    --- PASS: TestOSSystemEndToEnd/changed_bytes_require_renewed_trust (0.00s)
+    --- PASS: TestOSSystemEndToEnd/non-regular_replacement_requires_renewed_trust (0.00s)
+    --- PASS: TestOSSystemEndToEnd/direct_executable_without_symlink (0.00s)
+=== RUN   TestOSSystemRefusesRelativePATHDir
+--- PASS: TestOSSystemRefusesRelativePATHDir (0.00s)
+=== RUN   TestOSSystemDuplicateNeverExecutes
+--- PASS: TestOSSystemDuplicateNeverExecutes (0.00s)
+=== RUN   TestOSSystemPATHDiscovery
+--- PASS: TestOSSystemPATHDiscovery (0.00s)
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[0]/non-regular_target
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[0]/unapproved_owner
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[0]/malformed_name
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[0]/unreadable_target
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[1]/non-regular_target
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[1]/unapproved_owner
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[1]/malformed_name
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[1]/unreadable_target
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/path/non-regular_target
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/path/unapproved_owner
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/path/malformed_name
+=== RUN   TestDiscoverEnforcesTrustGatesAcrossSources/path/unreadable_target
+=== NAME  TestDiscoverEnforcesTrustGatesAcrossSources
+    trust_sources_test.go:133: trust-gate coverage: 12/12 source x dimension pairs refused
+--- PASS: TestDiscoverEnforcesTrustGatesAcrossSources (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[0]/non-regular_target (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[0]/unapproved_owner (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[0]/malformed_name (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[0]/unreadable_target (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[1]/non-regular_target (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[1]/unapproved_owner (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[1]/malformed_name (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/plugin_dirs[1]/unreadable_target (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/path/non-regular_target (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/path/unapproved_owner (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/path/malformed_name (0.00s)
+    --- PASS: TestDiscoverEnforcesTrustGatesAcrossSources/path/unreadable_target (0.00s)
+=== RUN   TestDiscoverRefusesRelativePATHDir
+--- PASS: TestDiscoverRefusesRelativePATHDir (0.00s)
+=== RUN   TestTrustRecordsCandidateFacts
+--- PASS: TestTrustRecordsCandidateFacts (0.00s)
+=== RUN   TestTrustRefusesBuiltins
+--- PASS: TestTrustRefusesBuiltins (0.00s)
+=== RUN   TestVerifyAcceptsUnchangedTree
+--- PASS: TestVerifyAcceptsUnchangedTree (0.00s)
+=== RUN   TestVerifyDetectsSubstitution
+=== RUN   TestVerifyDetectsSubstitution/retargeted_symlink
+=== RUN   TestVerifyDetectsSubstitution/changed_bytes
+=== RUN   TestVerifyDetectsSubstitution/changed_owner
+=== RUN   TestVerifyDetectsSubstitution/owner_changed_to_an_approved_administrator
+=== RUN   TestVerifyDetectsSubstitution/replaced_with_directory
+=== RUN   TestVerifyDetectsSubstitution/owner_approval_revoked
+--- PASS: TestVerifyDetectsSubstitution (0.00s)
+    --- PASS: TestVerifyDetectsSubstitution/retargeted_symlink (0.00s)
+    --- PASS: TestVerifyDetectsSubstitution/changed_bytes (0.00s)
+    --- PASS: TestVerifyDetectsSubstitution/changed_owner (0.00s)
+    --- PASS: TestVerifyDetectsSubstitution/owner_changed_to_an_approved_administrator (0.00s)
+    --- PASS: TestVerifyDetectsSubstitution/replaced_with_directory (0.00s)
+    --- PASS: TestVerifyDetectsSubstitution/owner_approval_revoked (0.00s)
+=== RUN   TestVerifyTreatsReadFailureAsIntegrityFailure
+=== RUN   TestVerifyTreatsReadFailureAsIntegrityFailure/unresolvable_source
+=== RUN   TestVerifyTreatsReadFailureAsIntegrityFailure/uninspectable_target
+=== RUN   TestVerifyTreatsReadFailureAsIntegrityFailure/unreadable_target
+--- PASS: TestVerifyTreatsReadFailureAsIntegrityFailure (0.00s)
+    --- PASS: TestVerifyTreatsReadFailureAsIntegrityFailure/unresolvable_source (0.00s)
+    --- PASS: TestVerifyTreatsReadFailureAsIntegrityFailure/uninspectable_target (0.00s)
+    --- PASS: TestVerifyTreatsReadFailureAsIntegrityFailure/unreadable_target (0.00s)
+=== RUN   TestVerifyDetectsLateByteDigestChange
+--- PASS: TestVerifyDetectsLateByteDigestChange (0.00s)
+=== RUN   TestVerifyRefusesForgedReceipts
+--- PASS: TestVerifyRefusesForgedReceipts (0.00s)
+PASS
+ok  	github.com/relux-works/agent-session-manager/internal/provider	0.799s
+provider exit: 0
+ok  	github.com/relux-works/agent-session-manager/internal/axerror	0.466s
+ok  	github.com/relux-works/agent-session-manager/internal/canonicaljson	25.418s
+ok  	github.com/relux-works/agent-session-manager/internal/catalog	1.609s
+ok  	github.com/relux-works/agent-session-manager/internal/catalog/cmd/cataloggen	1.164s
+ok  	github.com/relux-works/agent-session-manager/internal/cataloggen	0.897s
+ok  	github.com/relux-works/agent-session-manager/internal/cliresult	2.136s
+ok  	github.com/relux-works/agent-session-manager/internal/config	2.711s
+ok  	github.com/relux-works/agent-session-manager/internal/localstore	15.484s
+ok  	github.com/relux-works/agent-session-manager/internal/provider	2.338s
+ok  	github.com/relux-works/agent-session-manager/internal/scalar	3.300s
+ok  	github.com/relux-works/agent-session-manager/internal/specdoc	2.542s
+ok  	github.com/relux-works/agent-session-manager/internal/specpin	3.567s
+ok  	github.com/relux-works/agent-session-manager/internal/traceability	4.933s
+ok  	github.com/relux-works/agent-session-manager/internal/traceability/cmd/tracecheck	30.652s
+full exit: 0
+ok  	github.com/relux-works/agent-session-manager/internal/provider	0.518s	coverage: 94.1% of statements
+vet exit: 0
+traceability ok: contracts=60 normative_sections=36 acceptance_cases=74 fixtures=30 compatibility_contracts=55 assigned_scopes=0
+section coverage: bindings=49 full=1 partial=3 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=17/403
+tracecheck exit: 0

@@ -1,0 +1,662 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 8ab842a..871de38 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -3,6 +3,18 @@
+ > Institutional memory. Concise, factual, high-signal.
+ > Newest entries first. One block per insight.
+ 
++## 2026-09-05
++
++### 0327 — The fourth enumeration failure: the refusal inventory could derive nothing and pass
++
++- SCOPE: `internal/provider` round-3 rework of TASK-260830-2890sd (findings F11–F17).
++- FINDING: `auditRefusalInventory` derived its domain from package source, then asserted only that every derived site was exercised. Four mutants stayed green: empty domain, 1-of-N domain, skipping `provider.go` entirely, and a planted stray `Error{}` plus an empty-but-successful wrong-cwd read. The same stray alone reddened, which locates the hole precisely in the derivation, not the check. This is entry 0230's defect one level up, and the fourth recorded instance of "closed the guards the review named, did not enumerate the rest" — the package already carried the floor three times (`TestDiscoveryReachesNoProcess`, `TestCandidatesAdvertiseNoCapability`, the source inventory's exact counts) while the identical file-scan idiom in the refusal inventory had none.
++- FIX: bidirectional inventory — `ScannedFiles` floor ("scanned no production sources; the check is blind"), empty-sites floor ("derived no refusal sites; the scan is blind"), and a reverse check requiring every exercised site to resolve to a derived site. The reverse bound is derived from the test run, not hand-listed, so truncation reddens without a magic number. Floors that must survive early-return mutants live at the caller (`TestSection71AdvertisesNoPublicSDK` for `exportedSymbols`); a floor inside the helper is bypassed by `return nil` at its top. `auditRefusalInventory` floors live in the audit itself, so they hold for the same reason.
++- FINDING: the production `OSSystem` seam had zero negative tests — eight survivors in one file. Three are entry 0230's uid-0 twin on the attestation side (`Inspect` swallowing the error as uid 0, `fileOwnerUID` returning `0, nil` against its own doc comment, `CurrentOperatorPolicy` seeding `{0}`), one inverts the headline invariant at the only violable point (`ReadDir` error as absence). The `Inspect` attestation-error branch is unreachable with real stat results on unix, so it is forced through a documented `ownerAttester` variable — the only seam that makes the branch testable rather than merely readable.
++- BOUND: `Geteuid`-vs-`Getuid` is environment-equivalent on any host where euid == uid (here `euid=502 uid=502`, probed); the test pins `OperatorUID` to the effective uid and kills the `{0}`-wildcard mutant, and the residual is recorded, not waved through. Native Windows refusal is covered by a build-tagged test compiled via `GOOS=windows go vet`, not executed here.
++- EVIDENCE: 19-mutant harness over every rev4 survivor shape: 18 RED, 1 environment-equivalent green (G40b). `go test ./...` exit 0, provider cover 97.0%, `go vet`/`GOOS=windows go vet`/`GOOS=windows go build` clean.
++- STATUS: Resolved. TASK-260830-2890sd round-3 rework, handed to review uncommitted per the CR-shape instruction.
++
+ ## 2026-09-04
+ 
+ ### 0230 — The guard the round did not sweep was the one that matters: uid 0 admitted, suite green
+diff --git a/internal/provider/discovery_test.go b/internal/provider/discovery_test.go
+index 560da0b..8bc9ae5 100644
+--- a/internal/provider/discovery_test.go
++++ b/internal/provider/discovery_test.go
+@@ -156,16 +156,28 @@ func TestDiscoverRecordsTrustFacts(t *testing.T) {
+ 	}
+ }
+ 
+-// TestDiscoverIgnoresNonCandidateEntries proves the prefix boundary: names
+-// without the ax-provider- prefix are skipped, including the bare prefix
+-// stem itself.
++// TestDiscoverIgnoresNonCandidateEntries proves the prefix is an anchor,
++// not a substring: names without a leading ax-provider- prefix are
++// skipped, including the bare prefix stem itself and names that contain
++// the prefix mid-string. Under a substring match,
++// vendor-ax-provider-evil would discover provider evil.
+ func TestDiscoverIgnoresNonCandidateEntries(t *testing.T) {
+ 	fake := newFakeSystem()
+-	fake.entries["/plugins"] = []string{"README.md", "ax-provider", "other-tool"}
++	fake.entries["/plugins"] = []string{
++		"README.md",
++		"ax-provider",
++		"other-tool",
++		"vendor-ax-provider-evil",
++		"xax-provider-foo",
++	}
+ 	fake.canon["/plugins/other-tool"] = "/plugins/other-tool"
+ 	fake.canon["/plugins/README.md"] = "/plugins/README.md"
+ 	fake.canon["/plugins/ax-provider"] = "/plugins/ax-provider"
+ 	fake.canon["/plugins/ax-provider-foo.bak"] = "/plugins/ax-provider-foo.bak"
++	fake.files["/plugins/vendor-ax-provider-evil"] = fakeFile{content: []byte("evil"), uid: fakeUID, regular: true}
++	fake.files["/plugins/xax-provider-foo"] = fakeFile{content: []byte("x"), uid: fakeUID, regular: true}
++	fake.canon["/plugins/vendor-ax-provider-evil"] = "/plugins/vendor-ax-provider-evil"
++	fake.canon["/plugins/xax-provider-foo"] = "/plugins/xax-provider-foo"
+ 
+ 	got, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
+ 	if err != nil {
+@@ -193,7 +205,10 @@ func TestDiscoverRefusesMalformedNames(t *testing.T) {
+ 		fake := newFakeSystem()
+ 		fake.entries["/plugins"] = []string{name}
+ 		fake.canon["/plugins/"+name] = "/plugins/" + name
+-		_, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		got, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		if got != nil {
++			t.Fatalf("Discover(%q) returned %d candidates alongside a refusal, want no partial set", name, len(got))
++		}
+ 		if err == nil {
+ 			t.Fatalf("Discover(%q) succeeded, want invalid_config", name)
+ 		}
+@@ -209,7 +224,10 @@ func TestDiscoverRefusesNonRegularTargets(t *testing.T) {
+ 	t.Run("directory entry", func(t *testing.T) {
+ 		fake := newFakeSystem()
+ 		fake.addLinkedFile("/plugins", "ax-provider-odd", "/opt/real/odd", []byte("x"), fakeUID, false)
+-		_, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		got, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		if got != nil {
++			t.Fatalf("Discover returned %d candidates alongside a refusal, want no partial set", len(got))
++		}
+ 		if err == nil {
+ 			t.Fatal("Discover admitted a directory target, want invalid_config")
+ 		}
+@@ -222,7 +240,10 @@ func TestDiscoverRefusesNonRegularTargets(t *testing.T) {
+ 		fake.entries["/plugins"] = []string{"ax-provider-linkdir"}
+ 		fake.canon["/plugins/ax-provider-linkdir"] = "/opt/dirs/linkdir"
+ 		fake.files["/opt/dirs/linkdir"] = fakeFile{content: nil, uid: fakeUID, regular: false}
+-		_, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		got, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		if got != nil {
++			t.Fatalf("Discover returned %d candidates alongside a refusal, want no partial set", len(got))
++		}
+ 		if err == nil {
+ 			t.Fatal("Discover admitted a symlink-to-directory, want invalid_config")
+ 		}
+@@ -238,8 +259,10 @@ func TestDiscoverRefusesUnapprovedOwners(t *testing.T) {
+ 		fake.addFile("/plugins", "ax-provider-foo", []byte("x"), foreignUID)
+ 		return fake
+ 	}
+-	if _, err := Discover(fakeConfig("/plugins"), fakeOwner(), setup()); err == nil {
++	if got, err := Discover(fakeConfig("/plugins"), fakeOwner(), setup()); err == nil {
+ 		t.Fatal("Discover admitted a foreign-owned executable, want invalid_config")
++	} else if got != nil {
++		t.Fatalf("Discover returned %d candidates alongside a refusal, want no partial set", len(got))
+ 	} else if code := errorCode(t, err); code != codeInvalidConfig {
+ 		t.Fatalf("code = %q, want invalid_config", code)
+ 	}
+@@ -275,7 +298,10 @@ func TestDiscoverRefusesRelativePluginDir(t *testing.T) {
+ 				fake.entries[dir] = []string{}
+ 			}
+ 		}
+-		_, err := Discover(fakeConfig(dirs...), fakeOwner(), fake)
++		got, err := Discover(fakeConfig(dirs...), fakeOwner(), fake)
++		if got != nil {
++			t.Fatalf("Discover(plugin_dirs=%q) returned %d candidates alongside a refusal, want no partial set", dirs, len(got))
++		}
+ 		if err == nil {
+ 			t.Fatalf("Discover accepted relative plugin_dirs entry in %q, want invalid_config", dirs)
+ 		}
+@@ -295,18 +321,28 @@ func TestDiscoverRefusesPartialReads(t *testing.T) {
+ 	t.Run("unreadable directory", func(t *testing.T) {
+ 		fake := newFakeSystem()
+ 		fake.readDirErr["/plugins"] = errors.New("permission denied")
+-		_, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		got, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		if got != nil {
++			t.Fatalf("Discover returned %d candidates alongside a refusal, want no partial set", len(got))
++		}
+ 		if code := errorCode(t, err); code != codeLocalPrecondition {
+ 			t.Fatalf("code = %q, want local_precondition_failed", code)
++		} else if detail := errorDetail(t, err); !strings.Contains(detail, "cannot list") {
++			t.Fatalf("detail does not name the list refusal: %q", detail)
+ 		}
+ 	})
+ 	t.Run("unresolvable symlink", func(t *testing.T) {
+ 		fake := newFakeSystem()
+ 		fake.entries["/plugins"] = []string{"ax-provider-dangling"}
+ 		fake.canonErr["/plugins/ax-provider-dangling"] = errors.New("no such file")
+-		_, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		got, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		if got != nil {
++			t.Fatalf("Discover returned %d candidates alongside a refusal, want no partial set", len(got))
++		}
+ 		if code := errorCode(t, err); code != codeLocalPrecondition {
+ 			t.Fatalf("code = %q, want local_precondition_failed", code)
++		} else if detail := errorDetail(t, err); !strings.Contains(detail, "cannot resolve") {
++			t.Fatalf("detail does not name the resolve refusal: %q", detail)
+ 		}
+ 	})
+ 	t.Run("uninspectable target", func(t *testing.T) {
+@@ -314,9 +350,14 @@ func TestDiscoverRefusesPartialReads(t *testing.T) {
+ 		fake.entries["/plugins"] = []string{"ax-provider-foo"}
+ 		fake.canon["/plugins/ax-provider-foo"] = "/opt/real/foo"
+ 		fake.inspectErr["/opt/real/foo"] = errors.New("stale handle")
+-		_, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		got, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		if got != nil {
++			t.Fatalf("Discover returned %d candidates alongside a refusal, want no partial set", len(got))
++		}
+ 		if code := errorCode(t, err); code != codeLocalPrecondition {
+ 			t.Fatalf("code = %q, want local_precondition_failed", code)
++		} else if detail := errorDetail(t, err); !strings.Contains(detail, "cannot inspect") {
++			t.Fatalf("detail does not name the inspect refusal: %q", detail)
+ 		}
+ 	})
+ 	t.Run("undigestible target", func(t *testing.T) {
+@@ -325,16 +366,24 @@ func TestDiscoverRefusesPartialReads(t *testing.T) {
+ 		fake.canon["/plugins/ax-provider-foo"] = "/opt/real/foo"
+ 		fake.files["/opt/real/foo"] = fakeFile{content: []byte("x"), uid: fakeUID, regular: true}
+ 		fake.contentErr["/opt/real/foo"] = errors.New("input/output error")
+-		_, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		got, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		if got != nil {
++			t.Fatalf("Discover returned %d candidates alongside a refusal, want no partial set", len(got))
++		}
+ 		if code := errorCode(t, err); code != codeLocalPrecondition {
+ 			t.Fatalf("code = %q, want local_precondition_failed", code)
++		} else if detail := errorDetail(t, err); !strings.Contains(detail, "cannot digest") {
++			t.Fatalf("detail does not name the digest refusal: %q", detail)
+ 		}
+ 	})
+ 	t.Run("cause is preserved", func(t *testing.T) {
+ 		fake := newFakeSystem()
+ 		cause := errors.New("disk gone")
+ 		fake.readDirErr["/plugins"] = cause
+-		_, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		got, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++		if got != nil {
++			t.Fatalf("Discover returned %d candidates alongside a refusal, want no partial set", len(got))
++		}
+ 		if !errors.Is(err, cause) {
+ 			t.Fatalf("precondition error does not wrap its cause: %v", err)
+ 		}
+diff --git a/internal/provider/duplicate_test.go b/internal/provider/duplicate_test.go
+index 93fc8a8..827a7a7 100644
+--- a/internal/provider/duplicate_test.go
++++ b/internal/provider/duplicate_test.go
+@@ -53,7 +53,10 @@ func TestDiscoverRefusesDuplicates(t *testing.T) {
+ 			fake := newFakeSystem()
+ 			var cfg Config
+ 			setup(fake, &cfg)
+-			_, err := Discover(cfg, fakeOwner(), fake)
++			got, err := Discover(cfg, fakeOwner(), fake)
++			if got != nil {
++				t.Fatalf("Discover returned %d candidates alongside a refusal, want no partial set", len(got))
++			}
+ 			if err == nil {
+ 				t.Fatalf("Discover admitted a duplicate provider ID, want invalid_config")
+ 			}
+diff --git a/internal/provider/enumeration_test.go b/internal/provider/enumeration_test.go
+index fb9b9d0..00825f7 100644
+--- a/internal/provider/enumeration_test.go
++++ b/internal/provider/enumeration_test.go
+@@ -149,7 +149,11 @@ func TestSection71AdvertisesNoPublicSDK(t *testing.T) {
+ 		t.Fatalf("specdoc.Load: %v", err)
+ 	}
+ 	requireQuote(t, document, "M0 MUST NOT advertise a public stable plugin SDK", "7.1")
+-	for _, symbol := range exportedSymbols(t) {
++	symbols := exportedSymbols(t)
++	if len(symbols) == 0 {
++		t.Fatal("derived no exported symbols; the scan is blind")
++	}
++	for _, symbol := range symbols {
+ 		lowered := strings.ToLower(symbol)
+ 		for _, banned := range []string{"sdk", "stable", "public", "client"} {
+ 			if strings.Contains(lowered, banned) {
+diff --git a/internal/provider/os.go b/internal/provider/os.go
+index d47d8cb..a0c99d2 100644
+--- a/internal/provider/os.go
++++ b/internal/provider/os.go
+@@ -33,13 +33,20 @@ func (OSSystem) Canonicalize(path string) (string, error) {
+ 	return filepath.EvalSymlinks(absolute)
+ }
+ 
++// ownerAttester attests the owning UID of a stat result. It is a variable
++// only so seam-failure tests can force the attestation-failure path
++// through the production Inspect below: no real stat result reaches that
++// path on unix, and without the seam the error branch is untestable.
++// Production code never reassigns it.
++var ownerAttester = fileOwnerUID
++
+ // Inspect stats the symlink target at an already-canonical path.
+ func (OSSystem) Inspect(canonical string) (FileInfo, error) {
+ 	info, err := os.Stat(canonical)
+ 	if err != nil {
+ 		return FileInfo{}, err
+ 	}
+-	uid, err := fileOwnerUID(info)
++	uid, err := ownerAttester(info)
+ 	if err != nil {
+ 		return FileInfo{}, err
+ 	}
+diff --git a/internal/provider/os_test.go b/internal/provider/os_test.go
+index 9fd51a6..92132e9 100644
+--- a/internal/provider/os_test.go
++++ b/internal/provider/os_test.go
+@@ -3,10 +3,12 @@ package provider
+ import (
+ 	"crypto/sha256"
+ 	"encoding/hex"
++	"errors"
+ 	"os"
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
++	"time"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/scalar"
+ )
+@@ -224,6 +226,128 @@ func TestOSSystemDuplicateNeverExecutes(t *testing.T) {
+ 	}
+ }
+ 
++// TestOSSystemReadDirReportsFailure proves the headline invariant at the
++// one place it can actually be violated: a failed ReadDir is reported as
++// an error, never as an absence. The production entry points are
++// OSSystem.ReadDir and Discover.
++func TestOSSystemReadDirReportsFailure(t *testing.T) {
++	absent := filepath.Join(t.TempDir(), "definitely-absent")
++	if names, err := (OSSystem{}).ReadDir(absent); err == nil {
++		t.Fatalf("ReadDir(%q) = %v, nil; want a failure, never an absence", absent, names)
++	}
++	got, err := Discover(
++		Config{Platform: scalar.PlatformLinux, PluginDirs: []string{absent}},
++		CurrentOperatorPolicy(),
++		OSSystem{},
++	)
++	if got != nil {
++		t.Fatalf("Discover returned %d candidates alongside a refusal, want no partial set", len(got))
++	}
++	if err == nil {
++		t.Fatal("Discover admitted an unreadable plugin directory, want local_precondition_failed")
++	}
++	if code := errorCode(t, err); code != codeLocalPrecondition {
++		t.Fatalf("code = %q, want local_precondition_failed", code)
++	}
++	if detail := errorDetail(t, err); !strings.Contains(detail, "cannot list") {
++		t.Fatalf("detail does not name the list refusal: %q", detail)
++	}
++}
++
++// TestOSSystemInspectReportsStatFailure proves Inspect propagates a stat
++// failure instead of fabricating a regular-file fact for a missing target.
++func TestOSSystemInspectReportsStatFailure(t *testing.T) {
++	absent := filepath.Join(t.TempDir(), "definitely-absent")
++	if info, err := (OSSystem{}).Inspect(absent); err == nil {
++		t.Fatalf("Inspect(%q) = %+v, nil; want a failure, never a fabricated fact", absent, info)
++	}
++}
++
++// TestOSSystemInspectReportsAttestationFailure forces the owner-attestation
++// failure path through the production Inspect: attestation reports the
++// error instead of a uid-0 fact.
++func TestOSSystemInspectReportsAttestationFailure(t *testing.T) {
++	boom := errors.New("fake: ownership metadata unavailable")
++	original := ownerAttester
++	ownerAttester = func(os.FileInfo) (uint32, error) { return 0, boom }
++	defer func() { ownerAttester = original }()
++
++	target := writeExecutable(t, t.TempDir(), "tool", []byte("x"))
++	if info, err := (OSSystem{}).Inspect(target); err == nil {
++		t.Fatalf("Inspect attested %+v, nil on attestation failure; want the failure, never uid 0", info)
++	} else if !errors.Is(err, boom) {
++		t.Fatalf("Inspect error = %v, want the attestation cause %v", err, boom)
++	}
++}
++
++// unattestedFileInfo is an os.FileInfo with no ownership metadata: Sys
++// returns nil, which the unix seam must refuse rather than attest as uid 0.
++type unattestedFileInfo struct{}
++
++func (unattestedFileInfo) Name() string       { return "unattested" }
++func (unattestedFileInfo) Size() int64        { return 1 }
++func (unattestedFileInfo) Mode() os.FileMode  { return 0o700 }
++func (unattestedFileInfo) ModTime() time.Time { return time.Time{} }
++func (unattestedFileInfo) IsDir() bool        { return false }
++func (unattestedFileInfo) Sys() any           { return nil }
++
++// TestFileOwnerUIDRefusesWithoutMetadata proves the attestation seam fails
++// closed when ownership metadata is unavailable, against its own doc
++// comment: the host refuses trust rather than treating an unknown owner
++// as approved. The forward control attests a real stat result first, so
++// the refusal is attributed to the missing metadata, not to a broken seam.
++func TestFileOwnerUIDRefusesWithoutMetadata(t *testing.T) {
++	target := writeExecutable(t, t.TempDir(), "tool", []byte("x"))
++	info, err := os.Stat(target)
++	if err != nil {
++		t.Fatalf("Stat: %v", err)
++	}
++	uid, err := fileOwnerUID(info)
++	if err != nil {
++		t.Fatalf("fileOwnerUID of a real stat result: %v", err)
++	}
++	if uid != uint32(os.Geteuid()) {
++		t.Fatalf("fileOwnerUID = %d, want effective uid %d", uid, os.Geteuid())
++	}
++	if uid, err := fileOwnerUID(unattestedFileInfo{}); err == nil {
++		t.Fatalf("fileOwnerUID attested uid %d without metadata; want refusal, never uid 0", uid)
++	}
++}
++
++// TestCurrentOperatorPolicySeedsNoAdministrator proves the policy
++// construction site carries no administrator wildcard: the operator alone
++// is trusted, against the doc comment's "no additional
++// administrator-approved identities".
++func TestCurrentOperatorPolicySeedsNoAdministrator(t *testing.T) {
++	policy := CurrentOperatorPolicy()
++	if policy.OperatorUID != uint32(os.Geteuid()) {
++		t.Fatalf("OperatorUID = %d, want effective uid %d", policy.OperatorUID, os.Geteuid())
++	}
++	if len(policy.AdministratorUIDs) != 0 {
++		t.Fatalf("AdministratorUIDs = %v, want no additional administrator-approved identities", policy.AdministratorUIDs)
++	}
++}
++
++// TestOSSystemPathDirsSkipsEmptyEntries proves the PATH seam drops empty
++// entries instead of admitting an empty directory that Canonicalize would
++// resolve against the process working directory.
++func TestOSSystemPathDirsSkipsEmptyEntries(t *testing.T) {
++	t.Setenv("PATH", string(os.PathListSeparator)+"/a"+string(os.PathListSeparator)+string(os.PathListSeparator)+"/b"+string(os.PathListSeparator))
++	got := (OSSystem{}).PathDirs()
++	for _, dir := range got {
++		if dir == "" {
++			t.Fatalf("PathDirs kept an empty entry in %v", got)
++		}
++	}
++	if len(got) != 2 || got[0] != "/a" || got[1] != "/b" {
++		t.Fatalf("PathDirs = %v, want [/a /b] in listed order", got)
++	}
++	t.Setenv("PATH", "")
++	if got := (OSSystem{}).PathDirs(); got != nil {
++		t.Fatalf("PathDirs of an empty PATH = %v, want nil", got)
++	}
++}
++
+ // TestOSSystemPATHDiscovery drives the PATH source through the production
+ // seam with an isolated PATH: discovery finds the tool when allowed,
+ // ignores PATH when disallowed, and refuses duplicates across PATH
+diff --git a/internal/provider/os_windows_test.go b/internal/provider/os_windows_test.go
+new file mode 100644
+index 0000000..719932f
+--- /dev/null
++++ b/internal/provider/os_windows_test.go
+@@ -0,0 +1,30 @@
++//go:build windows
++
++package provider
++
++import (
++	"os"
++	"testing"
++	"time"
++)
++
++// windowsUnattestedFileInfo carries no UID metadata: native Windows has
++// no UID model, so attestation must refuse for every input.
++type windowsUnattestedFileInfo struct{}
++
++func (windowsUnattestedFileInfo) Name() string       { return "unattested" }
++func (windowsUnattestedFileInfo) Size() int64        { return 1 }
++func (windowsUnattestedFileInfo) Mode() os.FileMode  { return 0o700 }
++func (windowsUnattestedFileInfo) ModTime() time.Time { return time.Time{} }
++func (windowsUnattestedFileInfo) IsDir() bool        { return false }
++func (windowsUnattestedFileInfo) Sys() any           { return nil }
++
++// TestFileOwnerUIDRefusesOnWindows proves the native Windows seam fails
++// closed: with no UID model, every attestation refuses, so external
++// executables stay undiscoverable there. This file compiles only under
++// GOOS=windows; the rework evidence includes a GOOS=windows vet run.
++func TestFileOwnerUIDRefusesOnWindows(t *testing.T) {
++	if _, err := fileOwnerUID(windowsUnattestedFileInfo{}); err == nil {
++		t.Fatal("fileOwnerUID attested an owner on native Windows, want refusal")
++	}
++}
+diff --git a/internal/provider/refusal_inventory_test.go b/internal/provider/refusal_inventory_test.go
+index a5c4495..2799f0f 100644
+--- a/internal/provider/refusal_inventory_test.go
++++ b/internal/provider/refusal_inventory_test.go
+@@ -82,6 +82,37 @@ func auditRefusalInventory() []string {
+ 		return []string{fmt.Sprintf("derive provider refusal inventory: %v", err)}
+ 	}
+ 	var failures []string
++	// Floor: a derived domain that can silently derive nothing is not a
++	// measurement. An empty or short derivation must fail closed, never
++	// pass vacuously — the same "the scan is blind" floor the package's
++	// other derived scans carry.
++	if len(inventory.ScannedFiles) == 0 {
++		failures = append(failures, "scanned no production sources; the check is blind")
++	}
++	if len(inventory.Sites) == 0 {
++		failures = append(failures, "derived no refusal sites; the scan is blind")
++	}
++	// Reverse direction: every exercised refusal site must resolve to a
++	// derived site. The exercised set is derived from the test run, not
++	// hand-listed, so a truncated derivation (1 of N sites, provider.go
++	// skipped, or an empty-but-successful read of the wrong directory)
++	// reddens here even though the forward check passes vacuously.
++	derived := map[string]bool{}
++	for _, site := range inventory.Sites {
++		derived[site] = true
++	}
++	var outside []string
++	exercisedRefusalSites.Range(func(key, _ any) bool {
++		site := key.(string)
++		if !derived[site] {
++			outside = append(outside, site)
++		}
++		return true
++	})
++	sort.Strings(outside)
++	if len(outside) != 0 {
++		failures = append(failures, "exercised refusal sites outside the derived inventory; the derivation is short: "+strings.Join(outside, ", "))
++	}
+ 	if len(inventory.StrayLiterals) != 0 {
+ 		sort.Strings(inventory.StrayLiterals)
+ 		failures = append(failures, "provider refusals built outside an instrumented constructor: "+strings.Join(inventory.StrayLiterals, ", "))
+@@ -115,6 +146,10 @@ func auditRefusalInventory() []string {
+ 
+ // refusalInventory is derived from package sources.
+ type refusalInventory struct {
++	// ScannedFiles are the production source basenames the derivation
++	// parsed. The audit fails closed when this is empty: a successful
++	// read of the wrong directory must not pass as a clean inventory.
++	ScannedFiles []string
+ 	// Sites are file:line positions of production refusal constructor calls.
+ 	Sites []string
+ 	// StrayLiterals are Error composite literals outside the constructors.
+@@ -151,6 +186,7 @@ func deriveRefusalInventory(directory string) (refusalInventory, error) {
+ 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+ 			continue
+ 		}
++		inventory.ScannedFiles = append(inventory.ScannedFiles, name)
+ 		path := filepath.Join(directory, name)
+ 		source, err := os.ReadFile(path)
+ 		if err != nil {
+diff --git a/internal/provider/trust_sources_test.go b/internal/provider/trust_sources_test.go
+index 53ea28f..f1e76b8 100644
+--- a/internal/provider/trust_sources_test.go
++++ b/internal/provider/trust_sources_test.go
+@@ -13,6 +13,9 @@ type trustGateDimension struct {
+ 	name string
+ 	// wantCode is the refusal code the dimension must report.
+ 	wantCode string
++	// wantDetail is a substring of the refusal detail naming the gate
++	// that fired, so each cell pins its gate rather than its code class.
++	wantDetail string
+ 	// plant installs the dimension's violating fixture for source dir.
+ 	plant func(fake *fakeSystem, dir string)
+ }
+@@ -20,22 +23,25 @@ type trustGateDimension struct {
+ func trustGateDimensions() []trustGateDimension {
+ 	return []trustGateDimension{
+ 		{
+-			name:     "non-regular target",
+-			wantCode: codeInvalidConfig,
++			name:       "non-regular target",
++			wantCode:   codeInvalidConfig,
++			wantDetail: "not a regular file",
+ 			plant: func(fake *fakeSystem, dir string) {
+ 				fake.addLinkedFile(dir, "ax-provider-gate", dir+"/real/gate", []byte("x"), fakeUID, false)
+ 			},
+ 		},
+ 		{
+-			name:     "unapproved owner",
+-			wantCode: codeInvalidConfig,
++			name:       "unapproved owner",
++			wantCode:   codeInvalidConfig,
++			wantDetail: "does not approve",
+ 			plant: func(fake *fakeSystem, dir string) {
+ 				fake.addFile(dir, "ax-provider-gate", []byte("x"), foreignUID)
+ 			},
+ 		},
+ 		{
+-			name:     "malformed name",
+-			wantCode: codeInvalidConfig,
++			name:       "malformed name",
++			wantCode:   codeInvalidConfig,
++			wantDetail: "not a provider executable name",
+ 			plant: func(fake *fakeSystem, dir string) {
+ 				bad := "ax-provider-ABC"
+ 				fake.entries[dir] = append(fake.entries[dir], bad)
+@@ -43,8 +49,9 @@ func trustGateDimensions() []trustGateDimension {
+ 			},
+ 		},
+ 		{
+-			name:     "unreadable target",
+-			wantCode: codeLocalPrecondition,
++			name:       "unreadable target",
++			wantCode:   codeLocalPrecondition,
++			wantDetail: "cannot digest",
+ 			plant: func(fake *fakeSystem, dir string) {
+ 				source := fake.addLinkedFile(dir, "ax-provider-gate", dir+"/real/gate", []byte("x"), fakeUID, true)
+ 				target, err := fake.Canonicalize(source)
+@@ -119,13 +126,19 @@ func TestDiscoverEnforcesTrustGatesAcrossSources(t *testing.T) {
+ 				}
+ 				fake := newFakeSystem()
+ 				dimension.plant(fake, dir)
+-				_, err := Discover(source.configure(fake, dir), fakeOwner(), fake)
++				got, err := Discover(source.configure(fake, dir), fakeOwner(), fake)
++				if got != nil {
++					t.Fatalf("Discover returned %d candidates alongside a refusal, want no partial set", len(got))
++				}
+ 				if err == nil {
+ 					t.Fatalf("Discover admitted %s via %s, want %s", dimension.name, source.name, dimension.wantCode)
+ 				}
+ 				if code := errorCode(t, err); code != dimension.wantCode {
+ 					t.Fatalf("Discover(%s via %s) code = %q, want %q", dimension.name, source.name, code, dimension.wantCode)
+ 				}
++				if detail := errorDetail(t, err); !strings.Contains(detail, dimension.wantDetail) {
++					t.Fatalf("Discover(%s via %s) detail does not name the gate: %q", dimension.name, source.name, detail)
++				}
+ 				passed++
+ 			})
+ 		}
+@@ -154,7 +167,10 @@ func TestDiscoverRefusesRelativePATHDir(t *testing.T) {
+ 		fake.pathDirs = pathDirs
+ 		cfg := fakeConfig()
+ 		cfg.AllowPathPlugins = true
+-		_, err := Discover(cfg, fakeOwner(), fake)
++		got, err := Discover(cfg, fakeOwner(), fake)
++		if got != nil {
++			t.Fatalf("Discover(PATH=%q) returned %d candidates alongside a refusal, want no partial set", pathDirs, len(got))
++		}
+ 		if err == nil {
+ 			t.Fatalf("Discover accepted relative PATH entry in %q, want invalid_config", pathDirs)
+ 		}
+diff --git a/internal/provider/trust_test.go b/internal/provider/trust_test.go
+index bbd31ac..f595434 100644
+--- a/internal/provider/trust_test.go
++++ b/internal/provider/trust_test.go
+@@ -219,6 +219,8 @@ func TestVerifyTreatsReadFailureAsIntegrityFailure(t *testing.T) {
+ 			t.Fatal("Verify accepted an unresolvable receipt, want integrity_failure")
+ 		} else if code := errorCode(t, err); code != codeIntegrityFailure {
+ 			t.Fatalf("code = %q, want integrity_failure", code)
++		} else if detail := errorDetail(t, err); !strings.Contains(detail, "re-resolved") {
++			t.Fatalf("detail does not name the re-resolve refusal: %q", detail)
+ 		}
+ 	})
+ 	t.Run("uninspectable target", func(t *testing.T) {
+@@ -228,6 +230,8 @@ func TestVerifyTreatsReadFailureAsIntegrityFailure(t *testing.T) {
+ 			t.Fatal("Verify accepted an uninspectable target, want integrity_failure")
+ 		} else if code := errorCode(t, err); code != codeIntegrityFailure {
+ 			t.Fatalf("code = %q, want integrity_failure", code)
++		} else if detail := errorDetail(t, err); !strings.Contains(detail, "re-inspected") {
++			t.Fatalf("detail does not name the re-inspect refusal: %q", detail)
+ 		}
+ 	})
+ 	t.Run("unreadable target", func(t *testing.T) {
+@@ -241,6 +245,8 @@ func TestVerifyTreatsReadFailureAsIntegrityFailure(t *testing.T) {
+ 			t.Fatal("Verify accepted an unreadable target, want integrity_failure")
+ 		} else if code := errorCode(t, err); code != codeIntegrityFailure {
+ 			t.Fatalf("code = %q, want integrity_failure", code)
++		} else if detail := errorDetail(t, err); !strings.Contains(detail, "re-read") {
++			t.Fatalf("detail does not name the re-read refusal: %q", detail)
+ 		}
+ 	})
+ }
+@@ -309,3 +315,43 @@ func TestVerifyRefusesForgedReceipts(t *testing.T) {
+ 		t.Fatalf("Verify refused the genuine receipt: %v", err)
+ 	}
+ }
++
++// TestVerifyRefusesEmptyOwnerReceipt proves absent evidence is never
++// treated as satisfied: a receipt with the zero-value owner — the shape a
++// truncated or half-deserialized persisted receipt carries — fails even
++// when every path, digest, and approval fact is genuine.
++func TestVerifyRefusesEmptyOwnerReceipt(t *testing.T) {
++	fake := newFakeSystem()
++	fake.addFile("/plugins", "ax-provider-foo", []byte("real bytes"), fakeUID)
++	candidate := discoverOneFoo(t, fake)
++	genuine := trustOneFoo(t, candidate)
++	empty := TrustRecord{
++		providerID: genuine.ProviderID(),
++		sourcePath: genuine.SourcePath(),
++		canon:      genuine.CanonicalPath(),
++		digest:     genuine.Digest(),
++		owner:      "",
++		trustedAt:  genuine.TrustedAt(),
++	}
++	if err := Verify(empty, fakeOwner(), fake); err == nil {
++		t.Fatal("Verify accepted a receipt with an empty owner, want integrity_failure")
++	} else if code := errorCode(t, err); code != codeIntegrityFailure {
++		t.Fatalf("code = %q, want integrity_failure", code)
++	} else if detail := errorDetail(t, err); !strings.Contains(detail, "owner is now") {
++		t.Fatalf("detail does not name the owner refusal: %q", detail)
++	}
++}
++
++// TestBuiltinsReturnsACopy proves the registry cannot be mutated through
++// the result: corrupting one return leaves later discovery order intact.
++func TestBuiltinsReturnsACopy(t *testing.T) {
++	first := Builtins()
++	first[0] = "mutated"
++	second := Builtins()
++	if second[0] != "codex" {
++		t.Fatalf("Builtins()[0] = %q after caller mutation, want codex: the registry leaks", second[0])
++	}
++	if len(second) != len(builtinOrder) {
++		t.Fatalf("Builtins() = %v, want the six Section 7.1 names", second)
++	}
++}
