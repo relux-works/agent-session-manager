@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/relux-works/agent-session-manager/internal/catalog"
@@ -963,18 +962,9 @@ func TestDigestFile(t *testing.T) {
 	if _, err := terminalbackend.DigestFile(t.TempDir()); err == nil {
 		t.Error("DigestFile(directory) error = nil, want refusal for a non-regular file")
 	}
-	// A FIFO pins the regular-file guard itself: the directory case above
-	// would still fail with the guard removed, because os.ReadFile rejects
-	// directories (EISDIR) on its own. A FIFO is the documented hazard
-	// (README: os.Open blocks indefinitely on a FIFO), and only the
-	// Mode().IsRegular check refuses it without blocking.
-	fifo := filepath.Join(t.TempDir(), "backend-fifo")
-	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
-		t.Fatalf("Mkfifo() error = %v", err)
-	}
-	if _, err := terminalbackend.DigestFile(fifo); err == nil {
-		t.Error("DigestFile(fifo) error = nil, want refusal for a non-regular file")
-	}
+	// FIFO coverage lives in TestDigestFileRefusesFIFO
+	// (terminalbackend_unix_test.go): syscall.Mkfifo does not exist on
+	// Windows, so it cannot compile in this shared file.
 }
 
 // TestErrorPredicatesAreExclusive guards the negative-evidence contract: a

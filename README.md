@@ -378,6 +378,136 @@ its single normative clause is enumerated and discharged. Sections 3.2, 6.1,
 Section 6.5 additionally names the `required_capabilities` default defect. See
 [Specification-to-Code Ownership Gate](#specification-to-code-ownership-gate).
 
+## Provider Plugin Discovery and Trust
+
+[`internal/provider`](internal/provider) implements the Section 7.1 trusted
+provider plugin host boundary: deterministic executable discovery, trust
+recording, and substitution detection. `Discover` is the production entry
+point. It enumerates candidates in the section's source order — configured
+`providers.plugin_dirs` in listed order (entry names sorted bytewise within
+each directory), then the six built-in adapters (`codex`, `claude`, `gemini`,
+`muse`, `antigravity`, `pi`), then `PATH` only when `allow_path_plugins` is
+true — and records the canonical absolute path, SHA-256 digest, and approving
+owner for every accepted external `ax-provider-<id>` executable. Symlinks are
+resolved before comparison, the target must be a regular file owned by the
+operator or an administrator-approved identity, and `Trust`/`Verify` carry the
+receipt a changed path target or digest must renew.
+
+If two candidates declare the same provider ID, discovery fails with
+`invalid_config` before either is probed or executed; the package has no probe
+or execution dependency, and no source imports a process-execution facility, so
+the ordering holds structurally. Filesystem read failures abort discovery with
+`local_precondition_failed` instead of yielding a partial set, and a receipt
+that no longer matches freshly read facts fails verification with
+`integrity_failure`. All three codes are pinned against the contract registry
+with their exact exits (3, 3, 9). A discovered candidate carries no
+availability, status, or capability claim, and the package is an internal M0
+host boundary, not a public stable plugin SDK, which the section defers. The
+package mutates no durable state: the host persists the `TrustRecord`, and
+`Verify` rechecks it. Native Windows owner attestation is unimplemented, so
+external executables are undiscoverable there until a Windows owner model
+lands; built-in adapters are unaffected.
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/provider -count=1
+go test ./internal/provider -cover -count=1
+```
+
+The package derives its refusal inventory from its own source: every refusal
+constructor call site must have an exercised negative path, no `Error` value
+may be built outside the four constructors, and the observed code set must
+equal the closed three-code set. Section 7.1 citations in its tests resolve
+against the digest-pinned document in `internal/specdoc`, quoting the exact
+line each claim begins on.
+
+## Provider Plugin JSONL Protocol
+
+[`internal/provhost`](internal/provhost) implements the ax host side of
+the Section 7.2 provider plugin JSON-over-stdio protocol: one-frame JSONL
+transport, deadlines, size limits, stdout/stderr separation, operation
+dispatch, and status recovery. `Host.Call` is the production entry point.
+It frames one request envelope (`protocol`, `protocol_version`,
+`request_id`, `operation`, `deadline`, `body`), starts one plugin process
+per operation, enforces the request deadline, and interprets the single
+response frame. Unknown operations, stale deadlines, and unframeable
+bodies are refused with `invalid_config` before any process starts.
+
+Each stdout line must be one complete UTF-8 JSON object no larger than 8
+MiB; stdout carries the single response frame while diagnostics stay on
+stderr and never enter failure text. A recognizable foreign major yields
+`incompatible_protocol` without trusting the payload; every other
+unusable frame yields `provider_protocol_error`, both as local Structured
+Error 1.0.0 objects built without adopting any child-supplied code,
+retryable bit, details, or authority. A plugin that exceeds its deadline
+is terminated (as a process group on unix; direct-child kill on Windows)
+and reported as `provider_timeout`; a
+crash without a response is `provider_process_failed`. On success the raw
+body is returned for the operation layer; on failure the bound child
+error is returned itself. All six codes are pinned against the contract
+registry with their exact exits (3, 13, 6, 13, 13, 9).
+
+Dispatch covers exactly the 15 Section 7.5 operations in manifest order,
+derived from the pinned specification text, and refuses any other name
+without spawning. Status recovery interprets `materialize-status` bodies
+through the Section 7.5 state rules: unknown fails closed with
+`integrity_failure` for quarantine, prepared requires plan, token, and
+discovery, terminal states require plan and discovery with no token, and
+identity members must equal the requested transaction. Reads evolve —
+prepared under one envelope may be committed under the next — and each
+call starts a fresh process, so recovery observes durable state through
+the passed authority with no host-side mutation cache.
+
+The operation layer validates what a plugin returned: the closed
+Section 7.3 manifest (registries derived from the pinned example),
+the Section 7.4 probe with its seven capability values (only
+`available` may be `enabled`), the host-side capability gate
+(`RequireCapability` refuses unproven surfaces before any process
+starts), the exact Section 7.7 profile mapping (six providers times
+two profiles swept, standard always the empty omission), the
+Section 7.6 quiescence proof (a `safe` claim over any unproven fact
+is refused; honest `unsafe` validates), the launch/resume SpawnPlan
+(argv, destination-native cwd, sorted unique environment names,
+literals disjoint from inherited names, and a `profile_mapping`
+equal to the Section 7.7 mapping), the Section 5.5 Provider Identity
+Record with the identify-session wrapper, and the single
+`(operation, operation_id)` mutation key (keyed operations derived
+per-row from the Section 7.5 table). A lost mutation retried with
+identical bytes returns byte-identical results across fresh
+processes; a changed body surfaces the bound `idempotency_mismatch`
+child with no further frame sent. Mutation receipts themselves live
+in the transaction document and the plugin, not the host. Full
+Section 7.5 request-body vocabularies beyond these surfaces, and the
+materialize commit/rollback result bodies, still cross the package
+opaquely behind the object-shape check.
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/provhost -count=1
+go test ./internal/provhost -cover -count=1
+```
+
+The package derives its refusal inventory from its own source: every
+refusal constructor call site must have an exercised negative path, no
+Structured Error may be built outside the six constructors, no raw error
+may be minted, and the observed code set must equal the closed six-code
+set. Every refusal assertion names the arm it must reach (the refused
+member and the rule detail), so a gate deleted from a required-member list
+slides to a lower arm and reddens instead of passing silently. The
+rollback-token entropy floor is pinned at exactly 31 refused / 32 accepted
+decoded bytes, both frame-size bounds are pinned at exactly limit refused /
+limit accepted from both directions, and the operation registry is pinned
+against the Section 7.5 table in order. Refusal arms are derived from
+production source rather than listed: every frameFault literal,
+integrity detail, and parseMajor classification branch must carry a
+witness at the production entry, and every witness must name a derived
+arm, so a planted arm or a deleted branch reddens in either direction. This inventory is independent of the per-package refusal inventories in [`internal/provider`](internal/provider) above and [`internal/terminalbackend`](internal/terminalbackend) below (see [Specification-to-Code Ownership Gate](#specification-to-code-ownership-gate)): each package derives its own refusal arms from its own source in its own test file, and the three share no inventory code or table.
+stdoutCap is pinned at MaxFrameBytes+2 in both directions, with a
+maximal-frame-plus-junk probe through the production runner proving the
+probe byte is load-bearing.
+
 ## Canonical JSON and Immutable Object Identities
 
 [`internal/canonicaljson`](internal/canonicaljson) exposes the production RFC
@@ -1857,8 +1987,8 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
 repository gate used by CI. Its reviewed
 [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
 registry independently enumerates implementation owners for all 60 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 77
-executable acceptance cases, 49 exact section bindings with their declared
+contract rows, 36 pinned or catalog-referenced normative section keys, 81
+executable acceptance cases, 53 exact section bindings with their declared
 coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
 The generated v0.5.0 catalog also carries the reviewed schema/version/self-field
@@ -1958,10 +2088,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=49 full=1 partial=3 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=17/403
+section coverage: bindings=53 full=1 partial=3 sliver=1 unevidenced=45 unmeasured=3 unowned=2 clauses_discharged=17/428
 ```
 
-Forty-nine section bindings discharge 17 of the 403 normative clauses their
+Fifty-three section bindings discharge 17 of the 428 normative clauses their
 sections carry. One binding is `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
