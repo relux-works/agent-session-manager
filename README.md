@@ -1857,7 +1857,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
 repository gate used by CI. Its reviewed
 [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
 registry independently enumerates implementation owners for all 60 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 74
+contract rows, 36 pinned or catalog-referenced normative section keys, 77
 executable acceptance cases, 49 exact section bindings with their declared
 coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
@@ -1963,8 +1963,10 @@ section coverage: bindings=49 full=1 partial=3 sliver=1 unevidenced=41 unmeasure
 
 Forty-nine section bindings discharge 17 of the 403 normative clauses their
 sections carry. One binding is `full` (Section 6.2, whose single clause is the
-native-Windows `conpty` requirement, discharged by
-`TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes`), three are
+native-Windows `conpty` requirement, discharged by the positive
+`TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
+with the negative `TestDecodeRefusesNonConptyBackendOnNativeWindows` legacy
+refusal arm), three are
 `partial` (Section 14.2 at 8/9, bound to
 [`internal/cliresult`](internal/cliresult), whose undischarged clause `14.2#6`
 is the process exit status this repository has no binary to produce; and
@@ -1973,7 +1975,19 @@ Section 15.1 at 5/7 and Section 15.3 at 2/3, both bound to
 the RPC hello obligation `15.1#5`, the bootstrap-row sentence `15.1#6` that
 binds the provider plugin rather than the host, and the hello-key and
 TerminalBackend-capability prohibition `15.3#3` - this repository builds no RPC
-hello frame, no provider plugin, and no TerminalBackend capability set), one is
+hello frame and no provider plugin, and advertises no Structured Error as a
+TerminalBackend capability. The closed 16-capability admission registry in
+[`internal/terminalbackend`](internal/terminalbackend) gates which operations
+an admitted probe may confer; it is never advertised on an RPC hello path and
+carries no Structured Error code, so the prohibition holds vacuously and the
+clause stays undischarged. The same package carries the Section 4 lifecycle,
+attach, entrypoint, replication, and historical-translation conformance
+harness (`conformance.go`, exercised by `conformance_test.go`) and an
+AST-derived refusal-arm inventory (`refusal_arm_inventory_test.go`) that
+requires every production refusal arm to be declared with a resolving named
+asserting test in both directions; behavioral proof stays with each row's
+named test, which the inventory resolves textually),
+one is
 `sliver` (Section 10.3, whose chunk offset invariant is
 enforced by `validateBlobDescriptor` while its two receiver clauses have no
 implementation), three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of
@@ -1984,9 +1998,12 @@ nothing else; every other assignment is refused with its ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-One admitted binding out of forty-nine is a thin positive arm, and it is
+One admitted binding out of forty-nine covers a single clause, and it is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
-ever be exercised synthetically.
+ever be exercised synthetically. Its discharge is no longer positive-only: the
+native-Windows lanes carry the positive arm and
+`TestDecodeRefusesNonConptyBackendOnNativeWindows` the legacy refusal arm,
+both registered against the `config-versioned-readers` acceptance case.
 
 That is a disclosure of the shipped state, not a target that was met.
 `TestRunRefusesEveryAssignedSectionThatOnlySlivers` and

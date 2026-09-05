@@ -11,15 +11,15 @@ import (
 	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
 	"github.com/relux-works/agent-session-manager/internal/catalog"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
+	terminalbackend "github.com/relux-works/agent-session-manager/internal/terminalbackend"
 )
 
 const maxConfigExtensionBytes = 65_536
 
 var (
-	logicalRootPattern       = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
-	terminalBackendIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`)
-	semverPattern            = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
-	reverseDNSPattern        = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(?:\.[a-z][a-z0-9-]{0,62})+$`)
+	logicalRootPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+	semverPattern      = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
+	reverseDNSPattern  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(?:\.[a-z][a-z0-9-]{0,62})+$`)
 )
 
 var terminalCapabilitySet = func() map[string]struct{} {
@@ -655,7 +655,9 @@ func validateDirectory(configuration *Configuration) error {
 
 func validateTerminal(configuration *Configuration, context DecodeContext) error {
 	terminal := configuration.Terminal
-	if !terminalBackendIDPattern.MatchString(terminal.BackendID) || len(terminal.BackendID) > 128 {
+	// Canonical identity grammar and the ax. namespace reservation live in
+	// the terminal backend registry; configuration is one of its call sites.
+	if _, err := terminalbackend.ParseID(terminal.BackendID); err != nil {
 		return configError("terminal.backend_id", ErrConfigValidation)
 	}
 	if !between(terminal.SafeBoundaryTimeoutSeconds, 1, 3_600) {
@@ -689,7 +691,13 @@ func validateTerminal(configuration *Configuration, context DecodeContext) error
 	trustIDs := map[string]struct{}{}
 	for index, entry := range terminal.ExternalTrust {
 		prefix := fmt.Sprintf("terminal.external_trust[%d]", index)
-		if !terminalBackendIDPattern.MatchString(entry.BackendID) || len(entry.BackendID) > 128 {
+		if _, err := terminalbackend.ParseID(entry.BackendID); err != nil {
+			return configError(prefix+".backend_id", ErrConfigValidation)
+		}
+		// The ax. namespace is reserved for the canonical built-ins. An
+		// external trust entry claiming any ax. ID is ambiguous with the
+		// built-in candidate and fails closed before any probe.
+		if strings.HasPrefix(entry.BackendID, "ax.") {
 			return configError(prefix+".backend_id", ErrConfigValidation)
 		}
 		if _, exists := trustIDs[entry.BackendID]; exists {
