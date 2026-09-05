@@ -1,0 +1,139 @@
+// Reviewer-owned probe, round 3 (RUN-260904-27510d). NOT part of the commit:
+// written into internal/terminalbackend/zzreviewprobe_test.go, run, then
+// deleted. Drives the whole exported surface to check the production comment's
+// claim "no exported path can reach these arrays" by running rather than
+// reading. All five cases pass at HEAD 9481a20; P1/P5 redden under R01
+// (Resolve without its clone) and P4 stays green under R03, which is the point.
+package terminalbackend_test
+
+import (
+	"testing"
+
+	"github.com/relux-works/agent-session-manager/internal/scalar"
+	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
+)
+
+const pProto = "1.3.0"
+const pDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+
+func pRegistry(t *testing.T) (*terminalbackend.Registry, []string) {
+	t.Helper()
+	// Caller-owned argument slice: New must not retain it.
+	callerProtocols := []string{pProto}
+	r, err := terminalbackend.New("1.2.3", callerProtocols)
+	if err != nil {
+		t.Fatalf("New() = %v", err)
+	}
+	return r, callerProtocols
+}
+
+// P1: every exported accessor that hands back a Registration must hand back a
+// deep copy. Exported record-returning surface = Resolve, RequireRestoreBinding.
+func TestProbeEveryExportedAccessorIsDeepCopied(t *testing.T) {
+	r, _ := pRegistry(t)
+
+	// Resolve
+	a, err := r.Resolve(terminalbackend.BuiltinTmux)
+	if err != nil {
+		t.Fatalf("Resolve = %v", err)
+	}
+	a.ProtocolVersions[0] = "9.9.9"
+	a.Platforms[0] = scalar.PlatformWindows
+
+	// RequireRestoreBinding
+	b, err := r.RequireRestoreBinding(terminalbackend.BuiltinTmux, terminalbackend.BuiltinTmux)
+	if err != nil {
+		t.Fatalf("RequireRestoreBinding = %v", err)
+	}
+	if b.ProtocolVersions[0] != pProto || b.Platforms[0] != scalar.PlatformLinux {
+		t.Errorf("PROBE-FAIL Resolve egress leaked into RequireRestoreBinding: %v %v", b.ProtocolVersions, b.Platforms)
+	}
+	b.ProtocolVersions[0] = "8.8.8"
+	b.Platforms[0] = scalar.PlatformWindows
+
+	c, err := r.Resolve(terminalbackend.BuiltinTmux)
+	if err != nil {
+		t.Fatalf("Resolve = %v", err)
+	}
+	if c.ProtocolVersions[0] != pProto || c.Platforms[0] != scalar.PlatformLinux {
+		t.Errorf("PROBE-FAIL RequireRestoreBinding hands out interior state: %v %v", c.ProtocolVersions, c.Platforms)
+	}
+}
+
+// P2: New must not retain the caller's protocolVersions argument array.
+func TestProbeNewDoesNotRetainCallerArgument(t *testing.T) {
+	r, caller := pRegistry(t)
+	caller[0] = "1.99.0"
+	got, err := r.Resolve(terminalbackend.BuiltinTmux)
+	if err != nil {
+		t.Fatalf("Resolve = %v", err)
+	}
+	if got.ProtocolVersions[0] != pProto {
+		t.Errorf("PROBE-FAIL New retained caller argument array: %v", got.ProtocolVersions)
+	}
+}
+
+// P3: IDs must not hand out interior state either.
+func TestProbeIDsIsNotInteriorState(t *testing.T) {
+	r, _ := pRegistry(t)
+	ids := r.IDs()
+	for i := range ids {
+		ids[i] = "mutated"
+	}
+	again := r.IDs()
+	if again[0] != terminalbackend.BuiltinConpty || again[1] != terminalbackend.BuiltinTmux {
+		t.Errorf("PROBE-FAIL IDs hands out interior state: %v", again)
+	}
+}
+
+// P4: cross-built-in aliasing observed only through exported surface. This is
+// the property the deleted black-box subtest claimed; it should be INERT here
+// (Resolve clones), which is exactly why the white-box pin was needed.
+func TestProbeCrossBuiltinAliasingIsUnobservableThroughExports(t *testing.T) {
+	r, _ := pRegistry(t)
+	tmux, _ := r.Resolve(terminalbackend.BuiltinTmux)
+	tmux.ProtocolVersions[0] = "7.7.7"
+	conpty, _ := r.Resolve(terminalbackend.BuiltinConpty)
+	if conpty.ProtocolVersions[0] != pProto {
+		t.Errorf("PROBE-FAIL built-ins observably aliased through exports: %v", conpty.ProtocolVersions)
+	}
+}
+
+// P5: a record admitted through RegisterExternal must survive the caller
+// keeping and mutating its own slices, and must survive an egress mutation.
+func TestProbeExternalAdmissionSurvivesBothDirections(t *testing.T) {
+	r, _ := pRegistry(t)
+	rec := terminalbackend.Registration{
+		ID:                    "com.example.probe",
+		Kind:                  terminalbackend.KindLocalProgram,
+		ImplementationVersion: "2.0.0",
+		ProtocolVersions:      []string{pProto},
+		Platforms:             []scalar.Platform{scalar.PlatformLinux},
+		ExecutableDigest:      pDigest,
+	}
+	entry := terminalbackend.TrustEntry{
+		BackendID: "com.example.probe", ExecutablePath: "/opt/probe", ExecutableDigest: pDigest, Enabled: true,
+	}
+	if err := r.RegisterExternal(scalar.PlatformLinux, entry, rec); err != nil {
+		t.Fatalf("RegisterExternal = %v", err)
+	}
+	rec.ProtocolVersions[0] = "1.55.0"
+	rec.Platforms[0] = scalar.PlatformWindows
+
+	got, err := r.RequireRestoreBinding("com.example.probe", "com.example.probe")
+	if err != nil {
+		t.Fatalf("RequireRestoreBinding = %v", err)
+	}
+	if got.ProtocolVersions[0] != pProto || got.Platforms[0] != scalar.PlatformLinux {
+		t.Errorf("PROBE-FAIL ingress alias: %v %v", got.ProtocolVersions, got.Platforms)
+	}
+	got.ProtocolVersions[0] = "1.66.0"
+	drifted := terminalbackend.Registration{
+		ID: "com.example.probe", Kind: terminalbackend.KindLocalProgram, ImplementationVersion: "2.0.0",
+		ProtocolVersions: []string{"1.66.0"}, Platforms: []scalar.Platform{scalar.PlatformLinux},
+		ExecutableDigest: pDigest,
+	}
+	if err := r.RegisterExternal(scalar.PlatformLinux, entry, drifted); !terminalbackend.IsDrift(err) {
+		t.Errorf("PROBE-FAIL drift became %v after egress mutation via RequireRestoreBinding", err)
+	}
+}

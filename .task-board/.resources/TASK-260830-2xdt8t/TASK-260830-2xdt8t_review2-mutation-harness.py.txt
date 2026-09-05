@@ -1,0 +1,59 @@
+#!/usr/bin/env python3
+"""Round-2 mutation harness (reviewer-owned).
+
+One mutant at a time. Byte-copy backup of every touched file, presence check
+(each edit's target text must occur exactly once before substitution and the
+mutant text must be present afterwards), restore + byte-equality restore
+assertion after every run. A mutant that does not apply is NOT-APPLIED and
+counts as no measurement.
+"""
+import json, subprocess, sys, os
+
+CMD = ["go", "test", "./internal/terminalbackend/...", "./internal/config/...", "./internal/traceability/...",
+       "-count=1", "-timeout", "45s"]
+
+MUTANTS = json.load(open(sys.argv[1]))
+results = []
+
+for m in MUTANTS:
+    paths = sorted({e["file"] for e in m["edits"]})
+    saved = {p: open(p, "rb").read() for p in paths}
+    ok, why = True, ""
+    for e in m["edits"]:
+        src = open(e["file"]).read()
+        n = src.count(e["old"])
+        if n != 1:
+            ok, why = False, f"occurrences={n} for edit in {e['file']}"
+            break
+        open(e["file"], "w").write(src.replace(e["old"], e["new"], 1))
+    if ok:
+        for e in m["edits"]:
+            now = open(e["file"]).read()
+            if e["new"] and e["new"] not in now:
+                ok, why = False, "mutant text absent after substitution"
+            if e["old"] in now:
+                ok, why = False, "original text still present after substitution"
+    if not ok:
+        for p, b in saved.items():
+            open(p, "wb").write(b)
+        results.append({"id": m["id"], "desc": m["desc"], "status": "NOT-APPLIED", "why": why})
+        print(f'{m["id"]:<8} {"NOT-APPLIED":<22} {why} :: {m["desc"]}', flush=True)
+        continue
+    try:
+        proc = subprocess.run(CMD, capture_output=True, text=True, timeout=600)
+        out, rc = proc.stdout + proc.stderr, proc.returncode
+    except subprocess.TimeoutExpired as exc:
+        out, rc = str(exc), 124
+    build_err = "[build failed]" in out or "declared and not used" in out
+    status = "SURVIVED" if rc == 0 else ("BUILD-ERROR (no measurement)" if build_err else "KILLED")
+    failing = sorted({l.split()[2] for l in out.splitlines() if l.startswith("--- FAIL: ")})
+    for p, b in saved.items():
+        open(p, "wb").write(b)
+        assert open(p, "rb").read() == b, "restore failed " + p
+    results.append({"id": m["id"], "desc": m["desc"], "status": status, "exit": rc,
+                    "failing_tests": failing[:6]})
+    print(f'{m["id"]:<8} {status:<22} {m["desc"]} | {failing[:3]}', flush=True)
+
+json.dump(results, open(sys.argv[2], "w"), indent=2)
+print("\n--- tree check ---")
+print(subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True).stdout or "(clean)")

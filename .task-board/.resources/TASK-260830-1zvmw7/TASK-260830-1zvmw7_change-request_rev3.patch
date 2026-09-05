@@ -1,0 +1,4569 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 52dc068..2c63432 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -3,8 +3,29 @@
+ > Institutional memory. Concise, factual, high-signal.
+ > Newest entries first. One block per insight.
+ 
++## 2026-09-05
++
++### 0022 — Leaf-2 round-1 rework: refusal arms that share one code need clause assertions, not code assertions
++
++- SCOPE: TASK-260830-1zvmw7 rework after CHANGES REQUESTED (F1–F5, F9, G-A blocking; F6–F8 non-blocking). Production: `CheckOperation` admits `manifest`/`probe` with no capability dependency (§4.D); dead probe-identity branch and subsumed platform-dup check removed; `checkEvidenceSet` doc corrected to whole-reconciliation refusal. Tests: every refusal assertion in `manifest_test.go`/`manifest_pin_test.go` now names `*Error.Detail` (was 0/29); four over-determined `TestReconcileRefusals` fixtures narrowed until only the named rule rejects; `ParseProbe`/`ParseEvidence` gain the schema/version/identity/kind/digest cases only `ParseManifest` had; `now == expires_at` boundary row added.
++- STRUCTURAL ROOT: ~110 of 121 arms return `CodeMismatch`, so deleting a gate slides its fixture onto a lower arm and a code-only suite stays green. Against the narrowed fixtures all six re-runs (4 arm-shift gates + record-digest + expiry-boundary) fail with `error = <nil>`: the deleted gate admits what it must reject, and no lower arm catches the fixture.
++- F1 (live spec violation): `CheckOperation("manifest"|"probe")` refused `terminal_backend_capability_unproven` even fully admitted; §4.D gives both `Capability dependencies: none` and neither row allows that code. Pinned by `TestCheckOperationAdmitsDependencyFreeOperations` (empty + full admitted sets, plus the still-refused gated operation).
++- F3 NARROWING SHAPE: the AdmitProbe substitution fixture now tracks the foreign digest in the probe, so probe↔manifest identity holds and only the manifest↔record gate can refuse. Same-shape-different-arm cases are indistinguishable by any assertion when both arms share code AND detail — the fixture, not the assertion, must isolate the arm.
++- G-A: new white-box `TestParsedClaimSlicesShareNoRegistryBacking` scribbles `REVIEW-POISON` into every parsed claim slice and re-reads the interior (row snapshot, `CapabilitiesForOperation`, fresh admission). The reviewer's positive control (return row slices from `parseClaim`) fails this pin while the old `TestAdmittedSharesNoBackingArrays` passed — that test touched three fields that cannot alias the table and never re-read the interior.
++- EVIDENCE: reviewer batteries re-run — battery-1 46 killed/0 survived (12 formulation-compile-fails covered by battery-2's compilable variants, all killed; M37/M58 re-anchored after the F1/F8 edits, both killed); battery-2 43 killed with exactly the 4 expected survivors (M71/M72 JCS unprovable with ASCII-only closed schemas — reported as bound, not coverage; M92/M95 near-equivalents). Targeted re-verification of all 24 fix mutants: 24/24 killed, each grep-confirmed present, compiling, and reverted.
++- F9: README `15.3#3` re-scoped (the prohibition is on advertising Structured Error as a capability; the admission registry is never on a hello path, clause stays undischarged), new `terminal-manifest-probe-admission` acceptance case registered, projection digest re-pinned, README figure 74→75 acceptance cases.
++- STATUS: TASK-260830-1zvmw7 rework, handed to review.
++
+ ## 2026-09-04
+ 
++### 2340 — Terminal manifest/probe/capability-evidence admission (leaf 2): mutant protocol caught a mis-targeted expiry test
++
++- SCOPE: TASK-260830-1zvmw7 on leaf-1 checkpoint `9481a20`. New: `internal/terminalbackend/manifest.go` (closed Manifest/Probe/Evidence schemas, 16-row capability registry, generation digest, rule 1–6 reconciliation, expiry, signature-verifier seam, operation gate, `Registry.AdmitProbe`); tests `manifest_test.go` (black-box, independent JCS/identity/RSA-signing recipe) + `manifest_pin_test.go` (white-box for parse-unreachable arms). Leaf-1 files touched only for a doc line and 3 added wire codes; no gate logic changed.
++- MUTANT PROTOCOL CAUGHT A MIS-TARGETED TEST: the "expired evidence" case re-signed mutated evidence (new ID) without refreshing the probe's `evidence_ids`, so under the original code it failed at liveness first (right arm, wrong reason to trust), and under a neutered-liveness mutant it failed at the ID-set arm instead of admitting — the test passed for the wrong reason and the mutant survived. Fix: every evidence-mutating case now calls `finalizeProbeIDs` after re-signing (6 cases + platform case), so each refusal lands on its intended arm; the corrected liveness mutant is killed.
++- DETERMINISTIC SIGNATURES DEDUP: RSA PKCS1v15 is deterministic per key+message, so a "distinct extra evidence" fixture built with identical fields was byte-identical and correctly deduplicated — the test was wrong, production right. Unreferenced-object case now varies a supplementary fact (`ui_absent`) to force distinct bytes; identical-duplicate acceptance is pinned white-box as the stated bound.
++- REAL PRODUCTION BUG FOUND BY TEST: strict decoder returned nil (not empty) slices for `[]`, so `json.Marshal` re-encoded them as `null` and omit-self identity recomputation diverged on claim-free/evidence-free documents. Fixed with non-nil array initialization; pinned by the empty-tuple admission test.
++- EVIDENCE: board outcome artifact `TASK-260830-1zvmw7_manifest-probe-evidence.md` — 12/12 mutants killed (each grep-confirmed present, compiling, red, reverted byte-identical), suite/vet/gofmt/tracecheck exit 0, package coverage 87.1%.
++
+ ### 2210 — Terminal backend registry rework: aliasing bypass closed, four unmeasured domains measured
+ 
+ - SCOPE: rework of TASK-260830-2xdt8t after CHANGES REQUESTED (five blocking findings F1–F5). Production: `internal/terminalbackend` clones slices on ingress (`New` per-builtin copy, `RegisterExternal` store copy) and egress (`Resolve` return copy). No new refusal sites.
+@@ -694,3 +715,8 @@ assertion here rather than a brittle one.
+ - NOTE: General property, applies to every derived gate — an inventory must assert that the set of constructs it scans is complete for the package, and a mutation sweep must assert its baseline is green. A gate that cannot fail when someone adds a second copy of a check is decoration, and a mutant that "kills" an already-red mask proves nothing.
+ - SCOPE: `internal/canonicaljson/`, `internal/traceability/ownership.v0.5.0.json`, `README.md`
+ - STATUS: Resolved; TASK-260830-1tax26 handed to review as revision 2.
++
++### TASK-260830-1zvmw7 round-3: three unpinned arms, found by enumeration not by review
++- FINDING: The round-2 verdict named three survivors (S6/S7/S8), but the rework does not rely on the reviewer's list: I extracted every `mismatchf("...")`/`Detail: "..."` string from `internal/terminalbackend/manifest.go` and counted assertions of each detail across the three terminalbackend test files. Exactly five details had zero hits: the three fixed here plus `document identity` (x2, reviewer-declared practically unreachable) and `registry unavailable` (M92 near-equivalent) — both already in the stated bounds. No other file-unique arm is unpinned.
++- FIX: Three table rows in `internal/terminalbackend/manifest_test.go`, no production change: `TestReconcileRefusals/static claim without manifest` (probe claims graceful_stop static while the manifest omits it; value/evidence intact so only that arm rejects), `TestEvidenceDocumentRefusals/bad platform` (`plan9`), `TestManifestDocumentRefusals/non-object claim` (string element).
++- EVIDENCE: Each mutant grep-anchored (count==1), vet-checked, reverted byte-identical. H1 and H2 fail with `error = <nil>` (admission, no slide); H3 fails arm-blind at `document members`, as predicted — still fail-closed, now arm-pinned. Full `go test ./...` green, package coverage 88.6% -> 88.9%.
+diff --git a/README.md b/README.md
+index 5e5cfbe..f701254 100644
+--- a/README.md
++++ b/README.md
+@@ -1857,7 +1857,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
+ registry independently enumerates implementation owners for all 60 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 74
++contract rows, 36 pinned or catalog-referenced normative section keys, 75
+ executable acceptance cases, 49 exact section bindings with their declared
+ coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
+ Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
+@@ -1975,7 +1975,12 @@ Section 15.1 at 5/7 and Section 15.3 at 2/3, both bound to
+ the RPC hello obligation `15.1#5`, the bootstrap-row sentence `15.1#6` that
+ binds the provider plugin rather than the host, and the hello-key and
+ TerminalBackend-capability prohibition `15.3#3` - this repository builds no RPC
+-hello frame, no provider plugin, and no TerminalBackend capability set), one is
++hello frame and no provider plugin, and advertises no Structured Error as a
++TerminalBackend capability. The closed 16-capability admission registry in
++[`internal/terminalbackend`](internal/terminalbackend) gates which operations
++an admitted probe may confer; it is never advertised on an RPC hello path and
++carries no Structured Error code, so the prohibition holds vacuously and the
++clause stays undischarged), one is
+ `sliver` (Section 10.3, whose chunk offset invariant is
+ enforced by `validateBlobDescriptor` while its two receiver clauses have no
+ implementation), three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of
+diff --git a/internal/terminalbackend/manifest.go b/internal/terminalbackend/manifest.go
+new file mode 100644
+index 0000000..68fda3c
+--- /dev/null
++++ b/internal/terminalbackend/manifest.go
+@@ -0,0 +1,1987 @@
++// Manifest, Probe, and Capability Evidence admission for the
++// TerminalBackend registry.
++//
++// Normative scope is relux-works/agent-session-manager-spec@v0.5.0 §4.B
++// (Manifest/Probe closed schemas, generation digest, reconciliation,
++// identity rule), §4.D (closed capability registry, claim rows, evidence
++// schema, fact mapping), §6.5 (trust established before any probe;
++// configuration admission), and §7.A (generation-bound descriptor binding).
++// Lifecycle operations other than admission (create, attach, status, and
++// friends) belong to the sibling lifecycle task; this file gates only which
++// capabilities an operation may rely on, never the operations themselves.
++//
++// Fail-closed conventions shared with the registry half of this package:
++// every refusal is an *Error with a wire code from the pinned catalog error
++// vocabulary and a static Detail clause that never echoes paths, digests,
++// generations, or other local data. A partial, malformed, stale, or failed
++// Manifest, Probe, or evidence read is an error, never absence or
++// availability, so callers must not fall back to a default or to PATH
++// discovery.
++package terminalbackend
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/hex"
++	"encoding/json"
++	"fmt"
++	"strings"
++	"time"
++	"unicode/utf8"
++
++	"github.com/gowebpki/jcs"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// Wire error codes this file may report. They extend the registry-half codes
++// with the exact Section 15.3 codes for manifest/probe disagreement,
++// unevidenced capability use, and integrity failure; every one is a member of
++// the pinned catalog error vocabulary.
++const (
++	// CodeMismatch reports any failed Manifest/Probe equality, membership,
++	// keyed claim relation, evidence binding, or evidence coverage rule
++	// (§4.B). Malformed Manifest, Probe, or evidence documents also report
++	// this code: a malformed read is an error, never absence.
++	CodeMismatch = "terminal_backend_manifest_probe_mismatch"
++	// CodeCapabilityUnproven reports an operation gate evaluated against an
++	// admitted capability set that confers no true capability for the
++	// requested operation (§4.C capability dependencies).
++	CodeCapabilityUnproven = "terminal_backend_capability_unproven"
++	// CodeIntegrityFailure reports a missing, malformed, unknown-key, or
++	// invalid capability-evidence signature, or a signature verification
++	// subsystem that is unavailable (§4.D). It fails before capability
++	// admission.
++	CodeIntegrityFailure = "terminal_backend_integrity_failure"
++)
++
++// IsMismatch reports CodeMismatch refusals.
++func IsMismatch(err error) bool { return errorCode(err, CodeMismatch) }
++
++// IsCapabilityUnproven reports CodeCapabilityUnproven refusals.
++func IsCapabilityUnproven(err error) bool { return errorCode(err, CodeCapabilityUnproven) }
++
++// IsIntegrityFailure reports CodeIntegrityFailure refusals.
++func IsIntegrityFailure(err error) bool { return errorCode(err, CodeIntegrityFailure) }
++
++// Closed schema literals (§4.B, §4.D). No other schema or version is
++// admitted by this file.
++const (
++	// SchemaManifest is the Terminal Backend Manifest 1.0.0 schema URN.
++	SchemaManifest = "urn:ax:schema:terminal-backend-manifest"
++	// SchemaProbe is the Terminal Backend Probe 1.0.0 schema URN.
++	SchemaProbe = "urn:ax:schema:terminal-backend-probe"
++	// SchemaCapabilityEvidence is the Capability Evidence 1.0.0 schema URN.
++	SchemaCapabilityEvidence = "urn:ax:schema:terminal-capability-evidence"
++	// SchemaVersion100 is the only contract version this file implements.
++	SchemaVersion100 = "1.0.0"
++)
++
++// Closed small vocabularies (§4.B, §4.D).
++const (
++	// OriginStatic marks a static manifest echo claim.
++	OriginStatic = "static"
++	// OriginProbed marks a live probe observation claim.
++	OriginProbed = "probed"
++
++	// AvailabilityAvailable marks a ready backend.
++	AvailabilityAvailable = "available"
++	// AvailabilityConditional marks a backend that needs operator action.
++	AvailabilityConditional = "conditional"
++	// AvailabilityUnavailable marks a backend that cannot serve.
++	AvailabilityUnavailable = "unavailable"
++	// AvailabilityUnknown marks a backend whose readiness is not established.
++	AvailabilityUnknown = "unknown"
++
++	// IssuerRelease marks release-signed capability evidence.
++	IssuerRelease = "ax_release"
++	// IssuerLocalProbe marks host-incarnation-signed capability evidence.
++	IssuerLocalProbe = "ax_local_probe"
++)
++
++// signatureSchemePrefix is the literal attestation_signature scheme (§4.D).
++const signatureSchemePrefix = "rsa-sha256:"
++
++// generationDigestDomain is the UTF-8 domain separator prepended to the
++// backend's host-local raw generation bytes before SHA-256 (§4.B). It
++// neither reveals nor reconstructs that generation.
++const generationDigestDomain = "ax-terminal-backend-generation-v1\x00"
++
++// evidenceSignatureDomain is the ASCII domain separator prepended to the
++// canonical evidence bytes before signing (§4.D).
++const evidenceSignatureDomain = "ax-terminal-capability-evidence-v1"
++
++// Closed TerminalBackendCapability registry (§4.D). The map key is the
++// capability name; the row carries the exact registry members a Manifest or
++// Probe claim must repeat verbatim.
++type capabilityRow struct {
++	generationVariable   bool
++	dependentOperations  []string
++	evidenceRequirements []string
++}
++
++// capabilityRegistry is the exact 16-value Section 4.D table. Dependent
++// operations and evidence requirements are stored sorted as the wire
++// requires, so row comparison is element-wise.
++var capabilityRegistry = map[string]capabilityRow{
++	"durable_disconnect": {
++		generationVariable:   false,
++		dependentOperations:  []string{"create", "status"},
++		evidenceRequirements: []string{"conformance_fixture", "runtime_probe"},
++	},
++	"local_attach": {
++		generationVariable:   true,
++		dependentOperations:  []string{"attach"},
++		evidenceRequirements: []string{"conformance_fixture", "policy_authorization", "runtime_probe"},
++	},
++	"remote_attach": {
++		generationVariable:   true,
++		dependentOperations:  []string{"attach"},
++		evidenceRequirements: []string{"conformance_fixture", "policy_authorization", "runtime_probe"},
++	},
++	"web_attach": {
++		generationVariable:   true,
++		dependentOperations:  []string{"attach"},
++		evidenceRequirements: []string{"conformance_fixture", "policy_authorization", "runtime_probe"},
++	},
++	"multi_attach": {
++		generationVariable:   true,
++		dependentOperations:  []string{"attach"},
++		evidenceRequirements: []string{"conformance_fixture", "policy_authorization", "runtime_probe"},
++	},
++	"headless_creation": {
++		generationVariable:   true,
++		dependentOperations:  []string{"create"},
++		evidenceRequirements: []string{"conformance_fixture", "runtime_probe"},
++	},
++	"reboot_restoration": {
++		generationVariable:   true,
++		dependentOperations:  []string{"restore"},
++		evidenceRequirements: []string{"conformance_fixture", "runtime_probe"},
++	},
++	"input_quiescence": {
++		generationVariable:   true,
++		dependentOperations:  []string{"quiesce-input"},
++		evidenceRequirements: []string{"conformance_fixture", "runtime_probe"},
++	},
++	"safe_boundary_observation": {
++		generationVariable:   true,
++		dependentOperations:  []string{"wait-safe-boundary"},
++		evidenceRequirements: []string{"conformance_fixture", "runtime_probe"},
++	},
++	"provider_process_observation": {
++		generationVariable:   true,
++		dependentOperations:  []string{"status", "terminate-stale", "wait-safe-boundary"},
++		evidenceRequirements: []string{"conformance_fixture", "runtime_probe"},
++	},
++	"graceful_stop": {
++		generationVariable:   true,
++		dependentOperations:  []string{"request-stop"},
++		evidenceRequirements: []string{"conformance_fixture", "runtime_probe"},
++	},
++	"stale_process_termination": {
++		generationVariable:   true,
++		dependentOperations:  []string{"terminate-stale"},
++		evidenceRequirements: []string{"conformance_fixture", "policy_authorization", "runtime_probe"},
++	},
++	"terminal_state_retention": {
++		generationVariable:   true,
++		dependentOperations:  []string{"create", "restore", "status"},
++		evidenceRequirements: []string{"conformance_fixture", "runtime_probe"},
++	},
++	"scrollback_retention": {
++		generationVariable:   true,
++		dependentOperations:  []string{"create", "restore", "status"},
++		evidenceRequirements: []string{"conformance_fixture", "runtime_probe"},
++	},
++	"credential_capable_execution_realm": {
++		generationVariable:  true,
++		dependentOperations: []string{"create", "restore"},
++		evidenceRequirements: []string{
++			"conformance_fixture", "credential_sentinel", "provider_auth_smoke", "runtime_probe",
++		},
++	},
++	"multiple_input_clients": {
++		generationVariable:   true,
++		dependentOperations:  []string{"attach"},
++		evidenceRequirements: []string{"conformance_fixture", "policy_authorization", "runtime_probe"},
++	},
++}
++
++// credentialRealmCapability is the one capability whose evidence carries the
++// terminal-binding, provider, sentinel, and smoke members (§4.D). Every other
++// capability's evidence must leave those members null.
++const credentialRealmCapability = "credential_capable_execution_realm"
++
++// requirementFact maps every CapabilityEvidenceRequirement to the
++// CapabilityEvidenceFact that satisfies it (§4.D). ui_absent and
++// prompt_absent are supplementary facts with no requirement mapping: they
++// may accompany evidence but never satisfy a requirement alone.
++var requirementFact = map[string]string{
++	"conformance_fixture":  "fixture_passed",
++	"runtime_probe":        "runtime_probe_passed",
++	"credential_sentinel":  "sentinel_passed",
++	"provider_auth_smoke":  "provider_auth_passed",
++	"policy_authorization": "policy_checked",
++}
++
++// Closed TerminalBackendOperation vocabulary (§4.D).
++var operationVocabulary = map[string]bool{
++	"manifest": true, "probe": true, "create": true, "attach": true,
++	"status": true, "quiesce-input": true, "wait-safe-boundary": true,
++	"request-stop": true, "terminate-stale": true, "restore": true,
++}
++
++// Closed CapabilityEvidenceRequirement vocabulary (§4.D).
++var evidenceRequirementVocabulary = map[string]bool{
++	"conformance_fixture": true, "runtime_probe": true,
++	"credential_sentinel": true, "provider_auth_smoke": true,
++	"policy_authorization": true,
++}
++
++// Closed CapabilityEvidenceFact vocabulary (§4.D).
++var evidenceFactVocabulary = map[string]bool{
++	"fixture_passed": true, "runtime_probe_passed": true,
++	"sentinel_passed": true, "provider_auth_passed": true,
++	"policy_checked": true, "ui_absent": true, "prompt_absent": true,
++}
++
++// Document bounds shared by the three closed schemas.
++const (
++	maxClaims          = 16
++	maxEvidenceIDs     = 256
++	maxOperations      = 10
++	maxRequirements    = 5
++	maxFacts           = 7
++	maxOpaqueString    = 256
++	maxJSONDepth       = 32
++	maxNativeReference = 512
++)
++
++// mismatchf refuses with CodeMismatch and a static detail clause. The clause
++// must never interpolate local data: paths, digests, generations, and
++// document bytes stay out of errors.
++func mismatchf(format string, arguments ...any) *Error {
++	return &Error{Code: CodeMismatch, Detail: fmt.Sprintf(format, arguments...)}
++}
++
++// decodeStrictObject decodes one JSON object with duplicate-key refusal,
++// invalid-UTF-8 refusal, a nesting cap, and trailing-data refusal. Numbers
++// decode as json.Number so member validators can refuse them explicitly:
++// none of the three closed schemas has a numeric member.
++func decodeStrictObject(raw []byte) (map[string]any, error) {
++	if !utf8.Valid(raw) {
++		return nil, mismatchf("document encoding")
++	}
++	decoder := json.NewDecoder(bytes.NewReader(raw))
++	decoder.UseNumber()
++	value, err := decodeCappedValue(decoder, 0)
++	if err != nil {
++		return nil, err
++	}
++	if decoder.More() {
++		return nil, mismatchf("document trailing data")
++	}
++	object, ok := value.(map[string]any)
++	if !ok {
++		return nil, mismatchf("document shape")
++	}
++	return object, nil
++}
++
++// decodeCappedValue decodes one JSON value with an explicit depth bound. The
++// bound is far above the deepest legitimate nesting (object, claims array,
++// claim object, member array) and fails closed below any decoder-stack risk.
++func decodeCappedValue(decoder *json.Decoder, depth int) (any, error) {
++	if depth > maxJSONDepth {
++		return nil, mismatchf("document nesting")
++	}
++	token, err := decoder.Token()
++	if err != nil {
++		return nil, mismatchf("document syntax")
++	}
++	if delimiter, ok := token.(json.Delim); ok {
++		switch delimiter {
++		case '{':
++			object := make(map[string]any)
++			for decoder.More() {
++				keyToken, err := decoder.Token()
++				if err != nil {
++					return nil, mismatchf("document syntax")
++				}
++				key, ok := keyToken.(string)
++				if !ok {
++					return nil, mismatchf("document syntax")
++				}
++				if _, duplicate := object[key]; duplicate {
++					return nil, mismatchf("document duplicate member")
++				}
++				member, err := decodeCappedValue(decoder, depth+1)
++				if err != nil {
++					return nil, err
++				}
++				object[key] = member
++			}
++			if _, err := decoder.Token(); err != nil {
++				return nil, mismatchf("document syntax")
++			}
++			return object, nil
++		case '[':
++			// Non-nil initialization: an empty wire array must round-trip
++			// as [] rather than null, or identity recomputation over an
++			// empty claim or evidence list diverges from the signer.
++			array := []any{}
++			for decoder.More() {
++				member, err := decodeCappedValue(decoder, depth+1)
++				if err != nil {
++					return nil, err
++				}
++				array = append(array, member)
++			}
++			if _, err := decoder.Token(); err != nil {
++				return nil, mismatchf("document syntax")
++			}
++			return array, nil
++		default:
++			return nil, mismatchf("document syntax")
++		}
++	}
++	return token, nil
++}
++
++// checkExactMembers refuses any deviation from the closed member set: an
++// unknown member and a missing member are both malformed.
++func checkExactMembers(object map[string]any, members []string) error {
++	if len(object) != len(members) {
++		return mismatchf("document members")
++	}
++	for _, member := range members {
++		if _, known := object[member]; !known {
++			return mismatchf("document members")
++		}
++	}
++	return nil
++}
++
++// stringMember extracts a required string member. Numbers, booleans, nulls,
++// arrays, and objects are refused: no member of these schemas takes them.
++func stringMember(object map[string]any, name string) (string, error) {
++	value, ok := object[name].(string)
++	if !ok {
++		return "", mismatchf("document member type")
++	}
++	return value, nil
++}
++
++// boundedStringMember extracts a required string[1..256] measured in bytes
++// over valid UTF-8, the canonical bound in every containing contract.
++func boundedStringMember(object map[string]any, name string) (string, error) {
++	value, err := stringMember(object, name)
++	if err != nil {
++		return "", err
++	}
++	if !utf8.ValidString(value) || len(value) < 1 || len(value) > maxOpaqueString {
++		return "", mismatchf("document string bound")
++	}
++	return value, nil
++}
++
++// digestMember extracts a required sha256: digest member.
++func digestMember(object map[string]any, name string) (string, error) {
++	value, err := stringMember(object, name)
++	if err != nil {
++		return "", err
++	}
++	if _, err := scalar.ParseDigest(value); err != nil {
++		return "", mismatchf("document digest")
++	}
++	return value, nil
++}
++
++// digestOrNullMember extracts a digest|null member: present and either a
++// valid digest or JSON null. Absence is malformed, not null.
++func digestOrNullMember(object map[string]any, name string) (string, error) {
++	raw, known := object[name]
++	if !known {
++		return "", mismatchf("document members")
++	}
++	if raw == nil {
++		return "", nil
++	}
++	value, ok := raw.(string)
++	if !ok {
++		return "", mismatchf("document member type")
++	}
++	if _, err := scalar.ParseDigest(value); err != nil {
++		return "", mismatchf("document digest")
++	}
++	return value, nil
++}
++
++// semverMember extracts a required semver member.
++func semverMember(object map[string]any, name string) (string, error) {
++	value, err := stringMember(object, name)
++	if err != nil {
++		return "", err
++	}
++	if !semverPattern.MatchString(value) {
++		return "", mismatchf("document semver")
++	}
++	return value, nil
++}
++
++// timestampMember extracts a required timestamp member.
++func timestampMember(object map[string]any, name string) (scalar.Timestamp, error) {
++	value, err := stringMember(object, name)
++	if err != nil {
++		return scalar.Timestamp{}, err
++	}
++	parsed, err := scalar.ParseTimestamp(value)
++	if err != nil {
++		return scalar.Timestamp{}, mismatchf("document timestamp")
++	}
++	return parsed, nil
++}
++
++// checkExtensions admits exactly the empty object {}. A non-empty extensions
++// object requires a later contract version, and absence is malformed.
++func checkExtensions(object map[string]any) error {
++	raw, known := object["extensions"]
++	if !known {
++		return mismatchf("document members")
++	}
++	extensions, ok := raw.(map[string]any)
++	if !ok || len(extensions) != 0 {
++		return mismatchf("document extensions")
++	}
++	return nil
++}
++
++// stringArrayMember extracts a required array of strings, refusing numbers,
++// booleans, nulls, and nested values element-wise.
++func stringArrayMember(object map[string]any, name string) ([]string, error) {
++	raw, known := object[name]
++	if !known {
++		return nil, mismatchf("document members")
++	}
++	array, ok := raw.([]any)
++	if !ok {
++		return nil, mismatchf("document member type")
++	}
++	values := make([]string, 0, len(array))
++	for _, member := range array {
++		value, ok := member.(string)
++		if !ok {
++			return nil, mismatchf("document member type")
++		}
++		values = append(values, value)
++	}
++	return values, nil
++}
++
++// checkSortedUnique refuses an unsorted or duplicated string list. Bytewise
++// order matches the wire's sorted-unique rule over lowercase ASCII members.
++func checkSortedUnique(values []string) error {
++	for index := range values {
++		if index > 0 && values[index-1] >= values[index] {
++			return mismatchf("document ordering")
++		}
++	}
++	return nil
++}
++
++// checkClosedList enforces the sorted-unique closed-vocabulary list shape:
++// every member in vocabulary, sorted unique, within the inclusive item
++// bound. The bound admits zero so [0..N] lists stay usable; [1..N] lists
++// are enforced by requiring at least one member.
++func checkClosedList(values []string, vocabulary map[string]bool, max int, requireNonEmpty bool) error {
++	if len(values) > max || (requireNonEmpty && len(values) == 0) {
++		return mismatchf("document list bound")
++	}
++	for _, value := range values {
++		if !vocabulary[value] {
++			return mismatchf("document vocabulary")
++		}
++	}
++	return checkSortedUnique(values)
++}
++
++// objectIdentity computes the lowercase sha256: digest of the RFC 8785 JCS
++// bytes of object with exactly selfField omitted (§4.B identity rule). It
++// mirrors the repository's canonical pipeline (logical value, JSON
++// re-encode, JCS transform, SHA-256) without routing through the schema
++// validators owned by another task.
++func objectIdentity(object map[string]any, selfField string) (string, error) {
++	omitted := make(map[string]any, len(object))
++	for name, member := range object {
++		if name != selfField {
++			omitted[name] = member
++		}
++	}
++	serialized, err := json.Marshal(omitted)
++	if err != nil {
++		return "", mismatchf("document identity")
++	}
++	canonical, err := jcs.Transform(serialized)
++	if err != nil {
++		return "", mismatchf("document identity")
++	}
++	sum := sha256.Sum256(canonical)
++	return "sha256:" + hex.EncodeToString(sum[:]), nil
++}
++
++// checkIdentity recomputes the omit-self digest and refuses a mismatch. A
++// reader must recompute the ID before use; trusting the claimed member is a
++// substitution vector.
++func checkIdentity(object map[string]any, selfField, claimed string) error {
++	if _, err := scalar.ParseDigest(claimed); err != nil {
++		return mismatchf("document digest")
++	}
++	computed, err := objectIdentity(object, selfField)
++	if err != nil {
++		return err
++	}
++	if computed != claimed {
++		return mismatchf("document identity binding")
++	}
++	return nil
++}
++
++// Claim is one TerminalBackendCapabilityClaim: a closed object whose
++// generation_variable, dependent_operations, and evidence_requirements
++// members must exactly equal the capability registry row (§4.D). A false
++// claim makes a probed refusal explicit but confers no operation.
++type Claim struct {
++	// Capability is one of the 16 closed registry names.
++	Capability string
++	// Origin is static (manifest echo) or probed (live observation).
++	Origin string
++	// Value is the claimed capability state.
++	Value bool
++	// GenerationVariable repeats the registry row: whether the value may
++	// change across backend generations.
++	GenerationVariable bool
++	// DependentOperations repeats the registry row: sorted unique
++	// operations this capability confers.
++	DependentOperations []string
++	// EvidenceRequirements repeats the registry row: sorted unique
++	// evidence requirements that prove a true claim.
++	EvidenceRequirements []string
++}
++
++// parseClaim validates one claim object. allowProbed selects the Probe shape;
++// the Manifest shape admits only static origin.
++func parseClaim(raw any, allowProbed bool) (Claim, error) {
++	object, ok := raw.(map[string]any)
++	if !ok {
++		return Claim{}, mismatchf("claim shape")
++	}
++	if err := checkExactMembers(object, []string{
++		"capability", "origin", "value",
++		"generation_variable", "dependent_operations", "evidence_requirements",
++	}); err != nil {
++		return Claim{}, err
++	}
++	capability, err := stringMember(object, "capability")
++	if err != nil {
++		return Claim{}, err
++	}
++	row, known := capabilityRegistry[capability]
++	if !known {
++		return Claim{}, mismatchf("capability vocabulary")
++	}
++	origin, err := stringMember(object, "origin")
++	if err != nil {
++		return Claim{}, err
++	}
++	if origin != OriginStatic && (origin != OriginProbed || !allowProbed) {
++		return Claim{}, mismatchf("claim origin")
++	}
++	boolean, ok := object["value"].(bool)
++	if !ok {
++		return Claim{}, mismatchf("document member type")
++	}
++	generationVariable, ok := object["generation_variable"].(bool)
++	if !ok {
++		return Claim{}, mismatchf("document member type")
++	}
++	operations, err := stringArrayMember(object, "dependent_operations")
++	if err != nil {
++		return Claim{}, err
++	}
++	if err := checkClosedList(operations, operationVocabulary, maxOperations, true); err != nil {
++		return Claim{}, err
++	}
++	requirements, err := stringArrayMember(object, "evidence_requirements")
++	if err != nil {
++		return Claim{}, err
++	}
++	if err := checkClosedList(requirements, evidenceRequirementVocabulary, maxRequirements, true); err != nil {
++		return Claim{}, err
++	}
++	// The three registry-derived members must equal the row: a Manifest or
++	// Probe cannot redefine what a capability means or what proves it.
++	if generationVariable != row.generationVariable ||
++		!equalStrings(operations, row.dependentOperations) ||
++		!equalStrings(requirements, row.evidenceRequirements) {
++		return Claim{}, mismatchf("capability registry binding")
++	}
++	return Claim{
++		Capability:           capability,
++		Origin:               origin,
++		Value:                boolean,
++		GenerationVariable:   generationVariable,
++		DependentOperations:  operations,
++		EvidenceRequirements: requirements,
++	}, nil
++}
++
++// parseClaimList validates a sorted-by-capability unique claim array within
++// the [0..16] bound. Sorting is checked here so reconciliation can treat
++// the key order as established; duplicates are invalid before keyed
++// reconciliation runs.
++func parseClaimList(raw any, allowProbed bool) ([]Claim, error) {
++	array, ok := raw.([]any)
++	if !ok {
++		return nil, mismatchf("document member type")
++	}
++	if len(array) > maxClaims {
++		return nil, mismatchf("claim list bound")
++	}
++	claims := make([]Claim, 0, len(array))
++	previous := ""
++	for _, member := range array {
++		claim, err := parseClaim(member, allowProbed)
++		if err != nil {
++			return nil, err
++		}
++		if previous >= claim.Capability {
++			return nil, mismatchf("claim ordering")
++		}
++		previous = claim.Capability
++		claims = append(claims, claim)
++	}
++	return claims, nil
++}
++
++// equalClaim reports member-for-member equality of two claims.
++func equalClaim(left, right Claim) bool {
++	return left.Capability == right.Capability &&
++		left.Origin == right.Origin &&
++		left.Value == right.Value &&
++		left.GenerationVariable == right.GenerationVariable &&
++		equalStrings(left.DependentOperations, right.DependentOperations) &&
++		equalStrings(left.EvidenceRequirements, right.EvidenceRequirements)
++}
++
++// equalStrings reports element-wise equality of two string lists.
++func equalStrings(left, right []string) bool {
++	if len(left) != len(right) {
++		return false
++	}
++	for index := range left {
++		if left[index] != right[index] {
++			return false
++		}
++	}
++	return true
++}
++
++// Manifest is one validated Terminal Backend Manifest 1.0.0: the closed
++// immutable backend description. It is not availability proof, and no
++// unsupported capability may be advertised through it.
++type Manifest struct {
++	// ManifestID is the recomputed omit-self digest.
++	ManifestID string
++	// TerminalBackendID is the canonical backend identity.
++	TerminalBackendID string
++	// ImplementationVersion is the exact admitted semver.
++	ImplementationVersion string
++	// ProtocolVersions are the sorted unique semver members in Terminal
++	// Backend Protocol major 1.
++	ProtocolVersions []string
++	// Platforms is the sorted unique non-empty platform subset.
++	Platforms []scalar.Platform
++	// ImplementationKind is the closed implementation_kind.
++	ImplementationKind Kind
++	// ExecutableDigest is the sha256: digest for external kinds and empty
++	// (null) for built-in kinds.
++	ExecutableDigest string
++	// StaticCapabilityClaims are the sorted-by-capability unique static
++	// claims, each exactly repeating its registry row.
++	StaticCapabilityClaims []Claim
++	// ConformanceFixtureID names the fixture true claims are proven with.
++	ConformanceFixtureID string
++}
++
++// Probe is one validated Terminal Backend Probe 1.0.0: the closed immutable
++// observation of a backend on one platform, generation, and instant.
++type Probe struct {
++	// ProbeID is the recomputed omit-self digest.
++	ProbeID string
++	// TerminalBackendID equals the admitted Manifest member.
++	TerminalBackendID string
++	// ImplementationVersion equals the admitted Manifest member.
++	ImplementationVersion string
++	// ProtocolVersion is exactly one member of the Manifest list.
++	ProtocolVersion string
++	// ImplementationKind equals the Manifest member.
++	ImplementationKind Kind
++	// ExecutableDigest exactly equals the Manifest member.
++	ExecutableDigest string
++	// Platform is exactly one member of the Manifest platforms.
++	Platform scalar.Platform
++	// OSVersion is the string[1..256] host release.
++	OSVersion string
++	// Availability is the closed readiness vocabulary.
++	Availability string
++	// BackendGenerationDigest is the digest of the domain-separated raw
++	// generation. It neither reveals nor reconstructs that generation.
++	BackendGenerationDigest string
++	// CapabilityClaims are the sorted-by-capability unique reconciled
++	// claims.
++	CapabilityClaims []Claim
++	// EvidenceIDs are the sorted unique IDs of the evidence objects used
++	// by true claims.
++	EvidenceIDs []string
++	// ProbedAt is the observation instant.
++	ProbedAt scalar.Timestamp
++}
++
++// Evidence is one validated Capability Evidence 1.0.0 object: the signed,
++// expiring, generation-bound proof of one true capability claim. Value is
++// always true by construction: a false claim has no matching evidence.
++type Evidence struct {
++	// EvidenceID is the recomputed omit-self digest.
++	EvidenceID string
++	// TerminalBackendID equals the Manifest and Probe members.
++	TerminalBackendID string
++	// ImplementationVersion equals the Manifest and Probe members.
++	ImplementationVersion string
++	// ProtocolVersion equals the Probe member.
++	ProtocolVersion string
++	// BackendGenerationDigest equals the Probe member.
++	BackendGenerationDigest string
++	// Capability names the one true claim this object proves.
++	Capability string
++	// Platform equals the Probe member.
++	Platform scalar.Platform
++	// OSVersion equals the Probe member.
++	OSVersion string
++	// ConformanceFixtureID equals the Manifest member.
++	ConformanceFixtureID string
++	// ObservedAt opens the validity interval.
++	ObservedAt scalar.Timestamp
++	// ExpiresAt closes the validity interval, strictly after ObservedAt.
++	ExpiresAt scalar.Timestamp
++	// Issuer is ax_release or ax_local_probe.
++	Issuer string
++	// IssuerID is the digest of the trusted signing identity. A
++	// caller-supplied issuer ID is not authentication: the signature must
++	// verify through the trusted key registry.
++	IssuerID string
++	// AttestationSignature is the raw signature bytes (scheme stripped).
++	AttestationSignature []byte
++	// Facts are the sorted unique evidence facts covering the claim's
++	// requirements through the requirement-to-fact mapping.
++	Facts []string
++	// TerminalBindingID is the opaque binding digest, required only for
++	// credential_capable_execution_realm and empty otherwise.
++	TerminalBindingID string
++	// ProviderID is the provider-id, required only for
++	// credential_capable_execution_realm and empty otherwise.
++	ProviderID string
++	// ProviderBuild is the string[1..256] provider build, required only
++	// for credential_capable_execution_realm and empty otherwise.
++	ProviderBuild string
++	// SentinelResult is literal passed, required only for
++	// credential_capable_execution_realm and empty otherwise.
++	SentinelResult string
++	// ProviderAuthSmokeResult is literal passed, required only for
++	// credential_capable_execution_realm and empty otherwise.
++	ProviderAuthSmokeResult string
++}
++
++// manifestMembers is the exact closed Manifest member set.
++var manifestMembers = []string{
++	"schema", "schema_version", "manifest_id", "terminal_backend_id",
++	"implementation_version", "protocol_versions", "platforms",
++	"implementation_kind", "executable_digest", "static_capability_claims",
++	"conformance_fixture_id", "extensions",
++}
++
++// ParseManifest validates one Terminal Backend Manifest 1.0.0 document and
++// returns the typed observation. Any deviation from the closed shape,
++// vocabulary, bound, ordering, registry-row, or identity rule is
++// CodeMismatch: a malformed read is an error, never absence.
++func ParseManifest(raw []byte) (Manifest, error) {
++	object, err := decodeStrictObject(raw)
++	if err != nil {
++		return Manifest{}, err
++	}
++	return parseManifestObject(object)
++}
++
++// parseManifestObject validates a decoded Manifest member map. It is split
++// from ParseManifest so admission paths that already hold a decoded object
++// share the exact gate.
++func parseManifestObject(object map[string]any) (Manifest, error) {
++	if err := checkExactMembers(object, manifestMembers); err != nil {
++		return Manifest{}, err
++	}
++	if schema, err := stringMember(object, "schema"); err != nil || schema != SchemaManifest {
++		return Manifest{}, mismatchf("manifest schema")
++	}
++	if version, err := stringMember(object, "schema_version"); err != nil || version != SchemaVersion100 {
++		return Manifest{}, mismatchf("manifest schema version")
++	}
++	manifestID, err := stringMember(object, "manifest_id")
++	if err != nil {
++		return Manifest{}, err
++	}
++	if err := checkIdentity(object, "manifest_id", manifestID); err != nil {
++		return Manifest{}, err
++	}
++	backendID, err := stringMember(object, "terminal_backend_id")
++	if err != nil {
++		return Manifest{}, err
++	}
++	if _, err := ParseID(backendID); err != nil {
++		return Manifest{}, mismatchf("manifest backend identity")
++	}
++	implementationVersion, err := semverMember(object, "implementation_version")
++	if err != nil {
++		return Manifest{}, err
++	}
++	protocols, err := stringArrayMember(object, "protocol_versions")
++	if err != nil {
++		return Manifest{}, err
++	}
++	if err := validateProtocolList(protocols); err != nil {
++		return Manifest{}, err
++	}
++	platforms, err := parsePlatformList(object)
++	if err != nil {
++		return Manifest{}, err
++	}
++	kindName, err := stringMember(object, "implementation_kind")
++	if err != nil {
++		return Manifest{}, err
++	}
++	kind, err := parseKind(kindName)
++	if err != nil {
++		return Manifest{}, mismatchf("manifest implementation kind")
++	}
++	digest, err := digestOrNullMember(object, "executable_digest")
++	if err != nil {
++		return Manifest{}, err
++	}
++	if needsDigest(kind) == (digest == "") {
++		return Manifest{}, mismatchf("manifest executable digest")
++	}
++	claimsRaw, known := object["static_capability_claims"]
++	if !known {
++		return Manifest{}, mismatchf("document members")
++	}
++	claims, err := parseClaimList(claimsRaw, false)
++	if err != nil {
++		return Manifest{}, err
++	}
++	fixtureID, err := digestMember(object, "conformance_fixture_id")
++	if err != nil {
++		return Manifest{}, err
++	}
++	if err := checkExtensions(object); err != nil {
++		return Manifest{}, err
++	}
++	return Manifest{
++		ManifestID:             manifestID,
++		TerminalBackendID:      backendID,
++		ImplementationVersion:  implementationVersion,
++		ProtocolVersions:       protocols,
++		Platforms:              platforms,
++		ImplementationKind:     kind,
++		ExecutableDigest:       digest,
++		StaticCapabilityClaims: claims,
++		ConformanceFixtureID:   fixtureID,
++	}, nil
++}
++
++// validateProtocolList enforces sorted unique semver[1..32], each in
++// Terminal Backend Protocol major 1, without naming a backend.
++func validateProtocolList(versions []string) error {
++	if len(versions) < 1 || len(versions) > maxProtocolVersions {
++		return mismatchf("protocol versions bound")
++	}
++	for index, version := range versions {
++		if !semverPattern.MatchString(version) || semverMajor(version) != 1 {
++			return mismatchf("protocol versions major 1")
++		}
++		if index > 0 && versions[index-1] >= version {
++			return mismatchf("protocol versions ordering")
++		}
++	}
++	return nil
++}
++
++// parsePlatformList validates the sorted unique non-empty platform subset.
++func parsePlatformList(object map[string]any) ([]scalar.Platform, error) {
++	names, err := stringArrayMember(object, "platforms")
++	if err != nil {
++		return nil, err
++	}
++	if len(names) == 0 || len(names) > 4 {
++		return nil, mismatchf("platforms bound")
++	}
++	platforms := make([]scalar.Platform, 0, len(names))
++	for _, name := range names {
++		platform, err := scalar.ParsePlatform(name)
++		if err != nil {
++			return nil, mismatchf("platforms vocabulary")
++		}
++		platforms = append(platforms, platform)
++	}
++	for index := range platforms {
++		// Bytewise >= refuses duplicates and misordering together: equal
++		// neighbours are not strictly ordered.
++		if index > 0 && platforms[index-1].String() >= platforms[index].String() {
++			return nil, mismatchf("platforms ordering")
++		}
++	}
++	return platforms, nil
++}
++
++// probeMembers is the exact closed Probe member set.
++var probeMembers = []string{
++	"schema", "schema_version", "probe_id", "terminal_backend_id",
++	"implementation_version", "protocol_version", "implementation_kind",
++	"executable_digest", "platform", "os_version", "availability",
++	"backend_generation_digest", "capability_claims", "evidence_ids",
++	"probed_at", "extensions",
++}
++
++// ParseProbe validates one Terminal Backend Probe 1.0.0 document. Shape,
++// vocabulary, bound, ordering, registry-row, and identity failures are all
++// CodeMismatch; cross-document reconciliation against the Manifest happens
++// in Reconcile, not here.
++func ParseProbe(raw []byte) (Probe, error) {
++	object, err := decodeStrictObject(raw)
++	if err != nil {
++		return Probe{}, err
++	}
++	if err := checkExactMembers(object, probeMembers); err != nil {
++		return Probe{}, err
++	}
++	if schema, err := stringMember(object, "schema"); err != nil || schema != SchemaProbe {
++		return Probe{}, mismatchf("probe schema")
++	}
++	if version, err := stringMember(object, "schema_version"); err != nil || version != SchemaVersion100 {
++		return Probe{}, mismatchf("probe schema version")
++	}
++	probeID, err := stringMember(object, "probe_id")
++	if err != nil {
++		return Probe{}, err
++	}
++	if err := checkIdentity(object, "probe_id", probeID); err != nil {
++		return Probe{}, err
++	}
++	backendID, err := stringMember(object, "terminal_backend_id")
++	if err != nil {
++		return Probe{}, err
++	}
++	if _, err := ParseID(backendID); err != nil {
++		return Probe{}, mismatchf("probe backend identity")
++	}
++	implementationVersion, err := semverMember(object, "implementation_version")
++	if err != nil {
++		return Probe{}, err
++	}
++	protocolVersion, err := semverMember(object, "protocol_version")
++	if err != nil {
++		return Probe{}, err
++	}
++	if semverMajor(protocolVersion) != 1 {
++		return Probe{}, mismatchf("probe protocol major 1")
++	}
++	kindName, err := stringMember(object, "implementation_kind")
++	if err != nil {
++		return Probe{}, err
++	}
++	kind, err := parseKind(kindName)
++	if err != nil {
++		return Probe{}, mismatchf("probe implementation kind")
++	}
++	digest, err := digestOrNullMember(object, "executable_digest")
++	if err != nil {
++		return Probe{}, err
++	}
++	if needsDigest(kind) == (digest == "") {
++		return Probe{}, mismatchf("probe executable digest")
++	}
++	platformName, err := stringMember(object, "platform")
++	if err != nil {
++		return Probe{}, err
++	}
++	platform, err := scalar.ParsePlatform(platformName)
++	if err != nil {
++		return Probe{}, mismatchf("probe platform")
++	}
++	osVersion, err := boundedStringMember(object, "os_version")
++	if err != nil {
++		return Probe{}, err
++	}
++	availability, err := stringMember(object, "availability")
++	if err != nil {
++		return Probe{}, err
++	}
++	switch availability {
++	case AvailabilityAvailable, AvailabilityConditional, AvailabilityUnavailable, AvailabilityUnknown:
++	default:
++		return Probe{}, mismatchf("probe availability")
++	}
++	generationDigest, err := digestMember(object, "backend_generation_digest")
++	if err != nil {
++		return Probe{}, err
++	}
++	claimsRaw, known := object["capability_claims"]
++	if !known {
++		return Probe{}, mismatchf("document members")
++	}
++	claims, err := parseClaimList(claimsRaw, true)
++	if err != nil {
++		return Probe{}, err
++	}
++	evidenceIDs, err := stringArrayMember(object, "evidence_ids")
++	if err != nil {
++		return Probe{}, err
++	}
++	if len(evidenceIDs) > maxEvidenceIDs {
++		return Probe{}, mismatchf("evidence list bound")
++	}
++	for _, id := range evidenceIDs {
++		if _, err := scalar.ParseDigest(id); err != nil {
++			return Probe{}, mismatchf("document digest")
++		}
++	}
++	if err := checkSortedUnique(evidenceIDs); err != nil {
++		return Probe{}, err
++	}
++	probedAt, err := timestampMember(object, "probed_at")
++	if err != nil {
++		return Probe{}, err
++	}
++	if err := checkExtensions(object); err != nil {
++		return Probe{}, err
++	}
++	return Probe{
++		ProbeID:                 probeID,
++		TerminalBackendID:       backendID,
++		ImplementationVersion:   implementationVersion,
++		ProtocolVersion:         protocolVersion,
++		ImplementationKind:      kind,
++		ExecutableDigest:        digest,
++		Platform:                platform,
++		OSVersion:               osVersion,
++		Availability:            availability,
++		BackendGenerationDigest: generationDigest,
++		CapabilityClaims:        claims,
++		EvidenceIDs:             evidenceIDs,
++		ProbedAt:                probedAt,
++	}, nil
++}
++
++// evidenceMembers is the exact closed Capability Evidence member set.
++var evidenceMembers = []string{
++	"schema", "schema_version", "evidence_id", "terminal_backend_id",
++	"implementation_version", "protocol_version", "backend_generation_digest",
++	"capability", "value", "platform", "os_version", "conformance_fixture_id",
++	"observed_at", "expires_at", "issuer", "issuer_id",
++	"attestation_signature", "facts", "terminal_binding_id", "provider_id",
++	"provider_build", "sentinel_result", "provider_auth_smoke_result",
++	"extensions",
++}
++
++// ParseEvidence validates one Capability Evidence 1.0.0 document. The
++// signature is structurally decoded here; cryptographic verification happens
++// in Reconcile through the caller's SignatureVerifier, because a
++// caller-supplied issuer ID is not authentication. Expiry (expires_at
++// strictly after observed_at) is enforced here; liveness at admission time
++// is enforced in Reconcile.
++func ParseEvidence(raw []byte) (Evidence, error) {
++	object, err := decodeStrictObject(raw)
++	if err != nil {
++		return Evidence{}, err
++	}
++	if err := checkExactMembers(object, evidenceMembers); err != nil {
++		return Evidence{}, err
++	}
++	if schema, err := stringMember(object, "schema"); err != nil || schema != SchemaCapabilityEvidence {
++		return Evidence{}, mismatchf("evidence schema")
++	}
++	if version, err := stringMember(object, "schema_version"); err != nil || version != SchemaVersion100 {
++		return Evidence{}, mismatchf("evidence schema version")
++	}
++	evidenceID, err := stringMember(object, "evidence_id")
++	if err != nil {
++		return Evidence{}, err
++	}
++	if err := checkIdentity(object, "evidence_id", evidenceID); err != nil {
++		return Evidence{}, err
++	}
++	backendID, err := stringMember(object, "terminal_backend_id")
++	if err != nil {
++		return Evidence{}, err
++	}
++	if _, err := ParseID(backendID); err != nil {
++		return Evidence{}, mismatchf("evidence backend identity")
++	}
++	implementationVersion, err := semverMember(object, "implementation_version")
++	if err != nil {
++		return Evidence{}, err
++	}
++	protocolVersion, err := semverMember(object, "protocol_version")
++	if err != nil {
++		return Evidence{}, err
++	}
++	if semverMajor(protocolVersion) != 1 {
++		return Evidence{}, mismatchf("evidence protocol major 1")
++	}
++	generationDigest, err := digestMember(object, "backend_generation_digest")
++	if err != nil {
++		return Evidence{}, err
++	}
++	capability, err := stringMember(object, "capability")
++	if err != nil {
++		return Evidence{}, err
++	}
++	if _, known := capabilityRegistry[capability]; !known {
++		return Evidence{}, mismatchf("capability vocabulary")
++	}
++	// Evidence value is the literal true: a false claim has no matching
++	// evidence, so a false-valued object is malformed.
++	if value, ok := object["value"].(bool); !ok || !value {
++		return Evidence{}, mismatchf("evidence value")
++	}
++	platformName, err := stringMember(object, "platform")
++	if err != nil {
++		return Evidence{}, err
++	}
++	platform, err := scalar.ParsePlatform(platformName)
++	if err != nil {
++		return Evidence{}, mismatchf("evidence platform")
++	}
++	osVersion, err := boundedStringMember(object, "os_version")
++	if err != nil {
++		return Evidence{}, err
++	}
++	fixtureID, err := digestMember(object, "conformance_fixture_id")
++	if err != nil {
++		return Evidence{}, err
++	}
++	observedAt, err := timestampMember(object, "observed_at")
++	if err != nil {
++		return Evidence{}, err
++	}
++	expiresAt, err := timestampMember(object, "expires_at")
++	if err != nil {
++		return Evidence{}, err
++	}
++	observed, err := observedAt.Time()
++	if err != nil {
++		return Evidence{}, mismatchf("document timestamp")
++	}
++	expires, err := expiresAt.Time()
++	if err != nil {
++		return Evidence{}, mismatchf("document timestamp")
++	}
++	if !expires.After(observed) {
++		return Evidence{}, mismatchf("evidence expiry")
++	}
++	issuer, err := stringMember(object, "issuer")
++	if err != nil {
++		return Evidence{}, err
++	}
++	if issuer != IssuerRelease && issuer != IssuerLocalProbe {
++		return Evidence{}, mismatchf("evidence issuer")
++	}
++	issuerID, err := digestMember(object, "issuer_id")
++	if err != nil {
++		return Evidence{}, err
++	}
++	signature, err := parseAttestationSignature(object)
++	if err != nil {
++		return Evidence{}, err
++	}
++	facts, err := stringArrayMember(object, "facts")
++	if err != nil {
++		return Evidence{}, err
++	}
++	if err := checkClosedList(facts, evidenceFactVocabulary, maxFacts, true); err != nil {
++		return Evidence{}, err
++	}
++	realm, err := parseRealmMembers(object, capability)
++	if err != nil {
++		return Evidence{}, err
++	}
++	if err := checkExtensions(object); err != nil {
++		return Evidence{}, err
++	}
++	return Evidence{
++		EvidenceID:              evidenceID,
++		TerminalBackendID:       backendID,
++		ImplementationVersion:   implementationVersion,
++		ProtocolVersion:         protocolVersion,
++		BackendGenerationDigest: generationDigest,
++		Capability:              capability,
++		Platform:                platform,
++		OSVersion:               osVersion,
++		ConformanceFixtureID:    fixtureID,
++		ObservedAt:              observedAt,
++		ExpiresAt:               expiresAt,
++		Issuer:                  issuer,
++		IssuerID:                issuerID,
++		AttestationSignature:    signature,
++		Facts:                   facts,
++		TerminalBindingID:       realm.bindingID,
++		ProviderID:              realm.providerID,
++		ProviderBuild:           realm.providerBuild,
++		SentinelResult:          realm.sentinelResult,
++		ProviderAuthSmokeResult: realm.smokeResult,
++	}, nil
++}
++
++// parseAttestationSignature structurally decodes the rsa-sha256: plus Base64
++// RFC 4648 attestation signature. Decoding success is not validity.
++func parseAttestationSignature(object map[string]any) ([]byte, error) {
++	encoded, err := stringMember(object, "attestation_signature")
++	if err != nil {
++		return nil, err
++	}
++	raw, found := strings.CutPrefix(encoded, signatureSchemePrefix)
++	if !found || raw == "" {
++		return nil, mismatchf("evidence signature scheme")
++	}
++	signature, err := base64.StdEncoding.DecodeString(raw)
++	if err != nil || len(signature) == 0 {
++		return nil, mismatchf("evidence signature encoding")
++	}
++	return signature, nil
++}
++
++// realmMembers carries the credential-realm conditional members.
++type realmMembers struct {
++	bindingID      string
++	providerID     string
++	providerBuild  string
++	sentinelResult string
++	smokeResult    string
++}
++
++// parseRealmMembers enforces the credential-realm conditional shape: the
++// binding digest, provider ID/build, sentinel, and smoke members are
++// required exactly for credential_capable_execution_realm and null
++// otherwise. A realm claim proved by realm-less evidence (or realm evidence
++// attached to any other claim) is malformed.
++func parseRealmMembers(object map[string]any, capability string) (realmMembers, error) {
++	isRealm := capability == credentialRealmCapability
++	bindingID, err := digestOrNullMember(object, "terminal_binding_id")
++	if err != nil {
++		return realmMembers{}, err
++	}
++	providerID, providerBuild, err := parseRealmProvider(object)
++	if err != nil {
++		return realmMembers{}, err
++	}
++	sentinelResult, err := parseRealmLiteral(object, "sentinel_result")
++	if err != nil {
++		return realmMembers{}, err
++	}
++	smokeResult, err := parseRealmLiteral(object, "provider_auth_smoke_result")
++	if err != nil {
++		return realmMembers{}, err
++	}
++	if isRealm {
++		if bindingID == "" || providerID == "" || providerBuild == "" ||
++			sentinelResult == "" || smokeResult == "" {
++			return realmMembers{}, mismatchf("evidence realm binding")
++		}
++	} else if bindingID != "" || providerID != "" || providerBuild != "" ||
++		sentinelResult != "" || smokeResult != "" {
++		return realmMembers{}, mismatchf("evidence realm binding")
++	}
++	return realmMembers{
++		bindingID:      bindingID,
++		providerID:     providerID,
++		providerBuild:  providerBuild,
++		sentinelResult: sentinelResult,
++		smokeResult:    smokeResult,
++	}, nil
++}
++
++// GenerationDigest binds a backend's host-local raw generation to its
++// advertisable digest: SHA-256 over the UTF-8 domain separator followed by
++// the raw generation bytes (§4.B). The raw generation is a string[1..256]
++// in bytes over valid UTF-8; anything else (including empty, which would
++// make every backend share one digest) is CodeStaleGeneration, never a
++// derived value.
++func GenerationDigest(rawGeneration string) (string, error) {
++	if !utf8.ValidString(rawGeneration) || len(rawGeneration) < 1 || len(rawGeneration) > maxGenerationBytes {
++		return "", &Error{Code: CodeStaleGeneration, Detail: "backend_generation bound"}
++	}
++	material := append([]byte(generationDigestDomain), rawGeneration...)
++	sum := sha256.Sum256(material)
++	return "sha256:" + hex.EncodeToString(sum[:]), nil
++}
++
++// SignatureVerifier verifies one evidence attestation signature. issuerID is
++// the evidence issuer_id, message the domain-separated canonical bytes from
++// UnsignedEvidenceBytes, and signature the decoded attestation bytes. A nil
++// return authenticates through the caller's trusted release or
++// host-incarnation key registry; any error (unknown key, invalid signature,
++// registry failure) fails closed. A nil verifier admits nothing.
++type SignatureVerifier func(issuerID string, message, signature []byte) error
++
++// integrityFailure refuses with CodeIntegrityFailure and a static detail.
++func integrityFailure(detail string) *Error {
++	return &Error{Code: CodeIntegrityFailure, Detail: detail}
++}
++
++// UnsignedEvidenceBytes rebuilds the exact bytes an attestation signs: ASCII
++// evidenceSignatureDomain, one zero byte, and the RFC 8785 JCS bytes of the
++// evidence object with exactly evidence_id and attestation_signature
++// omitted (§4.D). Timestamps reuse their validated source spellings so the
++// rebuilt bytes match what the issuer signed.
++func UnsignedEvidenceBytes(evidence Evidence) ([]byte, error) {
++	object := map[string]any{
++		"schema":                     SchemaCapabilityEvidence,
++		"schema_version":             SchemaVersion100,
++		"terminal_backend_id":        evidence.TerminalBackendID,
++		"implementation_version":     evidence.ImplementationVersion,
++		"protocol_version":           evidence.ProtocolVersion,
++		"backend_generation_digest":  evidence.BackendGenerationDigest,
++		"capability":                 evidence.Capability,
++		"value":                      true,
++		"platform":                   evidence.Platform.String(),
++		"os_version":                 evidence.OSVersion,
++		"conformance_fixture_id":     evidence.ConformanceFixtureID,
++		"observed_at":                evidence.ObservedAt.String(),
++		"expires_at":                 evidence.ExpiresAt.String(),
++		"issuer":                     evidence.Issuer,
++		"issuer_id":                  evidence.IssuerID,
++		"facts":                      stringsToValues(evidence.Facts),
++		"terminal_binding_id":        nullableDigest(evidence.TerminalBindingID),
++		"provider_id":                nullableString(evidence.ProviderID),
++		"provider_build":             nullableString(evidence.ProviderBuild),
++		"sentinel_result":            nullableString(evidence.SentinelResult),
++		"provider_auth_smoke_result": nullableString(evidence.ProviderAuthSmokeResult),
++		"extensions":                 map[string]any{},
++	}
++	serialized, err := json.Marshal(object)
++	if err != nil {
++		return nil, integrityFailure("evidence canonical bytes")
++	}
++	canonical, err := jcs.Transform(serialized)
++	if err != nil {
++		return nil, integrityFailure("evidence canonical bytes")
++	}
++	message := append([]byte(evidenceSignatureDomain), 0x00)
++	return append(message, canonical...), nil
++}
++
++// stringsToValues converts a string list to JSON values.
++func stringsToValues(values []string) []any {
++	members := make([]any, 0, len(values))
++	for _, value := range values {
++		members = append(members, value)
++	}
++	return members
++}
++
++// nullableDigest renders an empty digest as JSON null.
++func nullableDigest(value string) any {
++	if value == "" {
++		return nil
++	}
++	return value
++}
++
++// nullableString renders an empty string as JSON null.
++func nullableString(value string) any {
++	if value == "" {
++		return nil
++	}
++	return value
++}
++
++// Admitted is the reconciled capability set for one Manifest/Probe tuple:
++// every true probe claim with generation-bound, unexpired, signature-valid
++// evidence covering all its requirements. Capabilities holds the sorted
++// admitted true-claim names; EvidenceIDs holds the sorted IDs of the
++// evidence objects that proved them.
++type Admitted struct {
++	Capabilities []string
++	EvidenceIDs  []string
++}
++
++// Has reports whether capability is an admitted true claim.
++func (admitted Admitted) Has(capability string) bool {
++	for _, member := range admitted.Capabilities {
++		if member == capability {
++			return true
++		}
++	}
++	return false
++}
++
++// HasOperation reports whether any admitted true capability confers the
++// operation through its registry dependent_operations.
++func (admitted Admitted) HasOperation(operation string) bool {
++	for _, capability := range admitted.Capabilities {
++		row, known := capabilityRegistry[capability]
++		if !known {
++			continue
++		}
++		for _, conferred := range row.dependentOperations {
++			if conferred == operation {
++				return true
++			}
++		}
++	}
++	return false
++}
++
++// CapabilitiesForOperation returns the sorted registry capabilities whose
++// dependent_operations confer the operation. manifest and probe confer
++// through no capability and return an empty set: they carry no capability
++// dependency. An unknown operation is refused: the operation vocabulary is
++// closed.
++func CapabilitiesForOperation(operation string) ([]string, error) {
++	if !operationVocabulary[operation] {
++		return nil, mismatchf("operation vocabulary")
++	}
++	var capabilities []string
++	for capability, row := range capabilityRegistry {
++		for _, conferred := range row.dependentOperations {
++			if conferred == operation {
++				capabilities = append(capabilities, capability)
++				break
++			}
++		}
++	}
++	return capabilities, nil
++}
++
++// CheckOperation gates one operation against the admitted set. manifest and
++// probe carry no capability dependency (§4.D): they are admitted for any
++// admitted set, including the empty one. Every other operation must be in
++// the closed vocabulary and conferred by at least one admitted true
++// capability, or it is refused with CodeCapabilityUnproven. Conditional §4.C
++// dependencies (interactivity, credential need, attach overlap, provider
++// observation) are evaluated by the lifecycle owner at the operation call
++// site; this gate proves only the capability-confers-operation half, which
++// is the bound this file owns.
++func CheckOperation(operation string, admitted Admitted) error {
++	if !operationVocabulary[operation] {
++		return mismatchf("operation vocabulary")
++	}
++	if operation == "manifest" || operation == "probe" {
++		return nil
++	}
++	if !admitted.HasOperation(operation) {
++		return &Error{Code: CodeCapabilityUnproven, Detail: "operation capability dependency"}
++	}
++	return nil
++}
++
++// Reconcile admits one Probe against its Manifest with the returned
++// evidence set, binding everything to the AX-known raw generation and the
++// admission instant (§4.B keyed relation, §4.D evidence binding). The check
++// order is deterministic: identity equality, protocol/platform membership,
++// generation binding, claim relation, per-object evidence usability
++// (tuple binding, liveness, signature), per-claim requirement coverage,
++// then the exact evidence_ids set rule. The first failure wins; every
++// failure fails closed before activation.
++//
++// Each supplied evidence object must independently prove its named claim:
++// split-facts evidence (requirement coverage spread across several objects,
++// none sufficient alone) is refused. That reading follows the singular
++// rule-5 phrasing ("Capability Evidence ... satisfies every listed evidence
++// requirement") and is stated here as the bound.
++func Reconcile(manifest Manifest, probe Probe, evidence []Evidence, rawGeneration string, now time.Time, verify SignatureVerifier) (Admitted, error) {
++	if verify == nil {
++		return Admitted{}, integrityFailure("evidence signature verifier")
++	}
++	if err := checkProbeIdentity(manifest, probe); err != nil {
++		return Admitted{}, err
++	}
++	if err := checkProbeMembership(manifest, probe); err != nil {
++		return Admitted{}, err
++	}
++	if err := checkProbeGeneration(probe, rawGeneration); err != nil {
++		return Admitted{}, err
++	}
++	manifestClaims := indexClaims(manifest.StaticCapabilityClaims)
++	if err := checkClaimRelation(manifestClaims, probe.CapabilityClaims); err != nil {
++		return Admitted{}, err
++	}
++	probeClaims := indexClaims(probe.CapabilityClaims)
++	used, err := checkEvidenceSet(manifest, probe, probeClaims, evidence, now, verify)
++	if err != nil {
++		return Admitted{}, err
++	}
++	if err := checkEvidenceCoverage(probeClaims, used); err != nil {
++		return Admitted{}, err
++	}
++	if err := checkEvidenceIDs(probe, used); err != nil {
++		return Admitted{}, err
++	}
++	return admitCapabilities(probeClaims, used), nil
++}
++
++// checkProbeIdentity enforces the §4.B identity equalities. Executable
++// substitution additionally maps to the more specific untrusted code.
++func checkProbeIdentity(manifest Manifest, probe Probe) error {
++	if probe.TerminalBackendID != manifest.TerminalBackendID ||
++		probe.ImplementationVersion != manifest.ImplementationVersion ||
++		probe.ImplementationKind != manifest.ImplementationKind {
++		return mismatchf("probe manifest binding")
++	}
++	// The backend IDs are already equal here (refused above), so a digest
++	// difference is always a substitution of the admitted executable: it
++	// is untrusted, never a plain mismatch.
++	if probe.ExecutableDigest != manifest.ExecutableDigest {
++		return &Error{Code: CodeUntrusted, BackendID: probe.TerminalBackendID, Detail: "executable substitution"}
++	}
++	return nil
++}
++
++// checkProbeMembership enforces array-to-scalar selection as membership:
++// the probe protocol version must be exactly one Manifest member and the
++// probe platform exactly one Manifest platform member.
++func checkProbeMembership(manifest Manifest, probe Probe) error {
++	member := false
++	for _, version := range manifest.ProtocolVersions {
++		if probe.ProtocolVersion == version {
++			member = true
++			break
++		}
++	}
++	if !member {
++		return mismatchf("probe protocol membership")
++	}
++	for _, platform := range manifest.Platforms {
++		if probe.Platform == platform {
++			return nil
++		}
++	}
++	return mismatchf("probe platform membership")
++}
++
++// checkProbeGeneration binds the probe to the AX-known raw generation. A
++// digest mismatch (or an underivable raw generation, including empty, which
++// would make every backend share one digest) is stale, never a retry hint.
++func checkProbeGeneration(probe Probe, rawGeneration string) error {
++	digest, err := GenerationDigest(rawGeneration)
++	if err != nil {
++		return err
++	}
++	if digest != probe.BackendGenerationDigest {
++		return &Error{Code: CodeStaleGeneration, BackendID: probe.TerminalBackendID, Detail: "probe generation binding"}
++	}
++	return nil
++}
++
++// indexClaims keys validated claims by capability. The validated lists are
++// duplicate-free, so the index cannot collide.
++func indexClaims(claims []Claim) map[string]Claim {
++	indexed := make(map[string]Claim, len(claims))
++	for _, claim := range claims {
++		indexed[claim.Capability] = claim
++	}
++	return indexed
++}
++
++// checkClaimRelation enforces the complete §4.B keyed relation between the
++// Manifest static claims M and the Probe claims P.
++func checkClaimRelation(manifest map[string]Claim, probe []Claim) error {
++	for _, proved := range probe {
++		capability := proved.Capability
++		static, exists := manifest[capability]
++		switch {
++		case proved.Origin == OriginStatic && !exists:
++			return mismatchf("probe static claim without manifest")
++		case proved.Origin == OriginStatic:
++			if !equalClaim(proved, static) {
++				return mismatchf("probe static claim echo")
++			}
++		case exists && !static.GenerationVariable:
++			return mismatchf("probe override of stable claim")
++		case exists:
++			if proved.GenerationVariable != static.GenerationVariable ||
++				!equalStrings(proved.DependentOperations, static.DependentOperations) ||
++				!equalStrings(proved.EvidenceRequirements, static.EvidenceRequirements) {
++				return mismatchf("probe override registry binding")
++			}
++		default:
++			row := capabilityRegistry[proved.Capability]
++			if proved.GenerationVariable != row.generationVariable ||
++				!equalStrings(proved.DependentOperations, row.dependentOperations) ||
++				!equalStrings(proved.EvidenceRequirements, row.evidenceRequirements) {
++				return mismatchf("probe addition registry binding")
++			}
++		}
++	}
++	for capability := range manifest {
++		if _, present := indexProbeCapability(probe, capability); !present {
++			return mismatchf("probe omission of manifest claim")
++		}
++	}
++	return nil
++}
++
++// indexProbeCapability reports whether the probe lists the capability. The
++// probe list is validated duplicate-free, so presence is unambiguous.
++func indexProbeCapability(probe []Claim, capability string) (Claim, bool) {
++	for _, claim := range probe {
++		if claim.Capability == capability {
++			return claim, true
++		}
++	}
++	return Claim{}, false
++}
++
++// checkEvidenceSet validates every supplied evidence object: it must name a
++// present true probe claim, bind to this exact Manifest/Probe tuple, be
++// live at now, and carry a valid attestation signature. Expired,
++// wrong-generation, dangling, or otherwise unusable evidence refuses the
++// whole reconciliation (§4.B); a forged or unverifiable signature is an
++// integrity failure. The returned objects are the usable set that coverage
++// and ID-set checks consume.
++func checkEvidenceSet(manifest Manifest, probe Probe, probeClaims map[string]Claim, evidence []Evidence, now time.Time, verify SignatureVerifier) ([]Evidence, error) {
++	used := make([]Evidence, 0, len(evidence))
++	seen := make(map[string]Evidence, len(evidence))
++	for _, object := range evidence {
++		claim, present := probeClaims[object.Capability]
++		if !present || !claim.Value {
++			return nil, mismatchf("evidence claim binding")
++		}
++		if err := checkEvidenceTuple(manifest, probe, object); err != nil {
++			return nil, err
++		}
++		if err := checkEvidenceLiveness(object, now); err != nil {
++			return nil, err
++		}
++		if previous, duplicate := seen[object.EvidenceID]; duplicate {
++			if !equalEvidence(previous, object) {
++				return nil, mismatchf("conflicting evidence")
++			}
++			continue
++		}
++		seen[object.EvidenceID] = object
++		if err := checkEvidenceSignature(object, verify); err != nil {
++			return nil, err
++		}
++		used = append(used, object)
++	}
++	return used, nil
++}
++
++// equalEvidence reports whether two evidence objects with the same ID carry
++// identical members. Same-ID differing-bytes objects are conflicting
++// evidence and invalidate the whole Probe.
++func equalEvidence(left, right Evidence) bool {
++	if left.TerminalBackendID != right.TerminalBackendID ||
++		left.ImplementationVersion != right.ImplementationVersion ||
++		left.ProtocolVersion != right.ProtocolVersion ||
++		left.BackendGenerationDigest != right.BackendGenerationDigest ||
++		left.Capability != right.Capability ||
++		left.Platform != right.Platform ||
++		left.OSVersion != right.OSVersion ||
++		left.ConformanceFixtureID != right.ConformanceFixtureID ||
++		left.ObservedAt.String() != right.ObservedAt.String() ||
++		left.ExpiresAt.String() != right.ExpiresAt.String() ||
++		left.Issuer != right.Issuer ||
++		left.IssuerID != right.IssuerID ||
++		!equalStrings(left.Facts, right.Facts) ||
++		left.TerminalBindingID != right.TerminalBindingID ||
++		left.ProviderID != right.ProviderID ||
++		left.ProviderBuild != right.ProviderBuild ||
++		left.SentinelResult != right.SentinelResult ||
++		left.ProviderAuthSmokeResult != right.ProviderAuthSmokeResult {
++		return false
++	}
++	return bytes.Equal(left.AttestationSignature, right.AttestationSignature)
++}
++
++// checkEvidenceTuple binds one evidence object to this exact Manifest/Probe
++// tuple: backend, versions, generation digest, platform, os_version, and
++// the Manifest conformance fixture must all match.
++func checkEvidenceTuple(manifest Manifest, probe Probe, object Evidence) error {
++	if object.TerminalBackendID != probe.TerminalBackendID ||
++		object.ImplementationVersion != probe.ImplementationVersion ||
++		object.ProtocolVersion != probe.ProtocolVersion ||
++		object.BackendGenerationDigest != probe.BackendGenerationDigest ||
++		object.Platform != probe.Platform ||
++		object.OSVersion != probe.OSVersion ||
++		object.ConformanceFixtureID != manifest.ConformanceFixtureID {
++		return mismatchf("evidence tuple binding")
++	}
++	return nil
++}
++
++// checkEvidenceLiveness requires observed_at <= now < expires_at. Future
++// observed instants and expired objects are both unusable: the former is
++// not yet proof, the latter no longer is.
++func checkEvidenceLiveness(object Evidence, now time.Time) error {
++	observed, err := object.ObservedAt.Time()
++	if err != nil {
++		return mismatchf("document timestamp")
++	}
++	expires, err := object.ExpiresAt.Time()
++	if err != nil {
++		return mismatchf("document timestamp")
++	}
++	if observed.After(now) || !now.Before(expires) {
++		return mismatchf("evidence liveness")
++	}
++	return nil
++}
++
++// checkEvidenceSignature verifies the attestation through the caller's
++// trusted key registry. Missing, unknown-key, or invalid signatures fail
++// closed before capability admission; a caller-supplied issuer ID alone is
++// never authentication.
++func checkEvidenceSignature(object Evidence, verify SignatureVerifier) error {
++	message, err := UnsignedEvidenceBytes(object)
++	if err != nil {
++		return err
++	}
++	if err := verify(object.IssuerID, message, object.AttestationSignature); err != nil {
++		return integrityFailure("evidence attestation")
++	}
++	return nil
++}
++
++// checkEvidenceCoverage requires every true probe claim to hold at least
++// one usable evidence object whose facts cover every listed requirement
++// through the requirement-to-fact mapping. False claims need no evidence
++// and take none: evidence for a false claim was already refused as
++// unbound in checkEvidenceSet.
++func checkEvidenceCoverage(probeClaims map[string]Claim, used []Evidence) error {
++	byCapability := make(map[string][]Evidence, len(used))
++	for _, object := range used {
++		byCapability[object.Capability] = append(byCapability[object.Capability], object)
++	}
++	for capability, claim := range probeClaims {
++		if !claim.Value {
++			continue
++		}
++		covered := false
++		for _, object := range byCapability[capability] {
++			if factsCover(object.Facts, claim.EvidenceRequirements) {
++				covered = true
++				break
++			}
++		}
++		if !covered {
++			return mismatchf("evidence requirement coverage")
++		}
++	}
++	return nil
++}
++
++// factsCover reports whether the fact set satisfies every listed
++// requirement through the requirement-to-fact mapping. Supplementary facts
++// (ui_absent, prompt_absent) never satisfy a requirement alone.
++func factsCover(facts []string, requirements []string) bool {
++	held := make(map[string]bool, len(facts))
++	for _, fact := range facts {
++		held[fact] = true
++	}
++	for _, requirement := range requirements {
++		if !held[requirementFact[requirement]] {
++			return false
++		}
++	}
++	return true
++}
++
++// checkEvidenceIDs enforces the exact rule-6 set equality: evidence_ids
++// must be exactly the sorted unique IDs of the usable evidence objects.
++// Dangling IDs, unlisted usable objects, and ordering deviations all fail.
++func checkEvidenceIDs(probe Probe, used []Evidence) error {
++	want := make([]string, 0, len(used))
++	for _, object := range used {
++		want = append(want, object.EvidenceID)
++	}
++	for index := range want {
++		for next := index + 1; next < len(want); next++ {
++			if want[next] < want[index] {
++				want[index], want[next] = want[next], want[index]
++			}
++		}
++	}
++	if !equalStrings(probe.EvidenceIDs, want) {
++		return mismatchf("evidence id set binding")
++	}
++	return nil
++}
++
++// admitCapabilities collects the sorted admitted true-claim names and the
++// sorted evidence IDs that proved them.
++func admitCapabilities(probeClaims map[string]Claim, used []Evidence) Admitted {
++	var capabilities []string
++	for capability, claim := range probeClaims {
++		if claim.Value {
++			capabilities = append(capabilities, capability)
++		}
++	}
++	for index := range capabilities {
++		for next := index + 1; next < len(capabilities); next++ {
++			if capabilities[next] < capabilities[index] {
++				capabilities[index], capabilities[next] = capabilities[next], capabilities[index]
++			}
++		}
++	}
++	evidenceIDs := make([]string, 0, len(used))
++	for _, object := range used {
++		evidenceIDs = append(evidenceIDs, object.EvidenceID)
++	}
++	for index := range evidenceIDs {
++		for next := index + 1; next < len(evidenceIDs); next++ {
++			if evidenceIDs[next] < evidenceIDs[index] {
++				evidenceIDs[index], evidenceIDs[next] = evidenceIDs[next], evidenceIDs[index]
++			}
++		}
++	}
++	return Admitted{Capabilities: capabilities, EvidenceIDs: evidenceIDs}
++}
++
++// AdmitProbe is the registry-bound production admission: it parses the
++// Manifest, resolves the backend through the admitted registry (unknown
++// identities fail closed, never default), binds the Manifest identity tuple
++// to the admitted record, then reconciles the Probe with its evidence set.
++// Trust is established before any probe: registration-time trust admission
++// owns executables, and this gate additionally refuses executable
++// substitution as untrusted and any other identity drift as drift.
++//
++// rawGeneration is the AX-known current raw generation for the backend;
++// now is the admission instant; verify authenticates evidence through the
++// trusted key registry and must be non-nil.
++func (registry *Registry) AdmitProbe(manifestRaw, probeRaw []byte, evidenceRaws [][]byte, rawGeneration string, now time.Time, verify SignatureVerifier) (Admitted, error) {
++	if registry == nil {
++		return Admitted{}, &Error{Code: CodeNotFound, Detail: "registry unavailable"}
++	}
++	manifest, err := ParseManifest(manifestRaw)
++	if err != nil {
++		return Admitted{}, err
++	}
++	record, err := registry.Resolve(manifest.TerminalBackendID)
++	if err != nil {
++		return Admitted{}, err
++	}
++	if err := checkManifestRecordBinding(manifest, record); err != nil {
++		return Admitted{}, err
++	}
++	probe, err := ParseProbe(probeRaw)
++	if err != nil {
++		return Admitted{}, err
++	}
++	evidence := make([]Evidence, 0, len(evidenceRaws))
++	for _, raw := range evidenceRaws {
++		object, err := ParseEvidence(raw)
++		if err != nil {
++			return Admitted{}, err
++		}
++		evidence = append(evidence, object)
++	}
++	return Reconcile(manifest, probe, evidence, rawGeneration, now, verify)
++}
++
++// checkManifestRecordBinding binds the Manifest identity tuple to the
++// admitted registry record: implementation version, protocol set, platform
++// set, and kind must match member-for-member, and the executable digest
++// must match exactly. Any version/kind/platform drift is drift; an
++// executable substitution is untrusted.
++func checkManifestRecordBinding(manifest Manifest, record Registration) error {
++	if manifest.ImplementationVersion != record.ImplementationVersion ||
++		manifest.ImplementationKind != record.Kind ||
++		!equalStrings(manifest.ProtocolVersions, record.ProtocolVersions) ||
++		!equalPlatforms(manifest.Platforms, record.Platforms) {
++		return &Error{Code: CodeDrift, BackendID: manifest.TerminalBackendID, Detail: "manifest implementation drift"}
++	}
++	if manifest.ExecutableDigest != record.ExecutableDigest {
++		return &Error{Code: CodeUntrusted, BackendID: manifest.TerminalBackendID, Detail: "executable substitution"}
++	}
++	return nil
++}
++
++// equalPlatforms reports element-wise equality of two platform lists. Both
++// lists are validated sorted unique, so order is significant.
++func equalPlatforms(left, right []scalar.Platform) bool {
++	if len(left) != len(right) {
++		return false
++	}
++	for index := range left {
++		if left[index] != right[index] {
++			return false
++		}
++	}
++	return true
++}
++
++// parseRealmProvider validates the provider_id/provider_build pair: null or
++// a provider-id grammar value plus a string[1..256] build.
++func parseRealmProvider(object map[string]any) (string, string, error) {
++	rawID, known := object["provider_id"]
++	if !known {
++		return "", "", mismatchf("document members")
++	}
++	providerID := ""
++	if rawID != nil {
++		name, ok := rawID.(string)
++		if !ok {
++			return "", "", mismatchf("document member type")
++		}
++		if _, err := scalar.ParseProviderID(name); err != nil {
++			return "", "", mismatchf("evidence provider identity")
++		}
++		providerID = name
++	}
++	rawBuild, known := object["provider_build"]
++	if !known {
++		return "", "", mismatchf("document members")
++	}
++	providerBuild := ""
++	if rawBuild != nil {
++		build, ok := rawBuild.(string)
++		if !ok {
++			return "", "", mismatchf("document member type")
++		}
++		if !utf8.ValidString(build) || len(build) < 1 || len(build) > maxOpaqueString {
++			return "", "", mismatchf("document string bound")
++		}
++		providerBuild = build
++	}
++	if (providerID == "") != (providerBuild == "") {
++		return "", "", mismatchf("evidence realm binding")
++	}
++	return providerID, providerBuild, nil
++}
++
++// parseRealmLiteral validates a literal passed|null realm member.
++func parseRealmLiteral(object map[string]any, name string) (string, error) {
++	raw, known := object[name]
++	if !known {
++		return "", mismatchf("document members")
++	}
++	if raw == nil {
++		return "", nil
++	}
++	value, ok := raw.(string)
++	if !ok || value != "passed" {
++		return "", mismatchf("evidence realm result")
++	}
++	return value, nil
++}
+diff --git a/internal/terminalbackend/manifest_pin_test.go b/internal/terminalbackend/manifest_pin_test.go
+new file mode 100644
+index 0000000..8a1c6bc
+--- /dev/null
++++ b/internal/terminalbackend/manifest_pin_test.go
+@@ -0,0 +1,494 @@
++// White-box pins for reconciliation arms no document can deliver an input
++// to. Parse enforces registry-row equality for every claim (a Manifest or
++// Probe cannot redefine a row), so a drifted override or addition fails at
++// the document gate before Reconcile runs; likewise, same-ID
++// differing-bytes evidence cannot pass parsing because the ID is a hash of
++// the bytes. These arms are measured here, at the guard, with typed values
++// mutated after parsing, rather than left as prose; the reachability bound
++// is stated, not inferred.
++package terminalbackend
++
++import (
++	"encoding/json"
++	"errors"
++	"sort"
++	"testing"
++	"time"
++)
++
++// pinVerifier accepts every attestation: signature validity is owned by the
++// black-box suite with real cryptography, and these pins must not depend
++// on it.
++func pinVerifier(issuerID string, message, signature []byte) error { return nil }
++
++// requirePinRefusal asserts the exact refusal clause, for the same reason
++// the black-box suite names its arms: most gates share one wire code, so a
++// code-only pin cannot hold the gate it names.
++func requirePinRefusal(t *testing.T, err error, wantCode, wantDetail string) {
++	t.Helper()
++
++	var refusal *Error
++	if !errors.As(err, &refusal) {
++		t.Fatalf("error = %v, want *Error with code %q at %q", err, wantCode, wantDetail)
++	}
++	if refusal.Code != wantCode || refusal.Detail != wantDetail {
++		t.Errorf("refusal = %q at %q, want %q at %q", refusal.Code, refusal.Detail, wantCode, wantDetail)
++	}
++}
++
++// TestReconcileRefusesDriftedOverride pins the override registry-binding
++// arm: a probed override of a variable claim whose row members drift from
++// the manifest row is refused, even though Parse would already refuse the
++// document carrying it.
++func TestReconcileRefusesDriftedOverride(t *testing.T) {
++	t.Parallel()
++
++	manifest, probe, evidence := validReconcileTriple(t)
++	for index := range probe.CapabilityClaims {
++		if probe.CapabilityClaims[index].Capability == "headless_creation" {
++			probe.CapabilityClaims[index].DependentOperations = []string{"create", "status"}
++		}
++	}
++	_, err := Reconcile(manifest, probe, evidence, "generation-alpha", testAdmissionTime(), pinVerifier)
++	requirePinRefusal(t, err, CodeMismatch, "probe override registry binding")
++}
++
++// TestReconcileRefusesDriftedAddition pins the addition registry-binding
++// arm: a probed addition whose row members drift from the closed registry
++// row is refused, even though Parse would already refuse the document.
++func TestReconcileRefusesDriftedAddition(t *testing.T) {
++	t.Parallel()
++
++	manifest, probe, evidence := validReconcileTriple(t)
++	for index := range probe.CapabilityClaims {
++		if probe.CapabilityClaims[index].Capability == "graceful_stop" {
++			probe.CapabilityClaims[index].EvidenceRequirements = []string{"conformance_fixture"}
++		}
++	}
++	_, err := Reconcile(manifest, probe, evidence, "generation-alpha", testAdmissionTime(), pinVerifier)
++	requirePinRefusal(t, err, CodeMismatch, "probe addition registry binding")
++}
++
++// TestReconcileRefusesConflictingEvidence pins the same-ID conflict arm:
++// two evidence objects sharing an ID but carrying different facts
++// invalidate the whole probe. This input cannot arrive through Parse
++// (identical IDs over different bytes fail the identity recomputation),
++// so it is constructed at the typed level.
++func TestReconcileRefusesConflictingEvidence(t *testing.T) {
++	t.Parallel()
++
++	manifest, probe, evidence := validReconcileTriple(t)
++	twin := evidence[0]
++	twin.Facts = []string{"fixture_passed", "runtime_probe_passed", "ui_absent"}
++	evidence = append(evidence, twin)
++	_, err := Reconcile(manifest, probe, evidence, "generation-alpha", testAdmissionTime(), pinVerifier)
++	requirePinRefusal(t, err, CodeMismatch, "conflicting evidence")
++}
++
++// TestIdenticalDuplicateEvidenceDeduped pins the stated dedup bound: an
++// evidence object supplied twice byte-for-byte contributes its ID once and
++// admits. (Attestation signatures are deterministic for one key and
++// message, so identical documents are genuinely identical inputs, not two
++// observations.) Same-ID differing-bytes input stays refused above.
++func TestIdenticalDuplicateEvidenceDeduped(t *testing.T) {
++	t.Parallel()
++
++	manifest, probe, evidence := validReconcileTriple(t)
++	evidence = append(evidence, evidence[0], evidence[1])
++	admitted, err := Reconcile(manifest, probe, evidence, "generation-alpha", testAdmissionTime(), pinVerifier)
++	if err != nil {
++		t.Fatalf("Reconcile() error = %v", err)
++	}
++	if len(admitted.EvidenceIDs) != 2 {
++		t.Errorf("EvidenceIDs = %v, want 2 deduplicated IDs", admitted.EvidenceIDs)
++	}
++}
++
++// TestReconcileRefusesExecutableSubstitution pins the digest-identity arm:
++// a probe whose executable digest differs from the manifest member is
++// untrusted, even though both documents parse (each is valid against its
++// own kind rule). Parse cannot see across documents, so this arm is
++// reachable only here and in production admission.
++func TestReconcileRefusesExecutableSubstitution(t *testing.T) {
++	t.Parallel()
++
++	manifest, probe, evidence := validExternalPinTriple(t)
++	probe.ExecutableDigest = testPinDigest(0xE6)
++	_, err := Reconcile(manifest, probe, evidence, "generation-alpha", testAdmissionTime(), pinVerifier)
++	requirePinRefusal(t, err, CodeUntrusted, "executable substitution")
++}
++
++// TestParsedClaimSlicesShareNoRegistryBacking pins the interior-isolation
++// half of the closed capability registry. Claim DependentOperations and
++// EvidenceRequirements are the only exported slices on the new surface
++// that could alias the package-wide capabilityRegistry rows, so the pin
++// scribbles on every parsed claim slice and then re-reads the interior:
++// the rows themselves, a registry-derived query, and a fresh admission.
++// A parseClaim that returned the row slices directly would rewrite the
++// process-wide registry here while every code-only test stayed green.
++func TestParsedClaimSlicesShareNoRegistryBacking(t *testing.T) {
++	t.Parallel()
++
++	manifest, probe, _ := validReconcileTriple(t)
++
++	before := make(map[string]capabilityRow, len(capabilityRegistry))
++	for capability, row := range capabilityRegistry {
++		before[capability] = capabilityRow{
++			generationVariable:   row.generationVariable,
++			dependentOperations:  append([]string{}, row.dependentOperations...),
++			evidenceRequirements: append([]string{}, row.evidenceRequirements...),
++		}
++	}
++	beforeCreate, err := CapabilitiesForOperation("create")
++	if err != nil {
++		t.Fatalf("CapabilitiesForOperation(create) error = %v", err)
++	}
++	sort.Strings(beforeCreate)
++
++	poison := func(claims []Claim) {
++		for index := range claims {
++			for element := range claims[index].DependentOperations {
++				claims[index].DependentOperations[element] = "REVIEW-POISON"
++			}
++			for element := range claims[index].EvidenceRequirements {
++				claims[index].EvidenceRequirements[element] = "REVIEW-POISON"
++			}
++		}
++	}
++	poison(manifest.StaticCapabilityClaims)
++	poison(probe.CapabilityClaims)
++
++	for capability, row := range capabilityRegistry {
++		want := before[capability]
++		if row.generationVariable != want.generationVariable ||
++			!equalStrings(row.dependentOperations, want.dependentOperations) ||
++			!equalStrings(row.evidenceRequirements, want.evidenceRequirements) {
++			t.Errorf("capabilityRegistry[%q] = %+v after claim mutation, want %+v", capability, row, want)
++		}
++	}
++	afterCreate, err := CapabilitiesForOperation("create")
++	if err != nil {
++		t.Fatalf("CapabilitiesForOperation(create) error = %v", err)
++	}
++	sort.Strings(afterCreate)
++	if !equalStrings(afterCreate, beforeCreate) {
++		t.Errorf("CapabilitiesForOperation(create) = %v after claim mutation, want %v", afterCreate, beforeCreate)
++	}
++
++	freshManifest, freshProbe, freshEvidence := validReconcileTriple(t)
++	admitted, err := Reconcile(freshManifest, freshProbe, freshEvidence, "generation-alpha", testAdmissionTime(), pinVerifier)
++	if err != nil {
++		t.Fatalf("Reconcile() after claim mutation error = %v", err)
++	}
++	if len(admitted.Capabilities) != 2 || !admitted.Has("graceful_stop") || !admitted.Has("headless_creation") {
++		t.Errorf("Admitted = %v after claim mutation, want graceful_stop and headless_creation", admitted.Capabilities)
++	}
++}
++
++// validExternalPinTriple is the external-kind variant of the pin triple:
++// local_program with a digest, one static realm claim echoed by probe,
++// proven by realm evidence.
++func validExternalPinTriple(t *testing.T) (Manifest, Probe, []Evidence) {
++	t.Helper()
++
++	generation, err := GenerationDigest("generation-alpha")
++	if err != nil {
++		t.Fatalf("GenerationDigest() error = %v", err)
++	}
++	digest := testPinDigest(0xE5)
++	fixture := testPinDigest(0xF1)
++	issuer := testPinDigest(0x1D)
++
++	manifest := map[string]any{
++		"schema":                 SchemaManifest,
++		"schema_version":         SchemaVersion100,
++		"manifest_id":            "",
++		"terminal_backend_id":    "example.term",
++		"implementation_version": "2.1.0",
++		"protocol_versions":      []any{"1.0.0"},
++		"platforms":              []any{"linux"},
++		"implementation_kind":    "local_program",
++		"executable_digest":      digest,
++		"static_capability_claims": []any{
++			pinRealmClaim(OriginStatic),
++		},
++		"conformance_fixture_id": fixture,
++		"extensions":             map[string]any{},
++	}
++	evidenceObject := map[string]any{
++		"schema":                     SchemaCapabilityEvidence,
++		"schema_version":             SchemaVersion100,
++		"evidence_id":                "",
++		"terminal_backend_id":        "example.term",
++		"implementation_version":     "2.1.0",
++		"protocol_version":           "1.0.0",
++		"backend_generation_digest":  generation,
++		"capability":                 credentialRealmCapability,
++		"value":                      true,
++		"platform":                   "linux",
++		"os_version":                 "14.5",
++		"conformance_fixture_id":     fixture,
++		"observed_at":                "2025-06-01T00:00:00.000Z",
++		"expires_at":                 "2027-06-01T00:00:00.000Z",
++		"issuer":                     IssuerLocalProbe,
++		"issuer_id":                  issuer,
++		"attestation_signature":      "rsa-sha256:AA==",
++		"facts":                      []any{"fixture_passed", "provider_auth_passed", "runtime_probe_passed", "sentinel_passed"},
++		"terminal_binding_id":        digest,
++		"provider_id":                "codex",
++		"provider_build":             "1.2.3",
++		"sentinel_result":            "passed",
++		"provider_auth_smoke_result": "passed",
++		"extensions":                 map[string]any{},
++	}
++	stampPinIdentity(t, evidenceObject, "evidence_id")
++	parsedEvidence, err := ParseEvidence(mustPinJSON(t, evidenceObject))
++	if err != nil {
++		t.Fatalf("ParseEvidence() error = %v", err)
++	}
++	probe := map[string]any{
++		"schema":                    SchemaProbe,
++		"schema_version":            SchemaVersion100,
++		"probe_id":                  "",
++		"terminal_backend_id":       "example.term",
++		"implementation_version":    "2.1.0",
++		"protocol_version":          "1.0.0",
++		"implementation_kind":       "local_program",
++		"executable_digest":         digest,
++		"platform":                  "linux",
++		"os_version":                "14.5",
++		"availability":              AvailabilityAvailable,
++		"backend_generation_digest": generation,
++		"capability_claims": []any{
++			pinRealmClaim(OriginProbed),
++		},
++		"evidence_ids": []any{parsedEvidence.EvidenceID},
++		"probed_at":    "2026-01-15T12:00:00.000Z",
++		"extensions":   map[string]any{},
++	}
++	stampPinIdentity(t, manifest, "manifest_id")
++	stampPinIdentity(t, probe, "probe_id")
++	parsedManifest, err := ParseManifest(mustPinJSON(t, manifest))
++	if err != nil {
++		t.Fatalf("ParseManifest() error = %v", err)
++	}
++	parsedProbe, err := ParseProbe(mustPinJSON(t, probe))
++	if err != nil {
++		t.Fatalf("ParseProbe() error = %v", err)
++	}
++	return parsedManifest, parsedProbe, []Evidence{parsedEvidence}
++}
++
++// pinRealmClaim returns one credential-realm claim map.
++func pinRealmClaim(origin string) map[string]any {
++	return map[string]any{
++		"capability":            credentialRealmCapability,
++		"origin":                origin,
++		"value":                 true,
++		"generation_variable":   true,
++		"dependent_operations":  []any{"create", "restore"},
++		"evidence_requirements": []any{"conformance_fixture", "credential_sentinel", "provider_auth_smoke", "runtime_probe"},
++	}
++}
++
++// TestReconcileAdmitsPinTriple proves the unmutated white-box triple is
++// coherent: the pins above fail on their mutation, not on a broken base.
++func TestReconcileAdmitsPinTriple(t *testing.T) {
++	t.Parallel()
++
++	manifest, probe, evidence := validReconcileTriple(t)
++	admitted, err := Reconcile(manifest, probe, evidence, "generation-alpha", testAdmissionTime(), pinVerifier)
++	if err != nil {
++		t.Fatalf("Reconcile() error = %v", err)
++	}
++	if len(admitted.Capabilities) != 2 || !admitted.Has("graceful_stop") || !admitted.Has("headless_creation") {
++		t.Errorf("Admitted = %v, want graceful_stop and headless_creation", admitted.Capabilities)
++	}
++}
++
++// validReconcileTriple parses one coherent triple: a manifest with one
++// static claim, a probe with a same-value override plus one probed
++// addition, and the two evidences proving the true claims.
++func validReconcileTriple(t *testing.T) (Manifest, Probe, []Evidence) {
++	t.Helper()
++
++	generation, err := GenerationDigest("generation-alpha")
++	if err != nil {
++		t.Fatalf("GenerationDigest() error = %v", err)
++	}
++	fixture := testPinDigest(0xF1)
++	issuer := testPinDigest(0x1D)
++
++	manifest := pinManifest(fixture)
++	evidenceMaps := []map[string]any{
++		pinEvidence("graceful_stop", generation, fixture, issuer),
++		pinEvidence("headless_creation", generation, fixture, issuer),
++	}
++	parsedEvidence := make([]Evidence, 0, len(evidenceMaps))
++	var ids []string
++	for _, object := range evidenceMaps {
++		stampPinIdentity(t, object, "evidence_id")
++		parsed, err := ParseEvidence(mustPinJSON(t, object))
++		if err != nil {
++			t.Fatalf("ParseEvidence() error = %v", err)
++		}
++		parsedEvidence = append(parsedEvidence, parsed)
++		ids = append(ids, parsed.EvidenceID)
++	}
++	sort.Strings(ids)
++
++	probe := pinProbe(generation, ids)
++	stampPinIdentity(t, manifest, "manifest_id")
++	stampPinIdentity(t, probe, "probe_id")
++	parsedManifest, err := ParseManifest(mustPinJSON(t, manifest))
++	if err != nil {
++		t.Fatalf("ParseManifest() error = %v", err)
++	}
++	parsedProbe, err := ParseProbe(mustPinJSON(t, probe))
++	if err != nil {
++		t.Fatalf("ParseProbe() error = %v", err)
++	}
++	return parsedManifest, parsedProbe, parsedEvidence
++}
++
++// pinManifest returns the white-box manifest document map with a blank ID.
++func pinManifest(fixture string) map[string]any {
++	return map[string]any{
++		"schema":                 SchemaManifest,
++		"schema_version":         SchemaVersion100,
++		"manifest_id":            "",
++		"terminal_backend_id":    "example.term",
++		"implementation_version": "2.1.0",
++		"protocol_versions":      []any{"1.0.0"},
++		"platforms":              []any{"linux"},
++		"implementation_kind":    "builtin_go",
++		"executable_digest":      nil,
++		"static_capability_claims": []any{
++			pinClaim("headless_creation", OriginStatic, true),
++		},
++		"conformance_fixture_id": fixture,
++		"extensions":             map[string]any{},
++	}
++}
++
++// pinProbe returns the white-box probe document map with a blank ID.
++func pinProbe(generation string, ids []string) map[string]any {
++	asValues := make([]any, 0, len(ids))
++	for _, id := range ids {
++		asValues = append(asValues, id)
++	}
++	return map[string]any{
++		"schema":                    SchemaProbe,
++		"schema_version":            SchemaVersion100,
++		"probe_id":                  "",
++		"terminal_backend_id":       "example.term",
++		"implementation_version":    "2.1.0",
++		"protocol_version":          "1.0.0",
++		"implementation_kind":       "builtin_go",
++		"executable_digest":         nil,
++		"platform":                  "linux",
++		"os_version":                "14.5",
++		"availability":              AvailabilityAvailable,
++		"backend_generation_digest": generation,
++		"capability_claims": []any{
++			pinClaim("graceful_stop", OriginProbed, true),
++			pinClaim("headless_creation", OriginProbed, true),
++		},
++		"evidence_ids": asValues,
++		"probed_at":    "2026-01-15T12:00:00.000Z",
++		"extensions":   map[string]any{},
++	}
++}
++
++// pinEvidence returns one white-box evidence document map with a blank ID
++// and a placeholder signature the pin verifier accepts unconditionally.
++func pinEvidence(capability, generation, fixture, issuer string) map[string]any {
++	return map[string]any{
++		"schema":                     SchemaCapabilityEvidence,
++		"schema_version":             SchemaVersion100,
++		"evidence_id":                "",
++		"terminal_backend_id":        "example.term",
++		"implementation_version":     "2.1.0",
++		"protocol_version":           "1.0.0",
++		"backend_generation_digest":  generation,
++		"capability":                 capability,
++		"value":                      true,
++		"platform":                   "linux",
++		"os_version":                 "14.5",
++		"conformance_fixture_id":     fixture,
++		"observed_at":                "2025-06-01T00:00:00.000Z",
++		"expires_at":                 "2027-06-01T00:00:00.000Z",
++		"issuer":                     IssuerLocalProbe,
++		"issuer_id":                  issuer,
++		"attestation_signature":      "rsa-sha256:AA==",
++		"facts":                      []any{"fixture_passed", "runtime_probe_passed"},
++		"terminal_binding_id":        nil,
++		"provider_id":                nil,
++		"provider_build":             nil,
++		"sentinel_result":            nil,
++		"provider_auth_smoke_result": nil,
++		"extensions":                 map[string]any{},
++	}
++}
++
++// pinClaim returns one white-box claim map with exact registry-row members.
++func pinClaim(capability, origin string, value bool) map[string]any {
++	rows := map[string]map[string]any{
++		"headless_creation": {
++			"generation_variable":   true,
++			"dependent_operations":  []any{"create"},
++			"evidence_requirements": []any{"conformance_fixture", "runtime_probe"},
++		},
++		"graceful_stop": {
++			"generation_variable":   true,
++			"dependent_operations":  []any{"request-stop"},
++			"evidence_requirements": []any{"conformance_fixture", "runtime_probe"},
++		},
++	}
++	row := rows[capability]
++	return map[string]any{
++		"capability":            capability,
++		"origin":                origin,
++		"value":                 value,
++		"generation_variable":   row["generation_variable"],
++		"dependent_operations":  row["dependent_operations"],
++		"evidence_requirements": row["evidence_requirements"],
++	}
++}
++
++// stampPinIdentity stamps the recomputed omit-self identity on a document.
++func stampPinIdentity(t *testing.T, object map[string]any, selfField string) {
++	t.Helper()
++
++	identity, err := objectIdentity(object, selfField)
++	if err != nil {
++		t.Fatalf("objectIdentity() error = %v", err)
++	}
++	object[selfField] = identity
++}
++
++// mustPinJSON encodes a fixture map to JSON bytes.
++func mustPinJSON(t *testing.T, object map[string]any) []byte {
++	t.Helper()
++
++	raw, err := json.Marshal(object)
++	if err != nil {
++		t.Fatalf("marshal fixture: %v", err)
++	}
++	return raw
++}
++
++// testPinDigest mints a deterministic fake digest for white-box fixtures.
++func testPinDigest(seed byte) string {
++	const hexdigits = "0123456789abcdef"
++	var digits [64]byte
++	for index := range digits {
++		digits[index] = hexdigits[(int(seed)+index)%16]
++	}
++	return "sha256:" + string(digits[:])
++}
++
++// testAdmissionTime is the fixed admission instant for white-box pins.
++func testAdmissionTime() time.Time {
++	return time.Date(2026, time.January, 20, 0, 0, 0, 0, time.UTC)
++}
+diff --git a/internal/terminalbackend/manifest_test.go b/internal/terminalbackend/manifest_test.go
+new file mode 100644
+index 0000000..7c003b6
+--- /dev/null
++++ b/internal/terminalbackend/manifest_test.go
+@@ -0,0 +1,1849 @@
++// Black-box contract tests for Manifest/Probe/Capability-Evidence admission.
++//
++// Every fixture is built as a JSON member map by an independent test-side
++// transcription of the Section 4.B/4.D recipe (own identity computation, own
++// signature construction over the documented byte recipe), so agreement with
++// production proves byte-exact conformance rather than shared-code
++// coincidence. Negative cases mutate exactly one arm, re-finalize the
++// document identity (and re-sign evidence when an unsigned field moves), and
++// assert the exact wire code at the exact gate.
++package terminalbackend_test
++
++import (
++	"crypto"
++	"crypto/rand"
++	"crypto/rsa"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"sort"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/gowebpki/jcs"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
++)
++
++// requireRefusal asserts err is a registry refusal carrying exactly
++// wantCode with the exact static wantDetail clause. Code-only assertions
++// cannot hold a gate: ~110 of the 121 refusal arms share one wire code, so
++// a deleted gate slides its fixture onto a lower arm and a code-only test
++// stays green. Naming the clause makes the gate deletion fail.
++func requireRefusal(t *testing.T, err error, wantCode, wantDetail string) {
++	t.Helper()
++
++	var refusal *terminalbackend.Error
++	if !errors.As(err, &refusal) {
++		t.Fatalf("error = %v, want *Error with code %q at %q", err, wantCode, wantDetail)
++	}
++	if refusal.Code != wantCode || refusal.Detail != wantDetail {
++		t.Errorf("refusal = %q at %q, want %q at %q", refusal.Code, refusal.Detail, wantCode, wantDetail)
++	}
++}
++
++const (
++	codeMismatch           = "terminal_backend_manifest_probe_mismatch"
++	codeCapabilityUnproven = "terminal_backend_capability_unproven"
++	codeIntegrityFailure   = "terminal_backend_integrity_failure"
++	codeUntrusted          = "terminal_backend_untrusted"
++	codeDrift              = "terminal_backend_implementation_drift"
++	codeStaleGeneration    = "terminal_backend_stale_generation"
++	codeNotFound           = "terminal_backend_not_found"
++)
++
++// testDigest mints a deterministic fake sha256: digest from one seed byte.
++func testSeedDigest(seed byte) string {
++	return "sha256:" + strings.Repeat(fmt.Sprintf("%02x", seed), 32)
++}
++
++// testIdentity computes the Section 4.B omit-self identity with the test's
++// own recipe implementation: JCS bytes of the object with the self field
++// omitted, SHA-256, lowercase sha256: prefix.
++func testIdentity(t *testing.T, object map[string]any, selfField string) string {
++	t.Helper()
++
++	omitted := make(map[string]any, len(object))
++	for name, member := range object {
++		if name != selfField {
++			omitted[name] = member
++		}
++	}
++	serialized, err := json.Marshal(omitted)
++	if err != nil {
++		t.Fatalf("marshal omit-self object: %v", err)
++	}
++	canonical, err := jcs.Transform(serialized)
++	if err != nil {
++		t.Fatalf("canonicalize omit-self object: %v", err)
++	}
++	sum := sha256.Sum256(canonical)
++	return "sha256:" + hex.EncodeToString(sum[:])
++}
++
++// testEvidenceMessage builds the exact bytes an attestation signs per
++// Section 4.D: ASCII domain, one zero byte, JCS of the evidence object with
++// exactly evidence_id and attestation_signature omitted.
++func testEvidenceMessage(t *testing.T, object map[string]any) []byte {
++	t.Helper()
++
++	omitted := make(map[string]any, len(object))
++	for name, member := range object {
++		if name != "evidence_id" && name != "attestation_signature" {
++			omitted[name] = member
++		}
++	}
++	serialized, err := json.Marshal(omitted)
++	if err != nil {
++		t.Fatalf("marshal unsigned evidence: %v", err)
++	}
++	canonical, err := jcs.Transform(serialized)
++	if err != nil {
++		t.Fatalf("canonicalize unsigned evidence: %v", err)
++	}
++	message := append([]byte("ax-terminal-capability-evidence-v1"), 0x00)
++	return append(message, canonical...)
++}
++
++// testKey generates one RSA attestation key for the test run.
++func testKey(t *testing.T) *rsa.PrivateKey {
++	t.Helper()
++
++	key, err := rsa.GenerateKey(rand.Reader, 1024)
++	if err != nil {
++		t.Fatalf("generate attestation key: %v", err)
++	}
++	return key
++}
++
++// testSignBody signs the Section 4.D message for object with key and writes
++// the attestation_signature member.
++func testSignBody(t *testing.T, key *rsa.PrivateKey, object map[string]any) {
++	t.Helper()
++
++	message := testEvidenceMessage(t, object)
++	digest := sha256.Sum256(message)
++	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
++	if err != nil {
++		t.Fatalf("sign evidence: %v", err)
++	}
++	object["attestation_signature"] = "rsa-sha256:" + base64.StdEncoding.EncodeToString(signature)
++}
++
++// finalizeEvidence signs object with key and stamps its recomputed
++// evidence_id, yielding a fully valid evidence document map.
++func finalizeEvidence(t *testing.T, key *rsa.PrivateKey, object map[string]any) {
++	t.Helper()
++
++	testSignBody(t, key, object)
++	object["evidence_id"] = testIdentity(t, object, "evidence_id")
++}
++
++// finalizeDocument stamps the recomputed omit-self identity on a manifest
++// or probe document map.
++func finalizeDocument(t *testing.T, object map[string]any, selfField string) {
++	t.Helper()
++
++	object[selfField] = testIdentity(t, object, selfField)
++}
++
++// mustMarshal encodes a fixture map to JSON bytes.
++func mustMarshal(t *testing.T, object map[string]any) []byte {
++	t.Helper()
++
++	raw, err := json.Marshal(object)
++	if err != nil {
++		t.Fatalf("marshal fixture: %v", err)
++	}
++	return raw
++}
++
++// testVerifier authenticates evidence through one trusted key: it verifies
++// the RSA signature and fails on anything else, mirroring the production
++// contract that a caller-supplied issuer ID alone is never authentication.
++func testVerifier(key *rsa.PrivateKey) terminalbackend.SignatureVerifier {
++	return func(issuerID string, message, signature []byte) error {
++		digest := sha256.Sum256(message)
++		return rsa.VerifyPKCS1v15(&key.PublicKey, crypto.SHA256, digest[:], signature)
++	}
++}
++
++// claimMap transcribes one registry-row claim. The row members are copied
++// from the Section 4.D table, not from production, so row drift fails.
++func claimMap(capability, origin string, value bool) map[string]any {
++	rows := map[string]map[string]any{
++		"durable_disconnect": {
++			"generation_variable":   false,
++			"dependent_operations":  []any{"create", "status"},
++			"evidence_requirements": []any{"conformance_fixture", "runtime_probe"},
++		},
++		"local_attach": {
++			"generation_variable":   true,
++			"dependent_operations":  []any{"attach"},
++			"evidence_requirements": []any{"conformance_fixture", "policy_authorization", "runtime_probe"},
++		},
++		"headless_creation": {
++			"generation_variable":   true,
++			"dependent_operations":  []any{"create"},
++			"evidence_requirements": []any{"conformance_fixture", "runtime_probe"},
++		},
++		"graceful_stop": {
++			"generation_variable":   true,
++			"dependent_operations":  []any{"request-stop"},
++			"evidence_requirements": []any{"conformance_fixture", "runtime_probe"},
++		},
++		"credential_capable_execution_realm": {
++			"generation_variable":  true,
++			"dependent_operations": []any{"create", "restore"},
++			"evidence_requirements": []any{
++				"conformance_fixture", "credential_sentinel", "provider_auth_smoke", "runtime_probe",
++			},
++		},
++	}
++	row := rows[capability]
++	return map[string]any{
++		"capability":            capability,
++		"origin":                origin,
++		"value":                 value,
++		"generation_variable":   row["generation_variable"],
++		"dependent_operations":  row["dependent_operations"],
++		"evidence_requirements": row["evidence_requirements"],
++	}
++}
++
++// fixtureUniverse is one coherent admission world: a builtin manifest,
++// its probe (static echo, same-value override, differing override, false
++// override, probed addition), and the evidence set proving the true claims.
++type fixtureUniverse struct {
++	rawGeneration    string
++	generationDigest string
++	fixtureID        string
++	issuerID         string
++	now              time.Time
++	key              *rsa.PrivateKey
++	manifest         map[string]any
++	probe            map[string]any
++	evidence         map[string]any
++	evidenceByCap    map[string]map[string]any
++}
++
++// testUniverse builds the builtin ax.tmux world. The manifest identity
++// tuple matches New("2.1.0", ["1.0.0", "1.1.0"]) admission exactly, so the
++// same fixtures drive the registry-bound AdmitProbe entry point.
++func testUniverse(t *testing.T) *fixtureUniverse {
++	t.Helper()
++
++	universe := &fixtureUniverse{
++		rawGeneration: "generation-alpha",
++		fixtureID:     testSeedDigest(0xF1),
++		issuerID:      testSeedDigest(0x1D),
++		now:           time.Date(2026, time.January, 20, 0, 0, 0, 0, time.UTC),
++		key:           testKey(t),
++		evidenceByCap: make(map[string]map[string]any),
++	}
++	digest, err := terminalbackend.GenerationDigest(universe.rawGeneration)
++	if err != nil {
++		t.Fatalf("GenerationDigest() error = %v", err)
++	}
++	universe.generationDigest = digest
++
++	universe.manifest = map[string]any{
++		"schema":                 terminalbackend.SchemaManifest,
++		"schema_version":         "1.0.0",
++		"manifest_id":            "",
++		"terminal_backend_id":    terminalbackend.BuiltinTmux,
++		"implementation_version": "2.1.0",
++		"protocol_versions":      []any{"1.0.0", "1.1.0"},
++		"platforms":              []any{"linux", "macos", "wsl2"},
++		"implementation_kind":    "builtin_go",
++		"executable_digest":      nil,
++		"static_capability_claims": []any{
++			claimMap("durable_disconnect", "static", true),
++			claimMap("headless_creation", "static", true),
++			claimMap("local_attach", "static", true),
++		},
++		"conformance_fixture_id": universe.fixtureID,
++		"extensions":             map[string]any{},
++	}
++	finalizeDocument(t, universe.manifest, "manifest_id")
++
++	universe.probe = map[string]any{
++		"schema":                    terminalbackend.SchemaProbe,
++		"schema_version":            "1.0.0",
++		"probe_id":                  "",
++		"terminal_backend_id":       terminalbackend.BuiltinTmux,
++		"implementation_version":    "2.1.0",
++		"protocol_version":          "1.1.0",
++		"implementation_kind":       "builtin_go",
++		"executable_digest":         nil,
++		"platform":                  "linux",
++		"os_version":                "14.5",
++		"availability":              "available",
++		"backend_generation_digest": universe.generationDigest,
++		"capability_claims": []any{
++			claimMap("durable_disconnect", "static", true),
++			claimMap("graceful_stop", "probed", true),
++			claimMap("headless_creation", "probed", true),
++			claimMap("local_attach", "probed", false),
++		},
++		"evidence_ids": []any{},
++		"probed_at":    "2026-01-15T12:00:00.000Z",
++		"extensions":   map[string]any{},
++	}
++
++	for _, capability := range []string{"durable_disconnect", "graceful_stop", "headless_creation"} {
++		object := universe.evidenceMap(capability, []any{"fixture_passed", "runtime_probe_passed"})
++		finalizeEvidence(t, universe.key, object)
++		universe.evidenceByCap[capability] = object
++	}
++	ids := make([]string, 0, len(universe.evidenceByCap))
++	for _, object := range universe.evidenceByCap {
++		ids = append(ids, object["evidence_id"].(string))
++	}
++	sort.Strings(ids)
++	asValues := make([]any, 0, len(ids))
++	for _, id := range ids {
++		asValues = append(asValues, id)
++	}
++	universe.probe["evidence_ids"] = asValues
++	finalizeDocument(t, universe.probe, "probe_id")
++
++	return universe
++}
++
++// evidenceMap builds one unsigned evidence document map for capability with
++// the given facts. Realm members stay null: realm evidence has its own
++// builder in the external-kind universe test.
++func (universe *fixtureUniverse) evidenceMap(capability string, facts []any) map[string]any {
++	return map[string]any{
++		"schema":                     terminalbackend.SchemaCapabilityEvidence,
++		"schema_version":             "1.0.0",
++		"evidence_id":                "",
++		"terminal_backend_id":        terminalbackend.BuiltinTmux,
++		"implementation_version":     "2.1.0",
++		"protocol_version":           "1.1.0",
++		"backend_generation_digest":  universe.generationDigest,
++		"capability":                 capability,
++		"value":                      true,
++		"platform":                   "linux",
++		"os_version":                 "14.5",
++		"conformance_fixture_id":     universe.fixtureID,
++		"observed_at":                "2025-06-01T00:00:00.000Z",
++		"expires_at":                 "2027-06-01T00:00:00.000Z",
++		"issuer":                     terminalbackend.IssuerLocalProbe,
++		"issuer_id":                  universe.issuerID,
++		"attestation_signature":      "",
++		"facts":                      facts,
++		"terminal_binding_id":        nil,
++		"provider_id":                nil,
++		"provider_build":             nil,
++		"sentinel_result":            nil,
++		"provider_auth_smoke_result": nil,
++		"extensions":                 map[string]any{},
++	}
++}
++
++// parsedUniverse parses the universe documents through the production entry
++// points, failing the test on any parse error.
++func (universe *fixtureUniverse) parsed(t *testing.T) (terminalbackend.Manifest, terminalbackend.Probe, []terminalbackend.Evidence) {
++	t.Helper()
++
++	manifest, err := terminalbackend.ParseManifest(mustMarshal(t, universe.manifest))
++	if err != nil {
++		t.Fatalf("ParseManifest() error = %v", err)
++	}
++	probe, err := terminalbackend.ParseProbe(mustMarshal(t, universe.probe))
++	if err != nil {
++		t.Fatalf("ParseProbe() error = %v", err)
++	}
++	evidence := make([]terminalbackend.Evidence, 0, len(universe.evidenceByCap))
++	for _, capability := range []string{"durable_disconnect", "graceful_stop", "headless_creation"} {
++		object, err := terminalbackend.ParseEvidence(mustMarshal(t, universe.evidenceByCap[capability]))
++		if err != nil {
++			t.Fatalf("ParseEvidence(%s) error = %v", capability, err)
++		}
++		evidence = append(evidence, object)
++	}
++	return manifest, probe, evidence
++}
++
++// cloneMap deep-copies a fixture map through JSON so mutations never leak
++// between cases.
++func cloneMap(t *testing.T, object map[string]any) map[string]any {
++	t.Helper()
++
++	raw, err := json.Marshal(object)
++	if err != nil {
++		t.Fatalf("marshal clone: %v", err)
++	}
++	var cloned map[string]any
++	if err := json.Unmarshal(raw, &cloned); err != nil {
++		t.Fatalf("unmarshal clone: %v", err)
++	}
++	return cloned
++}
++
++// TestParseManifestAdmitsClosedFixture proves the positive gate is
++// reachable and pins the typed projection of every member.
++func TestParseManifestAdmitsClosedFixture(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	manifest, err := terminalbackend.ParseManifest(mustMarshal(t, universe.manifest))
++	if err != nil {
++		t.Fatalf("ParseManifest() error = %v", err)
++	}
++	if manifest.TerminalBackendID != terminalbackend.BuiltinTmux {
++		t.Errorf("TerminalBackendID = %q", manifest.TerminalBackendID)
++	}
++	if manifest.ImplementationVersion != "2.1.0" {
++		t.Errorf("ImplementationVersion = %q", manifest.ImplementationVersion)
++	}
++	if len(manifest.ProtocolVersions) != 2 || manifest.ProtocolVersions[1] != "1.1.0" {
++		t.Errorf("ProtocolVersions = %v", manifest.ProtocolVersions)
++	}
++	if len(manifest.Platforms) != 3 || manifest.Platforms[0].String() != "linux" {
++		t.Errorf("Platforms = %v", manifest.Platforms)
++	}
++	if manifest.ImplementationKind != terminalbackend.KindBuiltinGo {
++		t.Errorf("ImplementationKind = %q", manifest.ImplementationKind)
++	}
++	if manifest.ExecutableDigest != "" {
++		t.Errorf("ExecutableDigest = %q, want null", manifest.ExecutableDigest)
++	}
++	if len(manifest.StaticCapabilityClaims) != 3 {
++		t.Fatalf("StaticCapabilityClaims = %d, want 3", len(manifest.StaticCapabilityClaims))
++	}
++	if manifest.StaticCapabilityClaims[0].Capability != "durable_disconnect" {
++		t.Errorf("first claim = %q", manifest.StaticCapabilityClaims[0].Capability)
++	}
++	if manifest.ConformanceFixtureID != universe.fixtureID {
++		t.Errorf("ConformanceFixtureID = %q", manifest.ConformanceFixtureID)
++	}
++	if manifest.ManifestID != universe.manifest["manifest_id"] {
++		t.Errorf("ManifestID = %q, want recomputed identity", manifest.ManifestID)
++	}
++}
++
++// TestGenerationDigestGolden pins the domain-separated recipe: SHA-256 over
++// UTF-8 "ax-terminal-backend-generation-v1" + NUL + raw generation bytes.
++// The expected value was computed with an independent SHA-256 oracle, so a
++// separator change fails here rather than hiding behind agreement.
++func TestGenerationDigestGolden(t *testing.T) {
++	t.Parallel()
++
++	digest, err := terminalbackend.GenerationDigest("generation-alpha")
++	if err != nil {
++		t.Fatalf("GenerationDigest() error = %v", err)
++	}
++	const want = "sha256:ad089bdcf1a41853068645fec63a0ec8e40b95c3e3a103bc326a70e8c479eab7"
++	if digest != want {
++		t.Errorf("GenerationDigest() = %q, want %q", digest, want)
++	}
++}
++
++// TestGenerationDigestBounds proves the raw generation domain fails closed:
++// empty (which would make every backend share one digest), over-long, and
++// invalid UTF-8 derive nothing.
++func TestGenerationDigestBounds(t *testing.T) {
++	t.Parallel()
++
++	for _, raw := range []string{"", strings.Repeat("g", 257), "ok\xffbad", strings.Repeat("g", 0)} {
++		_, err := terminalbackend.GenerationDigest(raw)
++		requireRefusal(t, err, codeStaleGeneration, "backend_generation bound")
++	}
++	if _, err := terminalbackend.GenerationDigest(strings.Repeat("g", 256)); err != nil {
++		t.Errorf("GenerationDigest(256 bytes) error = %v, want admission", err)
++	}
++}
++
++// TestReconcileAdmitsCoherentTuple is the positive admission: static echo,
++// same-value override, differing override, false claim, and probed addition
++// reconcile to exactly the true evidenced claims.
++func TestReconcileAdmitsCoherentTuple(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	manifest, probe, evidence := universe.parsed(t)
++	admitted, err := terminalbackend.Reconcile(manifest, probe, evidence, universe.rawGeneration, universe.now, testVerifier(universe.key))
++	if err != nil {
++		t.Fatalf("Reconcile() error = %v", err)
++	}
++	want := []string{"durable_disconnect", "graceful_stop", "headless_creation"}
++	if fmt.Sprint(admitted.Capabilities) != fmt.Sprint(want) {
++		t.Errorf("Capabilities = %v, want %v", admitted.Capabilities, want)
++	}
++	if len(admitted.EvidenceIDs) != 3 {
++		t.Errorf("EvidenceIDs = %v, want 3 proved IDs", admitted.EvidenceIDs)
++	}
++	if !admitted.Has("headless_creation") || admitted.Has("local_attach") {
++		t.Errorf("Has() over %v misreports overrides", admitted.Capabilities)
++	}
++	if !admitted.HasOperation("create") || admitted.HasOperation("attach") {
++		t.Errorf("HasOperation() over %v misreports dependencies", admitted.Capabilities)
++	}
++	if err := terminalbackend.CheckOperation("create", admitted); err != nil {
++		t.Errorf("CheckOperation(create) error = %v, want admission", err)
++	}
++	requireRefusal(t, terminalbackend.CheckOperation("attach", admitted), codeCapabilityUnproven, "operation capability dependency")
++}
++
++// TestManifestDocumentRefusals narrows the closed-schema gate: each case
++// widens exactly one member class and must fail at its own clause, not
++// merely with the shared wire code.
++func TestManifestDocumentRefusals(t *testing.T) {
++	t.Parallel()
++
++	cases := map[string]struct {
++		mutate func(t *testing.T, object map[string]any)
++		detail string
++	}{
++		"unknown member": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["sponsor"] = "evil"
++			},
++			detail: "document members",
++		},
++		"missing member": {
++			mutate: func(t *testing.T, object map[string]any) {
++				delete(object, "platforms")
++			},
++			detail: "document members",
++		},
++		"non-empty extensions": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["extensions"] = map[string]any{"v2": true}
++			},
++			detail: "document extensions",
++		},
++		"absent extensions": {
++			mutate: func(t *testing.T, object map[string]any) {
++				delete(object, "extensions")
++			},
++			detail: "document members",
++		},
++		"wrong schema": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["schema"] = "urn:ax:schema:terminal-backend-probe"
++			},
++			detail: "manifest schema",
++		},
++		"wrong version": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["schema_version"] = "2.0.0"
++			},
++			detail: "manifest schema version",
++		},
++		"unknown capability": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				claims[0].(map[string]any)["capability"] = "teleportation"
++			},
++			detail: "capability vocabulary",
++		},
++		"probed origin in manifest": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				claims[0].(map[string]any)["origin"] = "probed"
++			},
++			detail: "claim origin",
++		},
++		// A non-object claim element is refused by the shape guard
++		// before member validation: narrowing the guard slides the
++		// refusal onto the downstream members arm, so only this
++		// case names the shape rule.
++		"non-object claim": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				claims[0] = "durable_disconnect"
++			},
++			detail: "claim shape",
++		},
++		"flipped generation variable": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				claims[0].(map[string]any)["generation_variable"] = true
++			},
++			detail: "capability registry binding",
++		},
++		"redefined operations": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				claims[0].(map[string]any)["dependent_operations"] = []any{"create"}
++			},
++			detail: "capability registry binding",
++		},
++		"unknown operation in claim": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				claims[0].(map[string]any)["dependent_operations"] = []any{"create", "launch"}
++			},
++			detail: "document vocabulary",
++		},
++		"empty operations": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				claims[0].(map[string]any)["dependent_operations"] = []any{}
++			},
++			detail: "document list bound",
++		},
++		"unsorted operations": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				claims[0].(map[string]any)["dependent_operations"] = []any{"status", "create"}
++			},
++			detail: "document ordering",
++		},
++		"unknown requirement": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				claims[0].(map[string]any)["evidence_requirements"] = []any{"conformance_fixture", "vibes"}
++			},
++			detail: "document vocabulary",
++		},
++		"duplicate claims": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				object["static_capability_claims"] = append(claims, claims[0])
++			},
++			detail: "claim ordering",
++		},
++		// An adjacent duplicate in sorted position is refused only by
++		// the duplicate half of the ordering gate: narrowing >= to >
++		// admits it, so this case holds that half.
++		"adjacent duplicate claims": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				object["static_capability_claims"] = []any{claims[0], claims[1], claims[1], claims[2]}
++			},
++			detail: "claim ordering",
++		},
++		"unsorted claims": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				object["static_capability_claims"] = []any{claims[2], claims[1], claims[0]}
++			},
++			detail: "claim ordering",
++		},
++		"claim list bound": {
++			mutate: func(t *testing.T, object map[string]any) {
++				claims := object["static_capability_claims"].([]any)
++				bloated := make([]any, 0, 17)
++				for len(bloated) < 17 {
++					bloated = append(bloated, claims...)
++				}
++				object["static_capability_claims"] = bloated[:17]
++			},
++			detail: "claim list bound",
++		},
++		"bad semver": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["implementation_version"] = "2.1"
++			},
++			detail: "document semver",
++		},
++		"protocol major 2": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["protocol_versions"] = []any{"1.0.0", "2.0.0"}
++			},
++			detail: "protocol versions major 1",
++		},
++		"unsorted protocols": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["protocol_versions"] = []any{"1.1.0", "1.0.0"}
++			},
++			detail: "protocol versions ordering",
++		},
++		"empty protocols": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["protocol_versions"] = []any{}
++			},
++			detail: "protocol versions bound",
++		},
++		"unknown platform": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["platforms"] = []any{"amigaos"}
++			},
++			detail: "platforms vocabulary",
++		},
++		"unsorted platforms": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["platforms"] = []any{"macos", "linux", "wsl2"}
++			},
++			detail: "platforms ordering",
++		},
++		"empty platforms": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["platforms"] = []any{}
++			},
++			detail: "platforms bound",
++		},
++		"unknown implementation kind": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["implementation_kind"] = "container_image"
++			},
++			detail: "manifest implementation kind",
++		},
++		"digest on builtin": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["executable_digest"] = testSeedDigest(0xAA)
++			},
++			detail: "manifest executable digest",
++		},
++		"bad digest": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["implementation_kind"] = "local_program"
++				object["executable_digest"] = "not-a-digest"
++			},
++			detail: "document digest",
++		},
++		"reserved backend id": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["terminal_backend_id"] = "ax.evil"
++			},
++			detail: "manifest backend identity",
++		},
++		"bad fixture id": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["conformance_fixture_id"] = "sha256:zzz"
++			},
++			detail: "document digest",
++		},
++		"numeric member": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["implementation_version"] = float64(2)
++			},
++			detail: "document member type",
++		},
++	}
++	for name, tc := range cases {
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++
++			universe := testUniverse(t)
++			object := cloneMap(t, universe.manifest)
++			tc.mutate(t, object)
++			finalizeDocument(t, object, "manifest_id")
++			_, err := terminalbackend.ParseManifest(mustMarshal(t, object))
++			requireRefusal(t, err, codeMismatch, tc.detail)
++		})
++	}
++}
++
++// TestManifestEncodingRefusals proves malformed reads fail closed: syntax,
++// duplicate, encoding, depth, shape, and identity failures are mismatch,
++// never absence.
++func TestManifestEncodingRefusals(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	valid := mustMarshal(t, universe.manifest)
++	deep := strings.Repeat("[", 40) + strings.Repeat("]", 40)
++
++	cases := map[string]struct {
++		raw    []byte
++		detail string
++	}{
++		"empty":        {raw: []byte{}, detail: "document syntax"},
++		"truncated":    {raw: valid[:len(valid)/2], detail: "document syntax"},
++		"not json":     {raw: []byte("manifest"), detail: "document syntax"},
++		"top array":    {raw: []byte("[]"), detail: "document shape"},
++		"top string":   {raw: []byte(`"manifest"`), detail: "document shape"},
++		"trailing":     {raw: append(append([]byte{}, valid...), []byte(" {}")...), detail: "document trailing data"},
++		"duplicate":    {raw: []byte(`{"schema":"urn:ax:schema:terminal-backend-manifest","schema":"urn:ax:schema:terminal-backend-manifest"}`), detail: "document duplicate member"},
++		"invalid utf8": {raw: append(append([]byte{}, valid...), 0xff), detail: "document encoding"},
++		"deep nesting": {raw: []byte(`{"schema":"x","nest":` + deep + `}`), detail: "document nesting"},
++		"null":         {raw: []byte("null"), detail: "document shape"},
++	}
++	for name, tc := range cases {
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++
++			_, err := terminalbackend.ParseManifest(tc.raw)
++			requireRefusal(t, err, codeMismatch, tc.detail)
++		})
++	}
++}
++
++// TestManifestIdentityMismatch proves the reader recomputes the ID: a valid
++// shape with a foreign digest is refused.
++func TestManifestIdentityMismatch(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	object := cloneMap(t, universe.manifest)
++	object["manifest_id"] = testSeedDigest(0xDD)
++	_, err := terminalbackend.ParseManifest(mustMarshal(t, object))
++	requireRefusal(t, err, codeMismatch, "document identity binding")
++}
++
++// TestProbeDocumentRefusals narrows the probe closed-schema gate: the same
++// schema, version, identity, kind, and digest classes the manifest parser
++// pins, at the probe's own clauses, plus the probe-only members.
++func TestProbeDocumentRefusals(t *testing.T) {
++	t.Parallel()
++
++	// Note: a static probe claim that merely differs from the manifest
++	// parses by design; cross-document reconciliation owns that refusal.
++	cases := map[string]struct {
++		mutate func(t *testing.T, object map[string]any)
++		detail string
++	}{
++		"wrong schema": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["schema"] = "urn:ax:schema:terminal-backend-manifest"
++			},
++			detail: "probe schema",
++		},
++		"wrong schema version": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["schema_version"] = "2.0.0"
++			},
++			detail: "probe schema version",
++		},
++		"reserved backend id": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["terminal_backend_id"] = "ax.evil"
++			},
++			detail: "probe backend identity",
++		},
++		"unknown implementation kind": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["implementation_kind"] = "container_image"
++			},
++			detail: "probe implementation kind",
++		},
++		"digest on builtin": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["executable_digest"] = testSeedDigest(0xAA)
++			},
++			detail: "probe executable digest",
++		},
++		"missing digest on external": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["implementation_kind"] = "local_program"
++				object["executable_digest"] = nil
++			},
++			detail: "probe executable digest",
++		},
++		"unknown availability": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["availability"] = "sometimes"
++			},
++			detail: "probe availability",
++		},
++		"bad os version": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["os_version"] = ""
++			},
++			detail: "document string bound",
++		},
++		"bad platform": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["platform"] = "plan9"
++			},
++			detail: "probe platform",
++		},
++		"protocol major 2": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["protocol_version"] = "2.0.0"
++			},
++			detail: "probe protocol major 1",
++		},
++		"unsorted evidence ids": {
++			mutate: func(t *testing.T, object map[string]any) {
++				ids := object["evidence_ids"].([]any)
++				for left, right := 0, len(ids)-1; left < right; left, right = left+1, right-1 {
++					ids[left], ids[right] = ids[right], ids[left]
++				}
++			},
++			detail: "document ordering",
++		},
++		"duplicate evidence ids": {
++			mutate: func(t *testing.T, object map[string]any) {
++				ids := object["evidence_ids"].([]any)
++				object["evidence_ids"] = append(ids, ids[0])
++			},
++			detail: "document ordering",
++		},
++		// An adjacent duplicate in sorted position is refused only by
++		// the duplicate half of the ordering gate: narrowing >= to >
++		// admits it, so this case holds that half.
++		"adjacent duplicate evidence ids": {
++			mutate: func(t *testing.T, object map[string]any) {
++				ids := object["evidence_ids"].([]any)
++				object["evidence_ids"] = []any{ids[0], ids[1], ids[1], ids[2]}
++			},
++			detail: "document ordering",
++		},
++		"evidence list bound": {
++			mutate: func(t *testing.T, object map[string]any) {
++				ids := make([]any, 0, 257)
++				for seed := 0; seed < 257; seed++ {
++					ids = append(ids, testSeedDigest(byte(seed)))
++				}
++				object["evidence_ids"] = ids
++			},
++			detail: "evidence list bound",
++		},
++		"malformed evidence id": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["evidence_ids"] = []any{"nope"}
++			},
++			detail: "document digest",
++		},
++		"bad timestamp": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["probed_at"] = "2026-01-15 12:00:00"
++			},
++			detail: "document timestamp",
++		},
++		"timestamp without fraction": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["probed_at"] = "2026-01-15T12:00:00Z"
++			},
++			detail: "document timestamp",
++		},
++		"non-empty extensions": {
++			mutate: func(t *testing.T, object map[string]any) {
++				object["extensions"] = map[string]any{"x": 1}
++			},
++			detail: "document extensions",
++		},
++	}
++	for name, tc := range cases {
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++
++			universe := testUniverse(t)
++			object := cloneMap(t, universe.probe)
++			tc.mutate(t, object)
++			finalizeDocument(t, object, "probe_id")
++			_, err := terminalbackend.ParseProbe(mustMarshal(t, object))
++			requireRefusal(t, err, codeMismatch, tc.detail)
++		})
++	}
++}
++
++// TestEvidenceDocumentRefusals narrows the evidence closed-schema gate: the
++// same schema, version, identity, and protocol classes the manifest parser
++// pins, at the evidence's own clauses, plus the value, fact, issuer,
++// signature, and realm members. The signature is re-applied after every
++// unsigned-field mutation so each case reaches its own arm instead of the
++// attestation check.
++func TestEvidenceDocumentRefusals(t *testing.T) {
++	t.Parallel()
++
++	cases := map[string]struct {
++		mutate func(t *testing.T, universe *fixtureUniverse, object map[string]any)
++		detail string
++	}{
++		"wrong schema": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["schema"] = "urn:ax:schema:terminal-backend-manifest"
++			},
++			detail: "evidence schema",
++		},
++		"wrong schema version": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["schema_version"] = "2.0.0"
++			},
++			detail: "evidence schema version",
++		},
++		"reserved backend id": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["terminal_backend_id"] = "ax.evil"
++			},
++			detail: "evidence backend identity",
++		},
++		"protocol major 2": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["protocol_version"] = "2.0.0"
++			},
++			detail: "evidence protocol major 1",
++		},
++		// The platform vocabulary gate in the one parser the
++		// closed-schema rework did not extend: only this arm names
++		// the platform rule, so narrowing it leaves no refusal.
++		"bad platform": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["platform"] = "plan9"
++			},
++			detail: "evidence platform",
++		},
++		"false value": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["value"] = false
++			},
++			detail: "evidence value",
++		},
++		"string value": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["value"] = "true"
++			},
++			detail: "evidence value",
++		},
++		"expires equal observed": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["expires_at"] = object["observed_at"]
++			},
++			detail: "evidence expiry",
++		},
++		"expires before observed": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["expires_at"] = "2024-01-01T00:00:00.000Z"
++			},
++			detail: "evidence expiry",
++		},
++		"unknown fact": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["facts"] = []any{"fixture_passed", "good_vibes"}
++			},
++			detail: "document vocabulary",
++		},
++		"unsorted facts": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["facts"] = []any{"runtime_probe_passed", "fixture_passed"}
++			},
++			detail: "document ordering",
++		},
++		"empty facts": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["facts"] = []any{}
++			},
++			detail: "document list bound",
++		},
++		"unknown issuer": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["issuer"] = "self"
++			},
++			detail: "evidence issuer",
++		},
++		"bad signature scheme": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["attestation_signature"] = "sha256:abcd"
++			},
++			detail: "evidence signature scheme",
++		},
++		// An unprefixed but well-formed Base64 body is admitted when
++		// the scheme-prefix half is removed, so this case holds it.
++		"unprefixed valid base64 signature": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["attestation_signature"] = "AA=="
++			},
++			detail: "evidence signature scheme",
++		},
++		"bad signature encoding": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["attestation_signature"] = "rsa-sha256:!!!"
++			},
++			detail: "evidence signature encoding",
++		},
++		"realm members on plain claim": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["terminal_binding_id"] = testSeedDigest(0xB1)
++				object["provider_id"] = "codex"
++				object["provider_build"] = "1.0"
++				object["sentinel_result"] = "passed"
++				object["provider_auth_smoke_result"] = "passed"
++			},
++			detail: "evidence realm binding",
++		},
++		// A realm claim proved by realm-less evidence is refused by the
++		// required-members half; only the inverse had a case before.
++		"null realm members on realm claim": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["capability"] = "credential_capable_execution_realm"
++			},
++			detail: "evidence realm binding",
++		},
++		"bad provider id": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["capability"] = "credential_capable_execution_realm"
++				object["terminal_binding_id"] = testSeedDigest(0xB1)
++				object["provider_id"] = "Codex!!"
++				object["provider_build"] = "1.0"
++				object["sentinel_result"] = "passed"
++				object["provider_auth_smoke_result"] = "passed"
++			},
++			detail: "evidence provider identity",
++		},
++		"half provider pair": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["capability"] = "credential_capable_execution_realm"
++				object["terminal_binding_id"] = testSeedDigest(0xB1)
++				object["provider_id"] = "codex"
++				object["provider_build"] = nil
++				object["sentinel_result"] = "passed"
++				object["provider_auth_smoke_result"] = "passed"
++			},
++			detail: "evidence realm binding",
++		},
++		"failed sentinel literal": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["capability"] = "credential_capable_execution_realm"
++				object["terminal_binding_id"] = testSeedDigest(0xB1)
++				object["provider_id"] = "codex"
++				object["provider_build"] = "1.0"
++				object["sentinel_result"] = "failed"
++				object["provider_auth_smoke_result"] = "passed"
++			},
++			detail: "evidence realm result",
++		},
++		"overlong os version": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["os_version"] = strings.Repeat("o", 257)
++			},
++			detail: "document string bound",
++		},
++		"unknown capability": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["capability"] = "teleportation"
++			},
++			detail: "capability vocabulary",
++		},
++		"numeric fact": {
++			mutate: func(t *testing.T, universe *fixtureUniverse, object map[string]any) {
++				object["facts"] = []any{"fixture_passed", float64(7)}
++			},
++			detail: "document member type",
++		},
++	}
++	for name, tc := range cases {
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++
++			universe := testUniverse(t)
++			object := cloneMap(t, universe.evidenceByCap["durable_disconnect"])
++			tc.mutate(t, universe, object)
++			// Only the identity is re-stamped: parsing never verifies
++			// the attestation, so the original signature stays a valid
++			// bystander and every case reaches its own structural arm.
++			object["evidence_id"] = testIdentity(t, object, "evidence_id")
++			_, err := terminalbackend.ParseEvidence(mustMarshal(t, object))
++			requireRefusal(t, err, codeMismatch, tc.detail)
++		})
++	}
++}
++
++// reconcileFixture parses one possibly-mutated universe into typed values.
++func reconcileFixture(t *testing.T, universe *fixtureUniverse) (terminalbackend.Manifest, terminalbackend.Probe, []terminalbackend.Evidence) {
++	t.Helper()
++
++	manifest, err := terminalbackend.ParseManifest(mustMarshal(t, universe.manifest))
++	if err != nil {
++		t.Fatalf("ParseManifest() error = %v", err)
++	}
++	probe, err := terminalbackend.ParseProbe(mustMarshal(t, universe.probe))
++	if err != nil {
++		t.Fatalf("ParseProbe() error = %v", err)
++	}
++	// Every entry in the evidence set parses, including extras the case
++	// added: unlisted or dangling objects are reconciliation refusals,
++	// not parse failures.
++	names := make([]string, 0, len(universe.evidenceByCap))
++	for name := range universe.evidenceByCap {
++		names = append(names, name)
++	}
++	sort.Strings(names)
++	evidence := make([]terminalbackend.Evidence, 0, len(names))
++	for _, name := range names {
++		parsed, err := terminalbackend.ParseEvidence(mustMarshal(t, universe.evidenceByCap[name]))
++		if err != nil {
++			t.Fatalf("ParseEvidence(%s) error = %v", name, err)
++		}
++		evidence = append(evidence, parsed)
++	}
++	return manifest, probe, evidence
++}
++
++// TestReconcileRefusals proves every admission arm fails closed at its own
++// clause. Each case moves exactly one rule's input and re-finalizes
++// identities (and re-signs evidence when an unsigned field moves) so the
++// failure lands on the intended arm — and the assertion names that arm, so
++// deleting the gate fails the test instead of sliding onto a lower arm.
++// Where a downstream arm could catch the same fixture, the fixture is
++// narrowed until only the named rule can reject it.
++func TestReconcileRefusals(t *testing.T) {
++	t.Parallel()
++
++	cases := map[string]struct {
++		mutate func(t *testing.T, universe *fixtureUniverse)
++		code   string
++		detail string
++	}{
++		"version mismatch": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				universe.probe["implementation_version"] = "2.2.0"
++				finalizeDocument(t, universe.probe, "probe_id")
++			},
++			code:   codeMismatch,
++			detail: "probe manifest binding",
++		},
++		"kind mismatch": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				universe.probe["implementation_kind"] = "native_runtime"
++				finalizeDocument(t, universe.probe, "probe_id")
++			},
++			code:   codeMismatch,
++			detail: "probe manifest binding",
++		},
++		// The evidence moves with the probe protocol: without that, a
++		// deleted membership gate slides onto the tuple binding and the
++		// suite stays green. Narrowed, only the membership rule rejects.
++		"protocol not member": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				universe.probe["protocol_version"] = "1.2.0"
++				for _, object := range universe.evidenceByCap {
++					object["protocol_version"] = "1.2.0"
++					finalizeEvidence(t, universe.key, object)
++				}
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "probe protocol membership",
++		},
++		"platform not member": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				universe.probe["platform"] = "windows"
++				for _, object := range universe.evidenceByCap {
++					object["platform"] = "windows"
++					finalizeEvidence(t, universe.key, object)
++				}
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "probe platform membership",
++		},
++		"stale generation": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {},
++			code:   codeStaleGeneration,
++			detail: "probe generation binding",
++		},
++		// The orphaned durable evidence is withdrawn with the claim:
++		// without that, a deleted omission gate slides onto the claim
++		// binding and the suite stays green. Narrowed, only the
++		// omission rule rejects.
++		"omitted manifest claim": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				claims := universe.probe["capability_claims"].([]any)
++				universe.probe["capability_claims"] = claims[1:]
++				delete(universe.evidenceByCap, "durable_disconnect")
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "probe omission of manifest claim",
++		},
++		// The orphaned durable evidence is withdrawn with the flipped
++		// value: without that, a deleted echo gate slides onto the
++		// claim binding. Narrowed, only the echo rule rejects.
++		"static echo drift": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				claims := universe.probe["capability_claims"].([]any)
++				claims[0].(map[string]any)["value"] = false
++				delete(universe.evidenceByCap, "durable_disconnect")
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "probe static claim echo",
++		},
++		// A static-origin probe claim for a capability the manifest
++		// never declared is self-minted: the manifest-to-probe
++		// omission loop checks the opposite direction and cannot
++		// catch it. The value stays true with its evidence intact,
++		// so only this arm can reject; deleting it admits the
++		// undeclared capability.
++		"static claim without manifest": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				claims := universe.probe["capability_claims"].([]any)
++				claims[1].(map[string]any)["origin"] = "static"
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "probe static claim without manifest",
++		},
++		"override of stable claim": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				claims := universe.probe["capability_claims"].([]any)
++				claims[0].(map[string]any)["origin"] = "probed"
++				finalizeDocument(t, universe.probe, "probe_id")
++			},
++			code:   codeMismatch,
++			detail: "probe override of stable claim",
++		},
++		"true claim without evidence": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				delete(universe.evidenceByCap, "graceful_stop")
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "evidence requirement coverage",
++		},
++		// The withdrawn claim is flipped false so coverage still holds
++		// and only the ID-set rule can reject the stale listing: a bare
++		// deletion lands on coverage instead, which already has a case.
++		"dangling evidence id": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				claims := universe.probe["capability_claims"].([]any)
++				claims[1].(map[string]any)["value"] = false
++				delete(universe.evidenceByCap, "graceful_stop")
++				finalizeDocument(t, universe.probe, "probe_id")
++			},
++			code:   codeMismatch,
++			detail: "evidence id set binding",
++		},
++		"evidence id superset": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				ids := universe.probe["evidence_ids"].([]any)
++				ids = append(ids, testSeedDigest(0xE1))
++				names := make([]string, 0, len(ids))
++				for _, id := range ids {
++					names = append(names, id.(string))
++				}
++				sort.Strings(names)
++				sorted := make([]any, 0, len(names))
++				for _, id := range names {
++					sorted = append(sorted, id)
++				}
++				universe.probe["evidence_ids"] = sorted
++				finalizeDocument(t, universe.probe, "probe_id")
++			},
++			code:   codeMismatch,
++			detail: "evidence id set binding",
++		},
++		"unreferenced evidence object": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				// A distinct usable object (supplementary fact changes
++				// the bytes and the ID) that evidence_ids never lists.
++				extra := universe.evidenceMap("durable_disconnect", []any{"fixture_passed", "runtime_probe_passed", "ui_absent"})
++				finalizeEvidence(t, universe.key, extra)
++				universe.evidenceByCap["durable-extra"] = extra
++			},
++			code:   codeMismatch,
++			detail: "evidence id set binding",
++		},
++		// The false claim's evidence ID is listed on the probe: without
++		// that, a deleted false-claim half slides onto the ID-set rule.
++		// Narrowed, only the claim binding rejects.
++		"evidence for false claim": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				object := universe.evidenceMap("local_attach", []any{"fixture_passed", "policy_checked", "runtime_probe_passed"})
++				finalizeEvidence(t, universe.key, object)
++				universe.evidenceByCap["local_attach"] = object
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "evidence claim binding",
++		},
++		"expired evidence": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				object := universe.evidenceByCap["graceful_stop"]
++				object["observed_at"] = "2024-01-01T00:00:00.000Z"
++				object["expires_at"] = "2025-01-01T00:00:00.000Z"
++				finalizeEvidence(t, universe.key, object)
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "evidence liveness",
++		},
++		// The upper boundary instant itself: observed <= now ==
++		// expires_at is expired (now < expires_at is strict). A gate
++		// narrowed to now.After(expires) admits this row.
++		"evidence expires at admission instant": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				object := universe.evidenceByCap["graceful_stop"]
++				object["expires_at"] = "2026-01-20T00:00:00.000Z"
++				finalizeEvidence(t, universe.key, object)
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "evidence liveness",
++		},
++		"future observed evidence": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				object := universe.evidenceByCap["graceful_stop"]
++				object["observed_at"] = "2027-01-01T00:00:00.000Z"
++				object["expires_at"] = "2028-01-01T00:00:00.000Z"
++				finalizeEvidence(t, universe.key, object)
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "evidence liveness",
++		},
++		"wrong generation evidence": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				object := universe.evidenceByCap["graceful_stop"]
++				object["backend_generation_digest"] = testSeedDigest(0x99)
++				finalizeEvidence(t, universe.key, object)
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "evidence tuple binding",
++		},
++		"wrong fixture evidence": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				object := universe.evidenceByCap["graceful_stop"]
++				object["conformance_fixture_id"] = testSeedDigest(0x98)
++				finalizeEvidence(t, universe.key, object)
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "evidence tuple binding",
++		},
++		"insufficient facts": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				object := universe.evidenceByCap["graceful_stop"]
++				object["facts"] = []any{"fixture_passed"}
++				finalizeEvidence(t, universe.key, object)
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "evidence requirement coverage",
++		},
++		"supplementary facts satisfy nothing": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				object := universe.evidenceByCap["graceful_stop"]
++				object["facts"] = []any{"prompt_absent", "ui_absent"}
++				finalizeEvidence(t, universe.key, object)
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "evidence requirement coverage",
++		},
++		"split facts across objects": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				first := universe.evidenceByCap["graceful_stop"]
++				first["facts"] = []any{"fixture_passed"}
++				finalizeEvidence(t, universe.key, first)
++				second := universe.evidenceMap("graceful_stop", []any{"runtime_probe_passed"})
++				finalizeEvidence(t, universe.key, second)
++				universe.evidenceByCap["graceful-second"] = second
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeMismatch,
++			detail: "evidence requirement coverage",
++		},
++		// Note: same-ID differing-bytes evidence cannot pass parsing (the
++		// ID is a hash of the bytes), so the conflict arm is pinned
++		// white-box in manifest_pin_test.go instead.
++		"wrong key signature": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {
++				other := testKey(t)
++				for _, object := range universe.evidenceByCap {
++					delete(object, "attestation_signature")
++					object["attestation_signature"] = ""
++					testSignBody(t, other, object)
++					object["evidence_id"] = testIdentity(t, object, "evidence_id")
++				}
++				finalizeProbeIDs(t, universe)
++			},
++			code:   codeIntegrityFailure,
++			detail: "evidence attestation",
++		},
++		"nil verifier": {
++			mutate: func(t *testing.T, universe *fixtureUniverse) {},
++			code:   codeIntegrityFailure,
++			detail: "evidence signature verifier",
++		},
++	}
++	for name, tc := range cases {
++		t.Run(name, func(t *testing.T) {
++			t.Parallel()
++
++			universe := testUniverse(t)
++			tc.mutate(t, universe)
++			manifest, probe, evidence := reconcileFixture(t, universe)
++			verify := testVerifier(universe.key)
++			if name == "nil verifier" {
++				verify = nil
++			}
++			rawGeneration := universe.rawGeneration
++			if name == "stale generation" {
++				rawGeneration = "generation-beta"
++			}
++			_, err := terminalbackend.Reconcile(manifest, probe, evidence, rawGeneration, universe.now, verify)
++			requireRefusal(t, err, tc.code, tc.detail)
++		})
++	}
++}
++
++// finalizeProbeIDs rebuilds evidence_ids from the current evidence set and
++// re-stamps the probe identity.
++func finalizeProbeIDs(t *testing.T, universe *fixtureUniverse) {
++	t.Helper()
++
++	ids := make([]string, 0, len(universe.evidenceByCap))
++	for _, object := range universe.evidenceByCap {
++		id, ok := object["evidence_id"].(string)
++		if !ok || id == "" {
++			t.Fatalf("evidence without identity in set")
++		}
++		ids = append(ids, id)
++	}
++	sort.Strings(ids)
++	asValues := make([]any, 0, len(ids))
++	for _, id := range ids {
++		asValues = append(asValues, id)
++	}
++	universe.probe["evidence_ids"] = asValues
++	finalizeDocument(t, universe.probe, "probe_id")
++}
++
++// TestCapabilitiesForOperation pins the registry-derived dependency map:
++// which capabilities confer each operation. manifest and probe confer
++// through no capability and return an empty set by design.
++func TestCapabilitiesForOperation(t *testing.T) {
++	t.Parallel()
++
++	want := map[string][]string{
++		"manifest": {}, "probe": {},
++		"create":             {"credential_capable_execution_realm", "durable_disconnect", "headless_creation", "scrollback_retention", "terminal_state_retention"},
++		"attach":             {"local_attach", "multi_attach", "multiple_input_clients", "remote_attach", "web_attach"},
++		"status":             {"durable_disconnect", "provider_process_observation", "scrollback_retention", "terminal_state_retention"},
++		"quiesce-input":      {"input_quiescence"},
++		"wait-safe-boundary": {"provider_process_observation", "safe_boundary_observation"},
++		"request-stop":       {"graceful_stop"},
++		"terminate-stale":    {"provider_process_observation", "stale_process_termination"},
++		"restore":            {"credential_capable_execution_realm", "reboot_restoration", "scrollback_retention", "terminal_state_retention"},
++	}
++	for operation, expected := range want {
++		got, err := terminalbackend.CapabilitiesForOperation(operation)
++		if err != nil {
++			t.Errorf("CapabilitiesForOperation(%q) error = %v", operation, err)
++			continue
++		}
++		sort.Strings(got)
++		if fmt.Sprint(got) != fmt.Sprint(expected) {
++			t.Errorf("CapabilitiesForOperation(%q) = %v, want %v", operation, got, expected)
++		}
++	}
++	_, err := terminalbackend.CapabilitiesForOperation("launch")
++	requireRefusal(t, err, codeMismatch, "operation vocabulary")
++	requireRefusal(t, terminalbackend.CheckOperation("launch", terminalbackend.Admitted{}), codeMismatch, "operation vocabulary")
++}
++
++// TestCheckOperationAdmitsDependencyFreeOperations pins the §4.D rule that
++// manifest and probe carry no capability dependency: both admit against the
++// empty set and against a full set, while a capability-gated operation is
++// still refused with the dependency clause.
++func TestCheckOperationAdmitsDependencyFreeOperations(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	manifest, probe, evidence := universe.parsed(t)
++	full, err := terminalbackend.Reconcile(manifest, probe, evidence, universe.rawGeneration, universe.now, testVerifier(universe.key))
++	if err != nil {
++		t.Fatalf("Reconcile() error = %v", err)
++	}
++
++	for _, admitted := range []terminalbackend.Admitted{{}, full} {
++		if err := terminalbackend.CheckOperation("manifest", admitted); err != nil {
++			t.Errorf("CheckOperation(manifest, %v) error = %v, want admission: manifest carries no capability dependency", admitted.Capabilities, err)
++		}
++		if err := terminalbackend.CheckOperation("probe", admitted); err != nil {
++			t.Errorf("CheckOperation(probe, %v) error = %v, want admission: probe carries no capability dependency", admitted.Capabilities, err)
++		}
++	}
++	requireRefusal(t, terminalbackend.CheckOperation("create", terminalbackend.Admitted{}), codeCapabilityUnproven, "operation capability dependency")
++}
++
++// TestEmptyTupleAdmitsEmptySet pins the vacuous boundary explicitly: a
++// claim-free probe with no evidence admits an empty set without error. The
++// set is empty because nothing was claimed, not because a filter removed
++// anything; callers must not read this as proof of filtering.
++func TestEmptyTupleAdmitsEmptySet(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	universe.manifest["static_capability_claims"] = []any{}
++	finalizeDocument(t, universe.manifest, "manifest_id")
++	universe.probe["capability_claims"] = []any{}
++	universe.probe["evidence_ids"] = []any{}
++	finalizeDocument(t, universe.probe, "probe_id")
++	universe.evidenceByCap = map[string]map[string]any{}
++
++	manifest, probe, evidence := reconcileFixture(t, universe)
++	admitted, err := terminalbackend.Reconcile(manifest, probe, evidence, universe.rawGeneration, universe.now, testVerifier(universe.key))
++	if err != nil {
++		t.Fatalf("Reconcile() error = %v", err)
++	}
++	if len(admitted.Capabilities) != 0 || len(admitted.EvidenceIDs) != 0 {
++		t.Errorf("Admitted = %+v, want empty", admitted)
++	}
++	requireRefusal(t, terminalbackend.CheckOperation("status", admitted), codeCapabilityUnproven, "operation capability dependency")
++}
++
++// TestAdmittedSharesNoBackingArrays keeps leaf 1's pin true for the new
++// surface: admitted outputs are freshly allocated copies, so mutating the
++// typed inputs after admission cannot rewrite the admitted set, and no
++// exported path reaches registry or document interior arrays.
++func TestAdmittedSharesNoBackingArrays(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	manifest, probe, evidence := universe.parsed(t)
++	admitted, err := terminalbackend.Reconcile(manifest, probe, evidence, universe.rawGeneration, universe.now, testVerifier(universe.key))
++	if err != nil {
++		t.Fatalf("Reconcile() error = %v", err)
++	}
++	beforeCapabilities := append([]string{}, admitted.Capabilities...)
++	beforeEvidence := append([]string{}, admitted.EvidenceIDs...)
++	probe.EvidenceIDs[0] = beforeEvidence[0] + "-mutated"
++	manifest.ProtocolVersions[0] = "9.9.9"
++	evidence[0].Facts[0] = "mutated_fact"
++	if fmt.Sprint(admitted.Capabilities) != fmt.Sprint(beforeCapabilities) ||
++		fmt.Sprint(admitted.EvidenceIDs) != fmt.Sprint(beforeEvidence) {
++		t.Errorf("Admitted = %+v after input mutation, want immutable output", admitted)
++	}
++}
++
++// TestUnavailableProbeStillAdmits pins the deliberate non-gate:
++// availability is an observation, not admission. An unavailable probe with
++// coherent evidence admits; activation policy owns the availability read.
++func TestUnavailableProbeStillAdmits(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	universe.probe["availability"] = "unavailable"
++	finalizeDocument(t, universe.probe, "probe_id")
++	manifest, probe, evidence := reconcileFixture(t, universe)
++	if _, err := terminalbackend.Reconcile(manifest, probe, evidence, universe.rawGeneration, universe.now, testVerifier(universe.key)); err != nil {
++		t.Errorf("Reconcile(unavailable) error = %v, want admission", err)
++	}
++}
++
++// TestAdmitProbeBindsRegistry is the production entry point: the universe
++// manifest resolves through a registry opened with the matching versions,
++// binds member-for-member, and admits.
++func TestAdmitProbeBindsRegistry(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	registry, err := terminalbackend.New("2.1.0", []string{"1.0.0", "1.1.0"})
++	if err != nil {
++		t.Fatalf("New() error = %v", err)
++	}
++	manifestRaw := mustMarshal(t, universe.manifest)
++	probeRaw := mustMarshal(t, universe.probe)
++	evidenceRaws := make([][]byte, 0, len(universe.evidenceByCap))
++	for _, capability := range []string{"durable_disconnect", "graceful_stop", "headless_creation"} {
++		evidenceRaws = append(evidenceRaws, mustMarshal(t, universe.evidenceByCap[capability]))
++	}
++	admitted, err := registry.AdmitProbe(manifestRaw, probeRaw, evidenceRaws, universe.rawGeneration, universe.now, testVerifier(universe.key))
++	if err != nil {
++		t.Fatalf("AdmitProbe() error = %v", err)
++	}
++	if !admitted.Has("graceful_stop") || admitted.Has("local_attach") {
++		t.Errorf("Admitted = %v, want proved true claims only", admitted.Capabilities)
++	}
++}
++
++// TestAdmitProbeRefusesUnknownIdentity proves registry reads fail closed:
++// a well-formed manifest for a never-admitted backend is not-found, never
++// a default.
++func TestAdmitProbeRefusesUnknownIdentity(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	universe.manifest["terminal_backend_id"] = "example.term"
++	finalizeDocument(t, universe.manifest, "manifest_id")
++	universe.probe["terminal_backend_id"] = "example.term"
++	finalizeDocument(t, universe.probe, "probe_id")
++	for _, object := range universe.evidenceByCap {
++		object["terminal_backend_id"] = "example.term"
++		finalizeEvidence(t, universe.key, object)
++	}
++	finalizeProbeIDs(t, universe)
++
++	registry, err := terminalbackend.New("2.1.0", []string{"1.0.0", "1.1.0"})
++	if err != nil {
++		t.Fatalf("New() error = %v", err)
++	}
++	evidenceRaws := make([][]byte, 0, len(universe.evidenceByCap))
++	for _, name := range []string{"durable_disconnect", "graceful_stop", "headless_creation"} {
++		evidenceRaws = append(evidenceRaws, mustMarshal(t, universe.evidenceByCap[name]))
++	}
++	_, err = registry.AdmitProbe(
++		mustMarshal(t, universe.manifest), mustMarshal(t, universe.probe),
++		evidenceRaws, universe.rawGeneration, universe.now, testVerifier(universe.key),
++	)
++	requireRefusal(t, err, codeNotFound, "unregistered terminal_backend_id")
++}
++
++// TestAdmitProbeRefusesRecordDrift proves the manifest-to-record binding:
++// an implementation version the registry never admitted is drift.
++func TestAdmitProbeRefusesRecordDrift(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	universe.manifest["implementation_version"] = "9.9.9"
++	finalizeDocument(t, universe.manifest, "manifest_id")
++
++	registry, err := terminalbackend.New("2.1.0", []string{"1.0.0", "1.1.0"})
++	if err != nil {
++		t.Fatalf("New() error = %v", err)
++	}
++	_, err = registry.AdmitProbe(
++		mustMarshal(t, universe.manifest), mustMarshal(t, universe.probe),
++		nil, universe.rawGeneration, universe.now, testVerifier(universe.key),
++	)
++	requireRefusal(t, err, codeDrift, "manifest implementation drift")
++}
++
++// TestAdmitProbeExternalRealm exercises the external path end to end: an
++// external adapter registers with trust, its manifest binds the digest, and
++// realm evidence proves the credential claim. A substituted digest in the
++// manifest is untrusted, not drift.
++func TestAdmitProbeExternalRealm(t *testing.T) {
++	t.Parallel()
++
++	const backendID = "example.realm"
++	executableDigest := testSeedDigest(0xE5)
++	rawGeneration := "generation-realm"
++	generationDigest, err := terminalbackend.GenerationDigest(rawGeneration)
++	if err != nil {
++		t.Fatalf("GenerationDigest() error = %v", err)
++	}
++	fixtureID := testSeedDigest(0xF2)
++	issuerID := testSeedDigest(0x2D)
++	now := time.Date(2026, time.February, 2, 0, 0, 0, 0, time.UTC)
++	key := testKey(t)
++
++	registry, err := terminalbackend.New("2.1.0", []string{"1.0.0", "1.1.0"})
++	if err != nil {
++		t.Fatalf("New() error = %v", err)
++	}
++
++	manifest := map[string]any{
++		"schema":                 terminalbackend.SchemaManifest,
++		"schema_version":         "1.0.0",
++		"manifest_id":            "",
++		"terminal_backend_id":    backendID,
++		"implementation_version": "3.0.0",
++		"protocol_versions":      []any{"1.0.0"},
++		"platforms":              []any{"linux"},
++		"implementation_kind":    "local_program",
++		"executable_digest":      executableDigest,
++		"static_capability_claims": []any{
++			claimMap("credential_capable_execution_realm", "static", true),
++		},
++		"conformance_fixture_id": fixtureID,
++		"extensions":             map[string]any{},
++	}
++	finalizeDocument(t, manifest, "manifest_id")
++
++	// Register the external adapter through the production trust gate so
++	// the manifest below binds a genuinely admitted record.
++	if err := registerExternalForTest(t, registry, backendID, executableDigest); err != nil {
++		t.Fatalf("RegisterExternal() error = %v", err)
++	}
++
++	probe := map[string]any{
++		"schema":                    terminalbackend.SchemaProbe,
++		"schema_version":            "1.0.0",
++		"probe_id":                  "",
++		"terminal_backend_id":       backendID,
++		"implementation_version":    "3.0.0",
++		"protocol_version":          "1.0.0",
++		"implementation_kind":       "local_program",
++		"executable_digest":         executableDigest,
++		"platform":                  "linux",
++		"os_version":                "6.8",
++		"availability":              "available",
++		"backend_generation_digest": generationDigest,
++		"capability_claims": []any{
++			claimMap("credential_capable_execution_realm", "probed", true),
++		},
++		"evidence_ids": []any{},
++		"probed_at":    "2026-02-01T09:00:00.000Z",
++		"extensions":   map[string]any{},
++	}
++
++	evidence := map[string]any{
++		"schema":                     terminalbackend.SchemaCapabilityEvidence,
++		"schema_version":             "1.0.0",
++		"evidence_id":                "",
++		"terminal_backend_id":        backendID,
++		"implementation_version":     "3.0.0",
++		"protocol_version":           "1.0.0",
++		"backend_generation_digest":  generationDigest,
++		"capability":                 "credential_capable_execution_realm",
++		"value":                      true,
++		"platform":                   "linux",
++		"os_version":                 "6.8",
++		"conformance_fixture_id":     fixtureID,
++		"observed_at":                "2026-01-01T00:00:00.000Z",
++		"expires_at":                 "2027-01-01T00:00:00.000Z",
++		"issuer":                     terminalbackend.IssuerRelease,
++		"issuer_id":                  issuerID,
++		"attestation_signature":      "",
++		"facts":                      []any{"fixture_passed", "provider_auth_passed", "runtime_probe_passed", "sentinel_passed"},
++		"terminal_binding_id":        testSeedDigest(0xB1),
++		"provider_id":                "codex",
++		"provider_build":             "1.2.3",
++		"sentinel_result":            "passed",
++		"provider_auth_smoke_result": "passed",
++		"extensions":                 map[string]any{},
++	}
++	finalizeEvidence(t, key, evidence)
++	probe["evidence_ids"] = []any{evidence["evidence_id"]}
++	finalizeDocument(t, probe, "probe_id")
++
++	admitted, err := registry.AdmitProbe(
++		mustMarshal(t, manifest), mustMarshal(t, probe),
++		[][]byte{mustMarshal(t, evidence)}, rawGeneration, now, testVerifier(key),
++	)
++	if err != nil {
++		t.Fatalf("AdmitProbe() error = %v", err)
++	}
++	if !admitted.Has("credential_capable_execution_realm") {
++		t.Errorf("Admitted = %v, want credential realm", admitted.Capabilities)
++	}
++
++	// Substitution: the manifest carries a foreign digest while the probe
++	// tracks it, so the probe-to-manifest identity holds and only the
++	// manifest-to-record binding can refuse. Without that tracking, a
++	// deleted record gate slides onto the probe identity arm — which
++	// reports the same code — and the suite stays green.
++	substituted := cloneMap(t, manifest)
++	substituted["executable_digest"] = testSeedDigest(0xE6)
++	finalizeDocument(t, substituted, "manifest_id")
++	trackedProbe := cloneMap(t, probe)
++	trackedProbe["executable_digest"] = testSeedDigest(0xE6)
++	finalizeDocument(t, trackedProbe, "probe_id")
++	_, err = registry.AdmitProbe(
++		mustMarshal(t, substituted), mustMarshal(t, trackedProbe),
++		[][]byte{mustMarshal(t, evidence)}, rawGeneration, now, testVerifier(key),
++	)
++	requireRefusal(t, err, codeUntrusted, "executable substitution")
++}
++
++// registerExternalForTest admits one local_program adapter through the
++// production RegisterExternal trust gate. Trust validation is grammatical
++// (absolute path, well-formed digest), so no executable file is needed.
++func registerExternalForTest(t *testing.T, registry *terminalbackend.Registry, backendID, digest string) error {
++	t.Helper()
++
++	return registry.RegisterExternal(
++		scalar.PlatformLinux,
++		terminalbackend.TrustEntry{
++			BackendID:        backendID,
++			ExecutablePath:   "/opt/vendor/bin/ax-backend-realm",
++			ExecutableDigest: digest,
++			Enabled:          true,
++		},
++		terminalbackend.Registration{
++			ID:                    backendID,
++			Kind:                  terminalbackend.KindLocalProgram,
++			ImplementationVersion: "3.0.0",
++			ProtocolVersions:      []string{"1.0.0"},
++			Platforms:             []scalar.Platform{scalar.PlatformLinux},
++			ExecutableDigest:      digest,
++		},
++	)
++}
+diff --git a/internal/terminalbackend/terminalbackend.go b/internal/terminalbackend/terminalbackend.go
+index 07feee2..c0b0a83 100644
+--- a/internal/terminalbackend/terminalbackend.go
++++ b/internal/terminalbackend/terminalbackend.go
+@@ -6,8 +6,9 @@
+ // (registry, identity, discovery, trust), §4.1 (backend interface versions),
+ // §6.5 (Configuration 3.0.0 TerminalBackend extension), and §7.A (Provider
+ // Protocol 3.0.0 Terminal Instance binding). Manifest/Probe schemas,
+-// capability evidence, lifecycle operations, and legacy v0.4.3 translation
+-// belong to the sibling story tasks and are deliberately not defined here.
++// capability evidence, and generation-bound admission are defined in
++// manifest.go; lifecycle operations and legacy v0.4.3 translation belong to
++// the sibling story tasks and are deliberately not defined here.
+ package terminalbackend
+ 
+ import (
+diff --git a/internal/terminalbackend/terminalbackend_test.go b/internal/terminalbackend/terminalbackend_test.go
+index 440140b..2941130 100644
+--- a/internal/terminalbackend/terminalbackend_test.go
++++ b/internal/terminalbackend/terminalbackend_test.go
+@@ -76,6 +76,9 @@ func TestWireCodesAreCatalogued(t *testing.T) {
+ 		"terminal_backend_implementation_drift",
+ 		"terminal_backend_restore_mismatch",
+ 		"terminal_backend_stale_generation",
++		"terminal_backend_manifest_probe_mismatch",
++		"terminal_backend_capability_unproven",
++		"terminal_backend_integrity_failure",
+ 	} {
+ 		if !known[code] {
+ 			t.Errorf("wire code %q is not in the pinned catalog error vocabulary", code)
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index ea4bd52..ffd4b93 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=74 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
++	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=75 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
+ 		"section coverage: bindings=49 full=1 partial=3 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=17/403\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+@@ -55,7 +55,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=74 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
++	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=75 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
+ 		"section coverage: bindings=49 full=1 partial=3 sliver=1 unevidenced=41 unmeasured=3 unowned=2 clauses_discharged=17/403\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index e24e1d5..9bc5e9b 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -2254,6 +2254,59 @@
+           "declaration": "TestTheCommonDataModelCitationsAreVerbatimInThePinnedDocument"
+         }
+       ]
++    },
++    {
++      "id": "terminal-manifest-probe-admission",
++      "production": {
++        "path": "internal/terminalbackend/manifest.go",
++        "declaration": "AdmitProbe"
++      },
++      "tests": [
++        {
++          "path": "internal/terminalbackend/manifest_test.go",
++          "declaration": "TestParseManifestAdmitsClosedFixture"
++        },
++        {
++          "path": "internal/terminalbackend/manifest_test.go",
++          "declaration": "TestManifestDocumentRefusals"
++        },
++        {
++          "path": "internal/terminalbackend/manifest_test.go",
++          "declaration": "TestProbeDocumentRefusals"
++        },
++        {
++          "path": "internal/terminalbackend/manifest_test.go",
++          "declaration": "TestEvidenceDocumentRefusals"
++        },
++        {
++          "path": "internal/terminalbackend/manifest_test.go",
++          "declaration": "TestReconcileAdmitsCoherentTuple"
++        },
++        {
++          "path": "internal/terminalbackend/manifest_test.go",
++          "declaration": "TestReconcileRefusals"
++        },
++        {
++          "path": "internal/terminalbackend/manifest_test.go",
++          "declaration": "TestCheckOperationAdmitsDependencyFreeOperations"
++        },
++        {
++          "path": "internal/terminalbackend/manifest_test.go",
++          "declaration": "TestAdmitProbeBindsRegistry"
++        },
++        {
++          "path": "internal/terminalbackend/manifest_test.go",
++          "declaration": "TestAdmitProbeRefusesRecordDrift"
++        },
++        {
++          "path": "internal/terminalbackend/manifest_test.go",
++          "declaration": "TestAdmitProbeExternalRealm"
++        },
++        {
++          "path": "internal/terminalbackend/manifest_pin_test.go",
++          "declaration": "TestParsedClaimSlicesShareNoRegistryBacking"
++        }
++      ]
+     }
+   ],
+   "ownership": [
+@@ -3207,7 +3260,7 @@
+         "structured-error-exit-status-fan-in"
+       ],
+       "coverage": "partial",
+-      "gap": "Clause 15.3#3 additionally forbids Structured Error from appearing as an RPC hello key or a TerminalBackend capability, and ExitCodeFor resolves a code-to-exit mapping rather than building either advertisement. No RPC hello frame and no TerminalBackend capability set is built anywhere in this repository, so Section 15.3 keeps that clause unimplemented.",
++      "gap": "Clause 15.3#3 additionally forbids Structured Error from appearing as an RPC hello key or a TerminalBackend capability, and ExitCodeFor resolves a code-to-exit mapping rather than building either advertisement. No RPC hello frame is built anywhere in this repository, and the closed 16-capability admission registry in internal/terminalbackend is never advertised on an RPC hello path and carries no Structured Error code, so Section 15.3 keeps that clause unimplemented.",
+       "clauses": [
+         {
+           "id": "15.3#1",
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 0697f94..c2f638c 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "e3cc40dae0a6e0b0c51d1d4b34a6b892e4c70e26f6d3eb02cdde79bf7de9438d"
++	reviewedOwnershipCanonicalSHA256 = "892bdb6ae91ad9ba814f90718a8cc18c0c61b9fb924e8dd7ff97121bf806a035"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 297b23a..c9cddb9 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -29,7 +29,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              60,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        74,
++		AcceptanceCases:        75,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 		SectionBindings:        49,

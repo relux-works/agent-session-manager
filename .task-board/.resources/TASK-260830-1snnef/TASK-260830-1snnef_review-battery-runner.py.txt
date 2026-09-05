@@ -1,0 +1,78 @@
+import json, os, re, subprocess, sys, hashlib, shutil
+
+ROOT = os.getcwd()
+FILES = ['internal/terminalbackend/manifest.go',
+         'internal/terminalbackend/terminalbackend.go',
+         'internal/terminalbackend/conformance.go',
+         'internal/config/validation.go']
+ORIG = {f: open(f).read() for f in FILES if os.path.exists(f)}
+SUMS = {f: hashlib.sha256(v.encode()).hexdigest() for f, v in ORIG.items()}
+
+def restore():
+    for f, v in ORIG.items():
+        open(f, 'w').write(v)
+    for f, v in ORIG.items():
+        assert hashlib.sha256(open(f).read().encode()).hexdigest() == SUMS[f], f
+
+def load_py_battery(path, default_src):
+    src = open(path).read()
+    ns = {}
+    m = re.search(r"^SRC\s*=\s*(.+)$", src, re.M)
+    srcfile = eval(m.group(1)) if m else default_src
+    body = re.search(r"MUTANTS\s*=\s*\[(.*?)\n\]", src, re.S)
+    items = eval("[" + body.group(1) + "\n]", {}, ns)
+    out = []
+    for it in items:
+        mid, kind, old, new = it[0], it[1], it[2], it[3]
+        out.append({"id": mid, "desc": kind, "edits": [{"file": srcfile, "old": old, "new": new}]})
+    return out
+
+def load_json_battery(path):
+    return json.load(open(path))
+
+def run(mutants, label, pkgs):
+    killed, survived, missing = [], [], []
+    for m in mutants:
+        restore()
+        ok = True
+        for e in m["edits"]:
+            f = e["file"]
+            s = open(f).read()
+            if e["old"] not in s:
+                ok = False
+                break
+            open(f, 'w').write(s.replace(e["old"], e["new"], 1))
+        if not ok:
+            missing.append(m["id"])
+            restore()
+            continue
+        r = subprocess.run(["go", "test"] + pkgs + ["-count=1"],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            killed.append(m["id"])
+        else:
+            survived.append(m["id"])
+        restore()
+    print(f"[{label}] total={len(mutants)} killed={len(killed)} survived={len(survived)} anchor_missing={len(missing)}")
+    if survived: print(f"  SURVIVED: {survived}")
+    if missing:  print(f"  ANCHOR MISSING: {missing}")
+    return {"label": label, "killed": killed, "survived": survived, "missing": missing}
+
+if __name__ == "__main__":
+    which = sys.argv[1]
+    lo, hi = int(sys.argv[2]), int(sys.argv[3])
+    D = ".temp/TASK-260830-1snnef/evidence/"
+    if which == "leaf1r3":
+        ms = load_json_battery(D + "TASK-260830-2xdt8t_review3-mutant-definitions.json")
+        pkgs = ["./internal/terminalbackend/", "./internal/config/"]
+    elif which == "leaf1r2":
+        ms = load_json_battery(D + "TASK-260830-2xdt8t_review2-mutant-definitions.json")
+        pkgs = ["./internal/terminalbackend/", "./internal/config/"]
+    elif which == "leaf2b1":
+        ms = load_py_battery(D + "TASK-260830-1zvmw7_review-mutant-battery-1.py", FILES[0])
+        pkgs = ["./internal/terminalbackend/"]
+    elif which == "leaf2b2":
+        ms = load_py_battery(D + "TASK-260830-1zvmw7_review-mutant-battery-2.py", FILES[0])
+        pkgs = ["./internal/terminalbackend/"]
+    res = run(ms[lo:hi], f"{which}[{lo}:{hi}]", pkgs)
+    json.dump(res, open(f".temp/TASK-260830-1snnef/res-{which}-{lo}-{hi}.json", "w"))

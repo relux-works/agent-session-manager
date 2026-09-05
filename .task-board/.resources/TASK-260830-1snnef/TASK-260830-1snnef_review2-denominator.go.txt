@@ -1,0 +1,205 @@
+package main
+
+// Round-2 independent arm denominator.
+// Deliberately NOT the derivation under test: whole-file ast.Inspect with a
+// positional exclusion of the two constructor bodies, plus a report of every
+// shape that could hide an arm from a Decls-driven walk.
+
+import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+type arm struct {
+	File, Kind, Code, Detail, Pos string
+	InsideFuncDecl                bool
+	InsideVarInit                 bool
+}
+
+func main() {
+	dir := os.Args[1]
+	matches, _ := filepath.Glob(filepath.Join(dir, "*.go"))
+	sort.Strings(matches)
+	var arms []arm
+	ctorIdentTotal, ctorCallFun, ctorDeclName := 0, 0, 0
+	wrapperCandidates := []string{}
+	for _, name := range matches {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			panic(err)
+		}
+		type span struct{ lo, hi token.Pos }
+		var ctorSpans, funcSpans, varSpans []span
+		for _, d := range f.Decls {
+			switch x := d.(type) {
+			case *ast.FuncDecl:
+				if x.Body == nil {
+					continue
+				}
+				funcSpans = append(funcSpans, span{x.Body.Pos(), x.Body.End()})
+				if x.Name.Name == "mismatchf" || x.Name.Name == "integrityFailure" {
+					ctorSpans = append(ctorSpans, span{x.Body.Pos(), x.Body.End()})
+				}
+			case *ast.GenDecl:
+				for _, s := range x.Specs {
+					if vs, ok := s.(*ast.ValueSpec); ok {
+						for _, v := range vs.Values {
+							varSpans = append(varSpans, span{v.Pos(), v.End()})
+						}
+					}
+				}
+			}
+		}
+		in := func(ss []span, p token.Pos) bool {
+			for _, s := range ss {
+				if p >= s.lo && p < s.hi {
+					return true
+				}
+			}
+			return false
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.CompositeLit:
+				id, ok := x.Type.(*ast.Ident)
+				if !ok || id.Name != "Error" {
+					return true
+				}
+				if in(ctorSpans, x.Pos()) {
+					return true
+				}
+				code, detail := "", ""
+				for _, e := range x.Elts {
+					kv, ok := e.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					k, ok := kv.Key.(*ast.Ident)
+					if !ok {
+						continue
+					}
+					if k.Name == "Code" {
+						if id, ok := kv.Value.(*ast.Ident); ok {
+							code = id.Name
+						} else {
+							code = "<dynamic>"
+						}
+					}
+					if k.Name == "Detail" {
+						if bl, ok := kv.Value.(*ast.BasicLit); ok && bl.Kind == token.STRING {
+							detail, _ = strconv.Unquote(bl.Value)
+						} else {
+							detail = "<dynamic>"
+						}
+					}
+				}
+				arms = append(arms, arm{name, "literal", code, detail, fset.Position(x.Pos()).String(),
+					in(funcSpans, x.Pos()), in(varSpans, x.Pos())})
+			case *ast.CallExpr:
+				id, ok := x.Fun.(*ast.Ident)
+				if !ok || (id.Name != "mismatchf" && id.Name != "integrityFailure") {
+					return true
+				}
+				ctorCallFun++
+				code := "CodeMismatch"
+				if id.Name == "integrityFailure" {
+					code = "CodeIntegrityFailure"
+				}
+				detail := "<dynamic>"
+				if len(x.Args) > 0 {
+					if bl, ok := x.Args[0].(*ast.BasicLit); ok && bl.Kind == token.STRING {
+						detail, _ = strconv.Unquote(bl.Value)
+					}
+				}
+				if in(ctorSpans, x.Pos()) {
+					return true
+				}
+				arms = append(arms, arm{name, "ctorcall", code, detail, fset.Position(x.Pos()).String(),
+					in(funcSpans, x.Pos()), in(varSpans, x.Pos())})
+			case *ast.Ident:
+				if x.Name == "mismatchf" || x.Name == "integrityFailure" {
+					ctorIdentTotal++
+				}
+			case *ast.FuncDecl:
+				if x.Name.Name == "mismatchf" || x.Name.Name == "integrityFailure" {
+					ctorDeclName++
+				}
+			}
+			return true
+		})
+		// wrapper-shape census: any FuncDecl whose whole body is a single
+		// return of a constructor call or an &Error literal, i.e. a funnel
+		// that N call sites can share.
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Body == nil || len(fd.Body.List) != 1 {
+				continue
+			}
+			ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
+			if !ok || len(ret.Results) != 1 {
+				continue
+			}
+			isArm := false
+			switch r := ret.Results[0].(type) {
+			case *ast.CallExpr:
+				if id, ok := r.Fun.(*ast.Ident); ok && (id.Name == "mismatchf" || id.Name == "integrityFailure") {
+					isArm = true
+				}
+			case *ast.UnaryExpr:
+				if cl, ok := r.X.(*ast.CompositeLit); ok {
+					if id, ok := cl.Type.(*ast.Ident); ok && id.Name == "Error" {
+						isArm = true
+					}
+				}
+			}
+			if isArm && fd.Name.Name != "mismatchf" && fd.Name.Name != "integrityFailure" {
+				wrapperCandidates = append(wrapperCandidates, fmt.Sprintf("%s %s", name, fd.Name.Name))
+			}
+		}
+	}
+	lit, call, outside, invar := 0, 0, 0, 0
+	for _, a := range arms {
+		if a.Kind == "literal" {
+			lit++
+		} else {
+			call++
+		}
+		if !a.InsideFuncDecl {
+			outside++
+			fmt.Printf("OUTSIDE-FUNCDECL %s %s %q @ %s (varInit=%v)\n", a.Kind, a.Code, a.Detail, a.Pos, a.InsideVarInit)
+		}
+		if a.InsideVarInit {
+			invar++
+		}
+	}
+	fmt.Printf("literals(excl ctor bodies)=%d ctorcalls(excl ctor bodies)=%d TOTAL=%d\n", lit, call, lit+call)
+	fmt.Printf("outsideAnyFuncDecl=%d insideVarInit=%d\n", outside, invar)
+	fmt.Printf("ctor ident occurrences total=%d  (call-fun=%d  decl-name=%d  residual=%d)\n",
+		ctorIdentTotal, ctorCallFun, ctorDeclName, ctorIdentTotal-ctorCallFun-ctorDeclName)
+	fmt.Printf("single-return refusal wrapper candidates=%d %v\n", len(wrapperCandidates), wrapperCandidates)
+	dyn := 0
+	for _, a := range arms {
+		if a.Detail == "<dynamic>" || a.Code == "<dynamic>" {
+			dyn++
+			fmt.Printf("DYNAMIC %s %s %q @ %s\n", a.Kind, a.Code, a.Detail, a.Pos)
+		}
+	}
+	fmt.Printf("dynamic-detail-or-code arms=%d\n", dyn)
+	// dump for set comparison
+	out, _ := os.Create(os.Args[2])
+	defer out.Close()
+	for _, a := range arms {
+		fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", filepath.Base(a.File), a.Kind, a.Code, a.Detail)
+	}
+}

@@ -1,0 +1,85 @@
+package main
+
+import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+func main() {
+	dir := os.Args[1]
+	matches, _ := filepath.Glob(filepath.Join(dir, "*.go"))
+	totalLit := 0
+	litInFuncDecl := 0
+	litOutsideFuncDecl := 0
+	litInConstructor := 0
+	callDirect := 0
+	identNonCall := 0
+	for _, name := range matches {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			panic(err)
+		}
+		// Build set of positions inside FuncDecl bodies, and inside constructors.
+		type span struct{ lo, hi token.Pos }
+		var decls, ctors []span
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || fd.Body == nil {
+				continue
+			}
+			decls = append(decls, span{fd.Body.Pos(), fd.Body.End()})
+			if fd.Name.Name == "mismatchf" || fd.Name.Name == "integrityFailure" {
+				ctors = append(ctors, span{fd.Body.Pos(), fd.Body.End()})
+			}
+		}
+		in := func(ss []span, p token.Pos) bool {
+			for _, s := range ss {
+				if p >= s.lo && p < s.hi {
+					return true
+				}
+			}
+			return false
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.CompositeLit:
+				id, ok := x.Type.(*ast.Ident)
+				if ok && id.Name == "Error" {
+					totalLit++
+					if in(ctors, x.Pos()) {
+						litInConstructor++
+					} else if in(decls, x.Pos()) {
+						litInFuncDecl++
+					} else {
+						litOutsideFuncDecl++
+						fmt.Printf("OUTSIDE-FUNCDECL Error literal: %s\n", fset.Position(x.Pos()))
+					}
+				}
+			case *ast.CallExpr:
+				if id, ok := x.Fun.(*ast.Ident); ok && (id.Name == "mismatchf" || id.Name == "integrityFailure") {
+					callDirect++
+					if !in(decls, x.Pos()) {
+						fmt.Printf("OUTSIDE-FUNCDECL ctor call: %s\n", fset.Position(x.Pos()))
+					}
+				}
+			case *ast.Ident:
+				if x.Name == "mismatchf" || x.Name == "integrityFailure" {
+					identNonCall++
+				}
+			}
+			return true
+		})
+	}
+	fmt.Printf("Error composite literals total=%d inConstructor=%d inFuncDecl=%d outsideFuncDecl=%d\n", totalLit, litInConstructor, litInFuncDecl, litOutsideFuncDecl)
+	fmt.Printf("direct ctor calls=%d ; all ctor ident occurrences (incl decl name + call fun)=%d\n", callDirect, identNonCall)
+	fmt.Printf("INDEPENDENT ARM DENOMINATOR (litInFuncDecl + directCalls) = %d\n", litInFuncDecl+callDirect)
+}

@@ -1,0 +1,140 @@
+import sys, json
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r3rev")
+from probe import probe, restore
+
+T = "internal/terminalbackend/terminalbackend.go"
+C = "internal/terminalbackend/conformance.go"
+
+# Anchor inside a FuncDecl body in terminalbackend.go (imports errors + fmt).
+FUNC_ANCHOR = None
+src = open(T).read()
+for cand in ['func validateProtocolVersions(', 'func (r *Registry) ']:
+    if cand in src:
+        FUNC_ANCHOR = cand
+        break
+print("anchor func:", FUNC_ANCHOR)
+
+R = []
+def run1(pid, desc, edits, expect="RED"):
+    R.append(probe(pid, desc, edits, expect=expect))
+
+# --- G2 plain-error smuggling: control + the three round-2 shapes + new shapes ---
+import re
+m = re.search(r'\nfunc validateProtocolVersions\(([^\)]*)\)([^\{]*)\{\n', src)
+print("validateProtocolVersions found:", bool(m))
+head = m.group(0)
+
+# V1 CONTROL: plain error inside a FuncDecl body -> must be RED
+run1("V1", "CONTROL: errors.New inside a FuncDecl body",
+     [(T, head, head + '\t_ = errors.New("planted control")\n')])
+
+# V2: package-level var errors.New (round-2 fix target)
+run1("V2", "package-level var errPlanted = errors.New(...)",
+     [(T, "\nfunc validateProtocolVersions(", '\nvar errPlanted = errors.New("planted var")\n\nfunc validateProtocolVersions(')])
+
+# V3: package-level var fmt.Errorf
+run1("V3", "package-level var errPlanted = fmt.Errorf(...)",
+     [(T, "\nfunc validateProtocolVersions(", '\nvar errPlanted = fmt.Errorf("planted var")\n\nfunc validateProtocolVersions(')])
+
+# V4: package-level var func literal returning a plain error
+run1("V4", "package-level var f = func() error { return errors.New(...) }",
+     [(T, "\nfunc validateProtocolVersions(", '\nvar plantedFn = func() error { return errors.New("planted literal") }\n\nfunc validateProtocolVersions(')])
+
+# V5: ALIAS of errors.New -> called from a FuncDecl body
+run1("V5", "alias: var newPlain = errors.New; called inside a FuncDecl body",
+     [(T, "\nfunc validateProtocolVersions(", '\nvar newPlain = errors.New\n\nfunc validateProtocolVersions('),
+      (T, head, head + '\t_ = newPlain("planted alias")\n')])
+
+# V6: plain error inside a method body (receiver-qualified path)
+METHOD = None
+mm = re.search(r'\nfunc \(([a-z]+) \*?Registry\) ([A-Za-z]+)\(([^\)]*)\)([^\{]*)\{\n', src)
+print("method anchor:", bool(mm), mm.group(0).strip()[:60] if mm else None)
+if mm:
+    run1("V6", "errors.New inside a *Registry method body",
+         [(T, mm.group(0), mm.group(0) + '\t_ = errors.New("planted method")\n')])
+
+# V7: plain error inside an init() function
+run1("V7", "errors.New inside a new init() function",
+     [(T, "\nfunc validateProtocolVersions(", '\nfunc init() { _ = errors.New("planted init") }\n\nfunc validateProtocolVersions(')])
+
+# --- legacyForward closure ---
+LF = '''	"tmux":   BuiltinTmux,
+	"conpty": BuiltinConpty,'''
+# L1: new legacy escape name mapping to a NEW canonical (no collision -> deterministic)
+run1("L1", "legacyForward gains screen -> ax.conpty (distinct canonical, deterministic)",
+     [(C, LF, LF + '\n\t"screen": BuiltinConpty,')])
+# L2: narrow the forward map (delete conpty) -- reverse control
+run1("L2", "CONTROL: legacyForward loses the conpty row",
+     [(C, LF, '\t"tmux":   BuiltinTmux,')])
+
+restore()
+json.dump(R, open(".temp/TASK-260830-1snnef-r3rev/bat4-results.json","w"), indent=1)
+print("\nBATTERY 4: total=%d killed=%d survived=%d" % (
+  len(R), sum(1 for r in R if r["result"]=="RED"), sum(1 for r in R if r["result"]=="GREEN")))
+print("SURVIVED:", [r["id"] for r in R if r["result"]=="GREEN"])
+print("OTHER:", [(r["id"],r["result"]) for r in R if r["result"] not in ("RED","GREEN")])
+import sys
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r3rev")
+from probe import restore, apply, run
+C = "internal/terminalbackend/conformance.go"
+old = '''	"tmux":   BuiltinTmux,
+	"conpty": BuiltinConpty,'''
+cases = [
+  ("L3", '\t"screen": "vendor.screen",',  "third escape name -> a distinct non-reserved canonical (no collision)"),
+  ("L4", '\t"screen": "vendor.term",',    "third escape name -> the ID the reverse test expects to be incompatible"),
+]
+for pid, extra, desc in cases:
+    restore()
+    assert apply([(C, old, old + "\n" + extra)], ()) is None
+    v = []
+    for i in range(5):
+        code, out = run(["./internal/terminalbackend/"])
+        v.append("RED" if code else "GREEN")
+    if "RED" in v:
+        code, out = run(["./internal/terminalbackend/"])
+        fails = sorted({l.split()[2] for l in out.splitlines()
+                        if l.strip().startswith("--- FAIL:") and len(l.split()) > 2})
+        print("   sample failing:", fails[:6])
+    restore()
+    print(f"{pid}\t{v}\t{desc}")
+import sys, json
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r3rev")
+from probe import probe, restore, apply, run, ORIG
+C = "internal/terminalbackend/conformance.go"
+old = '''	"tmux":   BuiltinTmux,
+	"conpty": BuiltinConpty,'''
+new = '''	"tmux":   BuiltinTmux,
+	"conpty": BuiltinConpty,
+	"screen": BuiltinTmux,'''
+restore()
+err = apply([(C, old, new)], ())
+assert err is None, err
+verdicts = []
+for i in range(12):
+    code, out = run(["./internal/terminalbackend/"], ["-run", "TestLegacy"])
+    verdicts.append("RED" if code != 0 else "GREEN")
+restore()
+print("C20 repeated (-run TestLegacy):", verdicts)
+print("RED=%d GREEN=%d" % (verdicts.count("RED"), verdicts.count("GREEN")))
+import json, hashlib, subprocess
+P = "internal/traceability/ownership.v0.5.0.json"
+orig = open(P, "rb").read()
+h = hashlib.sha256(orig).hexdigest()
+d = json.load(open(".temp/TASK-260830-1snnef-r3rev/leaf1-r3-defs.json"))
+m = [x for x in d if x["id"] == "T01"][0]
+e = m["edits"][0]
+src = orig.decode()
+assert src.count(e["old"]) == 1, src.count(e["old"])
+open(P, "w").write(src.replace(e["old"], e["new"], 1))
+assert e["new"] in open(P).read()
+try:
+    r = subprocess.run(["go", "test", "./internal/traceability/...", "-count=1"],
+                       capture_output=True, text=True, timeout=600)
+    fails = sorted({l.split()[2] for l in (r.stdout + r.stderr).splitlines()
+                    if l.strip().startswith("--- FAIL:") and len(l.split()) > 2})
+    print("T01 exit:", r.returncode, "=>", "KILLED" if r.returncode != 0 else "SURVIVED")
+    print("failing (%d):" % len(fails), fails[:15])
+finally:
+    open(P, "wb").write(orig)
+    assert hashlib.sha256(open(P, "rb").read()).hexdigest() == h
+    print("restored, sha256 ==", h[:16])

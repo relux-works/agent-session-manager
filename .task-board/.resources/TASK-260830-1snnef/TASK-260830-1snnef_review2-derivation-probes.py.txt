@@ -1,0 +1,318 @@
+import hashlib, json, os, subprocess, sys
+
+ROOT = os.getcwd()
+PKG = "internal/terminalbackend"
+FILES = [os.path.join(PKG, f) for f in os.listdir(PKG) if f.endswith(".go")] + [
+    "internal/config/validation.go"]
+ORIG = {f: open(f).read() for f in FILES}
+SUMS = {f: hashlib.sha256(v.encode()).hexdigest() for f, v in ORIG.items()}
+BASE_FILES = set(os.listdir(PKG))
+
+def restore():
+    for f, v in ORIG.items():
+        open(f, "w").write(v)
+    for f in ORIG:
+        assert hashlib.sha256(open(f).read().encode()).hexdigest() == SUMS[f], f
+    for extra in set(os.listdir(PKG)) - BASE_FILES:
+        os.remove(os.path.join(PKG, extra))
+    assert set(os.listdir(PKG)) == BASE_FILES
+
+def apply(edits, newfiles):
+    for f, old, new in edits:
+        s = open(f).read()
+        if old not in s:
+            restore(); return "ANCHOR-MISSING:%s" % old[:60]
+        open(f, "w").write(s.replace(old, new, 1))
+    for name, body in newfiles:
+        open(os.path.join(PKG, name), "w").write(body)
+    return None
+
+def run(pkgs, testflags=None):
+    cmd = ["go", "test"] + pkgs + ["-count=1"] + (testflags or [])
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    return r.returncode, r.stdout + r.stderr
+
+def probe(pid, desc, edits, newfiles=(), pkgs=None, expect="RED"):
+    restore()
+    err = apply(edits, newfiles)
+    if err:
+        restore()
+        print(f"{pid}\t{err}\t{desc}")
+        return {"id": pid, "desc": desc, "result": err, "expect": expect}
+    code, out = run(pkgs or ["./internal/terminalbackend/"])
+    fails = sorted({l.split()[2] for l in out.splitlines()
+                    if l.strip().startswith("--- FAIL:") and len(l.split()) > 2})
+    verdict = "RED" if code != 0 else "GREEN"
+    restore()
+    status = "OK" if verdict == expect else ("*** UNEXPECTED ***")
+    print(f"{pid}\t{verdict}\t(expect {expect}) {status}\t{desc}")
+    if fails:
+        print("      failing:", ", ".join(fails[:8]))
+    elif verdict == "RED":
+        print("      (no --- FAIL lines; build error or t.Fatal at package level)")
+        print("      " + "\n      ".join([l for l in out.splitlines() if "FAIL" in l or ".go:" in l][:6]))
+    return {"id": pid, "desc": desc, "result": verdict, "expect": expect, "failing": fails}
+import sys, json
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r2")
+from probe import probe, restore
+
+CONF = "internal/terminalbackend/conformance.go"
+ANCHOR = '''func CheckReplicable(members []string) error {
+	for _, member := range members {'''
+
+results = []
+
+# W1: one-line wrapper with a LITERAL detail fronting mismatchf, used at a new guard site.
+results.append(probe("W1", "one-line wrapper refuseFrame() -> mismatchf(literal), called from CheckReplicable",
+    [(CONF, ANCHOR, '''func refuseFrame() *Error { return mismatchf("planted wrapper refusal") }
+
+func CheckReplicable(members []string) error {
+	if len(members) == 7777 {
+		return refuseFrame()
+	}
+	for _, member := range members {''')]))
+
+# W2: wrapper taking the detail as a parameter (the shape the sibling reviewer named).
+results.append(probe("W2", "wrapper refuseFrame(detail string) -> mismatchf(detail), caller passes a literal",
+    [(CONF, ANCHOR, '''func refuseFrame(detail string) *Error { return mismatchf(detail) }
+
+func CheckReplicable(members []string) error {
+	if len(members) == 7777 {
+		return refuseFrame("planted parametric refusal")
+	}
+	for _, member := range members {''')]))
+
+# W3: wrapper building &Error{} with a parameterised detail.
+results.append(probe("W3", "wrapper returning &Error{Detail: detail} with a parameterised detail",
+    [(CONF, ANCHOR, '''func refuseFrame(detail string) *Error { return &Error{Code: CodeProtocolError, Detail: detail} }
+
+func CheckReplicable(members []string) error {
+	if len(members) == 7777 {
+		return refuseFrame("planted parametric literal refusal")
+	}
+	for _, member := range members {''')]))
+
+# W4: package-level var holding a prebuilt refusal, returned from a switch.
+results.append(probe("W4", "package-level `var plantedRefusal = &Error{...}` returned from a switch",
+    [(CONF, ANCHOR, '''var plantedRefusal = &Error{Code: CodeProtocolError, Detail: "planted package var refusal"}
+
+func CheckReplicable(members []string) error {
+	switch len(members) {
+	case 7777:
+		return plantedRefusal
+	}
+	for _, member := range members {''')]))
+
+# W5: plain error smuggled through a PACKAGE-LEVEL var (GenDecl), reaching a caller.
+results.append(probe("W5", "package-level `var errPlanted = errors.New(...)` returned from production",
+    [(CONF, ANCHOR, '''var errPlanted = errors.New("planted plain refusal")
+
+func CheckReplicable(members []string) error {
+	if len(members) == 7777 {
+		return errPlanted
+	}
+	for _, member := range members {''')]))
+
+# W6: method on a new type, reached through a package-level method value.
+results.append(probe("W6", "refusal on a method of a new type, reached via a package-level method value",
+    [(CONF, ANCHOR, '''type plantedGuard struct{}
+
+func (plantedGuard) refuse() *Error { return mismatchf("planted method value refusal") }
+
+var plantedMethodValue = plantedGuard{}.refuse
+
+func CheckReplicable(members []string) error {
+	if len(members) == 7777 {
+		return plantedMethodValue()
+	}
+	for _, member := range members {''')]))
+
+# W7: arm in a NEW production file carrying a build tag for this platform.
+results.append(probe("W7", "arm in a NEW build-tagged production file (//go:build darwin)",
+    [(CONF, ANCHOR, '''func CheckReplicable(members []string) error {
+	if len(members) == 7777 {
+		return plantedTagged()
+	}
+	for _, member := range members {''')],
+    newfiles=[("planted_tagged.go", '''//go:build darwin
+
+package terminalbackend
+
+func plantedTagged() *Error { return mismatchf("planted build-tagged refusal") }
+''')]))
+
+# W8: arm in a NEW production file excluded from THIS build (//go:build linux).
+results.append(probe("W8", "arm in a NEW production file excluded from this build (//go:build linux)",
+    [],
+    newfiles=[("planted_linux.go", '''//go:build linux
+
+package terminalbackend
+
+func plantedLinuxOnly() *Error { return mismatchf("planted excluded-build refusal") }
+''')]))
+
+# W9: fmt.Errorf smuggled through a package-level var.
+results.append(probe("W9", "package-level `var errPlanted2 = fmt.Errorf(...)` returned from production",
+    [(CONF, ANCHOR, '''var errPlanted2 = fmt.Errorf("planted fmt refusal")
+
+func CheckReplicable(members []string) error {
+	if len(members) == 7777 {
+		return errPlanted2
+	}
+	for _, member := range members {''')]))
+
+# W10: formatted mismatchf — static format string, interpolated local data.
+results.append(probe("W10", "mismatchf with a format verb interpolating local data (existing detail as format)",
+    [(CONF, '''		if class, known := replicationMembers[member]; !known || class != ReplicationSafeEvidence {
+			return &Error{Code: CodeProtocolError, Detail: "replication exclusion"}''',
+      '''		if class, known := replicationMembers[member]; !known || class != ReplicationSafeEvidence {
+			_ = mismatchf("replication exclusion %s", member)
+			return &Error{Code: CodeProtocolError, Detail: "replication exclusion"}''')]))
+
+restore()
+json.dump(results, open(".temp/TASK-260830-1snnef-r2/ga-results.json", "w"), indent=1)
+import sys, json
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r2")
+from probe import probe, restore
+
+CONF = "internal/terminalbackend/conformance.go"
+TB   = "internal/terminalbackend/terminalbackend.go"
+ANCHOR = '''func CheckReplicable(members []string) error {
+	for _, member := range members {'''
+TBANCHOR = '''func validateProtocolVersions(backendID string, versions []string) error {'''
+
+results = []
+
+# W2b: parametric wrapper fronting integrityFailure (plain string arg, no printf vet).
+results.append(probe("W2b", "wrapper refuseFrame(detail string) -> integrityFailure(detail), caller passes a literal",
+    [(CONF, ANCHOR, '''func refuseFrame(detail string) *Error { return integrityFailure(detail) }
+
+func CheckReplicable(members []string) error {
+	if len(members) == 7777 {
+		return refuseFrame("planted parametric refusal")
+	}
+	for _, member := range members {''')]))
+
+# W2c: same wrapper, but the caller's literal reuses an EXISTING declared detail.
+results.append(probe("W2c", "parametric wrapper whose caller passes an ALREADY-DECLARED detail",
+    [(CONF, ANCHOR, '''func refuseFrame(detail string) *Error { return integrityFailure(detail) }
+
+func CheckReplicable(members []string) error {
+	if len(members) == 7777 {
+		return refuseFrame("replication exclusion")
+	}
+	for _, member := range members {''')]))
+
+# W5b: plain error smuggled through a PACKAGE-LEVEL var in a file that imports errors.
+results.append(probe("W5b", "package-level `var errPlanted = errors.New(...)` returned from production (GenDecl)",
+    [(TB, TBANCHOR, '''var errPlanted = errors.New("planted plain refusal")
+
+func validateProtocolVersions(backendID string, versions []string) error {
+	if len(versions) == 7777 {
+		return errPlanted
+	}''')]))
+
+# W9b: fmt.Errorf smuggled through a package-level var.
+results.append(probe("W9b", "package-level `var errPlanted2 = fmt.Errorf(...)` returned from production (GenDecl)",
+    [(TB, TBANCHOR, '''var errPlanted2 = fmt.Errorf("planted fmt refusal")
+
+func validateProtocolVersions(backendID string, versions []string) error {
+	if len(versions) == 7777 {
+		return errPlanted2
+	}''')]))
+
+# W11: plain error constructed inside an ALLOWLISTED function but on a new path.
+results.append(probe("W11", "new errors.New refusal inside the allowlisted DigestFile",
+    [(TB, '''		return "", fmt.Errorf("terminal backend executable %s: not a regular file", resolved)''',
+      '''		return "", errors.New("planted smuggled inside DigestFile")''')]))
+
+# W12: plain error constructed in a NEW production file's FuncDecl.
+results.append(probe("W12", "errors.New refusal in a NEW production file's FuncDecl",
+    [(CONF, ANCHOR, '''func CheckReplicable(members []string) error {
+	if len(members) == 7777 {
+		return plantedPlain()
+	}
+	for _, member := range members {''')],
+    newfiles=[("planted_plain.go", '''package terminalbackend
+
+import "errors"
+
+func plantedPlain() error { return errors.New("planted plain refusal in a new file") }
+''')]))
+
+# W13: custom error type (neither *Error nor errors.New/fmt.Errorf).
+results.append(probe("W13", "custom error type smuggled as a refusal (no *Error, no errors.New/fmt.Errorf)",
+    [(CONF, ANCHOR, '''type plantedErr struct{}
+
+func (plantedErr) Error() string { return "planted custom refusal" }
+
+func CheckReplicable(members []string) error {
+	if len(members) == 7777 {
+		return plantedErr{}
+	}
+	for _, member := range members {''')]))
+
+# W14 (control): delete an existing arm — reverse direction.
+results.append(probe("W14", "CONTROL: delete an existing arm (reverse direction)",
+    [(CONF, '''			return &Error{Code: CodeProtocolError, Detail: "replication exclusion"}''',
+      '''			return &Error{Code: CodeProtocolError, Detail: "replication exclusion"} // keep
+		}
+		if false {''')]))
+
+restore()
+json.dump(results, open(".temp/TASK-260830-1snnef-r2/ga2-results.json", "w"), indent=1)
+import sys, json
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r2")
+from probe import probe, restore
+
+CONF = "internal/terminalbackend/conformance.go"
+TB   = "internal/terminalbackend/terminalbackend.go"
+ANCHOR = '''func CheckReplicable(members []string) error {
+	for _, member := range members {'''
+TBANCHOR = '''func validateProtocolVersions(backendID string, versions []string) error {'''
+results = []
+
+# W14b: honest control — actually DELETE an existing arm.
+results.append(probe("W14b", "CONTROL: actually delete the CheckReplicable arm (reverse direction)",
+    [(CONF, '''		if class, known := replicationMembers[member]; !known || class != ReplicationSafeEvidence {
+			return &Error{Code: CodeProtocolError, Detail: "replication exclusion"}
+		}''',
+      '''		if class, known := replicationMembers[member]; !known || class != ReplicationSafeEvidence {
+			_ = class
+		}''')]))
+
+# W15: CONTROL for W5b — the same errors.New, but inside a FuncDecl body.
+results.append(probe("W15", "CONTROL for W5b: identical errors.New refusal inside a FuncDecl body",
+    [(TB, TBANCHOR, '''func validateProtocolVersions(backendID string, versions []string) error {
+	if len(versions) == 7777 {
+		return errors.New("planted plain refusal")
+	}''')]))
+
+# W16: plain error inside a func literal assigned to a package-level var.
+results.append(probe("W16", "plain error inside a package-level `var f = func() error { errors.New(...) }`",
+    [(TB, TBANCHOR, '''var plantedFn = func() error { return errors.New("planted plain refusal in a var func literal") }
+
+func validateProtocolVersions(backendID string, versions []string) error {
+	if len(versions) == 7777 {
+		return plantedFn()
+	}''')]))
+
+# W17: *Error arm inside a nested func literal in a FuncDecl (round-1 A4 re-verify).
+results.append(probe("W17", "RE-VERIFY A4: *Error arm inside a nested func literal in a FuncDecl body",
+    [(CONF, ANCHOR, '''func CheckReplicable(members []string) error {
+	check := func() *Error { return mismatchf("planted nested literal refusal") }
+	if len(members) == 7777 {
+		return check()
+	}
+	for _, member := range members {''')]))
+
+# W18: sanity — does a package-level errors.New var that is NEVER used still pass?
+results.append(probe("W18", "package-level errors.New var declared but never returned",
+    [(TB, TBANCHOR, '''var errUnusedPlant = errors.New("planted unused plain refusal")
+
+var _ = errUnusedPlant
+
+func validateProtocolVersions(backendID string, versions []string) error {''')]))
+
+restore()
+json.dump(results, open(".temp/TASK-260830-1snnef-r2/ga3-results.json", "w"), indent=1)

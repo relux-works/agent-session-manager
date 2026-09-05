@@ -1,0 +1,150 @@
+import subprocess, sys, shutil, os, json
+W = "/Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260830-3m2mw8/worktree"
+D = os.path.join(W, ".temp/TASK-260830-2xdt8t")
+T = os.path.join(W, "internal/terminalbackend/terminalbackend.go")
+C = os.path.join(W, "internal/config/validation.go")
+ORIG = {T: os.path.join(D, "terminalbackend.go.orig"), C: os.path.join(D, "validation.go.orig")}
+
+MUTANTS = [
+ # (name, file, old, new, pkg, run-regex)
+ ("M01 reserved-namespace prefix widened to axx.", T,
+  'strings.HasPrefix(value, reservedNamespace) && value != BuiltinTmux',
+  'strings.HasPrefix(value, "axx.") && value != BuiltinTmux',
+  "./internal/terminalbackend/", "TestParseIDRefusesReservedNamespace"),
+ ("M02 reserved-namespace narrowed to tmux only (conpty refused)", T,
+  'value != BuiltinTmux && value != BuiltinConpty',
+  'value != BuiltinTmux',
+  "./internal/terminalbackend/", "TestParseID"),
+ ("M03 id byte bound widened 128->129", T,
+  'len(value) > maxIDBytes {',
+  'len(value) > maxIDBytes+1 {',
+  "./internal/terminalbackend/", "TestParseIDRefusesWidenedGrammar"),
+ ("M04 id grammar widened to accept uppercase", T,
+  '`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`',
+  '`^[A-Za-z][A-Za-z0-9]*(?:[.-][A-Za-z0-9]+)*$`',
+  "./internal/terminalbackend/", "TestParseIDRefusesWidenedGrammar"),
+ ("M05 id grammar widened to accept underscore separator", T,
+  '`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`',
+  '`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`',
+  "./internal/terminalbackend/", "TestParseIDRefusesWidenedGrammar"),
+ ("M06 protocol major gate widened !=1 -> <1", T,
+  'semverPattern.MatchString(version) || semverMajor(version) != 1',
+  'semverPattern.MatchString(version) || semverMajor(version) < 1',
+  "./internal/terminalbackend/", "TestNewRefusesBadVersionTuples"),
+ ("M07 protocol sorted-unique widened >= -> >", T,
+  'if index > 0 && versions[index-1] >= version {',
+  'if index > 0 && versions[index-1] > version {',
+  "./internal/terminalbackend/", "TestNewRefusesBadVersionTuples"),
+ ("M08 protocol count bound widened 32->33", T,
+  'len(versions) > maxProtocolVersions {',
+  'len(versions) > maxProtocolVersions+1 {',
+  "./internal/terminalbackend/", "TestNewRefusesBadVersionTuples"),
+ ("M09 equalRecord ignores Kind", T,
+  'left.Kind != right.Kind ||\n\t\tleft.ImplementationVersion',
+  'left.ImplementationVersion',
+  "./internal/terminalbackend/", "TestDriftIsRefused"),
+ ("M10 equalRecord ignores ImplementationVersion", T,
+  'left.ImplementationVersion != right.ImplementationVersion ||\n\t\tleft.ExecutableDigest != right.ExecutableDigest {',
+  'left.ExecutableDigest != right.ExecutableDigest {',
+  "./internal/terminalbackend/", "TestDriftIsRefused"),
+ ("M11 equalRecord ignores ExecutableDigest", T,
+  'left.ImplementationVersion != right.ImplementationVersion ||\n\t\tleft.ExecutableDigest != right.ExecutableDigest {',
+  'left.ImplementationVersion != right.ImplementationVersion {',
+  "./internal/terminalbackend/", "TestDriftIsRefused"),
+ ("M12 equalRecord ignores ProtocolVersions members", T,
+  'for i := range left.ProtocolVersions {\n\t\tif left.ProtocolVersions[i] != right.ProtocolVersions[i] {\n\t\t\treturn false\n\t\t}\n\t}',
+  '',
+  "./internal/terminalbackend/", "TestDriftIsRefused"),
+ ("M13 equalRecord ignores Platforms members", T,
+  'for i := range left.Platforms {\n\t\tif left.Platforms[i] != right.Platforms[i] {\n\t\t\treturn false\n\t\t}\n\t}',
+  '',
+  "./internal/terminalbackend/", "TestDriftIsRefused"),
+ ("M14 digest substitution check narrowed to first 7 bytes", T,
+  'if observed.ExecutableDigest != entry.ExecutableDigest {',
+  'if observed.ExecutableDigest[:7] != entry.ExecutableDigest[:7] {',
+  "./internal/terminalbackend/", "TestRegisterExternalRefusals"),
+ ("M15 disabled-trust gate narrowed to one id", T,
+  'if !entry.Enabled {',
+  'if !entry.Enabled && entry.BackendID == "zzz.never" {',
+  "./internal/terminalbackend/", "TestRegisterExternalRefusals"),
+ ("M16 generation bound widened 256->257", T,
+  'len(generation) > maxGenerationBytes {',
+  'len(generation) > maxGenerationBytes+1 {',
+  "./internal/terminalbackend/", "TestCheckProviderDescriptor"),
+ ("M17 descriptor ignores ProtocolVersion", T,
+  'if descriptor.ImplementationVersion != binding.ImplementationVersion ||\n\t\tdescriptor.ProtocolVersion != binding.ProtocolVersion {',
+  'if descriptor.ImplementationVersion != binding.ImplementationVersion {',
+  "./internal/terminalbackend/", "TestCheckProviderDescriptor"),
+ ("M18 descriptor generation compare narrowed", T,
+  'if descriptor.Generation != binding.Generation {',
+  'if descriptor.Generation != binding.Generation && len(descriptor.Generation) > 300 {',
+  "./internal/terminalbackend/", "TestCheckProviderDescriptor|TestErrorPredicates"),
+ ("M19 needsDigest narrowed to local_program only", T,
+  'return kind == KindLocalProgram || kind == KindTrustedExecutable',
+  'return kind == KindLocalProgram',
+  "./internal/terminalbackend/", "Test"),
+ ("M20 platforms sorted-unique widened >= -> >", T,
+  'if previous >= platform.String() {',
+  'if previous > platform.String() {',
+  "./internal/terminalbackend/", "Test"),
+ ("M21 platforms non-empty bound removed", T,
+  'if len(platforms) == 0 || len(platforms) > 4 {',
+  'if len(platforms) > 4 {',
+  "./internal/terminalbackend/", "Test"),
+ ("M22 platforms upper bound widened 4->5", T,
+  'if len(platforms) == 0 || len(platforms) > 4 {',
+  'if len(platforms) == 0 || len(platforms) > 5 {',
+  "./internal/terminalbackend/", "Test"),
+ ("M23 kind vocabulary widened (any string admitted)", T,
+  'case KindBuiltinGo, KindLocalProgram, KindTrustedExecutable, KindNativeRuntime:',
+  'case KindBuiltinGo, KindLocalProgram, KindTrustedExecutable, KindNativeRuntime, Kind("anything"):',
+  "./internal/terminalbackend/", "Test"),
+ ("M24 DigestFile accepts non-regular files", T,
+  'if !info.Mode().IsRegular() {',
+  'if false {',
+  "./internal/terminalbackend/", "TestDigestFile"),
+ ("M25 config: ax. trust-entry reservation removed", C,
+  'if strings.HasPrefix(entry.BackendID, "ax.") {\n\t\t\treturn configError(prefix+".backend_id", ErrConfigValidation)\n\t\t}',
+  '',
+  "./internal/config/", "TestEncodeCurrentRefusesReservedBackendNamespace"),
+ ("M26 config: 6.2 windows guard narrowed to wsl2", C,
+  'if terminal.BackendID == "ax.tmux" && configuration.Platform == scalar.PlatformWindows {',
+  'if terminal.BackendID == "ax.tmux" && configuration.Platform == scalar.PlatformWSL2 {',
+  "./internal/config/", "TestDecodeRefusesNonConptyBackendOnNativeWindows"),
+ ("M27 config: registry ParseID wiring reverted to old local pattern", C,
+  'if _, err := terminalbackend.ParseID(terminal.BackendID); err != nil {',
+  'if !regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`).MatchString(terminal.BackendID) || len(terminal.BackendID) > 128 {',
+  "./internal/config/", "TestEncodeCurrentRefusesReservedBackendNamespace"),
+ ("M28 config: external_trust ParseID wiring reverted", C,
+  'if _, err := terminalbackend.ParseID(entry.BackendID); err != nil {\n\t\t\treturn configError(prefix+".backend_id", ErrConfigValidation)\n\t\t}',
+  'if !regexp.MustCompile(`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`).MatchString(entry.BackendID) || len(entry.BackendID) > 128 {\n\t\t\treturn configError(prefix+".backend_id", ErrConfigValidation)\n\t\t}',
+  "./internal/config/", "TestEncodeCurrentRefusesReservedBackendNamespace"),
+]
+
+def restore():
+    for path, orig in ORIG.items():
+        shutil.copyfile(orig, path)
+
+results = []
+for name, path, old, new, pkg, run in MUTANTS:
+    restore()
+    src = open(path).read()
+    n = src.count(old)
+    if n != 1:
+        results.append((name, "MUTANT-NOT-APPLIED(count=%d)" % n, ""))
+        continue
+    open(path, "w").write(src.replace(old, new, 1))
+    p = subprocess.run(["go", "test", pkg, "-run", run, "-count=1"],
+                       cwd=W, capture_output=True, text=True)
+    if p.returncode != 0 and ("build failed" in p.stdout + p.stderr or "cannot" in p.stdout+p.stderr and "FAIL" not in p.stdout):
+        status = "BUILD-ERROR"
+    elif p.returncode != 0:
+        status = "KILLED (tests red)"
+    else:
+        status = "SURVIVED (tests still green)"
+    results.append((name, status, (p.stdout + p.stderr).strip().splitlines()[-3:] if p.returncode != 0 else []))
+restore()
+
+for name, status, tail in results:
+    print("%-62s %s" % (name, status))
+open(os.path.join(D, "mutation-results.json"), "w").write(json.dumps([{"mutant": n, "status": s} for n, s, _ in results], indent=2))

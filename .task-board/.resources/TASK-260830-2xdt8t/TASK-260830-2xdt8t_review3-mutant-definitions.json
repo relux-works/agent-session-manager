@@ -1,0 +1,788 @@
+[
+ {
+  "id": "R01",
+  "desc": "F1 egress: Resolve returns the stored record (no clone)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\treturn cloneRecord(record), nil",
+    "new": "\treturn record, nil"
+   }
+  ]
+ },
+ {
+  "id": "R02",
+  "desc": "F1 ingress: RegisterExternal stores caller record verbatim",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "registry.records[observed.ID] = cloneRecord(observed)",
+    "new": "registry.records[observed.ID] = observed"
+   }
+  ]
+ },
+ {
+  "id": "R03",
+  "desc": "F1 ingress: both built-ins share one protocol backing array",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "ProtocolVersions: cloneStrings(protocols),",
+    "new": "ProtocolVersions: protocols,"
+   },
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "ProtocolVersions:      cloneStrings(protocols),",
+    "new": "ProtocolVersions:      protocols,"
+   }
+  ]
+ },
+ {
+  "id": "R04",
+  "desc": "M12 equalRecord ignores ProtocolVersions members",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tfor i := range left.ProtocolVersions {\n\t\tif left.ProtocolVersions[i] != right.ProtocolVersions[i] {\n\t\t\treturn false\n\t\t}\n\t}\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "R05",
+  "desc": "M13 equalRecord ignores Platforms members",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tfor i := range left.Platforms {\n\t\tif left.Platforms[i] != right.Platforms[i] {\n\t\t\treturn false\n\t\t}\n\t}\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "R06",
+  "desc": "M16 generation upper bound widened 256->257",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "maxGenerationBytes = 256",
+    "new": "maxGenerationBytes = 257"
+   }
+  ]
+ },
+ {
+  "id": "R07",
+  "desc": "M30 generation lower bound deleted",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "len(generation) < 1 || ",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "R08",
+  "desc": "M08 protocol count bound widened 32->33",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "maxProtocolVersions = 32",
+    "new": "maxProtocolVersions = 33"
+   }
+  ]
+ },
+ {
+  "id": "R09",
+  "desc": "M20 platforms sorted-unique widened >= -> >",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if previous >= platform.String() {",
+    "new": "if previous > platform.String() {"
+   }
+  ]
+ },
+ {
+  "id": "R10",
+  "desc": "M21 platforms non-empty bound removed",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if len(platforms) == 0 || len(platforms) > 4 {",
+    "new": "if len(platforms) > 4 {"
+   }
+  ]
+ },
+ {
+  "id": "R11",
+  "desc": "M22 platforms upper bound widened 4->5",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if len(platforms) == 0 || len(platforms) > 4 {",
+    "new": "if len(platforms) == 0 || len(platforms) > 5 {"
+   }
+  ]
+ },
+ {
+  "id": "R12",
+  "desc": "M23 parseKind admits any string",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tdefault:\n\t\treturn \"\", &Error{Code: CodeNotFound, Detail: \"implementation_kind vocabulary\"}\n\t}",
+    "new": "\tdefault:\n\t\treturn Kind(value), nil\n\t}"
+   }
+  ]
+ },
+ {
+  "id": "R13",
+  "desc": "M24b DigestFile regular-file guard neutralised (compiling variant)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if !info.Mode().IsRegular() {",
+    "new": "if !info.Mode().IsRegular() && false {"
+   }
+  ]
+ },
+ {
+  "id": "R14",
+  "desc": "digest-must-be-null arm removed",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\t} else if record.ExecutableDigest != \"\" {\n\t\treturn &Error{Code: CodeDrift, BackendID: record.ID, Detail: \"executable_digest must be null\"}\n\t}",
+    "new": "\t}"
+   }
+  ]
+ },
+ {
+  "id": "R15",
+  "desc": "M28-DELETION config trust-loop ParseID call removed",
+  "edits": [
+   {
+    "file": "internal/config/validation.go",
+    "old": "\t\tif _, err := terminalbackend.ParseID(entry.BackendID); err != nil {\n\t\t\treturn configError(prefix+\".backend_id\", ErrConfigValidation)\n\t\t}\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "N01",
+  "desc": "NEIGHBOUR platforms upper bound NARROWED 4->3",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if len(platforms) == 0 || len(platforms) > 4 {",
+    "new": "if len(platforms) == 0 || len(platforms) > 3 {"
+   }
+  ]
+ },
+ {
+  "id": "N02",
+  "desc": "NEIGHBOUR platforms upper bound widened 4->6",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if len(platforms) == 0 || len(platforms) > 4 {",
+    "new": "if len(platforms) == 0 || len(platforms) > 6 {"
+   }
+  ]
+ },
+ {
+  "id": "N03",
+  "desc": "NEIGHBOUR generation upper bound widened 256->100000",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "maxGenerationBytes = 256",
+    "new": "maxGenerationBytes = 100000"
+   }
+  ]
+ },
+ {
+  "id": "N04",
+  "desc": "NEIGHBOUR generation upper bound NARROWED 256->255",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "maxGenerationBytes = 256",
+    "new": "maxGenerationBytes = 255"
+   }
+  ]
+ },
+ {
+  "id": "N05",
+  "desc": "NEIGHBOUR generation lower bound NARROWED <1 -> <2",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "len(generation) < 1 ||",
+    "new": "len(generation) < 2 ||"
+   }
+  ]
+ },
+ {
+  "id": "N06",
+  "desc": "NEIGHBOUR protocol count bound NARROWED 32->31",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "maxProtocolVersions = 32",
+    "new": "maxProtocolVersions = 31"
+   }
+  ]
+ },
+ {
+  "id": "N07",
+  "desc": "NEIGHBOUR protocol count bound widened 32->40",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "maxProtocolVersions = 32",
+    "new": "maxProtocolVersions = 40"
+   }
+  ]
+ },
+ {
+  "id": "N08",
+  "desc": "NEIGHBOUR id byte bound NARROWED 128->127",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "maxIDBytes = 128",
+    "new": "maxIDBytes = 127"
+   }
+  ]
+ },
+ {
+  "id": "N09",
+  "desc": "NEIGHBOUR parseKind admits one extra plausible kind builtin_rust",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "case KindBuiltinGo, KindLocalProgram, KindTrustedExecutable, KindNativeRuntime:",
+    "new": "case KindBuiltinGo, KindLocalProgram, KindTrustedExecutable, KindNativeRuntime, Kind(\"builtin_rust\"):"
+   }
+  ]
+ },
+ {
+  "id": "N10",
+  "desc": "NEIGHBOUR parseKind NARROWED: native_runtime dropped from vocabulary",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "case KindBuiltinGo, KindLocalProgram, KindTrustedExecutable, KindNativeRuntime:",
+    "new": "case KindBuiltinGo, KindLocalProgram, KindTrustedExecutable:"
+   }
+  ]
+ },
+ {
+  "id": "N11",
+  "desc": "NEIGHBOUR protocol major gate !=1 -> >1 (admits major 0)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "semverMajor(version) != 1",
+    "new": "semverMajor(version) > 1"
+   }
+  ]
+ },
+ {
+  "id": "N12",
+  "desc": "NEIGHBOUR descriptor drops ImplementationVersion comparison",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\t\tif descriptor.ImplementationVersion != binding.ImplementationVersion ||\n\t\tdescriptor.ProtocolVersion != binding.ProtocolVersion {",
+    "new": "\t\tif descriptor.ProtocolVersion != binding.ProtocolVersion {"
+   }
+  ]
+ },
+ {
+  "id": "N13",
+  "desc": "NEIGHBOUR CheckVersionTuple membership widened to prefix match",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\t\tif protocolVersion == member {",
+    "new": "\t\tif strings.HasPrefix(member, protocolVersion) {"
+   }
+  ]
+ },
+ {
+  "id": "N14",
+  "desc": "NEIGHBOUR ParseID length bound: empty string admitted",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "len(value) < 1 || len(value) > maxIDBytes",
+    "new": "len(value) > maxIDBytes"
+   }
+  ]
+ },
+ {
+  "id": "N15",
+  "desc": "NEIGHBOUR RegisterExternal external-kind gate widened to admit native_runtime",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if observed.Kind != KindLocalProgram && observed.Kind != KindTrustedExecutable {",
+    "new": "if observed.Kind != KindLocalProgram && observed.Kind != KindTrustedExecutable && observed.Kind != KindNativeRuntime {"
+   }
+  ]
+ },
+ {
+  "id": "N16",
+  "desc": "NEIGHBOUR trust-entry ax. reservation narrowed to ax.tmux only",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if strings.HasPrefix(entry.BackendID, reservedNamespace) {",
+    "new": "if entry.BackendID == BuiltinTmux {"
+   }
+  ]
+ },
+ {
+  "id": "N17",
+  "desc": "NEIGHBOUR config 6.2 conpty-off-Windows guard removed (tmux arm kept)",
+  "edits": [
+   {
+    "file": "internal/config/validation.go",
+    "old": "\tif terminal.BackendID == \"ax.conpty\" && configuration.Platform != scalar.PlatformWindows {\n\t\treturn configError(\"terminal.backend_id unsupported platform\", ErrConfigValidation)\n\t}\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "N18",
+  "desc": "NEIGHBOUR config 6.2 tmux-on-Windows guard narrowed to WSL2",
+  "edits": [
+   {
+    "file": "internal/config/validation.go",
+    "old": "if terminal.BackendID == \"ax.tmux\" && configuration.Platform == scalar.PlatformWindows {",
+    "new": "if terminal.BackendID == \"ax.tmux\" && configuration.Platform == scalar.PlatformWSL2 {"
+   }
+  ]
+ },
+ {
+  "id": "M01",
+  "desc": "reserved-namespace prefix widened ax. -> axx.",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "reservedNamespace = \"ax.\"",
+    "new": "reservedNamespace = \"axx.\""
+   }
+  ]
+ },
+ {
+  "id": "M02",
+  "desc": "reserved-namespace narrowed: conpty refused",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "value != BuiltinTmux && value != BuiltinConpty",
+    "new": "value != BuiltinTmux"
+   }
+  ]
+ },
+ {
+  "id": "M03",
+  "desc": "id byte bound widened 128->129",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "maxIDBytes = 128",
+    "new": "maxIDBytes = 129"
+   }
+  ]
+ },
+ {
+  "id": "M04",
+  "desc": "id grammar widened to uppercase",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`",
+    "new": "`^[a-zA-Z][a-zA-Z0-9]*(?:[.-][a-zA-Z0-9]+)*$`"
+   }
+  ]
+ },
+ {
+  "id": "M05",
+  "desc": "id grammar widened to underscore separator",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "`^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$`",
+    "new": "`^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$`"
+   }
+  ]
+ },
+ {
+  "id": "M06",
+  "desc": "protocol major gate widened !=1 -> <1",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "semverMajor(version) != 1",
+    "new": "semverMajor(version) < 1"
+   }
+  ]
+ },
+ {
+  "id": "M07",
+  "desc": "protocol sorted-unique widened >= -> >",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "versions[index-1] >= version",
+    "new": "versions[index-1] > version"
+   }
+  ]
+ },
+ {
+  "id": "M09",
+  "desc": "equalRecord ignores Kind",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "left.ID != right.ID || left.Kind != right.Kind ||",
+    "new": "left.ID != right.ID ||"
+   }
+  ]
+ },
+ {
+  "id": "M10",
+  "desc": "equalRecord ignores ImplementationVersion",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\t\tleft.ImplementationVersion != right.ImplementationVersion ||\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "M11",
+  "desc": "equalRecord ignores ExecutableDigest",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "left.ImplementationVersion != right.ImplementationVersion ||\n\t\tleft.ExecutableDigest != right.ExecutableDigest {",
+    "new": "left.ImplementationVersion != right.ImplementationVersion {"
+   }
+  ]
+ },
+ {
+  "id": "M14",
+  "desc": "digest substitution compare narrowed to first 7 bytes",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if observed.ExecutableDigest != entry.ExecutableDigest {",
+    "new": "if len(observed.ExecutableDigest) >= 7 && len(entry.ExecutableDigest) >= 7 && observed.ExecutableDigest[:7] != entry.ExecutableDigest[:7] {"
+   }
+  ]
+ },
+ {
+  "id": "M15",
+  "desc": "disabled-trust gate narrowed to one id",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if !entry.Enabled {",
+    "new": "if !entry.Enabled && entry.BackendID == \"com.example.never\" {"
+   }
+  ]
+ },
+ {
+  "id": "M17",
+  "desc": "descriptor ignores ProtocolVersion",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "descriptor.ImplementationVersion != binding.ImplementationVersion ||\n\t\tdescriptor.ProtocolVersion != binding.ProtocolVersion {",
+    "new": "descriptor.ImplementationVersion != binding.ImplementationVersion {"
+   }
+  ]
+ },
+ {
+  "id": "M17b",
+  "desc": "descriptor ignores ImplementationVersion",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "descriptor.ImplementationVersion != binding.ImplementationVersion ||\n\t\tdescriptor.ProtocolVersion != binding.ProtocolVersion {",
+    "new": "descriptor.ProtocolVersion != binding.ProtocolVersion {"
+   }
+  ]
+ },
+ {
+  "id": "M18",
+  "desc": "descriptor generation compare narrowed to length",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if descriptor.Generation != binding.Generation {",
+    "new": "if len(descriptor.Generation) != len(binding.Generation) {"
+   }
+  ]
+ },
+ {
+  "id": "M19",
+  "desc": "needsDigest narrowed to local_program only",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "return kind == KindLocalProgram || kind == KindTrustedExecutable",
+    "new": "return kind == KindLocalProgram"
+   }
+  ]
+ },
+ {
+  "id": "M25",
+  "desc": "config: ax. trust-entry reservation removed",
+  "edits": [
+   {
+    "file": "internal/config/validation.go",
+    "old": "\t\tif strings.HasPrefix(entry.BackendID, \"ax.\") {\n\t\t\treturn configError(prefix+\".backend_id\", ErrConfigValidation)\n\t\t}\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "M27",
+  "desc": "config: terminal.backend_id ParseID wiring removed",
+  "edits": [
+   {
+    "file": "internal/config/validation.go",
+    "old": "\tif _, err := terminalbackend.ParseID(terminal.BackendID); err != nil {\n\t\treturn configError(\"terminal.backend_id\", ErrConfigValidation)\n\t}\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "M31",
+  "desc": "RegisterExternal identity-binding gate removed",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tif observed.ID != entry.BackendID {\n\t\treturn &Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: \"external_trust identity binding\"}\n\t}\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "M32",
+  "desc": "RequireRestoreBinding candidate!=bound gate removed",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tif candidate != bound {\n\t\treturn Registration{}, &Error{Code: CodeRestoreMismatch, BackendID: candidate, Detail: \"restore requires the prior binding\"}\n\t}\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "M33",
+  "desc": "DefaultForPlatform windows -> tmux",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tcase scalar.PlatformWindows:\n\t\treturn BuiltinConpty, nil",
+    "new": "\tcase scalar.PlatformWindows:\n\t\treturn BuiltinTmux, nil"
+   }
+  ]
+ },
+ {
+  "id": "M34",
+  "desc": "validateTrust absolute-path gate removed",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tif _, err := scalar.ParseAbsolutePath(platform, entry.ExecutablePath); err != nil {\n\t\treturn &Error{Code: CodeUntrusted, BackendID: entry.BackendID, Detail: \"external_trust executable_path\"}\n\t}\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "M35",
+  "desc": "Registration.validate implementation_version semver gate removed",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tif !semverPattern.MatchString(record.ImplementationVersion) {\n\t\treturn &Error{Code: CodeDrift, BackendID: record.ID, Detail: \"implementation_version semver\"}\n\t}\n",
+    "new": ""
+   }
+  ]
+ },
+ {
+  "id": "M32b",
+  "desc": "RequireRestoreBinding candidate!=bound gate neutralised (compiling)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "if candidate != bound {",
+    "new": "if candidate != bound && false {"
+   }
+  ]
+ },
+ {
+  "id": "R02b",
+  "desc": "RegisterExternal stores caller record with only Platforms cloned (half fix)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "registry.records[observed.ID] = cloneRecord(observed)",
+    "new": "registry.records[observed.ID] = func(r Registration) Registration { r.Platforms = clonePlatforms(r.Platforms); return r }(observed)"
+   }
+  ]
+ },
+ {
+  "id": "R01b",
+  "desc": "Resolve returns a copy with only ProtocolVersions cloned (half fix)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\treturn cloneRecord(record), nil",
+    "new": "\trecord.ProtocolVersions = cloneStrings(record.ProtocolVersions)\n\treturn record, nil"
+   }
+  ]
+ },
+ {
+  "id": "T01",
+  "desc": "ownership registry: extra unreviewed test declaration added without re-pinning the digest",
+  "edits": [
+   {
+    "file": "internal/traceability/ownership.v0.5.0.json",
+    "old": "        {\n          \"path\": \"internal/config/terminal_registry_wiring_test.go\",\n          \"declaration\": \"TestDecodeRefusesNonConptyBackendOnNativeWindows\"\n        },",
+    "new": "        {\n          \"path\": \"internal/config/terminal_registry_wiring_test.go\",\n          \"declaration\": \"TestDecodeRefusesNonConptyBackendOnNativeWindows\"\n        },\n        {\n          \"path\": \"internal/config/terminal_registry_wiring_test.go\",\n          \"declaration\": \"TestSelfMintedClaimThatDoesNotExist\"\n        },"
+   }
+  ]
+ },
+ {
+  "id": "X01",
+  "desc": "G1 NEIGHBOUR: only the FIRST New clone reverted (tmux shares with local protocols; built-ins still distinct)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "ProtocolVersions: cloneStrings(protocols),",
+    "new": "ProtocolVersions: protocols,"
+   }
+  ]
+ },
+ {
+  "id": "X02",
+  "desc": "G1 NEIGHBOUR: only the SECOND New clone reverted",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "ProtocolVersions:      cloneStrings(protocols),",
+    "new": "ProtocolVersions:      protocols,"
+   }
+  ]
+ },
+ {
+  "id": "X03",
+  "desc": "G1 EXPORTED SURFACE: RequireRestoreBinding bypasses Resolve and returns the stored record uncloned",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\treturn registry.Resolve(bound)\n",
+    "new": "\tregistry.mutex.RLock()\n\tdefer registry.mutex.RUnlock()\n\trecord, known := registry.records[bound]\n\tif !known {\n\t\treturn Registration{}, &Error{Code: CodeNotFound, BackendID: bound, Detail: \"unregistered terminal_backend_id\"}\n\t}\n\treturn record, nil\n"
+   }
+  ]
+ },
+ {
+  "id": "X04",
+  "desc": "G1 EXPORTED SURFACE: New retains the caller's protocolVersions argument array (no defensive copy)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tprotocols := append([]string(nil), protocolVersions...)\n",
+    "new": "\tprotocols := protocolVersions\n"
+   }
+  ]
+ },
+ {
+  "id": "X05",
+  "desc": "G2 NEIGHBOUR: platforms upper bound NARROWED 4->3 (round-2 N01 survivor)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "len(platforms) == 0 || len(platforms) > 4",
+    "new": "len(platforms) == 0 || len(platforms) > 3"
+   }
+  ]
+ },
+ {
+  "id": "X06",
+  "desc": "G2 NEIGHBOUR: platforms upper bound NARROWED 4->2",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "len(platforms) == 0 || len(platforms) > 4",
+    "new": "len(platforms) == 0 || len(platforms) > 2"
+   }
+  ]
+ },
+ {
+  "id": "X07",
+  "desc": "G2 NEIGHBOUR: platforms upper bound NARROWED 4->1",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "len(platforms) == 0 || len(platforms) > 4",
+    "new": "len(platforms) == 0 || len(platforms) > 1"
+   }
+  ]
+ },
+ {
+  "id": "X08",
+  "desc": "G3 NEIGHBOUR: trust reserved-namespace bar narrowed to == BuiltinTmux (round-2 N16 survivor)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tif strings.HasPrefix(entry.BackendID, reservedNamespace) {\n\t\treturn &Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: \"external_trust reserved namespace\"}\n\t}\n",
+    "new": "\tif entry.BackendID == BuiltinTmux {\n\t\treturn &Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: \"external_trust reserved namespace\"}\n\t}\n"
+   }
+  ]
+ },
+ {
+  "id": "X09",
+  "desc": "G3 NEIGHBOUR: trust reserved-namespace bar narrowed to == BuiltinConpty (the other distinguishing value)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tif strings.HasPrefix(entry.BackendID, reservedNamespace) {\n\t\treturn &Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: \"external_trust reserved namespace\"}\n\t}\n",
+    "new": "\tif entry.BackendID == BuiltinConpty {\n\t\treturn &Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: \"external_trust reserved namespace\"}\n\t}\n"
+   }
+  ]
+ },
+ {
+  "id": "X10",
+  "desc": "G3 EQUIVALENCE CONTROL: trust bar narrowed to the exact set mustParseID admits (== tmux || == conpty)",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tif strings.HasPrefix(entry.BackendID, reservedNamespace) {\n\t\treturn &Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: \"external_trust reserved namespace\"}\n\t}\n",
+    "new": "\tif entry.BackendID == BuiltinTmux || entry.BackendID == BuiltinConpty {\n\t\treturn &Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: \"external_trust reserved namespace\"}\n\t}\n"
+   }
+  ]
+ },
+ {
+  "id": "X11",
+  "desc": "G3 NEIGHBOUR: trust reserved-namespace bar DELETED entirely",
+  "edits": [
+   {
+    "file": "internal/terminalbackend/terminalbackend.go",
+    "old": "\tif strings.HasPrefix(entry.BackendID, reservedNamespace) {\n\t\treturn &Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: \"external_trust reserved namespace\"}\n\t}\n",
+    "new": ""
+   }
+  ]
+ }
+]

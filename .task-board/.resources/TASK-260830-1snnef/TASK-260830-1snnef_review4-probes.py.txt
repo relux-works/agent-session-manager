@@ -1,0 +1,393 @@
+import hashlib, os, subprocess, sys, tempfile
+
+ROOT = os.getcwd()
+CANDIDATE_TREE = "b1940de7413515dd332f10d662ef3c88d37408ec"
+
+# Watch every file the Story touches, Go and non-Go alike, plus whole dirs
+# so a created file is detected.
+WATCH_DIRS = ["internal/terminalbackend", "internal/config", "internal/traceability",
+              "internal/traceability/cmd/tracecheck"]
+WATCH_FILES = ["LOGBOOK.md", "README.md", "internal/traceability/ownership.v0.5.0.json"]
+
+def _snapshot():
+    snap = {}
+    for d in WATCH_DIRS:
+        for f in sorted(os.listdir(d)):
+            p = os.path.join(d, f)
+            if os.path.isfile(p):
+                snap[p] = open(p, "rb").read()
+    for p in WATCH_FILES:
+        snap[p] = open(p, "rb").read()
+    return snap
+
+ORIG = _snapshot()
+BASE_KEYS = set(ORIG)
+
+def tree_oid():
+    """Tree OID of the whole working tree, index-isolated."""
+    env = dict(os.environ)
+    fd, idx = tempfile.mkstemp(); os.close(fd); os.unlink(idx)
+    env["GIT_INDEX_FILE"] = idx
+    subprocess.run(["git", "read-tree", "HEAD"], env=env, check=True,
+                   capture_output=True)
+    subprocess.run(["git", "add", "-A", "--", "."], env=env, check=True,
+                   capture_output=True)
+    out = subprocess.run(["git", "write-tree"], env=env, check=True,
+                         capture_output=True, text=True).stdout.strip()
+    if os.path.exists(idx):
+        os.unlink(idx)
+    return out
+
+def restore(verify_tree=False):
+    for p, v in ORIG.items():
+        if not os.path.exists(p) or open(p, "rb").read() != v:
+            open(p, "wb").write(v)
+    now = _snapshot() if False else None
+    # remove created files inside watched dirs
+    for d in WATCH_DIRS:
+        for f in sorted(os.listdir(d)):
+            p = os.path.join(d, f)
+            if os.path.isfile(p) and p not in BASE_KEYS:
+                os.remove(p)
+    cur = _snapshot()
+    assert set(cur) == BASE_KEYS, ("file set drift", set(cur) ^ BASE_KEYS)
+    for p in BASE_KEYS:
+        assert cur[p] == ORIG[p], ("content drift", p)
+    if verify_tree:
+        t = tree_oid()
+        assert t == CANDIDATE_TREE, ("TREE DRIFT", t)
+        return t
+
+def apply(edits, newfiles=()):
+    for f, old, new in edits:
+        s = open(f).read()
+        if old not in s:
+            restore(); return "ANCHOR-MISSING:%s|%s" % (f, old[:70].replace("\n", "\\n"))
+        if s.count(old) > 1:
+            restore(); return "ANCHOR-AMBIGUOUS(%d):%s" % (s.count(old), old[:50])
+        open(f, "w").write(s.replace(old, new, 1))
+    for path, body in newfiles:
+        open(path, "w").write(body)
+    return None
+
+def run(pkgs=None, testflags=None):
+    cmd = ["go", "test"] + (pkgs or ["./internal/terminalbackend/"]) + ["-count=1"] + (testflags or [])
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    return r.returncode, r.stdout + r.stderr
+
+def failing(out):
+    return sorted({l.split()[2] for l in out.splitlines()
+                   if l.strip().startswith("--- FAIL:") and len(l.split()) > 2})
+
+def probe(pid, desc, edits, newfiles=(), pkgs=None, expect="RED", repeats=1,
+          testflags=None, quiet=False):
+    verdicts, allfails, buildbroken = [], set(), False
+    for _ in range(repeats):
+        restore()
+        err = apply(edits, newfiles)
+        if err:
+            restore()
+            print(f"{pid}\t{err}\t{desc}")
+            return {"id": pid, "desc": desc, "result": err, "expect": expect}
+        code, out = run(pkgs, testflags)
+        f = failing(out)
+        allfails |= set(f)
+        if code != 0 and not f and ("build failed" in out or "cannot" in out or
+                                    "declared and not used" in out or "syntax error" in out):
+            buildbroken = True
+        verdicts.append("RED" if code != 0 else "GREEN")
+        restore()
+    reds = verdicts.count("RED")
+    if reds == repeats:
+        verdict = "RED"
+    elif reds == 0:
+        verdict = "GREEN"
+    else:
+        verdict = "FLAKY(%d/%d red)" % (reds, repeats)
+    status = "OK" if verdict == expect else "*** UNEXPECTED ***"
+    if buildbroken:
+        verdict += "[BUILD-BROKEN]"
+    if not quiet:
+        print(f"{pid}\t{verdict}\t(expect {expect}) {status}\tx{repeats}\t{desc}")
+        if allfails:
+            print("      failing:", ", ".join(sorted(allfails)[:8]))
+    return {"id": pid, "desc": desc, "result": verdict, "expect": expect,
+            "runs": repeats, "reds": reds, "failing": sorted(allfails),
+            "build_broken": buildbroken}
+import sys, json
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r4")
+from probe import probe, restore
+
+C = "internal/terminalbackend/conformance.go"
+T = "internal/terminalbackend/terminalbackend.go"
+P = "internal/terminalbackend/internal_pin_test.go"
+
+LF = '''	"tmux":   BuiltinTmux,
+	"conpty": BuiltinConpty,
+'''
+R = []
+def r(*a, **k): R.append(probe(*a, **k))
+
+# ---- WIDENING: a third row, several canonical shapes ----
+r("A1", "legacyForward gains screen -> fresh canonical \"vendor.screen\" (round-3 L3)",
+  [(C, LF, LF + '\t"screen": "vendor.screen",\n')], repeats=5)
+r("A2", "legacyForward gains screen -> BuiltinTmux (round-3 C20, the coin-flip mutant)",
+  [(C, LF, LF + '\t"screen": BuiltinTmux,\n')], repeats=5)
+r("A3", "legacyForward gains screen -> \"vendor.term\" (round-3 L4)",
+  [(C, LF, LF + '\t"screen": "vendor.term",\n')], repeats=3)
+r("A4", "legacyForward gains screen -> BuiltinConpty (collides on conpty)",
+  [(C, LF, LF + '\t"screen": BuiltinConpty,\n')], repeats=5)
+r("A5", "legacyForward gains \"\" -> BuiltinTmux (empty legacy name)",
+  [(C, LF, LF + '\t"": BuiltinTmux,\n')], repeats=3)
+
+# ---- NARROWING: remove a row ----
+r("A6", "legacyForward loses the conpty row",
+  [(C, LF, '\t"tmux":   BuiltinTmux,\n')], repeats=3)
+r("A7", "legacyForward loses the tmux row",
+  [(C, LF, '\t"conpty": BuiltinConpty,\n')], repeats=3)
+
+# ---- REPOINTING: same size, wrong canonical / wrong legacy key ----
+r("A8", "legacyForward tmux repointed to BuiltinConpty (size 2, injectivity broken)",
+  [(C, LF, '\t"tmux":   BuiltinConpty,\n\t"conpty": BuiltinConpty,\n')], repeats=5)
+r("A9", "legacyForward conpty repointed to a fresh canonical \"vendor.conpty\"",
+  [(C, LF, '\t"tmux":   BuiltinTmux,\n\t"conpty": "vendor.conpty",\n')], repeats=3)
+r("A10", "legacyForward key renamed tmux -> screen (size 2, canonical intact)",
+  [(C, LF, '\t"screen": BuiltinTmux,\n\t"conpty": BuiltinConpty,\n')], repeats=3)
+r("A11", "legacyForward keys swapped (tmux->conpty canonical and vice versa)",
+  [(C, LF, '\t"tmux":   BuiltinConpty,\n\t"conpty": BuiltinTmux,\n')], repeats=3)
+
+restore(verify_tree=True)
+json.dump(R, open(".temp/TASK-260830-1snnef-r4/ga-results.json","w"), indent=1)
+print("\nG-A: n=%d red=%d green=%d other=%d" % (
+  len(R), sum(1 for x in R if x["result"]=="RED"),
+  sum(1 for x in R if x["result"]=="GREEN"),
+  sum(1 for x in R if x["result"] not in ("RED","GREEN"))))
+print("NOT RED:", [(x["id"],x["result"]) for x in R if x["result"]!="RED"])
+import sys, json
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r4")
+from probe import probe, restore
+
+C = "internal/terminalbackend/conformance.go"
+T = "internal/terminalbackend/terminalbackend.go"
+LF = '''	"tmux":   BuiltinTmux,
+	"conpty": BuiltinConpty,
+'''
+PIN = ["-run", "TestLegacyForwardIsExactlyTheImmutablePair"]
+R = []
+def r(*a, **k): R.append(probe(*a, **k))
+
+# ---- B: does the PIN ALONE kill each shape? (isolate from incidental collisions) ----
+r("B1", "PIN ALONE vs A1 (screen->vendor.screen)",
+  [(C, LF, LF + '\t"screen": "vendor.screen",\n')], repeats=5, testflags=PIN)
+r("B2", "PIN ALONE vs A2 (screen->BuiltinTmux)",
+  [(C, LF, LF + '\t"screen": BuiltinTmux,\n')], repeats=5, testflags=PIN)
+r("B3", "PIN ALONE vs A6 (lose conpty row)",
+  [(C, LF, '\t"tmux":   BuiltinTmux,\n')], repeats=3, testflags=PIN)
+r("B4", "PIN ALONE vs A9 (conpty -> vendor.conpty, size 2)",
+  [(C, LF, '\t"tmux":   BuiltinTmux,\n\t"conpty": "vendor.conpty",\n')], repeats=3, testflags=PIN)
+r("B5", "PIN ALONE vs A10 (key rename tmux->screen, size 2)",
+  [(C, LF, '\t"screen": BuiltinTmux,\n\t"conpty": BuiltinConpty,\n')], repeats=3, testflags=PIN)
+r("B6", "PIN ALONE vs A8 (both rows -> BuiltinConpty, injectivity broken)",
+  [(C, LF, '\t"tmux":   BuiltinConpty,\n\t"conpty": BuiltinConpty,\n')], repeats=5, testflags=PIN)
+
+# ---- D: is `want` derived from legacyForward? attack the shared source ----
+# want is built from BuiltinTmux/BuiltinConpty. If those move, does anything red?
+r("D1", "BuiltinTmux constant repointed to \"ax.evil\" (shared source of want AND legacyForward)",
+  [(T, 'BuiltinTmux   = "ax.tmux"', 'BuiltinTmux   = "ax.evil"')], repeats=3)
+r("D2", "PIN ALONE vs D1 -- does the pin notice its own source moving?",
+  [(T, 'BuiltinTmux   = "ax.tmux"', 'BuiltinTmux   = "ax.evil"')], repeats=3,
+  testflags=PIN, expect="GREEN")
+r("D3", "BuiltinConpty == BuiltinTmux literal (injectivity guard, want stays size 2)",
+  [(T, 'BuiltinConpty = "ax.conpty"', 'BuiltinConpty = "ax.tmux"')], repeats=5)
+r("D4", "PIN ALONE vs D3 -- the top-of-test injectivity guard",
+  [(T, 'BuiltinConpty = "ax.conpty"', 'BuiltinConpty = "ax.tmux"')], repeats=5,
+  testflags=PIN)
+# D5: whole-repo blast radius of D1 (does the literal live anywhere outside the pkg?)
+r("D5", "BuiltinTmux -> ax.evil, WHOLE REPO suite",
+  [(T, 'BuiltinTmux   = "ax.tmux"', 'BuiltinTmux   = "ax.evil"')], repeats=1,
+  pkgs=["./..."])
+
+restore(verify_tree=True)
+json.dump(R, open(".temp/TASK-260830-1snnef-r4/ga2-results.json","w"), indent=1)
+print("\nG-A2: n=%d red=%d green=%d" % (len(R),
+  sum(1 for x in R if x["result"]=="RED"), sum(1 for x in R if x["result"]=="GREEN")))
+print("MISMATCH vs expect:", [(x["id"],x["result"],x["expect"]) for x in R if x["result"]!=x["expect"]])
+import sys, json
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r4")
+from probe import probe, restore
+T = "internal/terminalbackend/terminalbackend.go"
+PIN = ["-run", "TestLegacyForwardIsExactlyTheImmutablePair"]
+R = []
+def r(*a, **k): R.append(probe(*a, **k))
+
+# Is the canonical LITERAL pinned, or only the constant name?
+r("D6", 'BuiltinTmux -> "vendor.tmux" (valid non-reserved ID; pkg suite)',
+  [(T, 'BuiltinTmux   = "ax.tmux"', 'BuiltinTmux   = "vendor.tmux"')], repeats=3)
+r("D7", 'BuiltinTmux -> "ax.tmuxx" (still reserved namespace, valid grammar; pkg suite)',
+  [(T, 'BuiltinTmux   = "ax.tmux"', 'BuiltinTmux   = "ax.tmuxx"')], repeats=3)
+r("D8", 'PIN ALONE vs D7', [(T, 'BuiltinTmux   = "ax.tmux"', 'BuiltinTmux   = "ax.tmuxx"')],
+  repeats=3, testflags=PIN, expect="GREEN")
+r("D9", 'BuiltinTmux -> "ax.tmuxx", WHOLE REPO', [(T, 'BuiltinTmux   = "ax.tmux"', 'BuiltinTmux   = "ax.tmuxx"')],
+  repeats=1, pkgs=["./..."])
+restore(verify_tree=True)
+json.dump(R, open(".temp/TASK-260830-1snnef-r4/ga3-results.json","w"), indent=1)
+print("MISMATCH:", [(x["id"],x["result"],x["expect"]) for x in R if x["result"]!=x["expect"]])
+import sys, json, re
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r4")
+from probe import probe, restore
+
+T = "internal/terminalbackend/terminalbackend.go"
+PKG = "internal/terminalbackend"
+src = open(T).read()
+m = re.search(r'\nfunc validateProtocolVersions\(([^\)]*)\)([^\{]*)\{\n', src)
+head = m.group(0)
+ANCHOR = "\nfunc validateProtocolVersions("
+PE = ["-run", "TestPlainErrors"]
+R = []
+def r(*a, **k): R.append(probe(*a, **k))
+
+# CONTROL: direct call in a FuncDecl -> must be RED (proves the gate is reachable)
+r("E0", "CONTROL: direct errors.New inside a FuncDecl body",
+  [(T, head, head + '\t_ = errors.New("planted control")\n')], repeats=2)
+
+# E1: round-3 V5 -- the exact shape H2 was opened for
+r("E1", "package-level alias: var newPlain = errors.New; called in a FuncDecl",
+  [(T, ANCHOR, '\nvar newPlain = errors.New\n' + ANCHOR),
+   (T, head, head + '\t_ = newPlain("planted alias")\n')], repeats=3)
+
+# E2: function-local alias
+r("E2", "function-local alias: newPlain := errors.New; newPlain(...)",
+  [(T, head, head + '\tnewPlain := errors.New\n\t_ = newPlain("planted local alias")\n')], repeats=3)
+
+# E3: fmt.Errorf alias
+r("E3", "package-level alias of fmt.Errorf",
+  [(T, ANCHOR, '\nvar newf = fmt.Errorf\n' + ANCHOR),
+   (T, head, head + '\t_ = newf("planted %s", "alias")\n')], repeats=3)
+
+# E4: constructor passed as an argument (reference, not call, not assignment)
+r("E4", "errors.New passed as a func argument",
+  [(T, ANCHOR, '\nfunc applyPlain(f func(string) error) error { return f("planted arg") }\n' + ANCHOR),
+   (T, head, head + '\t_ = applyPlain(errors.New)\n')], repeats=3)
+
+# E5: constructor stored in a struct field
+r("E5", "errors.New stored in a struct literal field",
+  [(T, ANCHOR, '\nvar plainHolder = struct{ F func(string) error }{F: errors.New}\n' + ANCHOR),
+   (T, head, head + '\t_ = plainHolder.F("planted field")\n')], repeats=3)
+
+# E6: alias declared in a NEW production file in the package (glob coverage)
+r("E6", "alias in a NEW production file added to the package",
+  [(T, head, head + '\t_ = plantedNew("planted newfile")\n')],
+  newfiles=[(PKG + "/planted_alias.go",
+             'package terminalbackend\n\nimport "errors"\n\nvar plantedNew = errors.New\n')],
+  repeats=3)
+
+# --- BYPASS ATTEMPTS: spellings the selector matcher does not recognise ---
+# E7: import alias -- same constructor, different receiver identifier
+r("E7", "BYPASS: import errs \"errors\"; errs.New(...) in a FuncDecl",
+  [(T, ANCHOR, '\nimport errs "errors"\n' + ANCHOR),
+   (T, head, head + '\t_ = errs.New("planted import alias")\n')], repeats=3, expect="RED")
+# E8: dot import -- New(...) is an Ident, not a SelectorExpr
+r("E8", "BYPASS: import . \"errors\"; New(...) in a FuncDecl",
+  [(T, ANCHOR, '\nimport . "errors"\n' + ANCHOR),
+   (T, head, head + '\t_ = New("planted dot import")\n')], repeats=3, expect="RED")
+# E9: errors.Join -- a third stdlib plain-error constructor
+r("E9", "BYPASS: errors.Join(errors.New(..)) -- Join is not in the two spellings",
+  [(T, head, head + '\t_ = errors.Join(nil, nil)\n')], repeats=3, expect="RED")
+
+restore(verify_tree=True)
+json.dump(R, open(".temp/TASK-260830-1snnef-r4/h2-results.json","w"), indent=1)
+print("\nH2: n=%d red=%d green=%d" % (len(R),
+  sum(1 for x in R if x["result"]=="RED"), sum(1 for x in R if x["result"]=="GREEN")))
+print("SURVIVED:", [(x["id"],x["desc"][:60]) for x in R if x["result"]=="GREEN"])
+import sys, json, re
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r4")
+from probe import probe, restore
+T = "internal/terminalbackend/terminalbackend.go"
+PKG = "internal/terminalbackend"
+src = open(T).read()
+head = re.search(r'\nfunc validateProtocolVersions\(([^\)]*)\)([^\{]*)\{\n', src).group(0)
+IMP = '\t"errors"\n\t"fmt"\n'
+R = []
+def r(*a, **k): R.append(probe(*a, **k))
+
+# E7': import alias, placed correctly inside the import block
+r("E7b", 'BYPASS: import errs "errors" (valid); errs.New(...) in a FuncDecl',
+  [(T, IMP, '\t"errors"\n\terrs "errors"\n\t"fmt"\n'),
+   (T, head, head + '\t_ = errs.New("planted import alias")\n')], repeats=3, expect="RED")
+
+# E8': dot import, placed correctly
+r("E8b", 'BYPASS: import . "errors" (valid); New(...) in a FuncDecl',
+  [(T, IMP, '\t"errors"\n\t. "errors"\n\t"fmt"\n'),
+   (T, head, head + '\t_ = New("planted dot import")\n')], repeats=3, expect="RED")
+
+# E7c: import alias in a NEW production file (clean, no duplicate import)
+r("E7c", 'BYPASS: import alias in a NEW production file; errs.New(...)',
+  [], newfiles=[(PKG + "/planted_importalias.go",
+    'package terminalbackend\n\nimport errs "errors"\n\n'
+    'func plantedAliasArm() error { return errs.New("planted import alias") }\n')],
+  repeats=3, expect="RED")
+
+# E8c: dot import in a NEW production file
+r("E8c", 'BYPASS: dot import in a NEW production file; New(...)',
+  [], newfiles=[(PKG + "/planted_dotimport.go",
+    'package terminalbackend\n\nimport . "errors"\n\n'
+    'func plantedDotArm() error { return New("planted dot import") }\n')],
+  repeats=3, expect="RED")
+
+# E9b: errors.Join as a real plain-error constructor (no errors.New anywhere)
+r("E9b", 'BYPASS: errors.Join(os.ErrClosed, os.ErrInvalid) -- real plain error, third spelling',
+  [], newfiles=[(PKG + "/planted_join.go",
+    'package terminalbackend\n\nimport (\n\t"errors"\n\t"os"\n)\n\n'
+    'func plantedJoinArm() error { return errors.Join(os.ErrClosed, os.ErrInvalid) }\n')],
+  repeats=3, expect="RED")
+
+# E10: sentinel var of a bespoke type (the STATED bound -- expect GREEN, confirm bound is real)
+r("E10", 'STATED BOUND: bespoke error type outside the two spellings',
+  [], newfiles=[(PKG + "/planted_bespoke.go",
+    'package terminalbackend\n\ntype plantedErr struct{ m string }\n\n'
+    'func (e plantedErr) Error() string { return e.m }\n\n'
+    'func plantedBespokeArm() error { return plantedErr{m: "planted bespoke"} }\n')],
+  repeats=2, expect="GREEN")
+
+restore(verify_tree=True)
+json.dump(R, open(".temp/TASK-260830-1snnef-r4/h2b-results.json","w"), indent=1)
+print("\nH2b SURVIVED:", [(x["id"],x["desc"][:65]) for x in R if x["result"]=="GREEN"])
+print("MISMATCH:", [(x["id"],x["result"],x["expect"]) for x in R if not x["result"].startswith(x["expect"])])
+import sys, json
+sys.path.insert(0,".temp/TASK-260830-1snnef-r4")
+from probe import probe, restore
+T="internal/terminalbackend/terminalbackend.go"
+C="internal/terminalbackend/conformance.go"
+R=[]
+def r(*a,**k): R.append(probe(*a,**k))
+
+# W11: DigestFile allowlist is function-wide with no detail pin -> a NEW
+# errors.New inside DigestFile should SURVIVE (disclosed bound, still real?)
+r("W11", "STATED BOUND: new errors.New added inside DigestFile (function-wide allowlist)",
+  [(T,'		return "", fmt.Errorf("terminal backend executable %s: not a regular file", resolved)',
+      '		return "", errors.New("planted digestfile bound")')], repeats=3, expect="GREEN")
+
+# P13: ProjectToLegacy("") refuses with a DIFFERENT wire code (declined closure)
+r("P13", "STATED BOUND: ProjectToLegacy empty-ID grammar guard removed",
+  [(C,'''	if _, err := ParseID(backendID); err != nil {
+		return "", err
+	}
+''','')], repeats=3)
+
+restore(verify_tree=True)
+json.dump(R, open(".temp/TASK-260830-1snnef-r4/gc-results.json","w"), indent=1)
+print("MISMATCH:", [(x["id"],x["result"],x["expect"]) for x in R if not x["result"].startswith(x["expect"])])
+import sys, json, functools
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r4")
+import probe as P
+_orig = P.probe
+def probe(pid, desc, edits, newfiles=(), pkgs=None, expect="RED", **kw):
+    return _orig(pid, desc, edits, newfiles=newfiles, pkgs=pkgs, expect=expect, repeats=3)
+P.probe = probe
+import builtins
+mod = sys.argv[1]
+src = open(".temp/TASK-260830-1snnef-r4/%s.py" % mod).read()
+src = src.replace('from probe import probe, restore', 'from probe import restore\nfrom __main__ import probe')
+exec(compile(src, mod, "exec"), {"__name__": "__mut__", "probe": probe,
+                                 "restore": P.restore, "__builtins__": builtins})
+print("TREE:", P.restore(verify_tree=True))

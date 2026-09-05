@@ -1,0 +1,90 @@
+package terminalbackend_test
+
+import (
+	"testing"
+
+	"github.com/relux-works/agent-session-manager/internal/scalar"
+	terminalbackend "github.com/relux-works/agent-session-manager/internal/terminalbackend"
+)
+
+// Probe A: does Resolve hand out live interior state?
+func TestProbeResolveAliasesInteriorState(t *testing.T) {
+	registry, err := terminalbackend.New("1.2.3", []string{"1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := registry.Resolve(terminalbackend.BuiltinTmux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("before: platforms=%v protocols=%v", first.Platforms, first.ProtocolVersions)
+	// Caller mutates the copy it was handed.
+	first.Platforms[0] = scalar.PlatformWindows
+	first.ProtocolVersions[0] = "9.9.9"
+
+	second, err := registry.Resolve(terminalbackend.BuiltinTmux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("after : platforms=%v protocols=%v", second.Platforms, second.ProtocolVersions)
+	if second.Platforms[0] == scalar.PlatformWindows {
+		t.Errorf("ALIASING CONFIRMED: registry platform list mutated through Resolve() accessor")
+	}
+	if second.ProtocolVersions[0] == "9.9.9" {
+		t.Errorf("ALIASING CONFIRMED: registry protocol list mutated through Resolve() accessor")
+	}
+}
+
+// Probe B: does RegisterExternal retain the caller's slices, letting the
+// caller drift an admitted record without passing any gate?
+func TestProbeRegisterExternalRetainsCallerSlices(t *testing.T) {
+	registry, err := terminalbackend.New("1.2.3", []string{"1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := terminalbackend.TrustEntry{
+		BackendID:        "com.example.term",
+		ExecutablePath:   "/opt/vendor/bin/ax-backend-term",
+		ExecutableDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Enabled:          true,
+	}
+	observed := terminalbackend.Registration{
+		ID:                    "com.example.term",
+		Kind:                  terminalbackend.KindTrustedExecutable,
+		ImplementationVersion: "1.2.3",
+		ProtocolVersions:      []string{"1.0.0"},
+		Platforms:             []scalar.Platform{scalar.PlatformLinux},
+		ExecutableDigest:      "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+	}
+	if err := registry.RegisterExternal(scalar.PlatformLinux, entry, observed); err != nil {
+		t.Fatal(err)
+	}
+	// Post-admission mutation through the caller's own slice header.
+	observed.Platforms[0] = scalar.PlatformWindows
+	observed.ProtocolVersions[0] = "1.99.0"
+
+	after, err := registry.Resolve("com.example.term")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("admitted record after caller mutation: platforms=%v protocols=%v", after.Platforms, after.ProtocolVersions)
+	if after.Platforms[0] == scalar.PlatformWindows || after.ProtocolVersions[0] == "1.99.0" {
+		t.Errorf("POST-ADMISSION DRIFT CONFIRMED: caller mutated an admitted record without passing any gate")
+	}
+}
+
+// Probe C: New() stores the caller-owned protocol slice for both built-ins?
+func TestProbeNewSharesProtocolSliceAcrossBuiltins(t *testing.T) {
+	protocols := []string{"1.0.0", "1.1.0"}
+	registry, err := terminalbackend.New("1.2.3", protocols)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmux, _ := registry.Resolve(terminalbackend.BuiltinTmux)
+	tmux.ProtocolVersions[0] = "1.5.0"
+	conpty, _ := registry.Resolve(terminalbackend.BuiltinConpty)
+	t.Logf("conpty protocols after mutating tmux's list: %v", conpty.ProtocolVersions)
+	if conpty.ProtocolVersions[0] == "1.5.0" {
+		t.Errorf("SHARED BACKING ARRAY CONFIRMED: both built-ins share one protocol slice")
+	}
+}

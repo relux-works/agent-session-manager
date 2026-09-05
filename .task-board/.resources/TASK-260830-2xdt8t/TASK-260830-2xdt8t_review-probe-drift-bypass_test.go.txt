@@ -1,0 +1,64 @@
+package terminalbackend_test
+
+import (
+	"testing"
+
+	"github.com/relux-works/agent-session-manager/internal/scalar"
+	terminalbackend "github.com/relux-works/agent-session-manager/internal/terminalbackend"
+)
+
+// Probe D: the drift gate compares the admitted record against the candidate.
+// If the admitted record shares its backing array with the caller, the caller
+// can change what the registry believes it admitted, and the drift gate then
+// reports the changed record as an exact duplicate instead of drift.
+func TestProbeDriftGateBypassedByInPlaceMutation(t *testing.T) {
+	const digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	registry, err := terminalbackend.New("1.2.3", []string{"1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := terminalbackend.TrustEntry{
+		BackendID:        "com.example.term",
+		ExecutablePath:   "/opt/vendor/bin/ax-backend-term",
+		ExecutableDigest: digest,
+		Enabled:          true,
+	}
+	observed := terminalbackend.Registration{
+		ID:                    "com.example.term",
+		Kind:                  terminalbackend.KindTrustedExecutable,
+		ImplementationVersion: "1.2.3",
+		ProtocolVersions:      []string{"1.0.0"},
+		Platforms:             []scalar.Platform{scalar.PlatformLinux},
+		ExecutableDigest:      digest,
+	}
+	if err := registry.RegisterExternal(scalar.PlatformLinux, entry, observed); err != nil {
+		t.Fatal(err)
+	}
+
+	// An attacker-influenced adapter re-presents itself with a DIFFERENT
+	// protocol version. The honest answer is implementation drift.
+	drifted := terminalbackend.Registration{
+		ID:                    "com.example.term",
+		Kind:                  terminalbackend.KindTrustedExecutable,
+		ImplementationVersion: "1.2.3",
+		ProtocolVersions:      []string{"1.4.0"},
+		Platforms:             []scalar.Platform{scalar.PlatformLinux},
+		ExecutableDigest:      digest,
+	}
+	// ... but it first mutates the slice it still owns from the first call.
+	observed.ProtocolVersions[0] = "1.4.0"
+
+	err = registry.RegisterExternal(scalar.PlatformLinux, entry, drifted)
+	switch {
+	case terminalbackend.IsDrift(err):
+		t.Logf("drift correctly reported: %v", err)
+	case terminalbackend.IsAmbiguous(err):
+		t.Errorf("DRIFT GATE BYPASSED: a changed protocol list reported as duplicate, not drift: %v", err)
+	default:
+		t.Errorf("unexpected: %v", err)
+	}
+
+	// And the registry now reports the mutated list as its admitted record.
+	after, _ := registry.Resolve("com.example.term")
+	t.Logf("registry now believes it admitted protocols=%v", after.ProtocolVersions)
+}

@@ -1,0 +1,251 @@
+package terminalbackend
+
+import (
+	"fmt"
+	"reflect"
+	"testing"
+	"time"
+)
+
+// snapshotInterior renders every package-level table plus a fresh registry's
+// built-in records so any interior mutation shows up as a string diff.
+func snapshotInterior(t *testing.T) string {
+	t.Helper()
+	registry, err := New("2.1.0", []string{"1.0.0", "1.1.0"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	var out string
+	for _, id := range registry.IDs() {
+		record, err := registry.Resolve(id)
+		if err != nil {
+			t.Fatalf("Resolve(%s): %v", id, err)
+		}
+		out += fmt.Sprintf("REG %s %+v\n", id, record)
+	}
+	keys := []string{}
+	for k := range capabilityRegistry {
+		keys = append(keys, k)
+	}
+	for i := range keys {
+		for j := i + 1; j < len(keys); j++ {
+			if keys[j] < keys[i] {
+				keys[i], keys[j] = keys[j], keys[i]
+			}
+		}
+	}
+	for _, k := range keys {
+		out += fmt.Sprintf("CAP %s %+v\n", k, capabilityRegistry[k])
+	}
+	out += fmt.Sprintf("OPS %v\nREQ %v\nFACT %v\nRMAP %v\n",
+		operationVocabulary, evidenceRequirementVocabulary, evidenceFactVocabulary, requirementFact)
+	out += fmt.Sprintf("MEMBERS %v %v %v\n", manifestMembers, probeMembers, evidenceMembers)
+	return out
+}
+
+// mutateEverything walks an arbitrary value reflectively and writes a
+// poison value into every reachable slice element, map value and settable
+// string/bool/byte field. This is the "probe, do not read" half of G-A: it
+// does not care which field aliases what, it scribbles on all of them.
+func mutateEverything(v reflect.Value, depth int) {
+	if depth > 8 || !v.IsValid() {
+		return
+	}
+	switch v.Kind() {
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			mutateEverything(v.Index(i), depth+1)
+		}
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			mutateEverything(v.Field(i), depth+1)
+		}
+	case reflect.Ptr, reflect.Interface:
+		if !v.IsNil() {
+			mutateEverything(v.Elem(), depth+1)
+		}
+	case reflect.Map:
+		for _, k := range v.MapKeys() {
+			old := v.MapIndex(k)
+			if old.Kind() == reflect.String && old.CanInterface() {
+				v.SetMapIndex(k, reflect.ValueOf("REVIEW-POISON").Convert(old.Type()))
+			}
+		}
+	case reflect.String:
+		if v.CanSet() {
+			v.SetString("REVIEW-POISON")
+		}
+	case reflect.Bool:
+		if v.CanSet() {
+			v.SetBool(!v.Bool())
+		}
+	case reflect.Uint8:
+		if v.CanSet() {
+			v.SetUint(0xEE)
+		}
+	}
+}
+
+// TestReviewGA_NoExportedPathReachesInteriorArrays enumerates every leaf-2
+// exported entry point that returns composite data, scribbles on everything
+// reachable through the returned value, and asserts the package interior
+// (built-in registrations plus the closed capability tables) is byte-identical
+// afterwards.
+func TestReviewGA_NoExportedPathReachesInteriorArrays(t *testing.T) {
+	before := snapshotInterior(t)
+
+	universe := reviewUniverse(t)
+
+	// 1. CapabilitiesForOperation over the whole closed vocabulary.
+	for op := range operationVocabulary {
+		got, err := CapabilitiesForOperation(op)
+		if err != nil {
+			t.Fatalf("CapabilitiesForOperation(%s): %v", op, err)
+		}
+		mutateEverything(reflect.ValueOf(&got).Elem(), 0)
+	}
+
+	// 2. ParseManifest / ParseProbe / ParseEvidence outputs.
+	manifest, err := ParseManifest(universe.manifestRaw)
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	probe, err := ParseProbe(universe.probeRaw)
+	if err != nil {
+		t.Fatalf("ParseProbe: %v", err)
+	}
+	var evidence []Evidence
+	for _, raw := range universe.evidenceRaws {
+		object, err := ParseEvidence(raw)
+		if err != nil {
+			t.Fatalf("ParseEvidence: %v", err)
+		}
+		evidence = append(evidence, object)
+	}
+
+	// 3. Reconcile + Admitted accessors, then AdmitProbe through the registry.
+	admitted, err := Reconcile(manifest, probe, evidence, universe.rawGeneration, universe.now, universe.verify)
+	if err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	_ = admitted.Has("durable_disconnect")
+	_ = admitted.HasOperation("create")
+	_ = CheckOperation("create", admitted)
+	msg, err := UnsignedEvidenceBytes(evidence[0])
+	if err != nil {
+		t.Fatalf("UnsignedEvidenceBytes: %v", err)
+	}
+	mutateEverything(reflect.ValueOf(&msg).Elem(), 0)
+
+	registry, err := New("2.1.0", []string{"1.0.0", "1.1.0"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	admitted2, err := registry.AdmitProbe(universe.manifestRaw, universe.probeRaw, universe.evidenceRaws,
+		universe.rawGeneration, universe.now, universe.verify)
+	if err != nil {
+		t.Fatalf("AdmitProbe: %v", err)
+	}
+
+	// Scribble on every returned composite.
+	mutateEverything(reflect.ValueOf(&manifest).Elem(), 0)
+	mutateEverything(reflect.ValueOf(&probe).Elem(), 0)
+	mutateEverything(reflect.ValueOf(&evidence).Elem(), 0)
+	mutateEverything(reflect.ValueOf(&admitted).Elem(), 0)
+	mutateEverything(reflect.ValueOf(&admitted2).Elem(), 0)
+
+	// Also scribble on the registry-facing record this leaf reads.
+	record, err := registry.Resolve(BuiltinTmux)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	mutateEverything(reflect.ValueOf(&record).Elem(), 0)
+
+	after := snapshotInterior(t)
+	if before != after {
+		t.Errorf("package interior mutated through an exported path:\nBEFORE\n%s\nAFTER\n%s", before, after)
+	}
+
+	// A fresh admission after all that scribbling must still admit identically.
+	registry3, err := New("2.1.0", []string{"1.0.0", "1.1.0"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	fresh, err := registry3.AdmitProbe(universe.manifestRaw, universe.probeRaw, universe.evidenceRaws,
+		universe.rawGeneration, universe.now, universe.verify)
+	if err != nil {
+		t.Fatalf("AdmitProbe after mutation: %v", err)
+	}
+	if fmt.Sprint(fresh) != universe.wantAdmitted {
+		t.Errorf("AdmitProbe after mutation = %v, want %v", fresh, universe.wantAdmitted)
+	}
+}
+
+// reviewFixtures is the review-owned raw-byte universe for the ax.tmux
+// built-in, so AdmitProbe (the registry-bound production entry point) is
+// reachable from the internal test package.
+type reviewFixtures struct {
+	manifestRaw   []byte
+	probeRaw      []byte
+	evidenceRaws  [][]byte
+	rawGeneration string
+	now           time.Time
+	verify        SignatureVerifier
+	wantAdmitted  string
+}
+
+func reviewUniverse(t *testing.T) *reviewFixtures {
+	t.Helper()
+	generation, err := GenerationDigest("generation-alpha")
+	if err != nil {
+		t.Fatalf("GenerationDigest: %v", err)
+	}
+	fixture := testPinDigest(0xF1)
+	issuer := testPinDigest(0x1D)
+
+	manifest := pinManifest(fixture)
+	manifest["terminal_backend_id"] = BuiltinTmux
+	manifest["protocol_versions"] = []any{"1.0.0", "1.1.0"}
+	manifest["platforms"] = []any{"linux", "macos", "wsl2"}
+
+	var evidenceRaws [][]byte
+	var ids []string
+	for _, capability := range []string{"graceful_stop", "headless_creation"} {
+		object := pinEvidence(capability, generation, fixture, issuer)
+		object["terminal_backend_id"] = BuiltinTmux
+		stampPinIdentity(t, object, "evidence_id")
+		raw := mustPinJSON(t, object)
+		parsed, err := ParseEvidence(raw)
+		if err != nil {
+			t.Fatalf("ParseEvidence: %v", err)
+		}
+		evidenceRaws = append(evidenceRaws, raw)
+		ids = append(ids, parsed.EvidenceID)
+	}
+	sortReviewStrings(ids)
+
+	probe := pinProbe(generation, ids)
+	probe["terminal_backend_id"] = BuiltinTmux
+	stampPinIdentity(t, manifest, "manifest_id")
+	stampPinIdentity(t, probe, "probe_id")
+
+	return &reviewFixtures{
+		manifestRaw:   mustPinJSON(t, manifest),
+		probeRaw:      mustPinJSON(t, probe),
+		evidenceRaws:  evidenceRaws,
+		rawGeneration: "generation-alpha",
+		now:           testAdmissionTime(),
+		verify:        pinVerifier,
+		wantAdmitted:  "{[graceful_stop headless_creation] [" + ids[0] + " " + ids[1] + "]}",
+	}
+}
+
+func sortReviewStrings(values []string) {
+	for i := range values {
+		for j := i + 1; j < len(values); j++ {
+			if values[j] < values[i] {
+				values[i], values[j] = values[j], values[i]
+			}
+		}
+	}
+}

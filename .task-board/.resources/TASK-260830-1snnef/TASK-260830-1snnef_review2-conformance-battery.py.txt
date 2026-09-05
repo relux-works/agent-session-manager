@@ -1,0 +1,327 @@
+import hashlib, json, os, subprocess, sys
+
+ROOT = os.getcwd()
+PKG = "internal/terminalbackend"
+FILES = [os.path.join(PKG, f) for f in os.listdir(PKG) if f.endswith(".go")] + [
+    "internal/config/validation.go"]
+ORIG = {f: open(f).read() for f in FILES}
+SUMS = {f: hashlib.sha256(v.encode()).hexdigest() for f, v in ORIG.items()}
+BASE_FILES = set(os.listdir(PKG))
+
+def restore():
+    for f, v in ORIG.items():
+        open(f, "w").write(v)
+    for f in ORIG:
+        assert hashlib.sha256(open(f).read().encode()).hexdigest() == SUMS[f], f
+    for extra in set(os.listdir(PKG)) - BASE_FILES:
+        os.remove(os.path.join(PKG, extra))
+    assert set(os.listdir(PKG)) == BASE_FILES
+
+def apply(edits, newfiles):
+    for f, old, new in edits:
+        s = open(f).read()
+        if old not in s:
+            restore(); return "ANCHOR-MISSING:%s" % old[:60]
+        open(f, "w").write(s.replace(old, new, 1))
+    for name, body in newfiles:
+        open(os.path.join(PKG, name), "w").write(body)
+    return None
+
+def run(pkgs, testflags=None):
+    cmd = ["go", "test"] + pkgs + ["-count=1"] + (testflags or [])
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    return r.returncode, r.stdout + r.stderr
+
+def probe(pid, desc, edits, newfiles=(), pkgs=None, expect="RED"):
+    restore()
+    err = apply(edits, newfiles)
+    if err:
+        restore()
+        print(f"{pid}\t{err}\t{desc}")
+        return {"id": pid, "desc": desc, "result": err, "expect": expect}
+    code, out = run(pkgs or ["./internal/terminalbackend/"])
+    fails = sorted({l.split()[2] for l in out.splitlines()
+                    if l.strip().startswith("--- FAIL:") and len(l.split()) > 2})
+    verdict = "RED" if code != 0 else "GREEN"
+    restore()
+    status = "OK" if verdict == expect else ("*** UNEXPECTED ***")
+    print(f"{pid}\t{verdict}\t(expect {expect}) {status}\t{desc}")
+    if fails:
+        print("      failing:", ", ".join(fails[:8]))
+    elif verdict == "RED":
+        print("      (no --- FAIL lines; build error or t.Fatal at package level)")
+        print("      " + "\n      ".join([l for l in out.splitlines() if "FAIL" in l or ".go:" in l][:6]))
+    return {"id": pid, "desc": desc, "result": verdict, "expect": expect, "failing": fails}
+import sys, json
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r2")
+from probe import probe, restore
+
+C = "internal/terminalbackend/conformance.go"
+M = []
+def m(pid, desc, old, new): M.append((pid, desc, old, new))
+
+# Every mutant below PRESERVES all refusal literals, so the arm inventory
+# cannot kill it by construction: only behavioural tests can.
+
+m("C01", "CheckErrorAllowed admits terminal_backend_unavailable for every operation",
+  '''	for _, allowed := range allowedOperationErrors[parsedOperation] {''',
+  '''	if code == "terminal_backend_unavailable" {
+		return nil
+	}
+	for _, allowed := range allowedOperationErrors[parsedOperation] {''')
+
+m("C02", "CheckAttachResult drops the auth conjunct (triple -> pair)",
+  '''	if resultInputAuthorized != requestInputAuthorized || resultInputAuthorized != auth.InputAuthorized {''',
+  '''	if resultInputAuthorized != requestInputAuthorized {''')
+
+m("C03", "CheckAttachRequest admits attach at exactly the expiry instant",
+  '''	if !now.Before(expires) {''', '''	if now.After(expires) {''')
+
+m("C04", "CheckAttachRequest drops the input-authorized conjunct",
+  '''	if requested != auth.Transport || inputAuthorized != auth.InputAuthorized {''',
+  '''	if requested != auth.Transport {''')
+
+m("C05", "CheckAttachRequest drops the transport conjunct",
+  '''	if requested != auth.Transport || inputAuthorized != auth.InputAuthorized {''',
+  '''	if inputAuthorized != auth.InputAuthorized {''')
+
+m("C06", "CheckAttachRequest never matches the relay transport",
+  '''	if requested == TransportThirdPartyRelay {''',
+  '''	if requested == PresentationTransport("no-such-transport") {''')
+
+m("C07", "CheckEntrypoint accepts argv longer than three",
+  '''	if len(argv) != 3 || argv[0] != "ax" || argv[1] != "pane" {''',
+  '''	if len(argv) < 3 || argv[0] != "ax" || argv[1] != "pane" {''')
+
+m("C08", "CheckEntrypoint stops binding argv session to the session under creation",
+  '''	if carried.String() != session.String() {''', '''	if carried.String() != carried.String() {''')
+
+m("C09", "CheckEntrypoint stops requiring argv[0] == ax",
+  '''	if len(argv) != 3 || argv[0] != "ax" || argv[1] != "pane" {''',
+  '''	if len(argv) != 3 || argv[1] != "pane" {''')
+
+m("C10", "IdempotencyKey stops refusing empty segments",
+  '''		if segment == "" {
+			return "", &Error{Code: CodeProtocolError, Detail: "idempotency key shape"}
+		}''',
+  '''		if segment == "\\x00nope" {
+			return "", &Error{Code: CodeProtocolError, Detail: "idempotency key shape"}
+		}''')
+
+m("C11", "IdempotencyKey admits extra segments (exact count -> floor)",
+  '''	} else if len(segments) != want {''', '''	} else if len(segments) < want {''')
+
+m("C12", "idempotencyKeySegments turns attach into the variable-arity row",
+  '''OperationCreate: 2, OperationRestore: 2, OperationAttach: 2,''',
+  '''OperationCreate: 2, OperationRestore: 2, OperationAttach: -1,''')
+
+m("C13", "CheckStatusResult admits attachable from quiescing",
+  '''	if result.Attachable && !((result.State == StateParked || result.State == StateActive) && result.AttachEvidenced) {''',
+  '''	if result.Attachable && !((result.State == StateParked || result.State == StateActive || result.State == StateQuiescing) && result.AttachEvidenced) {''')
+
+m("C14", "CheckStatusResult accepts provider_present on request OR evidence",
+  '''	if result.ProviderPresent != nil && !(result.ProviderRequested && result.ProviderEvidenced) {''',
+  '''	if result.ProviderPresent != nil && !(result.ProviderRequested || result.ProviderEvidenced) {''')
+
+m("C15", "CheckStatusResult drops wrapper_present from the canonical false form",
+  '''		if result.State != StateAbsent || result.WrapperPresent ||''',
+  '''		if result.State != StateAbsent ||''')
+
+m("C16", "CheckReplicable admits any KNOWN member regardless of class",
+  '''		if class, known := replicationMembers[member]; !known || class != ReplicationSafeEvidence {''',
+  '''		if _, known := replicationMembers[member]; !known {''')
+
+m("C17", "Ledger.Bind admits a rebind with a different result id",
+  '''		if stored.Operation != operation || stored.ResultID != resultID {''',
+  '''		if stored.Operation != operation {''')
+
+m("C18", "ImportLedger admits an image binding the same key twice",
+  '''		if _, duplicate := ledger.receipts[key]; duplicate {''',
+  '''		if _, duplicate := ledger.receipts[key]; duplicate && key == "\\x00never" {''')
+
+m("C19", "ImportLedger admits an empty result id",
+  '''		if key == "" || resultID == "" {
+			return nil, &Error{Code: CodeProtocolError, Detail: "idempotency ledger image"}''',
+  '''		if key == "" {
+			return nil, &Error{Code: CodeProtocolError, Detail: "idempotency ledger image"}''')
+
+m("C20", "legacyForward gains a third escape name",
+  '''	"tmux":   BuiltinTmux,
+	"conpty": BuiltinConpty,''',
+  '''	"tmux":   BuiltinTmux,
+	"conpty": BuiltinConpty,
+	"screen": BuiltinTmux,''')
+
+m("C21", "CheckTransition inverts the create interactive/parked resolution",
+  '''	if parsedOperation == OperationCreate && !interactive {''',
+  '''	if parsedOperation == OperationCreate && interactive {''')
+
+m("C22", "ParseAttachAuthorization stops refusing unknown/missing members",
+  '''	if err := checkExactMembers(object, attachAuthorizationMembers); err != nil {''',
+  '''	if err := error(nil); err != nil {''')
+
+m("C23", "ParseAttachAuthorization admits expires == issued",
+  '''	if !expires.After(issued) {''', '''	if expires.Before(issued) {''')
+
+m("C24", "CheckTransition drops the non-instance-scoped source guard",
+  '''		if source != "" {
+			return "", nil, &Error{Code: CodePreconditionFailed, Detail: "lifecycle instance scope"}''',
+  '''		if source == "\\x00never" {
+			return "", nil, &Error{Code: CodePreconditionFailed, Detail: "lifecycle instance scope"}''')
+
+m("C25", "ProjectToLegacy skips the registry ID grammar",
+  '''	if _, err := ParseID(backendID); err != nil {
+		return "", err
+	}''', '''	if backendID == "\\x00never" {
+		return "", &Error{Code: CodeIncompatibleSchema, Detail: "legacy reverse projection"}
+	}''')
+
+results = []
+for pid, desc, old, new in M:
+    results.append(probe(pid, desc, [(C, old, new)]))
+restore()
+json.dump(results, open(".temp/TASK-260830-1snnef-r2/cbat-results.json", "w"), indent=1)
+killed=[r["id"] for r in results if r["result"]=="RED"]
+surv=[r["id"] for r in results if r["result"]=="GREEN"]
+miss=[r["id"] for r in results if r["result"] not in ("RED","GREEN")]
+print(f"\nCONFORMANCE BATTERY: total={len(results)} killed={len(killed)} survived={len(surv)} anchor_missing={len(miss)}")
+print("SURVIVED:", surv)
+print("MISSING:", miss)
+import sys, json
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r2")
+from probe import probe, restore
+
+C = "internal/terminalbackend/conformance.go"
+ATTACHABLE = '''	if result.Attachable && !((result.State == StateParked || result.State == StateActive) && result.AttachEvidenced) {'''
+M = []
+def m(pid, desc, old, new): M.append((pid, desc, old, new))
+
+# Characterise the attachability state-set gap C13 exposed.
+for pid, st in [("C26","StateCreating"),("C27","StateAbsent"),("C28","StateUnavailable"),
+                ("C29","StateStaleFenced"),("C13b","StateQuiescing"),("C30","StateStopped")]:
+    m(pid, f"CheckStatusResult admits attachable from {st}", ATTACHABLE,
+      ATTACHABLE.replace("|| result.State == StateActive)", f"|| result.State == StateActive || result.State == {st})"))
+
+# C08b: proper session-binding drop (no unused variable).
+m("C08b", "CheckEntrypoint stops binding argv session to the session under creation",
+  '''	if carried.String() != session.String() {''',
+  '''	_ = session
+	if carried.String() != carried.String() {''')
+
+# Closed-vocabulary widenings.
+m("C31", "ParseInstanceState admits an eleventh state",
+  '''		StateQuiescing, StateStopped, StateStaleFenced, StateUnavailable:
+		return InstanceState(value), nil''',
+  '''		StateQuiescing, StateStopped, StateStaleFenced, StateUnavailable, InstanceState("running"):
+		return InstanceState(value), nil''')
+
+m("C32", "ParseOperation admits an eleventh operation",
+  '''		OperationRequestStop, OperationTerminateStale, OperationRestore:
+		return Operation(value), nil''',
+  '''		OperationRequestStop, OperationTerminateStale, OperationRestore, Operation("detach"):
+		return Operation(value), nil''')
+
+m("C33", "parseTransport admits a fourth transport",
+  '''	case TransportLocalOnly, TransportTrustedPrivateMesh, TransportThirdPartyRelay:''',
+  '''	case TransportLocalOnly, TransportTrustedPrivateMesh, TransportThirdPartyRelay, PresentationTransport("ssh_tunnel"):''')
+
+# Transition-table source widenings, one per instance-scoped row.
+m("C34", "transitionTable widens attach sources with quiescing",
+  '''		Operation:      OperationAttach,
+		Sources:        []InstanceState{StateParked, StateActive},''',
+  '''		Operation:      OperationAttach,
+		Sources:        []InstanceState{StateParked, StateActive, StateQuiescing},''')
+
+m("C35", "transitionTable widens create sources with unavailable",
+  '''		Sources:   []InstanceState{StateAbsent, StateStopped},''',
+  '''		Sources:   []InstanceState{StateAbsent, StateStopped, StateUnavailable},''')
+
+m("C36", "transitionTable widens request-stop sources with active",
+  '''		Operation:      OperationRequestStop,
+		Sources:        []InstanceState{StateQuiescing},''',
+  '''		Operation:      OperationRequestStop,
+		Sources:        []InstanceState{StateQuiescing, StateActive},''')
+
+m("C37", "transitionTable widens terminate-stale sources with active",
+  '''		Sources:        []InstanceState{StateStaleFenced, StateUnavailable},''',
+  '''		Sources:        []InstanceState{StateStaleFenced, StateUnavailable, StateActive},''')
+
+m("C38", "transitionTable adds an extra side effect to request-stop",
+  '''		Effects:        []SideEffect{EffectGracefulStopRequested, EffectProcessClosed, EffectBackendStoreClosed},''',
+  '''		Effects:        []SideEffect{EffectGracefulStopRequested, EffectProcessClosed, EffectBackendStoreClosed, EffectInputClosed},''')
+
+m("C39", "transitionTable retargets quiesce-input to stopped",
+  '''		Operation:      OperationQuiesceInput,
+		Sources:        []InstanceState{StateActive, StateParked},
+		Target:         StateQuiescing,''',
+  '''		Operation:      OperationQuiesceInput,
+		Sources:        []InstanceState{StateActive, StateParked},
+		Target:         StateStopped,''')
+
+m("C40", "replicationMembers reclassifies a forbidden member as safe evidence",
+  '''func CheckReplicable(members []string) error {''',
+  '''func init() { replicationMembers["ax_pane_pid"] = ReplicationSafeEvidence }
+
+func CheckReplicable(members []string) error {''')
+
+results = []
+for pid, desc, old, new in M:
+    results.append(probe(pid, desc, [(C, old, new)]))
+restore()
+json.dump(results, open(".temp/TASK-260830-1snnef-r2/cbat2-results.json", "w"), indent=1)
+killed=[r["id"] for r in results if r["result"]=="RED"]
+surv=[r["id"] for r in results if r["result"]=="GREEN"]
+miss=[r["id"] for r in results if r["result"] not in ("RED","GREEN")]
+print(f"\nBATTERY 2: total={len(results)} killed={len(killed)} survived={len(surv)} missing={len(miss)}")
+print("SURVIVED:", surv); print("MISSING:", miss)
+import sys, json
+sys.path.insert(0, ".temp/TASK-260830-1snnef-r2")
+from probe import probe, restore
+C = "internal/terminalbackend/conformance.go"
+M=[]
+def m(p,d,o,n): M.append((p,d,o,n))
+
+# C40 control: reclassify an EXISTING forbidden member -> want-direction should catch it.
+m("C40b","CONTROL: reclassify the existing forbidden member native_pid as safe evidence",
+  '''	forbidden := []string{
+		"native_pid", "process_handle",''',
+  '''	safe = append(safe, "native_pid")
+	forbidden := []string{
+		"process_handle",''')
+
+# C40c: add a brand-new safe-evidence member (widening by addition).
+m("C40c","replicationMembers gains a new safe-evidence member the table never listed",
+  '''		"conformance_fixture_id", "capability_claims", "evidence_ids",''',
+  '''		"conformance_fixture_id", "capability_claims", "evidence_ids", "ax_pane_pid",''')
+
+# C40d: promote an existing SENSITIVE member into safe evidence.
+m("C40d","replicationMembers promotes attach_credential from sensitive to safe evidence",
+  '''		"attach_descriptor", "ipc_handle", "tmux_socket",
+		"named_pipe", "attach_credential", "relay_credential",''',
+  '''		"attach_descriptor", "ipc_handle", "tmux_socket",
+		"named_pipe", "relay_credential",''')
+
+# C43: ParseSideEffect admits an eleventh effect.
+m("C43","ParseSideEffect admits an eleventh side effect",
+  '''	case EffectBindingPersisted, EffectWrapperStarted, EffectAttachClientCreated,''',
+  '''	case SideEffect("input_reopened"), EffectBindingPersisted, EffectWrapperStarted, EffectAttachClientCreated,''')
+
+# C44: ParseInstanceState admits a ninth state with a plausible name.
+m("C44","ParseInstanceState admits a ninth state named detached",
+  '''		StateQuiescing, StateStopped, StateStaleFenced, StateUnavailable:
+		return InstanceState(value), nil''',
+  '''		StateQuiescing, StateStopped, StateStaleFenced, StateUnavailable, InstanceState("detached"):
+		return InstanceState(value), nil''')
+
+# C45: allowedOperationErrors widened with a NON-catalogued code (outside complement domain).
+m("C45","allowedOperationErrors widens quiesce-input with a non-catalogued code",
+  '''	OperationQuiesceInput: {''',
+  '''	OperationQuiesceInput: {
+		"terminal_backend_smuggled",''')
+
+results=[]
+for p,d,o,n in M: results.append(probe(p,d,[(C,o,n)]))
+restore()
+json.dump(results, open(".temp/TASK-260830-1snnef-r2/cbat3-results.json","w"), indent=1)
+print("\nSURVIVED:", [r["id"] for r in results if r["result"]=="GREEN"])
+print("OTHER:", [(r["id"],r["result"]) for r in results if r["result"] not in ("RED","GREEN")])
