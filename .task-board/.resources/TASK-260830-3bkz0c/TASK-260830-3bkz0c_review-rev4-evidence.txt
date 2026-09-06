@@ -1,0 +1,169 @@
+TASK-260830-3bkz0c CR rev4 — reviewer run RUN-260906-1c6cfb — raw probe transcript
+HEAD 82c38378fe79b3e2a3e9fa337c23643b856ba7ee  tree 08ad1875394e617b79bafaf2efb239934801b090
+
+=== CR construction ===
+1cb6b93 tree 2cad37cba0b2687c7b758ad0fd359d9920c13022
+7c25ae0 tree 070d52005f909ec92ec3b97d5d141860ee7d117b
+d5ad5f6 tree 9f5ec76cf972cc73fbebfd8faa211f01078e4737
+1296ecc tree 292bc4242de751821d59ee1e3e68c9f1670b4634
+82c3837 tree 08ad1875394e617b79bafaf2efb239934801b090   <-- rev4 base_oid AND rev4 candidate tree
+rev4 patch: 0 bytes.  rev1/rev2/rev3 patch: 68 changed paths each.
+git diff --stat 1296ecc 82c3837 -> 20 files, 1706 insertions(+), 435 deletions(-)
+git diff --stat 1cb6b93 82c3837 -> 70 files, 33996 insertions(+), 5 deletions(-)
+
+=== G-A1 seven-shape control plant (internal/provider, in scope) ===
+--- FAIL: TestSharedImplementationsAreCensused
+    unregistered shared-rule copy "strict-decoder|provider|zz_plant_round1.go|decodeStrictObject"
+    unregistered shared-rule copy "surrogate-gate|provider|zz_plant_round1.go|hasLoneSurrogateEscape"
+--- FAIL: TestSharedGrammarsAreOneLanguage
+    unregistered grammar copy under a fresh name "env-id-grammar|provider|zz_plant_round1.go|envIDCopyPlant"
+--- FAIL: TestSharedShapesAreLedgered
+    strict-decoder|provider|zz_plant_round1.go|decodeStrictObject
+    strict-decoder|provider|zz_plant_round1.go|parseStrictObject          <- B1
+    strict-decoder|provider|zz_plant_round1.go|decodeStrict               <- C2
+    strict-decoder|provider|zz_plant_round1.go|_
+    surrogate-gate|provider|zz_plant_round1.go|scanForLoneSurrogate       <- B2
+    surrogate-gate|provider|zz_plant_round1.go|hasLoneSurrogateEscape     <- C3
+    surrogate-gate|provider|zz_plant_round1.go|plantSurrogateWalk
+    surrogate-gate|provider|zz_plant_round1.go|_
+    byte-measure|provider|zz_plant_round1.go|measureString                <- B3
+    byte-measure|provider|zz_plant_round1.go|byteLength                   <- C1 target
+    byte-measure|provider|zz_plant_round1.go|stringLength                 <- C1 alias
+    string-measure|provider|zz_plant_round1.go|stringLength
+    byte-measure|provider|zz_plant_round1.go|_
+=> 7 of 7 round-1 shapes fire (round 1: 2 of 7).
+
+=== G-A2 eighth plant: bypasses (internal/provider, in scope) ===
+  (a) import stdjson "encoding/json"; stdjson.NewDecoder + DisallowUnknownFields
+      + fmt.Errorf("duplicate member: %w", err)
+  (b) func plantByteMeasureTwoResults(s string) (int, error) { return len(s), nil }
+go test ./internal/environ/ -run 'Census|Ledger|Grammar'  ->  ok  0.377s   [GREEN, both undetected]
+Cause (a): bodyBuildsJSONDecoder requires selector receiver identifier.Name == "json".
+Cause (b): returnsSingleInt requires exactly one int result.
+Live instances in tree today: none (no aliased encoding/json import in production) -> latent.
+
+=== G-A3 census scope is a directory list ===
+censusPackages (census_test.go:69) = {environ, provider, provhost, sessadapter, dirnode,
+scalar, canonicaljson} = 7 of 17 packages under internal/.
+Planted into internal/localstore: strict decoder + duplicate signal, surrogate gate with
+0xD800/0xDBFF/0xDC00/0xDFFF literals, RuneCountInString measure, len() byte measure.
+go test ./internal/environ/ -run 'Census|Ledger|Shape|Grammar' -v  ->  ALL PASS  [GREEN]
+Bound is declared in source at census_test.go:67-68; absent from round2.md residue.
+
+=== G-A4 differential fuzz, five judges ===
+seed=20260907 iterations=200000 divergent_vectors=0 distinct_classes=0
+directed enumeration: alphabet=12 maxlen=5 bodies=271452 divergence_classes=0
+TOTAL 471452 vectors, 0 divergence classes.
+
+--- INSTRUMENT CONTROL PLANT: internal/dirnode/decode.go restored from 1296ecc ---
+directed enumeration: alphabet=12 maxlen=4 bodies=22620 divergence_classes=2
+DIVERGENCE [canonicaljson=true dirnode=false environ=true provhost=true sessadapter=true]
+  witness "\\ud800\udc00"
+  environ=environment frame lone surrogate escape
+  sessadapter=session_adapter_protocol_error: ... environment tuple lone surrogate escape
+  dirnode=adapter_protocol_violation: ... scan request carries unknown member   <-- ADMITS
+  provhost=provider_protocol_error: ... lone surrogate escape
+  canonicaljson=invalid canonical JSON input: lone low surrogate escape is forbidden
+DIVERGENCE [canonicaljson=false dirnode=true environ=false provhost=false sessadapter=false]
+  witness "\\\\\\u"
+  environ=<nil>
+  sessadapter=... environment tuple carries unknown member
+  dirnode=... scan request lone surrogate escape   <-- OVER-REFUSES
+  provhost=... manifest carries unknown member
+  canonicaljson=<nil>
+--- dirnode/decode.go restored; git status clean ---
+
+=== G-B denominator (AST walk over internal/environ non-test) ===
+refuse() call sites:        31     [tuple.go 10, observation.go 21]
+&Fault{} literals:          11     [DecodeStrictObject]  <-- NOT in producer's 89
+bool-fn `return false`:     58
+bool-fn `return <expr>`:     4     [CheckEnvironmentID, CheckSemver, isNull, rawUint53]
+Producer denominator 31+58 = 89.  Corrected: 31+58+11 = 100  (104 with expr returns).
+Mutants targeting the excluded 11: N1, M15, M16, M17, M18.
+
+=== G-B battery re-run, fresh baseline copied from delivered tree ===
+battery: mutants 1..14 of 27
+N1_lowsurrogate        KILLED  TestFrameAgreementAcrossFacades/bare_low_escape
+N2_bytelength          KILLED  TestStringMeasureCountsRunes/environ_helper
+N3_tuplextensions      KILLED  TestTupleAgreementAcrossFacades/extensions_refused
+N4_caplength           KILLED  TestDecodeEnvironmentObservation/ninth_capability_refused
+N6_envunderscore       KILLED  TestSharedGrammarsAreOneLanguage
+T1_rawscan             KILLED  TestFrameAgreementAcrossFacades/escaped_backslash census-green
+M1_uint53floor         KILLED  TestCheckUint53BoundsEdges
+M2_uint53magnitude     KILLED  TestCheckUint53BoundsEdges
+M4_uint53trailing      KILLED  TestCheckUint53BoundsEdges
+M5_stringsdup          KILLED  TestCheckSortedUniqueStringsHalves/sorted_duplicated_refuses
+M6_stringsorder        KILLED  TestCheckSortedUniqueStringsHalves/unsorted_unique_refuses
+M7_digestbridge        KILLED  TestTupleAgreementAcrossFacades/bad_fingerprint
+M8_timestampbridge     KILLED  TestDecodeEnvironmentObservation/bad_timestamp
+M9_tuplearch           KILLED  TestTupleAgreementAcrossFacades/x86_refused
+killed 14 of 14
+battery: mutants 15..27 of 27
+M10_tuplesemver        KILLED  TestTupleAgreementAcrossFacades/short_version
+M11_reasonavailable    KILLED  TestDecodeEnvironmentObservation/available_with_reason_refused
+M12_reasonconditional  KILLED  TestDecodeEnvironmentObservation/conditional_without_reason_refused
+M13_capabsent          KILLED  TestDecodeEnvironmentObservation/unknown_capability_key
+M14a_evidencedup       KILLED  TestDecodeEnvironmentObservation/duplicated_evidence_refused
+M14b_evidenceorder     KILLED  TestDecodeEnvironmentObservation/unsorted_evidence_refused
+M15_framedup           KILLED  TestFrameAgreementAcrossFacades/duplicate_member
+M16_frametrailing      KILLED  TestFrameAgreementAcrossFacades/trailing_data
+M17_frameutf8          KILLED  TestFrameAgreementAcrossFacades/non-utf8_bytes
+M18_highmispair        KILLED  TestFrameAgreementAcrossFacades/high_followed_by_non-low
+M19_extensions         KILLED  TestDecodeEnvironmentObservation/bad_extensions_key
+M20_tupleunknown       KILLED  TestTupleAgreementAcrossFacades/unknown_member
+M21_obsschema          KILLED  TestDecodeEnvironmentObservation/wrong_schema
+killed 13 of 13
+=> applied 27/27, killed 27/27, NOT-APPLIED 0.
+Tree OID after battery: 08ad1875394e617b79bafaf2efb239934801b090  (= candidate), git status clean.
+Producer baseline /tmp/envbaseline-r2 vs delivered: differs in frame_agreement_test.go and
+shape_census_test.go by gofmt alignment whitespace ONLY -> measurement not invalidated.
+
+Narrowing bodies verified by reading:
+  M5  values[i-1] >= values[i]  ->  >
+  M13 if !present  ->  if !present && name != "directory_discovery" { ... } if !present { continue }
+  M15 return &Fault{FaultDuplicate}  ->  members[key+"_dup"] = members[key]
+  M16 err != io.EOF  ->  err != nil && err != io.EOF
+  M17 !utf8.Valid(data)  ->  len(data) == 0 && !utf8.Valid(data)
+Kill criterion: exit != 0 AND named test present in output (not exit code alone).
+Harness gap: T1 census re-check omits TestSharedShapesAreLedgered.
+
+=== G-C coverage ===
+environ total 89.8% (was 76.1%); zero functions at 0.0%.
+DecodeStrictObject 84.4  HasLoneSurrogateEscape 100.0  readUTF16Escape 100.0
+rawUint53 100.0  parseUint53Literal 88.9  StringLength 100.0  CheckStringBounds 85.7
+CheckUint53Bounds 100.0  CheckSortedUniqueStrings 100.0  CheckSortedUniqueDigests 86.7
+DecodeTuple 92.9  DecodeEnvironmentObservation 94.8  checkCapabilityResult 75.0
+validCapability: DELETED from environ. (dirnode.validCapability is a different function,
+live caller internal/dirnode/probe.go:190.)
+
+environ.* references in ALL production files outside internal/environ:
+  internal/sessadapter/decode.go:48   environ.DecodeStrictObject
+  internal/dirnode/decode.go:49       environ.DecodeStrictObject
+  (nothing else -- one symbol)
+Wrappers read fault.Detail / fault.Member; Fault.Error() has no production caller.
+CheckUint53Bounds: 0 callers anywhere.  CheckSortedUniqueStrings: 0 callers anywhere.
+environ.DecodeTuple / environ.DecodeEnvironmentObservation: 0 callers outside environ.
+Mutants over production-unreachable code: M1, M2, M4, M5, M6 (5 of 27).
+
+CheckSortedUniqueStrings doc now reads: "TestCheckSortedUniqueStringsHalves drives this
+function directly ... The observation battery covers the digest twin, not this function."
+Both halves fed on BOTH functions: M5/M6 on Strings, M14a/M14b on the live Digests twin.
+
+=== G-D landing ===
+origin/main = 1cb6b93585749df4ef4755ce93e486bcde9e3a6b   (unchanged since round 1)
+HEAD        = 82c38378fe79b3e2a3e9fa337c23643b856ba7ee
+merge-base --is-ancestor origin/main HEAD -> YES.  ahead 4, behind 0.
+git verify-commit: 7c25ae0, d5ad5f6, 1296ecc, 82c3837 -> all Good "git" signature for
+  oparin@me.com with ECDSA key SHA256:V6JiKG7J29mjsvikcLoSVp0bLa77VTsFy12gnLO81cM
+go test ./... -count=1 -> 19 packages, 0 failures
+go vet ./...            -> exit 0
+GOOS=windows go vet ./... -> exit 0
+GOOS=linux go vet ./...   -> exit 0
+gofmt -l                -> clean
+go build ./...          -> exit 0
+Leaves: TASK-260830-2z3se0 integrating, TASK-260830-ljkj8r integrating, TASK-260830-3bkz0c reviewing.
+TASK-260906-33xcnc parented to STORY-260905-3t31e9 (not this Story). DoD checklist 18/18.
+
+=== cleanup ===
+All plants and probe files removed. Final: git status clean,
+git rev-parse HEAD^{tree} = 08ad1875394e617b79bafaf2efb239934801b090.

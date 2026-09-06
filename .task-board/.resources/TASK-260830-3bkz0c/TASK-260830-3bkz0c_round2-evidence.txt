@@ -1,0 +1,43 @@
+===== B2 WITNESS PRE-FIX (hole present) =====
+witness value literal bytes: "\"A\\\\ud800\\udc00B\""
+tuple body: {"environment_id":"test.env","environment_version":"\\ud800\udc00","platform":"linux","architecture":"amd64","store_schema_fingerprint":"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","adapter_version":"1.2.3"}
+frame body: {"v":"A\\ud800\udc00B"}
+environ        DecodeStrictObject           -> REFUSE: environment frame lone surrogate escape [ok]
+canonicaljson  Canonicalize                 -> REFUSE: invalid canonical JSON input: lone low surrogate escape is forbidden [ok]
+provhost       DecodeManifest               -> REFUSE: provider_protocol_error: provider host rejected the plugin frame: lone surrogate escape [ok]
+sessadapter    DecodeTuple                  -> ADMIT Version="\\ud800�" valid=true hasFFFD=true [HOLE]
+dirnode        CheckScanRequest             -> ADMIT [HOLE]
+RESULT: admit hole PRESENT
+exit status 1
+
+===== B2 WITNESS POST-FIX (all refuse) =====
+witness value literal bytes: "\"A\\\\ud800\\udc00B\""
+tuple body: {"environment_id":"test.env","environment_version":"\\ud800\udc00","platform":"linux","architecture":"amd64","store_schema_fingerprint":"sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","adapter_version":"1.2.3"}
+frame body: {"v":"A\\ud800\udc00B"}
+environ        DecodeStrictObject           -> REFUSE: environment frame lone surrogate escape [ok]
+canonicaljson  Canonicalize                 -> REFUSE: invalid canonical JSON input: lone low surrogate escape is forbidden [ok]
+provhost       DecodeManifest               -> REFUSE: provider_protocol_error: provider host rejected the plugin frame: lone surrogate escape [ok]
+sessadapter    DecodeTuple                  -> REFUSE: session_adapter_protocol_error: session adapter host rejected the adapter frame: environment tuple lone surrogate escape [ok]
+dirnode        CheckScanRequest             -> REFUSE: adapter_protocol_violation: directory node host rejected the node frame: scan request lone surrogate escape [ok]
+RESULT: all five judges refuse
+
+===== B1 LIVE PLANTS (all 9 caught) =====
+=== RUN   TestSharedImplementationsAreCensused
+    census_test.go:245: unregistered shared-rule copy "strict-decoder|provider|zz_b1plant.go|decodeStrictObject": add one canonical implementation in internal/environ instead, or ledger the divergence with its agreement battery
+    census_test.go:245: unregistered shared-rule copy "surrogate-gate|provider|zz_b1plant.go|hasLoneSurrogateEscape": add one canonical implementation in internal/environ instead, or ledger the divergence with its agreement battery
+--- FAIL: TestSharedImplementationsAreCensused (0.02s)
+=== RUN   TestSharedGrammarsAreOneLanguage
+    census_test.go:444: unregistered grammar copy under a fresh name "env-id-grammar|provider|zz_b1plant.go|envIDCopy": a second copy is a second copy even when the symbol is new
+--- FAIL: TestSharedGrammarsAreOneLanguage (0.02s)
+=== RUN   TestSharedShapesAreLedgered
+    shape_census_test.go:148: unregistered shared-rule copy "string-measure|provider|zz_b1plant.go|stringLength": add one canonical implementation in internal/environ instead, or register the shape with its agreement battery
+    shape_census_test.go:148: unregistered shared-rule copy "byte-measure|provider|zz_b1plant.go|measureString": add one canonical implementation in internal/environ instead, or register the shape with its agreement battery
+    shape_census_test.go:148: unregistered shared-rule copy "strict-decoder|provider|zz_b1plant.go|decodeStrict": add one canonical implementation in internal/environ instead, or register the shape with its agreement battery
+    shape_census_test.go:148: unregistered shared-rule copy "strict-decoder|provider|zz_b1plant.go|parseStrictObject": add one canonical implementation in internal/environ instead, or register the shape with its agreement battery
+    shape_census_test.go:148: unregistered shared-rule copy "surrogate-gate|provider|zz_b1plant.go|scanForLoneSurrogate": add one canonical implementation in internal/environ instead, or register the shape with its agreement battery
+    shape_census_test.go:148: unregistered shared-rule copy "byte-measure|provider|zz_b1plant.go|byteLength": add one canonical implementation in internal/environ instead, or register the shape with its agreement battery
+    shape_census_test.go:148: unregistered shared-rule copy "byte-measure|provider|zz_b1plant.go|stringLength": add one canonical implementation in internal/environ instead, or register the shape with its agreement battery
+--- FAIL: TestSharedShapesAreLedgered (0.04s)
+FAIL
+FAIL	github.com/relux-works/agent-session-manager/internal/environ	0.371s
+FAIL
