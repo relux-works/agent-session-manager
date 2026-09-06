@@ -9,9 +9,18 @@ on:
 permissions:
   contents: read
 
+# What green means. Every job below proves its selection matched something:
+# a grep, glob, file scan, matrix expansion, or test selector that finds
+# nothing fails closed instead of passing on an empty result set. No job
+# declares an `if:` condition, so no job can skip quietly; gates-verdict
+# additionally refuses any skipped, failed, or cancelled dependency.
+#
+# GOOS=windows work is compile-and-vet only. A green windows-compile-only job
+# proves the tree type-checks for Windows; it never implies executed
+# behaviour. Coverage is reported as numbers, not enforced as a floor.
 jobs:
-  verify:
-    name: Verify implementation ownership
+  contract-preservation:
+    name: Contract preservation (v0.5.0 current, v0.4.3 historical)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -31,8 +40,34 @@ jobs:
           go generate ./internal/catalog
           git diff --exit-code -- internal/catalog/catalog_gen.go
 
-      - name: Test
-        run: go test ./... -v
+      # The release roots are derived from internal/specpin and
+      # internal/catalog inside the gate, never retyped here. Each -- PASS
+      # guard below must match: a selector that runs nothing fails here
+      # instead of passing silently.
+      - name: Run pinned contract-version gates
+        run: |
+          set +e
+          go test ./internal/cigate -run 'TestVerifyContractPreservationLive|TestPinnedReleasesAgreeAcrossAuthorities|TestDerivedSetsAreComplete|TestCheckAgreementAdmitsIdenticalSets|TestCheckAgreementRefusals|TestCheckReleaseRootsRefusesDrift' -count=1 -v > cigate-contracts.log 2>&1
+          code=$?
+          set -e
+          cat cigate-contracts.log
+          test $code -eq 0
+          for gate in TestVerifyContractPreservationLive TestPinnedReleasesAgreeAcrossAuthorities TestDerivedSetsAreComplete TestCheckAgreementAdmitsIdenticalSets TestCheckAgreementRefusals TestCheckReleaseRootsRefusesDrift; do
+            grep -q "^--- PASS: ${gate}" cigate-contracts.log
+          done
+
+  lint:
+    name: Linters (vet, Windows vet, gofmt)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
 
       - name: Vet
         run: go vet ./...
@@ -40,5 +75,280 @@ jobs:
       - name: Vet Windows build-tagged sources
         run: GOOS=windows go vet ./...
 
+      # gofmt lists only offending files, so a clean tree prints nothing.
+      # The file count proves the scan was not empty; the log must then be.
+      - name: Check formatting
+        run: |
+          count=$(find internal -name '*.go' | wc -l | tr -d ' ')
+          echo "go files scanned: ${count}"
+          test "${count}" -gt 0
+          set +e
+          gofmt -l internal > gofmt.log 2>&1
+          code=$?
+          set -e
+          cat gofmt.log
+          test $code -eq 0
+          test ! -s gofmt.log
+
+  test:
+    name: Build and test (no cache)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
       - name: Build
         run: go build ./...
+
+      # Verbose on purpose: the --- SKIP lines are the suite-wide skip
+      # datum. At least one package must report ok: a suite that matched
+      # nothing is a failure, not a pass.
+      - name: Test
+        run: |
+          set +e
+          go test ./... -v -count=1 > test.log 2>&1
+          code=$?
+          set -e
+          cat test.log
+          test $code -eq 0
+          test "$(grep -c '^ok' test.log)" -gt 0
+          test "$(grep -c '^FAIL' test.log || true)" -eq 0
+          {
+            echo "## Suite skips"
+            echo ""
+            echo "Skipped: $(grep -c '^--- SKIP' test.log || true)"
+            grep '^--- SKIP' test.log || echo "none"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  race:
+    name: Race detector
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Test with race detector
+        run: |
+          set +e
+          go test -race ./... -count=1 > race.log 2>&1
+          code=$?
+          set -e
+          cat race.log
+          test $code -eq 0
+          test "$(grep -c '^ok' race.log)" -gt 0
+
+  coverage:
+    name: Coverage numbers (reported, no floor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Coverage is a number, not a gate: this job reports per-package
+      # percentages and refuses only an unreadable or empty result.
+      - name: Test with coverage
+        run: |
+          set +e
+          go test ./... -cover -count=1 > cover.log 2>&1
+          code=$?
+          set -e
+          cat cover.log
+          test $code -eq 0
+          test "$(grep -c 'coverage: ' cover.log)" -gt 0
+          {
+            echo "## Coverage"
+            echo ""
+            echo "| Package | Coverage |"
+            echo "| --- | --- |"
+            grep 'coverage: ' cover.log | sed -E 's/^(ok|---)[[:space:]]+([^[:space:]]+).*coverage: ([0-9.]+% of statements)/| `\2` | \3 |/' || true
+            echo ""
+            echo "Packages without test files (stated bounds, not failures):"
+            echo ""
+            grep 'no test files' cover.log || echo "none"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  fixture-matrix:
+    name: Conformance fixtures (${{ matrix.os }}, ${{ matrix.package }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        package: [internal/secprim, internal/secconftest]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Verbose on purpose: the --- SKIP lines are the skip datum, and the
+      # secconftest capabilities line witnesses the probe counters after the
+      # whole suite. Skips are loud here by construction.
+      - name: Run fixture package
+        run: |
+          set +e
+          go test ./${{ matrix.package }} -count=1 -v > fixture.log 2>&1
+          code=$?
+          set -e
+          grep '^--- SKIP' fixture.log || echo "no skipped tests"
+          grep 'secconftest capabilities on' fixture.log || true
+          {
+            echo "## Fixture run ${{ matrix.os }} ${{ matrix.package }}"
+            echo ""
+            echo "Skipped: $(grep -c '^--- SKIP' fixture.log || true)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test $code -eq 0
+          test "$(grep -c '^--- PASS' fixture.log)" -gt 0
+
+  fuzz-smoke:
+    name: Fuzz smoke (derived targets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Targets are derived per package from the compiled test binaries,
+      # never retyped: only names starting with Fuzz are fuzz targets. An
+      # empty derivation fails the grep and the explicit size check alike,
+      # and the total count is pinned: a new fuzz target without a CI
+      # update reddens here instead of going unsmoked.
+      - name: Derive fuzz targets
+        run: |
+          rm -f fuzz-targets.clean
+          for pkg in internal/secconftest internal/canonicaljson internal/scalar; do
+            go test "./${pkg}" -list '^Fuzz' > "fuzz-targets-$(basename "${pkg}").log" 2>&1
+            grep '^Fuzz' "fuzz-targets-$(basename "${pkg}").log" | sed "s|^|${pkg} |" >> fuzz-targets.clean
+          done
+          test -s fuzz-targets.clean
+          test "$(wc -l < fuzz-targets.clean | tr -d ' ')" -eq 13
+          cat fuzz-targets.clean
+
+      # The secconftest leg of that list must equal the cigate.FuzzTargets
+      # derivation, which maps each target to the production entry it
+      # drives. Either side drifting — a target without an entry, or an
+      # entry without a target — fails the diff before any smoke runs.
+      - name: Check secconftest list matches the target derivation
+        run: |
+          set +e
+          go test ./internal/cigate -run 'TestListedTargetsMatchDerivation|TestFuzzTargetsAreDerivedSorted' -count=1 -v > cigate-targets.log 2>&1
+          code=$?
+          set -e
+          cat cigate-targets.log
+          test $code -eq 0
+          for gate in TestListedTargetsMatchDerivation TestFuzzTargetsAreDerivedSorted; do
+            grep -q "^--- PASS: ${gate}" cigate-targets.log
+          done
+
+      # A -fuzz selector that matches nothing exits 0 with "no fuzz tests
+      # to fuzz", so exit status alone cannot prove execution. The
+      # '^fuzz: elapsed' line proves the engine ran; its absence fails.
+      - name: Smoke each target
+        run: |
+          while read -r pkg target; do
+            go test "./${pkg}" -run='^$' -fuzz="^${target}$" -fuzztime=100x -parallel=1 -count=1 > "fuzz-$(basename "${pkg}")-${target}.log" 2>&1
+            grep -q '^fuzz: elapsed' "fuzz-$(basename "${pkg}")-${target}.log"
+          done < fuzz-targets.clean
+
+  capability-claims:
+    name: Unsupported-capability claim check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # The vocabulary is secconftest's probe set; the gate scans the README
+      # with every probe forced unavailable — the strongest posture, and
+      # host-independent: a backticked capability mention that reads as a
+      # positive availability claim is refused no matter what this host's
+      # probes would report. Live probe outcomes are never read here;
+      # ProbeState.Available is consumed by no call site. README prose is
+      # never capability evidence either way.
+      - name: Check README with all probes forced unavailable
+        run: |
+          set +e
+          go test ./internal/cigate -run 'TestRealREADMECarriesNoPositiveClaim|TestRealREADMEAdmitsWhenAllAvailable|TestCapabilityIDsAreDerivedSorted|TestPositiveClaimsAreRefused|TestNegatedClaimsAreAdmitted|TestUnclassifiedMentionIsRefused' -count=1 -v > cigate-claims.log 2>&1
+          code=$?
+          set -e
+          cat cigate-claims.log
+          test $code -eq 0
+          for gate in TestRealREADMECarriesNoPositiveClaim TestRealREADMEAdmitsWhenAllAvailable TestCapabilityIDsAreDerivedSorted TestPositiveClaimsAreRefused TestNegatedClaimsAreAdmitted TestUnclassifiedMentionIsRefused; do
+            grep -q "^--- PASS: ${gate}" cigate-claims.log
+          done
+
+  windows-compile-only:
+    name: Windows compile-only (no execution implied)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Compile-and-vet only: go vet type-checks test files as well, and no
+      # step here executes a Windows binary. A green here must never be read
+      # as behaviour executed on Windows.
+      - name: Compile for Windows
+        run: GOOS=windows go build ./...
+
+      - name: Vet Windows build (includes test files)
+        run: GOOS=windows go vet ./...
+
+  gates-verdict:
+    name: All gates green, none skipped
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - contract-preservation
+      - lint
+      - test
+      - race
+      - coverage
+      - fixture-matrix
+      - fuzz-smoke
+      - capability-claims
+      - windows-compile-only
+    if: always()
+    steps:
+      - name: Refuse any non-success dependency
+        run: |
+          echo '${{ toJSON(needs) }}' > needs.json
+          jq . needs.json
+          jq -e 'to_entries | map(select(.value.result != "success")) | length == 0' needs.json

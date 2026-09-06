@@ -172,6 +172,15 @@ func invalidWindowsSegment(segment string) bool {
 	return reservedWindowsDeviceName(segment)
 }
 
+// IsReservedWindowsDeviceName reports whether the segment is a reserved
+// Windows device name (CON, PRN, AUX, NUL, COM1-9, LPT1-9, case-folded,
+// before any extension). It is exported for the staging-member gate in
+// internal/secprim, which enforces the same table on member names that
+// this package enforces on absolute paths.
+func IsReservedWindowsDeviceName(segment string) bool {
+	return reservedWindowsDeviceName(segment)
+}
+
 func reservedWindowsDeviceName(segment string) bool {
 	base, _, _ := strings.Cut(segment, ".")
 	base = strings.ToUpper(base)

@@ -8,7 +8,17 @@ import (
 	"strings"
 
 	"github.com/relux-works/agent-session-manager/internal/axerror"
+	"github.com/relux-works/agent-session-manager/internal/secprim"
 )
+
+// terminalLine prepares one human line for a terminal stream: secret
+// scrubbing, then control-string neutralization (Section 16.7). JSON mode
+// never crosses this function: machine output stays byte-exact, and the
+// JSON encoder already escapes its controls. The composition is
+// idempotent, so an already-safe line passes through unchanged.
+func terminalLine(line string) string {
+	return secprim.RenderForTerminal(line, nil)
+}
 
 // Mode is the Section 14.2 output mode. --json selects "one version-selected
 // CLI Result success object or Structured Error failure object"; its absence
@@ -85,7 +95,7 @@ func (emitter *Emitter) Mode() Mode { return emitter.mode }
 // text mode and says "logs remain on stderr" in JSON mode, so the destination
 // is the same in both and there is no mode in which a log can reach stdout.
 func (emitter *Emitter) Log(line string) error {
-	return writeLine(emitter.streams.Stderr, line)
+	return writeLine(emitter.streams.Stderr, terminalLine(line))
 }
 
 // Progress writes one progress line. Section 14.2 says "progress MAY use stderr
@@ -97,7 +107,7 @@ func (emitter *Emitter) Progress(line string) (bool, error) {
 	if !emitter.streams.StderrIsTTY {
 		return false, nil
 	}
-	if err := writeLine(emitter.streams.Stderr, line); err != nil {
+	if err := writeLine(emitter.streams.Stderr, terminalLine(line)); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -109,9 +119,9 @@ func (emitter *Emitter) Progress(line string) (bool, error) {
 // 14.2 forbids elsewhere.
 func (emitter *Emitter) Prompt(line string) error {
 	if emitter.nonInteractive {
-		return fmt.Errorf("%w: %q", ErrPromptForbidden, line)
+		return fmt.Errorf("%w: %q", ErrPromptForbidden, terminalLine(line))
 	}
-	return writeLine(emitter.streams.Stderr, line)
+	return writeLine(emitter.streams.Stderr, terminalLine(line))
 }
 
 // Outcome is the single result of one command invocation. Exactly one of
@@ -169,9 +179,9 @@ func (emitter *Emitter) Emit(outcome Outcome) (int, error) {
 		return status, fmt.Errorf("%w: text mode requires a human rendering", ErrStreamDiscipline)
 	}
 	if outcome.Failure != nil {
-		return status, writeLine(emitter.streams.Stderr, outcome.Rendered)
+		return status, writeLine(emitter.streams.Stderr, terminalLine(outcome.Rendered))
 	}
-	return status, writeLine(emitter.streams.Stdout, outcome.Rendered)
+	return status, writeLine(emitter.streams.Stdout, terminalLine(outcome.Rendered))
 }
 
 // exitStatus resolves the Section 14.2 process exit status of an outcome.

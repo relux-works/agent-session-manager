@@ -35,6 +35,13 @@ func recordRefusalSite(code string) {
 }
 
 func TestMain(main *testing.M) {
+	// Helper-process gate for the ExecRunner environment tests: when the
+	// marker is set this binary prints its observed environment and
+	// exits before the suite or the refusal audit runs. It sits first so
+	// the child never re-enters the audit or spawns grandchildren.
+	if os.Getenv("SECPROBE_HELPER_PROCESS") == "1" {
+		runExecRunnerHelper()
+	}
 	origInvalid, origProtocol, origMismatch := failInvalid, failProtocol, failMismatch
 	origProcess, origTimeout, origIntegrity := failProcess, failTimeout, failIntegrity
 	failInvalid = func(detail string) (*axerror.Error, error) {

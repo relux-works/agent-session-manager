@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/relux-works/agent-session-manager/internal/secprim"
 )
 
 // waitDrainDelay bounds how long Wait lingers for pipe EOF after the
@@ -47,7 +49,16 @@ type Runner interface {
 // stderr content never enter failure human text: Result carries the raw
 // streams, and failures built from a Result carry the failure class and
 // member names only, never content.
-type ExecRunner struct{}
+//
+// Env optionally replaces the child environment wholesale: when nil the
+// child inherits the parent environment (the historical behavior, kept
+// until the operator policy names an allowlist); when non-nil the child
+// observes exactly Env, which the operator builds with
+// secprim.BuildEnv. There is no merge: a partial override that silently
+// kept the rest of the parent environment would not be an allowlist.
+type ExecRunner struct {
+	Env []string
+}
 
 // Run starts executable with stdin on its stdin and captures both streams
 // with caps. A nil error with a nonzero exit code is an ordinary result:
@@ -57,9 +68,15 @@ type ExecRunner struct{}
 // wait failure with empty stdout and no known exit code. In
 // particular, a stdin write failure racing the plugin's exit never
 // discards a judgeable result on its own.
-func (ExecRunner) Run(ctx context.Context, executable string, stdin []byte) (Result, error) {
+func (runner ExecRunner) Run(ctx context.Context, executable string, stdin []byte) (Result, error) {
+	if err := secprim.CheckArgv([]string{executable}); err != nil {
+		return Result{}, err
+	}
 	command := newCommandContext(ctx, executable)
 	command.WaitDelay = waitDrainDelay
+	if runner.Env != nil {
+		command.Env = runner.Env
+	}
 	stdinPipe, err := command.StdinPipe()
 	if err != nil {
 		return Result{}, err

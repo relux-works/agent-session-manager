@@ -692,3 +692,35 @@ func TestZeroValuesCannotBePublishedAsValidatedScalars(t *testing.T) {
 		}
 	}
 }
+
+// TestIsReservedWindowsDeviceNameSharesTheAbsolutePathTable proves the
+// exported device-name predicate decides exactly what the absolute-path
+// gate decides per segment: every reserved name the path gate refuses is
+// reported, and ordinary names (including names that merely contain a
+// reserved word) are not. The staging-member gate in internal/secprim
+// delegates to this predicate, so a divergence here is a divergence
+// there.
+func TestIsReservedWindowsDeviceNameSharesTheAbsolutePathTable(t *testing.T) {
+	t.Parallel()
+	reserved := []string{
+		"CON", "con", "Con.txt", "PRN", "prn.json", "AUX", "aux.log",
+		"NUL", "nul.txt", "COM1", "com9.any", "COM9", "LPT1", "lpt9.any",
+	}
+	for _, segment := range reserved {
+		if !IsReservedWindowsDeviceName(segment) {
+			t.Errorf("IsReservedWindowsDeviceName(%q) = false, want true", segment)
+		}
+		if _, err := ParseAbsolutePath(PlatformWindows, `C:\safe\`+segment); !errors.Is(err, ErrInvalidScalar) {
+			t.Errorf("ParseAbsolutePath(C:\\safe\\%s) admitted a reserved name", segment)
+		}
+	}
+	ordinary := []string{
+		"CONSOLE", "console.txt", "COM10", "COM0", "LPT0", "LPT10",
+		"COM", "LPT", "AUXILIARY", "NULL", "file", "a.b", "",
+	}
+	for _, segment := range ordinary {
+		if IsReservedWindowsDeviceName(segment) {
+			t.Errorf("IsReservedWindowsDeviceName(%q) = true, want false", segment)
+		}
+	}
+}

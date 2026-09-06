@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/relux-works/agent-session-manager/internal/scalar"
+	"github.com/relux-works/agent-session-manager/internal/secprim"
 )
 
 // This file validates the SpawnPlan a launch or resume operation
@@ -165,19 +166,12 @@ func checkSpawnArgv(raw json.RawMessage) error {
 }
 
 // validEnvName reports whether the name satisfies the Section 5.1
-// environment-name grammar: [A-Za-z_][A-Za-z0-9_]{0,127}.
+// environment-name grammar: [A-Za-z_][A-Za-z0-9_]{0,127}. The grammar is
+// owned by internal/secprim, which also enforces it for launch allowlists;
+// this wrapper keeps the Section 5.1 call sites readable while the
+// cross-package agreement test pins that the two never diverge.
 func validEnvName(name string) bool {
-	if len(name) < 1 || len(name) > 128 {
-		return false
-	}
-	for index := 0; index < len(name); index++ {
-		char := name[index]
-		valid := char == '_' || char >= 'A' && char <= 'Z' || char >= 'a' && char <= 'z' || index > 0 && char >= '0' && char <= '9'
-		if !valid {
-			return false
-		}
-	}
-	return true
+	return secprim.IsEnvName(name)
 }
 
 // checkSpawnEnvNames enforces sorted unique environment names

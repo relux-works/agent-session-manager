@@ -508,6 +508,229 @@ stdoutCap is pinned at MaxFrameBytes+2 in both directions, with a
 maximal-frame-plus-junk probe through the production runner proving the
 probe byte is load-bearing.
 
+## Safe Process and Filesystem Primitives
+
+[`internal/secprim`](internal/secprim) implements the shared safe
+process and filesystem primitives of Sections 16.3, 16.4, and 16.7:
+no-follow path handling, staging containment, structured argv,
+environment allowlists, terminal control-string escaping, and secret
+redaction for free-text streams. It is a library behind the production
+launch and rendering paths, not a second authority: path grammars stay
+in [`internal/scalar`](internal/scalar) (the member gate delegates every
+shared rule there and adds only encoded dots, overlong separators, and
+the Windows alternate-stream, trailing-dot/space, and device rules the
+section names), byte-counted SpawnPlan rules stay in
+[`internal/provhost`](internal/provhost) (which delegates its
+environment-name grammar here so the two cannot drift), Structured
+Error detail redaction stays in [`internal/axerror`](internal/axerror),
+SSH argv admission stays in [`internal/config`](internal/config), and
+the `ax pane SESSION_ID` entrypoint rule stays in
+[`internal/terminalbackend`](internal/terminalbackend). Trust for
+external executables is deliberately not implemented here:
+`provider.trustCandidate` (Section 7.1, with the approving owner fact)
+and `terminalbackend.DigestFile` (Section 4.B trust tuple, with no owner
+fact) differ by contract, and a third path would be another copy, not
+convergence.
+
+`Guard.Resolve` maps one staging member to its lexical commit path under
+the member grammar plus an independent joined-prefix check (the prefix
+conjunct is unreachable through the entry and stays as defense in
+depth, pinned by a generated-corpus tripwire), an optional managed set,
+and Unicode case-fold collision detection. Lexical resolution alone
+does not contain: a symlinked intermediate directory redirects any
+path-string open outside the root, because `O_NOFOLLOW` constrains only
+the final component. The commit half is `Guard.Open`, which first binds
+the passed handle to the guard root (fstat device/inode compare,
+refusing a foreign directory handle as `guard root mismatch`
+identically on both platforms) and then walks every component relative
+to the verified `OpenNoFollowDir` root handle (`openat` with
+`O_NOFOLLOW` per component on unix, never re-resolving a path string;
+a best-effort Lstat component walk from the verified root path on
+Windows) and refuses a symlinked intermediate at any depth at commit
+time as `member symlink escape`. `OpenNoFollowFile`/`OpenNoFollowDir`
+open without following a trailing symlink (`O_NOFOLLOW` on unix; an
+Lstat gate refusing symlinks and irregular reparse points with a
+stated check-then-open TOCTOU bound on Windows) and re-verify shape on
+the descriptor; the unix open sets `O_NONBLOCK` so a FIFO refuses
+instead of stalling the opener. Resolve-then-`OpenNoFollowFile` is
+not a contained composition (documented on the function); commit
+through `Guard.Open`. Wired today are the argv, environment, escaping,
+and redaction surfaces below; the path/containment half has no
+production caller yet and is proven through its own suite.
+`Command` builds only from argv arrays — the package has no shell
+constructor, proven by a token scan plus a behavioral no-`os/exec`
+import gate that catches the token-preserving mutant.
+`BuildEnv` builds the exact child environment from an allowlist plus
+disjoint literals (absent names skipped, never defaulted), wired into
+`provhost.ExecRunner.Env`: nil inherits, an empty list denies all —
+the two are tested as distinct obligations. `EscapeForTerminal`
+neutralizes ANSI/OSC, C0/C1 controls, DEL, bidi overrides and isolates,
+directional marks, zero-width characters, and invalid UTF-8 while
+keeping newline, tab, and legitimate text (idempotent, so double-wiring
+is safe), wired into all six `cliresult` text paths (`Log`, `Progress`,
+interactive `Prompt`, the non-interactive refusal text, and both `Emit`
+directions, each pinned by a hostile-content test) with JSON mode left
+byte-exact. `Redact` scrubs caller-known secrets, private-key blocks,
+sensitive `key=value` pairs, and URL userinfo; Section 16.2 claims no
+reliable content-level scrubbing and neither does this package — the
+bound is stated on the function. The secret-site census derives every
+secret-named declaration, parameter, tag, and literal across the
+secret-handling packages from syntax and requires a disposition row
+with a verified witness for each (names outside the 13-token
+vocabulary are outside the witness, stated as a bound), the Section
+16.2 class roster derives all nine exclusion classes from the pinned
+document the same way, and the five archive-`nopath` rows claim only
+the bound the recursive import scan proves (no archive-writer import
+anywhere under `internal/`, nested packages included — not the absence
+of every non-archive emission shape). The refusal inventory derives all
+42 constructor call sites and additionally fails on a refusal built
+outside the constructors when spelled with the `Error` identifier
+(constructor aliases, `Error` literals, `new(Error)`, `*Error`
+factories, value escapes); a refusal type spelled through a type alias
+or defined type is outside the witness, stated as a bound in
+`errors.go` and pinned by `TestRefusalInventorySpellingBoundIsStated`.
+Windows behavior is compile-and-vet only, never executed; the Lstat
+reparse mapping is established from the go1.25.5 runtime source
+(`src/os/types_windows.go`): `ModeSymlink` for true symlinks and
+`ModeIrregular` for the default arm (junctions, mount points,
+AppExecLinks, cloud placeholders) are both refused, with two stated
+counterexamples to any universal claim — `AF_UNIX` surfaces as
+`ModeSocket` (refused later by the regular-target gate) and `DEDUP`
+carries no type bit (regular by design), neither escape-capable. The
+package mutates no durable state and keeps no cache, so it has no
+crash or idempotency surface.
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/secprim -count=1
+go test ./internal/secprim -cover -count=1
+```
+
+## Security Conformance Test Instrument
+
+[`internal/secconftest`](internal/secconftest) is the test instrument
+for the Section 16 production gates above: deterministic fixture
+runners, fake clocks, crash points, protocol fuzz drivers, hostile
+strings, and platform capability skips. It decides nothing itself —
+every refusal stays in `secprim`, every grammar in
+[`internal/scalar`](internal/scalar), every bound check in
+[`internal/environ`](internal/environ) — and every mechanism ships
+with a proof that disabling it reddens the suite.
+
+The `Runner` executes named fixtures in sorted order over an explicit
+seed and folds names, reports, and production-call counts into one
+digest, with each component witnessed by a dedicated test (a
+report-only or name-only change reddens the suite); a fixture that
+records no production call is refused, so a corpus that never reaches
+the entry point cannot pass as coverage. `Fake` is a manually
+advanced clock that never reads the wall clock (a 20 ms sleep moves
+`time.Now` and not the fake), and the `Recording` wrapper makes an
+unwired clock read as zero calls — detected, not passed. The
+`Injector` arms five instrument-local `CR-MAT-*` phase boundaries
+(not the SPEC `CR-MAT-01..08` registry, whose names are refused as
+unknown) over a three-phase durable-commit model with the Section
+13.13 outcome vocabulary (`safe_retry`, `explicit_rollback`,
+`recoverable_parked_state`); identical retries return the
+byte-identical receipt while a changed body fails with
+`idempotency_mismatch` and stages nothing new, and finalization is
+terminal for clean and crashed `Commit` alike — a commit-apply fault
+fires after the durable write, so the operation counts as committed:
+further rollback is refused with the committed bytes intact
+(`AC-CLONE-005`), a second `Commit` names the terminal state, a
+`Prepare` past finalization is refused, and a pre-commit `Rollback`
+forgets the operation so a fresh `Prepare` restages the recovery
+retry. Every armed point is
+consumption-checked, so an arm the drive never reaches fails its
+test; all five points are driven through the `Transactor`, including
+rollback-enter. Eight `Fuzz*` targets drive the argv, member-path, env-name,
+redact, escape, render, guard-resolve, and case-collision entries
+through one shared `Driver` that seed-corpus tests prove reaches
+production (22 arrivals per entry); the env-name and redact targets
+additionally pin the poles a no-op gate fails (refused empty /
+admitted well-formed name; rewritten secret / passing innocuous
+line). Every target is registered in the configured validation
+matrix. The hostile roster derives 18 classes from the pinned
+specification text (every quote verified in its section) with members
+generated from Unicode tables and `scalar` predicates rather than the
+gates under test; every roster `Gate` is pinned and driven through
+the production entry it names, the bidi vocabulary is pinned
+rune-for-rune with corpus coverage, plus a symlink-escape commit
+witness gated on a probed capability. Capability probes (`symlink`,
+`fifo`, `mode-bits`, `nonroot`) each really attempt their
+capability — symlink create+Lstat, `mkfifo`+Lstat, `chmod 000`
+denial, uid check — and each gates a named test (symlink-escape
+commit witness, fifo byte-exchange fixture, mode-bits/nonroot denial
+test); they skip only where the platform cannot provide and fail on
+strict platforms where absence is unexpected (symlink and fifo are
+strict on linux and darwin, pinned exactly). `Require` takes a minimal
+testing handle so both the skip and the fail arms are driven through
+the real function with a recording fake; `TestMain` prints the
+process-wide report after every test, including the parallel ones.
+The per-test skip
+datum is the `--- SKIP` lines under `go test -v` (0 on darwin/arm64
+non-root); the final report line witnesses the counters after the
+whole suite, which honestly reads zero where every probe passes.
+
+Run the focused tests, race, coverage, and fuzz smoke with:
+
+```bash
+go test ./internal/secconftest -count=1
+go test ./internal/secconftest -race -count=1
+go test ./internal/secconftest -cover -count=1
+go test ./internal/secconftest -run='^$' -fuzz='^FuzzCheckArgv$' -fuzztime=100x -parallel=1
+```
+
+Stated bounds: the commit model proves the injector and the outcome
+vocabulary, not any product recovery path; the crash-point names are
+instrument-local, not the SPEC registry, and a site added without an
+arm is outside the model. Fuzz covers the Section 16 string and
+vector gates, not containment races; the env-name/redact fuzz pins
+cover the no-op poles while the interior grammar and per-class
+markers stay with the hostile corpus; tombstone-deletion and TOCTOU
+shapes have no product surface in this story and are not driven. A
+skip-gated probe that reports unavailable on a non-strict platform
+skips by construction —
+the `--- SKIP` line is the signal, so CI watches skip counts rather
+than treating green as unskipped. Driver delegation to production is
+read-verified with arrival counts, not mutant-pinned. No new
+capability is advertised: the instrument cannot enable a platform
+lane or provider suite.
+
+## Continuous Conformance Gates (CI)
+
+`.github/workflows/ci.yml` is the gate that decides what a green check
+means. Every job proves its selection matched something: a test selector,
+file scan, derivation, or matrix expansion that finds nothing fails closed
+instead of passing on an empty result set. No job declares a skip
+condition, so no job can skip quietly; the terminal verdict job additionally
+refuses any skipped, failed, or cancelled dependency.
+
+| Job | What runs | What green proves |
+| --- | --- | --- |
+| Contract preservation | `tracecheck`, catalog freshness, focused `internal/cigate` contract gates | The pinned lock and the generated catalog agree on every historical and current contract version, and each gate selection matched its named test |
+| Linters | `go vet`, Windows `go vet`, `gofmt` with a non-empty-scan guard | The tree type-checks on both GOOS values and carries no formatting drift |
+| Test | Full suite uncached | Every package passed; the run matched at least one package |
+| Race detector | Full suite under `-race` | No data race fired anywhere in the suite |
+| Coverage numbers | Full suite with `-cover`, percentages in the run summary | Per-package coverage was measured and reported; there is no floor, so coverage is a number, not a gate |
+| Conformance fixtures | Story suites on Ubuntu and macOS | Exact fixtures and negative/refusal cases pass per platform, with skip lines as the skip datum; crash/idempotency evidence comes from the Transactor battery in this matrix |
+| Fuzz smoke | Targets derived per package from the compiled test binaries (`secconftest`, `canonicaljson`, `scalar`), each smoked briefly; the `secconftest` leg is diffed against the `cigate.FuzzTargets` derivation | Every derived target executed its engine, proven by its elapsed line rather than by exit status alone |
+| Unsupported-capability claim check | README scanned with every probe forced unavailable | No unsupported capability is advertised: every backticked capability mention resolves to probe, skip, gate, or test context, never to a positive availability claim about an unavailable capability. Only backticked IDs are scanned — prose without backticks is outside the gate |
+| Windows compile-only | `GOOS=windows` build and vet, test files included | The tree compiles for Windows; green here never implies behaviour was executed there |
+| Gates verdict | Dependency-result check | Every gate above succeeded and none skipped |
+
+[`internal/cigate`](internal/cigate) holds the CI-facing gate library:
+contract-version agreement derived from `internal/specpin` and
+`internal/catalog` (a version either side cannot account for is refused),
+secconftest fuzz-target derivation from the instrument's own target map
+(held equal to CI's `go test -list` leg, so neither side can drift), and
+the advertisement check over the `internal/secconftest` probe vocabulary
+with every probe forced unavailable rather than live-read. It ships no command by deliberation: its
+library reaches the embedded specification document through the
+instrument, which the `specdoc` guard reserves to the existing repository
+gates, so CI drives these gates through focused name-guarded test
+selections whose guards prove the selection matched.
+
 ## Canonical JSON and Immutable Object Identities
 
 [`internal/canonicaljson`](internal/canonicaljson) exposes the production RFC
