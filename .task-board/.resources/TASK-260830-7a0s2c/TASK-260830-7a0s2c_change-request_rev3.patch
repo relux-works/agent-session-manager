@@ -1,0 +1,3452 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 17d2025..7218ca9 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,34 @@
+ 
+ ## 2026-09-06
+ 
++### 2155 — secconftest round-3 rework: crashed commit counts as committed, Require wiring pinned, LOGBOOK corrected
++- SCOPE: TASK-260830-7a0s2c round-3 (review-verdict-rev2, C1/C1b/C2/C2b blocking + 7 unbounded survivors). Production (test instrument) only in `internal/secconftest`: `crash.go` (commit-apply fault finalizes with parked receipt, `ErrPreparePastFinalize`/`ErrCommitPastFinalize`, rollback forgets, staged-missing naming), `skip.go` (`requireT` interface), `main_test.go` (new, `TestMain` final report), `doc.go` (terminal + wiring bounds). Leaf-1 `internal/secprim` untouched.
++- C1 RULE: a crashed commit counts as committed — the durable write already happened, so rollback is forbidden (`ErrRollbackPastFinalize`) and bytes survive; recovery is via `CommittedBytes`/operator. Driven by `TestTransactorCrashedCommitIsFinal`. C1b neighbours all named (no ENOENT inheritance): rollback-twice, commit-twice, commit-after-rollback, prepare-after-commit refused; prepare-after-rollback restages. Fifth crash point armed through the Transactor (P7 closed).
++- C2b: `TestRequireSkipArmRecordsVerdict`/`TestRequireFailArmRecordsVerdict` drive the real `Require` through both arms with a recording fake (M04/M05 killed); `TestMain` prints counters after the parallel tests. Round-2's two untrue sentences superseded in the round-3 outcome doc.
++- C2: 2035 entry corrected in place (false counts withdrawn, digest kept, correction note added); worktree sweep clean.
++- SURVIVORS CLOSED: M02 (empty-ID with probe), M08 (symlink strictness pinned exactly), M16 (empty operation ID), M27 (whitespace-quote message pin) — all killed. Battery re-derived from this tree: 38 applied / 0 NOT_APPLIED / 0 COMPILE_FAIL / 0 VET_FAIL, 36 killed (narrowing 26 + arm-deletion 6 + census-only 4), 2 survived with bounds: N-DriveRedactNoDelegate (N16 delegation bound) and S1-ModeBitsFalse (survive-as-SKIP). Token-preserving mutant ran the full suite. Manifest `c6018721…` identical after the battery.
++- EVIDENCE: outcome `TASK-260830-7a0s2c_secconftest-round3.md` (6/6 AC rows, 38-row mutant table, gates with exit codes) + `TASK-260830-7a0s2c_mutant-battery-round3.log` + full-test log.
++- GATES: `go test ./... -count=1` exit 0 (21 pkgs), secconftest `-race` exit 0, `./... -cover` exit 0 (secconftest 92.6%, secprim 94.4%), `go vet` + `GOOS=windows go vet/build` exit 0, gofmt clean, `tracecheck` exit 0 (94 cases, unchanged), 8/8 fuzz `-fuzztime=100x` exit 0 with no corpus written, verbose 246 PASS / 0 SKIP / 0 FAIL, digest `5569f34caab734eb`.
++- STATUS: Ready for review, handed off to review (review/landing are orchestrator steps).
++
++### 2105 — secconftest round-2 rework: C1–C4 closed, instrument stops reporting untrue things
++- SCOPE: TASK-260830-7a0s2c round-2 (review-verdict-rev1, C1–C4 blocking). Production (test instrument) only in `internal/secconftest`: `crash.go` (finalize gate + `ErrRollbackPastFinalize`, `RemainingArmed`), `skip.go` (`Report()` over live counters, real `mkfifo` fifo probe), `skip_fifo_unix/windows.go` (new, `makeFifo` + fault seam), `hostile.go` untouched, `fuzz_test.go` (no-op poles), `doc.go` (bounds). Leaf-1 `internal/secprim` untouched (`git diff HEAD -- internal/secprim` empty).
++- C1: `Rollback` now refuses post-commit with `ErrRollbackPastFinalize` and leaves committed bytes intact; `TestTransactorRefusesRollbackPastFinalize` commits-then-rolls-back (the arm it is named for) plus both old arms. Deleting the gate is killed by it (battery A1).
++- C2: `Report()` reads the live counters; `TestSkipReportReadsRecordedVerdicts` records synthetic verdicts, asserts the report moves, restores state (gutting `recordVerdict` reddens it, battery A4). The round-1 `skipped=0` citation was a constant — genuine datum is 0 `--- SKIP` / 0 `--- FAIL` lines under `go test -v` on darwin non-root, now cited in README/outcome/doc.go.
++- C3: fifo probe builds a real FIFO (`syscall.Mkfifo`+Lstat; Windows stub unavailable) with a fault seam (`TestSkipFifoProbeAttemptsItsCapability` kills a success-on-failure weakening, battery N14). All 4 probes gate real tests: symlink→escape witness, fifo→byte-exchange fixture, mode-bits+nonroot→denial test (4/4 wired, was 1/4).
++- C4: all 8 listed survivors closed — digest report/name distinguishing tests (N1–N3), bidi rune-for-rune pin + corpus coverage (N4–N5), Gate pin+drive for all 18 classes (N6), verdict counter test (A4), commit-requires-prepare with planted staged file (A3). Battery re-derived from this tree: 29 applied / 0 NOT_APPLIED / 0 COMPILE_FAIL / 0 VET_FAIL, 27 killed (15 narrowing + 8 arm-deletion + 4 census-only), 2 survived with bounds: N16 driver-delegation (read-verified + arrival-counted) and S1 mode-bits-false (survives-as-SKIP by construction — the SKIP line is the signal). N10 token-preserving mutant killed by the full behavioral suite; tree sha256-identical after the battery.
++- EVIDENCE: outcome `TASK-260830-7a0s2c_secconftest-round2.md` (6/6 AC rows corrected, 29-row mutant table with bounds, gates with exit codes) + `TASK-260830-7a0s2c_mutant-battery-round2.log` + full-test log.
++- GATES: `go test ./... -count=1` exit 0 (21 pkgs), secconftest `-race` exit 0, `./... -cover` exit 0 (secconftest 89.3%, secprim 94.4% unchanged), `go vet` + `GOOS=windows go vet/build` exit 0, gofmt clean, `tracecheck` exit 0 (94 cases, unchanged), 8/8 fuzz `-fuzztime=100x` exit 0 with no corpus written, digest `5569f34caab734eb` x5 processes.
++- STATUS: Ready for review, handed off to review (review/landing are orchestrator steps).
++
++### 2035 — secconftest instrument leaf: runners, fake clocks, crash points, fuzz, hostile strings, skips
++- SCOPE: TASK-260830-7a0s2c (second leaf of STORY-260830-1i3qu7). New package `internal/secconftest` (doc/runner/clock/crash/fuzz/hostile/skip + 6 test files): sorted deterministic Runner with execution digest and zero-call refusal, wall-clock-free Fake with Recording wiring detector, CR-MAT-* Injector over a three-phase Transactor with §13.13 outcomes and idempotency_mismatch, 8 Fuzz targets through one shared Driver with seed arrival proofs, 18-class spec-derived hostile roster plus symlink-escape commit witness, 4 probed capabilities with strict-platform failure. Leaf-1 `internal/secprim` production untouched; `task-board.config.json` gains the 8 required fuzz validation commands (pinned by `TestConfiguredValidationRunsEveryFuzzTargetWithFixedBudget`, which failed until registered).
++- FINDING: the repo already forces fuzz registration — a new Fuzz target without a config line fails `TestConfiguredValidationRunsEveryFuzzTargetWithFixedBudget` plus its coverage parent. The instrument therefore cannot silently add unfuzzed-in-CI targets.
++- FINDING (M6): a Fake leaking `time.Now` is caught by two fresh fakes disagreeing (real timestamps in the failure), not just by the sleep test — the stronger kill.
++- EVIDENCE: outcome `TASK-260830-7a0s2c_secconftest.md` (6/6 AC rows with call sites; digest `5569f34caab734eb` x3). CORRECTION (round-3): the mutant counts and the darwin skip citation first written here (10-row table, 10/10 killed, skipped=0) were disproven in round-1 review and are superseded by the round-2 rework entry above and `TASK-260830-7a0s2c_secconftest-round2.md` (29 applied / 2 survivors with bounds; per-test `--- SKIP` lines as the datum).
++- GATES: `go test ./... -count=1` exit 0 (21 pkgs), `-race` exit 0, `-cover` exit 0 (secconftest 86.9%), `go vet` + `GOOS=windows go vet` + `GOOS=windows go build` exit 0, gofmt clean, `tracecheck` exit 0 (94 cases, unchanged). 8/8 fuzz targets pass 5s smoke and `-fuzztime=100x` with no corpus written.
++- STATUS: Ready for review, handed off to review (review/landing are orchestrator steps).
++
+ ### 1939 — secprim round-3 rework: C1 handle binding, C2 classify-before-close, C3 spelling bound, N24 restored
+ - SCOPE: TASK-260830-2ciy0s round-3 (review-verdict-rev2, C1–C4 blocking). Production: `internal/secprim/nofollow.go` (`guardRootMatches` fstat dev/ino compare via `os.SameFile`, new `guard root mismatch` site in `Guard.Open`); `open_member_unix.go` (classify-before-close at both sites); spelling bound stated in `errors.go`/`inventory_test.go`/README + `TestRefusalInventorySpellingBoundIsStated`; honest reparse mapping in both windows files + README. Tests: `guard_root_test.go` (foreign-handle refusal + matched control, cross-platform), depth-3/4 full-string vectors in `open_unix_test.go`.
+ - ROOT CAUSE (C1): `openCommitRelative(root, _ string, ...)` discarded `guard.root`; unix walked the handle, Windows the path — one entry, two containment roots. Fixed in shared `Guard.Open` so both answer identically.
+diff --git a/README.md b/README.md
+index 6026a8b..1c8df36 100644
+--- a/README.md
++++ b/README.md
+@@ -607,6 +607,96 @@ go test ./internal/secprim -count=1
+ go test ./internal/secprim -cover -count=1
+ ```
+ 
++## Security Conformance Test Instrument
++
++[`internal/secconftest`](internal/secconftest) is the test instrument
++for the Section 16 production gates above: deterministic fixture
++runners, fake clocks, crash points, protocol fuzz drivers, hostile
++strings, and platform capability skips. It decides nothing itself —
++every refusal stays in `secprim`, every grammar in
++[`internal/scalar`](internal/scalar), every bound check in
++[`internal/environ`](internal/environ) — and every mechanism ships
++with a proof that disabling it reddens the suite.
++
++The `Runner` executes named fixtures in sorted order over an explicit
++seed and folds names, reports, and production-call counts into one
++digest, with each component witnessed by a dedicated test (a
++report-only or name-only change reddens the suite); a fixture that
++records no production call is refused, so a corpus that never reaches
++the entry point cannot pass as coverage. `Fake` is a manually
++advanced clock that never reads the wall clock (a 20 ms sleep moves
++`time.Now` and not the fake), and the `Recording` wrapper makes an
++unwired clock read as zero calls — detected, not passed. The
++`Injector` arms five instrument-local `CR-MAT-*` phase boundaries
++(not the SPEC `CR-MAT-01..08` registry, whose names are refused as
++unknown) over a three-phase durable-commit model with the Section
++13.13 outcome vocabulary (`safe_retry`, `explicit_rollback`,
++`recoverable_parked_state`); identical retries return the
++byte-identical receipt while a changed body fails with
++`idempotency_mismatch` and stages nothing new, and finalization is
++terminal for clean and crashed `Commit` alike — a commit-apply fault
++fires after the durable write, so the operation counts as committed:
++further rollback is refused with the committed bytes intact
++(`AC-CLONE-005`), a second `Commit` names the terminal state, a
++`Prepare` past finalization is refused, and a pre-commit `Rollback`
++forgets the operation so a fresh `Prepare` restages the recovery
++retry. Every armed point is
++consumption-checked, so an arm the drive never reaches fails its
++test; all five points are driven through the `Transactor`, including
++rollback-enter. Eight `Fuzz*` targets drive the argv, member-path, env-name,
++redact, escape, render, guard-resolve, and case-collision entries
++through one shared `Driver` that seed-corpus tests prove reaches
++production (22 arrivals per entry); the env-name and redact targets
++additionally pin the poles a no-op gate fails (refused empty /
++admitted well-formed name; rewritten secret / passing innocuous
++line). Every target is registered in the configured validation
++matrix. The hostile roster derives 18 classes from the pinned
++specification text (every quote verified in its section) with members
++generated from Unicode tables and `scalar` predicates rather than the
++gates under test; every roster `Gate` is pinned and driven through
++the production entry it names, the bidi vocabulary is pinned
++rune-for-rune with corpus coverage, plus a symlink-escape commit
++witness gated on a probed capability. Capability probes (`symlink`,
++`fifo`, `mode-bits`, `nonroot`) each really attempt their
++capability — symlink create+Lstat, `mkfifo`+Lstat, `chmod 000`
++denial, uid check — and each gates a named test (symlink-escape
++commit witness, fifo byte-exchange fixture, mode-bits/nonroot denial
++test); they skip only where the platform cannot provide and fail on
++strict platforms where absence is unexpected (symlink and fifo are
++strict on linux and darwin, pinned exactly). `Require` takes a minimal
++testing handle so both the skip and the fail arms are driven through
++the real function with a recording fake; `TestMain` prints the
++process-wide report after every test, including the parallel ones.
++The per-test skip
++datum is the `--- SKIP` lines under `go test -v` (0 on darwin/arm64
++non-root); the final report line witnesses the counters after the
++whole suite, which honestly reads zero where every probe passes.
++
++Run the focused tests, race, coverage, and fuzz smoke with:
++
++```bash
++go test ./internal/secconftest -count=1
++go test ./internal/secconftest -race -count=1
++go test ./internal/secconftest -cover -count=1
++go test ./internal/secconftest -run='^$' -fuzz='^FuzzCheckArgv$' -fuzztime=100x -parallel=1
++```
++
++Stated bounds: the commit model proves the injector and the outcome
++vocabulary, not any product recovery path; the crash-point names are
++instrument-local, not the SPEC registry, and a site added without an
++arm is outside the model. Fuzz covers the Section 16 string and
++vector gates, not containment races; the env-name/redact fuzz pins
++cover the no-op poles while the interior grammar and per-class
++markers stay with the hostile corpus; tombstone-deletion and TOCTOU
++shapes have no product surface in this story and are not driven. A
++skip-gated probe that reports unavailable on a non-strict platform
++skips by construction —
++the `--- SKIP` line is the signal, so CI watches skip counts rather
++than treating green as unskipped. Driver delegation to production is
++read-verified with arrival counts, not mutant-pinned. No new
++capability is advertised: the instrument cannot enable a platform
++lane or provider suite.
++
+ ## Canonical JSON and Immutable Object Identities
+ 
+ [`internal/canonicaljson`](internal/canonicaljson) exposes the production RFC
+diff --git a/internal/secconftest/clock.go b/internal/secconftest/clock.go
+new file mode 100644
+index 0000000..508252b
+--- /dev/null
++++ b/internal/secconftest/clock.go
+@@ -0,0 +1,91 @@
++package secconftest
++
++import (
++	"sync"
++	"time"
++)
++
++// Clock abstracts time for code under test. Production code that needs
++// the time takes a Clock; tests pass a Fake. A Fake never reads the
++// wall clock, so suite timing cannot leak into results.
++type Clock interface {
++	Now() time.Time
++}
++
++// fixedStart pins every Fake to one answer until advanced. The value is
++// arbitrary and carries no product meaning.
++var fixedStart = time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
++
++// Fake is a manually advanced clock. The zero value is usable and reads
++// fixedStart. It calls nothing outside its own mutex: in particular it
++// never calls time.Now, so a real-clock difference (a sleep, a slow
++// host, midnight) cannot change its answer.
++type Fake struct {
++	mutex   sync.Mutex
++	current time.Time
++	set     bool
++}
++
++// Now reports the fake time.
++func (clock *Fake) Now() time.Time {
++	clock.mutex.Lock()
++	defer clock.mutex.Unlock()
++	if !clock.set {
++		return fixedStart
++	}
++	return clock.current
++}
++
++// Advance moves the fake time forward by delta. A negative delta is a
++// no-op: clocks under test never run backwards through this type.
++func (clock *Fake) Advance(delta time.Duration) {
++	if delta < 0 {
++		return
++	}
++	clock.mutex.Lock()
++	defer clock.mutex.Unlock()
++	if !clock.set {
++		clock.current = fixedStart
++		clock.set = true
++	}
++	clock.current = clock.current.Add(delta)
++}
++
++// Set pins the fake time to an exact value.
++func (clock *Fake) Set(moment time.Time) {
++	clock.mutex.Lock()
++	defer clock.mutex.Unlock()
++	clock.current = moment
++	clock.set = true
++}
++
++// Recording wraps a Clock and counts Now calls. Passing a Recording
++// into code under test and then reading Calls tells the suite whether
++// the fake was actually wired: zero calls after a clock-dependent
++// operation means the code read the wall clock (or no clock) instead,
++// and the suite must treat that as a failure, not as a pass.
++type Recording struct {
++	inner Clock
++	mutex sync.Mutex
++	calls int64
++}
++
++// Wrap counts Now calls through inner.
++func Wrap(inner Clock) *Recording {
++	return &Recording{inner: inner}
++}
++
++// Now delegates and records the call.
++func (clock *Recording) Now() time.Time {
++	clock.mutex.Lock()
++	clock.calls++
++	clock.mutex.Unlock()
++	return clock.inner.Now()
++}
++
++// Calls reports how many times Now was read through this wrapper.
++func (clock *Recording) Calls() int64 {
++	clock.mutex.Lock()
++	defer clock.mutex.Unlock()
++	return clock.calls
++}
+diff --git a/internal/secconftest/clock_test.go b/internal/secconftest/clock_test.go
+new file mode 100644
+index 0000000..7630d19
+--- /dev/null
++++ b/internal/secconftest/clock_test.go
+@@ -0,0 +1,87 @@
++package secconftest
++
++import (
++	"errors"
++	"testing"
++	"time"
++)
++
++var errTestSentinel = errors.New("secconftest test sentinel")
++
++func TestFakeClockStartsPinned(t *testing.T) {
++	t.Parallel()
++	first := &Fake{}
++	second := &Fake{}
++	if !first.Now().Equal(second.Now()) {
++		t.Fatalf("two fresh fakes disagree: %v vs %v", first.Now(), second.Now())
++	}
++	if first.Now().Location() != time.UTC {
++		t.Fatalf("fake start location = %v, want UTC", first.Now().Location())
++	}
++}
++
++func TestFakeClockIgnoresRealTime(t *testing.T) {
++	t.Parallel()
++	clock := &Fake{}
++	before := clock.Now()
++	wallBefore := time.Now()
++	time.Sleep(20 * time.Millisecond)
++	if got := clock.Now(); !got.Equal(before) {
++		t.Fatalf("fake advanced without Advance: %v -> %v", before, got)
++	}
++	if !time.Now().After(wallBefore) {
++		t.Fatal("wall clock did not advance; the test cannot tell fake from real")
++	}
++}
++
++func TestFakeAdvanceAndSet(t *testing.T) {
++	t.Parallel()
++	clock := &Fake{}
++	start := clock.Now()
++	clock.Advance(90 * time.Second)
++	if got := clock.Now().Sub(start); got != 90*time.Second {
++		t.Fatalf("Advance(90s) moved %v", got)
++	}
++	clock.Advance(-time.Hour)
++	if got := clock.Now().Sub(start); got != 90*time.Second {
++		t.Fatalf("negative Advance moved the clock to %v", got)
++	}
++	pinned := time.Date(2030, time.May, 4, 12, 0, 0, 0, time.UTC)
++	clock.Set(pinned)
++	if got := clock.Now(); !got.Equal(pinned) {
++		t.Fatalf("Set moved to %v, want %v", got, pinned)
++	}
++}
++
++func TestRecordingNoticesUnwiredClock(t *testing.T) {
++	t.Parallel()
++	wired := Wrap(&Fake{})
++	_ = wired.Now()
++	if got := wired.Calls(); got != 1 {
++		t.Fatalf("wired path recorded %d Now calls, want 1", got)
++	}
++	unwired := Wrap(&Fake{})
++	// The buggy path takes the clock and never reads it (wall clock or
++	// no clock instead). The suite must notice the zero, not pass it.
++	if got := unwired.Calls(); got != 0 {
++		t.Fatalf("unwired path recorded %d Now calls, want the detectable 0", got)
++	}
++}
++
++func TestRecordingCountsConcurrentReads(t *testing.T) {
++	t.Parallel()
++	recording := Wrap(&Fake{})
++	done := make(chan struct{})
++	for range 8 {
++		go func() {
++			_ = recording.Now()
++			done <- struct{}{}
++		}()
++	}
++	for range 8 {
++		<-done
++	}
++	if got := recording.Calls(); got != 8 {
++		t.Fatalf("concurrent Now calls recorded %d, want 8", got)
++	}
++}
+diff --git a/internal/secconftest/crash.go b/internal/secconftest/crash.go
+new file mode 100644
+index 0000000..8309023
+--- /dev/null
++++ b/internal/secconftest/crash.go
+@@ -0,0 +1,362 @@
++package secconftest
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"errors"
++	"fmt"
++	"os"
++	"path/filepath"
++	"sort"
++	"sync"
++)
++
++// Outcome is the Section 13.13 crash/restart vocabulary every crash
++// point classifies into. AC-CRASH-001 requires exactly one of these per
++// injection with the section's evidence record; no run may produce
++// duplicate live owners, treat an unfenced external continuation as
++// safe, or substitute a fresh identity for the persisted one.
++type Outcome string
++
++const (
++	// OutcomeSafeRetry means the operation never mutated durable state
++	// and the identical retry is safe.
++	OutcomeSafeRetry Outcome = "safe_retry"
++	// OutcomeExplicitRollback means durable state mutated and the caller
++	// must roll back before any retry.
++	OutcomeExplicitRollback Outcome = "explicit_rollback"
++	// OutcomeRecoverableParked means the operation stopped in a named
++	// parked state from which an operator or a later run recovers; it
++	// must never silently resume as a fresh identity.
++	OutcomeRecoverableParked Outcome = "recoverable_parked_state"
++)
++
++// Crash points name the phase boundaries the injector can fire on. The
++// families follow the AC-CRASH-001 class list (CR-LAUNCH-*, CR-SYNC-*,
++// CR-MAT-*, CR-GRACE-*, CR-FORCE-*, CR-FORK-*, CR-STOP-*, CR-RESUME-*,
++// CR-RESTORE-*, CR-CLONE-01..16); the suffix selects the boundary
++// inside the modeled operation.
++const (
++	PointPrepareEnter  = "CR-MAT-prepare-enter"
++	PointPrepareCommit = "CR-MAT-prepare-commit"
++	PointCommitEnter   = "CR-MAT-commit-enter"
++	PointCommitApply   = "CR-MAT-commit-apply"
++	PointRollbackEnter = "CR-MAT-rollback-enter"
++)
++
++// ErrInjected reports a fired crash point. It carries the point and the
++// classified outcome so the caller cannot observe the fault without
++// observing what it requires.
++var ErrInjected = errors.New("secconftest injected crash")
++
++// Fault is the fired crash-point evidence.
++type Fault struct {
++	point   string
++	outcome Outcome
++}
++
++func (fault *Fault) Error() string {
++	return fmt.Sprintf("%v: %s requires %s", ErrInjected, fault.point, fault.outcome)
++}
++
++// Unwrap matches ErrInjected so callers match the fault kind without
++// parsing human text.
++func (fault *Fault) Unwrap() error {
++	return ErrInjected
++}
++
++// Point names the fired crash point.
++func (fault *Fault) Point() string { return fault.point }
++
++// Outcome classifies the fired crash point into the Section 13.13
++// vocabulary.
++func (fault *Fault) Outcome() Outcome { return fault.outcome }
++
++// Classify maps a crash point to its required outcome. Points before
++// any durable mutation are safe_retry; points after the journal takes
++// effect require explicit_rollback; points past the commit marker park
++// for recovery. Weakening any row to a different outcome must fail the
++// table test that drives it.
++func Classify(point string) (Outcome, error) {
++	switch point {
++	case PointPrepareEnter:
++		return OutcomeSafeRetry, nil
++	case PointPrepareCommit, PointCommitEnter, PointRollbackEnter:
++		return OutcomeExplicitRollback, nil
++	case PointCommitApply:
++		return OutcomeRecoverableParked, nil
++	default:
++		return "", fmt.Errorf("secconftest: unknown crash point %q", point)
++	}
++}
++
++// Injector arms named crash points. The zero value is usable and fires
++// nothing. MaybeFail is the only firing entry: production-shaped code
++// under test calls it at each phase boundary.
++type Injector struct {
++	mutex sync.Mutex
++	armed map[string]bool
++}
++
++// Arm fires point on its next MaybeFail call.
++func (injector *Injector) Arm(point string) {
++	injector.mutex.Lock()
++	defer injector.mutex.Unlock()
++	if injector.armed == nil {
++		injector.armed = map[string]bool{}
++	}
++	injector.armed[point] = true
++}
++
++// Disarm clears every armed point.
++func (injector *Injector) Disarm() {
++	injector.mutex.Lock()
++	defer injector.mutex.Unlock()
++	injector.armed = map[string]bool{}
++}
++
++// Armed reports whether point is currently armed.
++func (injector *Injector) Armed(point string) bool {
++	injector.mutex.Lock()
++	defer injector.mutex.Unlock()
++	return injector.armed[point]
++}
++
++// RemainingArmed lists the points still armed, sorted. A test that arms
++// a point and drives the operation must find this empty afterwards: an
++// armed point that never fires is otherwise noticed only incidentally,
++// and a new crash site added without an arm is outside this model (see
++// the package bounds). Weakening this to a constant empty slice must
++// fail the consumption test that drives it.
++func (injector *Injector) RemainingArmed() []string {
++	injector.mutex.Lock()
++	defer injector.mutex.Unlock()
++	remaining := make([]string, 0, len(injector.armed))
++	for point := range injector.armed {
++		remaining = append(remaining, point)
++	}
++	sort.Strings(remaining)
++	return remaining
++}
++
++// MaybeFail returns a *Fault when point is armed and consumes the arm,
++// so each armed point fires exactly once. It returns nil when
++// disarmed. An unknown point name is a caller error, never silent.
++func (injector *Injector) MaybeFail(point string) error {
++	outcome, err := Classify(point)
++	if err != nil {
++		return err
++	}
++	injector.mutex.Lock()
++	fire := injector.armed[point]
++	if fire {
++		delete(injector.armed, point)
++	}
++	injector.mutex.Unlock()
++	if !fire {
++		return nil
++	}
++	return &Fault{point: point, outcome: outcome}
++}
++
++// ErrIdempotencyMismatch reports a lost-response retry that changed the
++// operation body: AC-MAT-004 requires the byte-identical receipt for
++// the identical retry and a failure that creates no second root for a
++// changed one.
++var ErrIdempotencyMismatch = errors.New("secconftest idempotency_mismatch")
++
++// Receipt is the durable proof of one transacted operation.
++type Receipt struct {
++	OperationID string
++	BodyDigest  string
++	Outcome     Outcome
++	Bytes       []byte
++}
++
++// Transactor is a three-phase durable-commit model (prepare, commit,
++// rollback) over a directory, driven through MaybeFail boundaries. It
++// exists to prove the injector, the outcome vocabulary, and the
++// idempotency rule against real filesystem state; it is not a product
++// journal and no product path may import it for recovery.
++type Transactor struct {
++	injector *Injector
++	root     string
++	mutex    sync.Mutex
++	receipts map[string]Receipt
++	// finalized marks operations whose Commit finished the durable
++	// write, cleanly or via a commit-apply fault. The operation is
++	// then terminal and Rollback must refuse it (AC-CLONE-005:
++	// rollback is forbidden after Provider commit).
++	finalized map[string]bool
++}
++
++// NewTransactor binds a Transactor to root, which must exist.
++func NewTransactor(injector *Injector, root string) *Transactor {
++	return &Transactor{injector: injector, root: root, receipts: map[string]Receipt{}, finalized: map[string]bool{}}
++}
++
++func digestBody(body []byte) string {
++	sum := sha256.Sum256(body)
++	return hex.EncodeToString(sum[:])
++}
++
++// ErrPreparePastFinalize reports a Prepare refused after the operation
++// finalized (clean or crashed Commit): finalization is terminal and a
++// new prepare phase cannot resurrect it. The idempotent Prepare retry
++// rule (AC-MAT-004) covers retries before Commit only; after Commit the
++// operation already has a durable outcome, and returning the old
++// explicit_rollback receipt would misdescribe a finalized operation.
++var ErrPreparePastFinalize = errors.New("secconftest prepare forbidden after finalize")
++
++// ErrCommitPastFinalize reports a Commit refused after the operation
++// already finalized: the second commit has no staged bytes to promote
++// and must name the terminal state, not inherit a filesystem ENOENT.
++var ErrCommitPastFinalize = errors.New("secconftest commit forbidden after finalize")
++
++// Prepare stages body under operationID and fsyncs the journal entry.
++// A retry with the same operation ID and byte-identical body returns
++// the identical receipt without staging twice. A retry with the same
++// ID and a different body fails with ErrIdempotencyMismatch and
++// stages nothing new. Prepare after the operation finalized (clean or
++// crashed Commit) is refused with ErrPreparePastFinalize: terminal
++// means terminal.
++func (transactor *Transactor) Prepare(operationID string, body []byte) (Receipt, error) {
++	if operationID == "" {
++		return Receipt{}, errors.New("secconftest: empty operation ID")
++	}
++	if err := transactor.injector.MaybeFail(PointPrepareEnter); err != nil {
++		return Receipt{}, err
++	}
++	digest := digestBody(body)
++	transactor.mutex.Lock()
++	if transactor.finalized[operationID] {
++		transactor.mutex.Unlock()
++		return Receipt{}, fmt.Errorf("%w: operation %q", ErrPreparePastFinalize, operationID)
++	}
++	if prior, ok := transactor.receipts[operationID]; ok {
++		transactor.mutex.Unlock()
++		if prior.BodyDigest != digest {
++			return Receipt{}, fmt.Errorf("%w: operation %q body changed", ErrIdempotencyMismatch, operationID)
++		}
++		return prior, nil
++	}
++	transactor.mutex.Unlock()
++	staged := filepath.Join(transactor.root, operationID+".staged")
++	if err := os.WriteFile(staged, body, 0o600); err != nil {
++		return Receipt{}, err
++	}
++	if err := transactor.injector.MaybeFail(PointPrepareCommit); err != nil {
++		_ = os.Remove(staged)
++		return Receipt{}, err
++	}
++	receipt := Receipt{OperationID: operationID, BodyDigest: digest, Outcome: OutcomeSafeRetry, Bytes: append([]byte(nil), body...)}
++	transactor.mutex.Lock()
++	transactor.receipts[operationID] = receipt
++	transactor.mutex.Unlock()
++	return receipt, nil
++}
++
++// Commit promotes the staged body to committed bytes. It fails armed
++// crash points before (commit-enter: rollback required) and after
++// (commit-apply: parked) the durable rename.
++//
++// A commit-apply fault fires AFTER the durable write, so the operation
++// is already committed in every observable way: CommittedBytes returns
++// the body and the package's own parked-bytes assertion requires it to
++// survive. The fault path therefore finalizes the operation with a
++// recoverable_parked_state receipt and Rollback afterwards is
++// forbidden (AC-CLONE-005: rollback is forbidden after Provider
++// commit; all bundle evidence survives). The alternative — letting
++// Rollback delete the parked bytes — would walk through both halves
++// of that clause at once, which is the one unacceptable answer; the
++// leaf states this rule here, in doc.go, and in the README.
++//
++// Terminal neighbours name their state instead of inheriting ENOENT:
++// a second Commit is ErrCommitPastFinalize, and a Commit whose staged
++// bytes are gone without finalization names the missing staged bytes.
++func (transactor *Transactor) Commit(operationID string) (Receipt, error) {
++	if err := transactor.injector.MaybeFail(PointCommitEnter); err != nil {
++		return Receipt{}, err
++	}
++	transactor.mutex.Lock()
++	receipt, ok := transactor.receipts[operationID]
++	finalized := transactor.finalized[operationID]
++	transactor.mutex.Unlock()
++	if !ok {
++		return Receipt{}, fmt.Errorf("secconftest: commit without prepare for operation %q", operationID)
++	}
++	if finalized {
++		return Receipt{}, fmt.Errorf("%w: operation %q", ErrCommitPastFinalize, operationID)
++	}
++	staged := filepath.Join(transactor.root, operationID+".staged")
++	committed := filepath.Join(transactor.root, operationID+".committed")
++	contents, err := os.ReadFile(staged)
++	if err != nil {
++		if os.IsNotExist(err) {
++			return Receipt{}, fmt.Errorf("secconftest: commit without staged bytes for operation %q: %w", operationID, err)
++		}
++		return Receipt{}, err
++	}
++	if err := os.WriteFile(committed, contents, 0o600); err != nil {
++		return Receipt{}, err
++	}
++	_ = os.Remove(staged)
++	if err := transactor.injector.MaybeFail(PointCommitApply); err != nil {
++		receipt.Outcome = OutcomeRecoverableParked
++		transactor.mutex.Lock()
++		transactor.receipts[operationID] = receipt
++		transactor.finalized[operationID] = true
++		transactor.mutex.Unlock()
++		return Receipt{}, err
++	}
++	receipt.Outcome = OutcomeExplicitRollback
++	transactor.mutex.Lock()
++	transactor.receipts[operationID] = receipt
++	transactor.finalized[operationID] = true
++	transactor.mutex.Unlock()
++	return receipt, nil
++}
++
++// ErrRollbackPastFinalize reports a rollback refused after finalization
++// (clean or crashed Commit): the operation is terminal and rollback is
++// forbidden (AC-CLONE-005 shapes this rule; the model enforces it for
++// both Commit outcomes because the crashed Commit already performed
++// the durable write).
++var ErrRollbackPastFinalize = errors.New("secconftest rollback forbidden after commit")
++
++// Rollback removes staged bytes for operationID before finalization
++// and forgets the operation, so a second Rollback names the missing
++// prepare instead of succeeding silently and a later Commit names it
++// too; a fresh Prepare for the same ID restages from scratch (the
++// recovery retry). It refuses to run past finalization: once Commit
++// returns cleanly — or faults at commit-apply after the durable
++// write — the operation is terminal, rollback is forbidden, and the
++// committed bytes must survive the refused call untouched. Deleting
++// the finalize gate must fail the tests that commit (clean or
++// crashed) and then roll back.
++func (transactor *Transactor) Rollback(operationID string) error {
++	if err := transactor.injector.MaybeFail(PointRollbackEnter); err != nil {
++		return err
++	}
++	transactor.mutex.Lock()
++	_, ok := transactor.receipts[operationID]
++	finalized := transactor.finalized[operationID]
++	transactor.mutex.Unlock()
++	if !ok {
++		return fmt.Errorf("secconftest: rollback without prepare for operation %q", operationID)
++	}
++	if finalized {
++		return fmt.Errorf("%w: operation %q", ErrRollbackPastFinalize, operationID)
++	}
++	_ = os.Remove(filepath.Join(transactor.root, operationID+".staged"))
++	_ = os.Remove(filepath.Join(transactor.root, operationID+".committed"))
++	transactor.mutex.Lock()
++	delete(transactor.receipts, operationID)
++	transactor.mutex.Unlock()
++	return nil
++}
++
++// CommittedBytes reads back the committed bytes for operationID.
++func (transactor *Transactor) CommittedBytes(operationID string) ([]byte, error) {
++	return os.ReadFile(filepath.Join(transactor.root, operationID+".committed"))
++}
+diff --git a/internal/secconftest/crash_test.go b/internal/secconftest/crash_test.go
+new file mode 100644
+index 0000000..7dae3e8
+--- /dev/null
++++ b/internal/secconftest/crash_test.go
+@@ -0,0 +1,504 @@
++package secconftest
++
++import (
++	"errors"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++func TestCrashClassifyTable(t *testing.T) {
++	t.Parallel()
++	cases := []struct {
++		point string
++		want  Outcome
++	}{
++		{PointPrepareEnter, OutcomeSafeRetry},
++		{PointPrepareCommit, OutcomeExplicitRollback},
++		{PointCommitEnter, OutcomeExplicitRollback},
++		{PointCommitApply, OutcomeRecoverableParked},
++		{PointRollbackEnter, OutcomeExplicitRollback},
++	}
++	for _, kase := range cases {
++		if got, err := Classify(kase.point); err != nil || got != kase.want {
++			t.Errorf("Classify(%q) = %v, %v; want %v", kase.point, got, err, kase.want)
++		}
++	}
++	if _, err := Classify("CR-NOPE-unknown"); err == nil {
++		t.Error("Classify of an unknown point succeeded; a typo would arm nothing and fire nothing")
++	}
++}
++
++func TestCrashPointFiresOnceWhenArmed(t *testing.T) {
++	t.Parallel()
++	injector := &Injector{}
++	if err := injector.MaybeFail(PointPrepareEnter); err != nil {
++		t.Fatalf("disarmed MaybeFail = %v, want nil", err)
++	}
++	injector.Arm(PointPrepareEnter)
++	if !injector.Armed(PointPrepareEnter) {
++		t.Fatal("Armed reports false after Arm")
++	}
++	err := injector.MaybeFail(PointPrepareEnter)
++	fault, ok := err.(*Fault)
++	if !ok {
++		t.Fatalf("armed MaybeFail = %v, want *Fault", err)
++	}
++	if !errors.Is(err, ErrInjected) {
++		t.Fatalf("fault %v does not wrap ErrInjected", err)
++	}
++	if fault.Point() != PointPrepareEnter || fault.Outcome() != OutcomeSafeRetry {
++		t.Fatalf("fault = %q/%q, want %q/safe_retry", fault.Point(), fault.Outcome(), PointPrepareEnter)
++	}
++	if err := injector.MaybeFail(PointPrepareEnter); err != nil {
++		t.Fatalf("consumed arm fired again: %v", err)
++	}
++	injector.Arm(PointPrepareEnter)
++	injector.Disarm()
++	if err := injector.MaybeFail(PointPrepareEnter); err != nil {
++		t.Fatalf("disarmed point fired: %v", err)
++	}
++	if err := injector.MaybeFail("CR-NOPE-unknown"); err == nil {
++		t.Error("unknown point name is silent; a misspelled arm would never fire")
++	}
++}
++
++func TestTransactorPrepareCommitRoundTrip(t *testing.T) {
++	t.Parallel()
++	root := t.TempDir()
++	transactor := NewTransactor(&Injector{}, root)
++	body := []byte(`{"kind":"workspace","id":"op-1"}`)
++	prepared, err := transactor.Prepare("op-1", body)
++	if err != nil {
++		t.Fatalf("Prepare: %v", err)
++	}
++	if prepared.Outcome != OutcomeSafeRetry {
++		t.Fatalf("prepare outcome = %q, want safe_retry", prepared.Outcome)
++	}
++	committed, err := transactor.Commit("op-1")
++	if err != nil {
++		t.Fatalf("Commit: %v", err)
++	}
++	readBack, err := transactor.CommittedBytes("op-1")
++	if err != nil {
++		t.Fatalf("CommittedBytes: %v", err)
++	}
++	if string(readBack) != string(body) {
++		t.Fatalf("committed bytes = %q, want %q", readBack, body)
++	}
++	if committed.BodyDigest != prepared.BodyDigest {
++		t.Fatal("commit changed the operation digest")
++	}
++}
++
++func TestTransactorIdempotentRetry(t *testing.T) {
++	t.Parallel()
++	root := t.TempDir()
++	transactor := NewTransactor(&Injector{}, root)
++	body := []byte(`{"kind":"provider","id":"op-2"}`)
++	first, err := transactor.Prepare("op-2", body)
++	if err != nil {
++		t.Fatalf("Prepare: %v", err)
++	}
++	second, err := transactor.Prepare("op-2", append([]byte(nil), body...))
++	if err != nil {
++		t.Fatalf("identical retry Prepare: %v", err)
++	}
++	if first.OperationID != second.OperationID || first.BodyDigest != second.BodyDigest ||
++		first.Outcome != second.Outcome || string(first.Bytes) != string(second.Bytes) {
++		t.Fatalf("identical retry receipt differs: %+v vs %+v", first, second)
++	}
++	if _, err := transactor.Prepare("op-2", []byte(`{"kind":"provider","id":"op-2-changed"}`)); !errors.Is(err, ErrIdempotencyMismatch) {
++		t.Fatalf("changed-body retry = %v, want idempotency_mismatch", err)
++	}
++	entries, err := os.ReadDir(root)
++	if err != nil {
++		t.Fatalf("ReadDir: %v", err)
++	}
++	if len(entries) != 1 {
++		t.Fatalf("changed retry left %d files, want exactly the one staged journal", len(entries))
++	}
++}
++
++func TestTransactorCrashOutcomes(t *testing.T) {
++	t.Parallel()
++	points := []struct {
++		point        string
++		operation    func(*Transactor) error
++		wantOutcome  Outcome
++		stagedExists bool
++	}{
++		{PointPrepareEnter, func(tx *Transactor) error { _, err := tx.Prepare("a", []byte("body-a")); return err }, OutcomeSafeRetry, false},
++		{PointPrepareCommit, func(tx *Transactor) error { _, err := tx.Prepare("b", []byte("body-b")); return err }, OutcomeExplicitRollback, false},
++		{PointCommitEnter, func(tx *Transactor) error {
++			if _, err := tx.Prepare("c", []byte("body-c")); err != nil {
++				return err
++			}
++			_, err := tx.Commit("c")
++			return err
++		}, OutcomeExplicitRollback, true},
++		{PointCommitApply, func(tx *Transactor) error {
++			if _, err := tx.Prepare("d", []byte("body-d")); err != nil {
++				return err
++			}
++			_, err := tx.Commit("d")
++			return err
++		}, OutcomeRecoverableParked, false},
++		{PointRollbackEnter, func(tx *Transactor) error {
++			if _, err := tx.Prepare("e", []byte("body-e")); err != nil {
++				return err
++			}
++			return tx.Rollback("e")
++		}, OutcomeExplicitRollback, true},
++	}
++	for _, kase := range points {
++		t.Run(kase.point, func(t *testing.T) {
++			t.Parallel()
++			root := t.TempDir()
++			injector := &Injector{}
++			transactor := NewTransactor(injector, root)
++			injector.Arm(kase.point)
++			err := kase.operation(transactor)
++			if got := injector.RemainingArmed(); len(got) != 0 {
++				t.Fatalf("armed point %q was never reached; remaining %q", kase.point, got)
++			}
++			fault, ok := err.(*Fault)
++			if !ok {
++				t.Fatalf("armed %q gave %v, want *Fault", kase.point, err)
++			}
++			if fault.Outcome() != kase.wantOutcome {
++				t.Fatalf("outcome = %q, want %q", fault.Outcome(), kase.wantOutcome)
++			}
++			id := map[string]string{
++				PointPrepareEnter: "a", PointPrepareCommit: "b",
++				PointCommitEnter: "c", PointCommitApply: "d",
++				PointRollbackEnter: "e",
++			}[kase.point]
++			_, stagedErr := os.Stat(filepath.Join(root, id+".staged"))
++			if kase.stagedExists && stagedErr != nil {
++				t.Fatalf("fault at %q removed the staged bytes; rollback would have nothing to restore", kase.point)
++			}
++			if !kase.stagedExists && stagedErr == nil {
++				t.Fatalf("fault at %q left staged bytes behind", kase.point)
++			}
++			if kase.point == PointCommitApply {
++				readBack, readErr := transactor.CommittedBytes(id)
++				if readErr != nil || string(readBack) != "body-d" {
++					t.Fatalf("parked commit lost the durable bytes: %q, %v", readBack, readErr)
++				}
++			}
++		})
++	}
++}
++
++func TestTransactorRecoversAfterFault(t *testing.T) {
++	t.Parallel()
++	root := t.TempDir()
++	injector := &Injector{}
++	transactor := NewTransactor(injector, root)
++	injector.Arm(PointPrepareCommit)
++	if _, err := transactor.Prepare("r", []byte("body-r")); err == nil {
++		t.Fatal("armed prepare-commit passed; the fault never fired")
++	}
++	// The fault consumed its arm and cleaned the staging file, so the
++	// identical retry must proceed and commit byte-exact bytes.
++	receipt, err := transactor.Prepare("r", []byte("body-r"))
++	if err != nil {
++		t.Fatalf("retry after fault: %v", err)
++	}
++	if _, err := transactor.Commit("r"); err != nil {
++		t.Fatalf("commit after recovery: %v", err)
++	}
++	readBack, err := transactor.CommittedBytes("r")
++	if err != nil || string(readBack) != "body-r" {
++		t.Fatalf("recovered bytes = %q, %v; want the exact staged body", readBack, err)
++	}
++	_ = receipt
++}
++
++func TestTransactorRefusesRollbackPastFinalize(t *testing.T) {
++	t.Parallel()
++	root := t.TempDir()
++	transactor := NewTransactor(&Injector{}, root)
++	if err := transactor.Rollback("ghost"); err == nil {
++		t.Fatal("rollback without prepare succeeded")
++	}
++	if _, err := transactor.Prepare("f", []byte("body-f")); err != nil {
++		t.Fatalf("Prepare: %v", err)
++	}
++	if err := transactor.Rollback("f"); err != nil {
++		t.Fatalf("pre-commit rollback: %v", err)
++	}
++	if _, err := os.Stat(filepath.Join(root, "f.staged")); !os.IsNotExist(err) {
++		t.Fatal("rollback left staged bytes behind")
++	}
++	// The arm this test is named for: a clean Commit finalizes the
++	// operation (AC-CLONE-005), so rollback past it must fail and the
++	// committed bytes must survive the refused call untouched.
++	body := []byte("body-final")
++	if _, err := transactor.Prepare("g", body); err != nil {
++		t.Fatalf("Prepare: %v", err)
++	}
++	if _, err := transactor.Commit("g"); err != nil {
++		t.Fatalf("Commit: %v", err)
++	}
++	if err := transactor.Rollback("g"); !errors.Is(err, ErrRollbackPastFinalize) {
++		t.Fatalf("post-commit rollback = %v, want %v", err, ErrRollbackPastFinalize)
++	}
++	readBack, err := transactor.CommittedBytes("g")
++	if err != nil || string(readBack) != string(body) {
++		t.Fatalf("refused rollback deleted the committed bytes: %q, %v", readBack, err)
++	}
++}
++
++func TestTransactorCommitRequiresPrepare(t *testing.T) {
++	t.Parallel()
++	root := t.TempDir()
++	transactor := NewTransactor(&Injector{}, root)
++	// No receipt and no staged file: the refusal must name the
++	// missing prepare, not merely inherit a filesystem error.
++	if _, err := transactor.Commit("ghost"); err == nil || !strings.Contains(err.Error(), "without prepare") {
++		t.Fatalf("commit without prepare = %v, want the without-prepare refusal", err)
++	}
++	// A planted staged file with no receipt: the filesystem would
++	// admit this commit, so only the prepare check refuses it.
++	if err := os.WriteFile(filepath.Join(root, "planted.staged"), []byte("x"), 0o600); err != nil {
++		t.Fatalf("plant staged file: %v", err)
++	}
++	if _, err := transactor.Commit("planted"); err == nil || !strings.Contains(err.Error(), "without prepare") {
++		t.Fatalf("commit with staged bytes but no prepare = %v, want the without-prepare refusal", err)
++	}
++	if _, err := os.Stat(filepath.Join(root, "planted.committed")); !os.IsNotExist(err) {
++		t.Fatal("refused commit left committed bytes behind")
++	}
++}
++
++func TestTransactorCrashedCommitIsFinal(t *testing.T) {
++	t.Parallel()
++	// C1: the commit-apply fault fires AFTER the durable write, so the
++	// operation is committed in every observable way. The leaf rule
++	// (stated on Commit, in doc.go, and in the README) is that a
++	// crashed commit counts as committed: Rollback afterwards is
++	// forbidden with ErrRollbackPastFinalize and the bytes survive.
++	// The alternative — admitting the rollback and deleting the
++	// parked bytes — walks through both halves of AC-CLONE-005 at
++	// once and is the one unacceptable answer.
++	root := t.TempDir()
++	injector := &Injector{}
++	transactor := NewTransactor(injector, root)
++	body := []byte("BODY")
++	if _, err := transactor.Prepare("x", body); err != nil {
++		t.Fatalf("Prepare: %v", err)
++	}
++	injector.Arm(PointCommitApply)
++	_, err := transactor.Commit("x")
++	fault, ok := err.(*Fault)
++	if !ok {
++		t.Fatalf("crashed Commit = %v, want *Fault", err)
++	}
++	if fault.Outcome() != OutcomeRecoverableParked {
++		t.Fatalf("crashed Commit outcome = %q, want recoverable_parked_state", fault.Outcome())
++	}
++	if got := injector.RemainingArmed(); len(got) != 0 {
++		t.Fatalf("armed point was never reached; remaining %q", got)
++	}
++	readBack, err := transactor.CommittedBytes("x")
++	if err != nil || string(readBack) != string(body) {
++		t.Fatalf("parked commit bytes = %q, %v; want the durable BODY", readBack, err)
++	}
++	if err := transactor.Rollback("x"); !errors.Is(err, ErrRollbackPastFinalize) {
++		t.Fatalf("rollback after crashed commit = %v, want %v", err, ErrRollbackPastFinalize)
++	}
++	readBack, err = transactor.CommittedBytes("x")
++	if err != nil || string(readBack) != string(body) {
++		t.Fatalf("refused rollback deleted the parked bytes: %q, %v", readBack, err)
++	}
++	// The parked operation is terminal for the other phases too.
++	if _, err := transactor.Commit("x"); !errors.Is(err, ErrCommitPastFinalize) {
++		t.Fatalf("second Commit after parked commit = %v, want %v", err, ErrCommitPastFinalize)
++	}
++	if _, err := transactor.Prepare("x", body); !errors.Is(err, ErrPreparePastFinalize) {
++		t.Fatalf("Prepare after parked commit = %v, want %v", err, ErrPreparePastFinalize)
++	}
++	readBack, err = transactor.CommittedBytes("x")
++	if err != nil || string(readBack) != string(body) {
++		t.Fatalf("terminal refusals disturbed the parked bytes: %q, %v", readBack, err)
++	}
++}
++
++func TestTransactorTerminalNeighbours(t *testing.T) {
++	t.Parallel()
++	// C1b: every neighbour of the finalize gate names its state
++	// through the public API. Two of these previously refused only by
++	// inheriting a filesystem ENOENT, the exact shape
++	// TestTransactorCommitRequiresPrepare declares unacceptable.
++	t.Run("rollback-twice", func(t *testing.T) {
++		t.Parallel()
++		root := t.TempDir()
++		transactor := NewTransactor(&Injector{}, root)
++		if _, err := transactor.Prepare("rr", []byte("body-rr")); err != nil {
++			t.Fatalf("Prepare: %v", err)
++		}
++		if err := transactor.Rollback("rr"); err != nil {
++			t.Fatalf("first rollback: %v", err)
++		}
++		if err := transactor.Rollback("rr"); err == nil || !strings.Contains(err.Error(), "without prepare") {
++			t.Fatalf("second rollback = %v, want the without-prepare refusal", err)
++		}
++	})
++	t.Run("commit-twice", func(t *testing.T) {
++		t.Parallel()
++		root := t.TempDir()
++		transactor := NewTransactor(&Injector{}, root)
++		body := []byte("body-cc")
++		if _, err := transactor.Prepare("cc", body); err != nil {
++			t.Fatalf("Prepare: %v", err)
++		}
++		if _, err := transactor.Commit("cc"); err != nil {
++			t.Fatalf("first Commit: %v", err)
++		}
++		second, err := transactor.Commit("cc")
++		if !errors.Is(err, ErrCommitPastFinalize) {
++			t.Fatalf("second Commit = %v (%+v), want %v", err, second, ErrCommitPastFinalize)
++		}
++		if second.OperationID != "" || second.BodyDigest != "" || len(second.Bytes) != 0 {
++			t.Fatalf("refused second Commit returned a live receipt: %+v", second)
++		}
++		readBack, err := transactor.CommittedBytes("cc")
++		if err != nil || string(readBack) != string(body) {
++			t.Fatalf("second Commit disturbed the committed bytes: %q, %v", readBack, err)
++		}
++	})
++	t.Run("commit-after-rollback", func(t *testing.T) {
++		t.Parallel()
++		root := t.TempDir()
++		transactor := NewTransactor(&Injector{}, root)
++		if _, err := transactor.Prepare("cr", []byte("body-cr")); err != nil {
++			t.Fatalf("Prepare: %v", err)
++		}
++		if err := transactor.Rollback("cr"); err != nil {
++			t.Fatalf("Rollback: %v", err)
++		}
++		if _, err := transactor.Commit("cr"); err == nil || !strings.Contains(err.Error(), "without prepare") {
++			t.Fatalf("Commit after rollback = %v, want the without-prepare refusal", err)
++		}
++		if _, err := os.Stat(filepath.Join(root, "cr.committed")); !os.IsNotExist(err) {
++			t.Fatal("refused Commit after rollback left committed bytes behind")
++		}
++	})
++	t.Run("prepare-after-clean-commit", func(t *testing.T) {
++		t.Parallel()
++		root := t.TempDir()
++		transactor := NewTransactor(&Injector{}, root)
++		body := []byte("body-pc")
++		if _, err := transactor.Prepare("pc", body); err != nil {
++			t.Fatalf("Prepare: %v", err)
++		}
++		if _, err := transactor.Commit("pc"); err != nil {
++			t.Fatalf("Commit: %v", err)
++		}
++		if _, err := transactor.Prepare("pc", body); !errors.Is(err, ErrPreparePastFinalize) {
++			t.Fatalf("Prepare after clean Commit = %v, want %v", err, ErrPreparePastFinalize)
++		}
++	})
++	t.Run("prepare-after-rollback-restages", func(t *testing.T) {
++		t.Parallel()
++		root := t.TempDir()
++		transactor := NewTransactor(&Injector{}, root)
++		body := []byte("body-re")
++		if _, err := transactor.Prepare("re", body); err != nil {
++			t.Fatalf("Prepare: %v", err)
++		}
++		if err := transactor.Rollback("re"); err != nil {
++			t.Fatalf("Rollback: %v", err)
++		}
++		if _, err := transactor.Prepare("re", body); err != nil {
++			t.Fatalf("re-Prepare after rollback (the recovery retry): %v", err)
++		}
++		if _, err := transactor.Commit("re"); err != nil {
++			t.Fatalf("Commit after re-Prepare: %v", err)
++		}
++		readBack, err := transactor.CommittedBytes("re")
++		if err != nil || string(readBack) != string(body) {
++			t.Fatalf("recovered bytes = %q, %v", readBack, err)
++		}
++	})
++	t.Run("commit-without-staged-names-state", func(t *testing.T) {
++		t.Parallel()
++		root := t.TempDir()
++		transactor := NewTransactor(&Injector{}, root)
++		if _, err := transactor.Prepare("sm", []byte("body-sm")); err != nil {
++			t.Fatalf("Prepare: %v", err)
++		}
++		if err := os.Remove(filepath.Join(root, "sm.staged")); err != nil {
++			t.Fatalf("remove staged: %v", err)
++		}
++		_, err := transactor.Commit("sm")
++		if err == nil || !strings.Contains(err.Error(), "without staged") {
++			t.Fatalf("Commit with receipt but no staged bytes = %v, want the without-staged refusal", err)
++		}
++	})
++}
++
++func TestTransactorRefusesEmptyOperationID(t *testing.T) {
++	t.Parallel()
++	root := t.TempDir()
++	transactor := NewTransactor(&Injector{}, root)
++	if _, err := transactor.Prepare("", []byte("x")); err == nil || !strings.Contains(err.Error(), "empty operation") {
++		t.Fatalf("Prepare with empty ID = %v, want the empty-operation refusal", err)
++	}
++	if _, err := os.Stat(filepath.Join(root, ".staged")); !os.IsNotExist(err) {
++		t.Fatal("empty-ID Prepare staged a file")
++	}
++}
++
++func TestInjectorArmedPointIsConsumedByTheDrive(t *testing.T) {
++	t.Parallel()
++	injector := &Injector{}
++	injector.Arm(PointPrepareEnter)
++	injector.Arm(PointCommitApply)
++	if got := injector.RemainingArmed(); len(got) != 2 {
++		t.Fatalf("RemainingArmed = %q, want the two armed points", got)
++	}
++	if err := injector.MaybeFail(PointPrepareEnter); err == nil {
++		t.Fatal("armed point did not fire")
++	}
++	if got := injector.RemainingArmed(); len(got) != 1 || got[0] != PointCommitApply {
++		t.Fatalf("RemainingArmed = %q, want exactly [%q]", got, PointCommitApply)
++	}
++	injector.Disarm()
++	if got := injector.RemainingArmed(); len(got) != 0 {
++		t.Fatalf("RemainingArmed after Disarm = %q, want empty", got)
++	}
++}
++
++func TestCrashPointVocabularyIsPinned(t *testing.T) {
++	t.Parallel()
++	// The five point names are instrument-local phase boundaries, not
++	// the SPEC registry: CR-MAT-01..08 names nothing here, and a
++	// registry-style name must be refused as unknown rather than armed
++	// silently. Adding a sixth point without extending this list must
++	// fail the Classify arm below only if it is wired; the residual
++	// bound (a new site without an arm) is stated in doc.go.
++	want := map[string]Outcome{
++		PointPrepareEnter:  OutcomeSafeRetry,
++		PointPrepareCommit: OutcomeExplicitRollback,
++		PointCommitEnter:   OutcomeExplicitRollback,
++		PointCommitApply:   OutcomeRecoverableParked,
++		PointRollbackEnter: OutcomeExplicitRollback,
++	}
++	if len(want) != 5 {
++		t.Fatalf("vocabulary has %d points, want exactly 5", len(want))
++	}
++	for point, outcome := range want {
++		if got, err := Classify(point); err != nil || got != outcome {
++			t.Errorf("Classify(%q) = %v, %v; want %v", point, got, err, outcome)
++		}
++	}
++	for _, registry := range []string{"CR-MAT-01", "CR-MAT-08", "CR-MAT-09", "CR-MAT-prepare"} {
++		if _, err := Classify(registry); err == nil {
++			t.Errorf("Classify(%q) succeeded; the SPEC registry is not this vocabulary", registry)
++		}
++	}
++}
+diff --git a/internal/secconftest/doc.go b/internal/secconftest/doc.go
+new file mode 100644
+index 0000000..248c95d
+--- /dev/null
++++ b/internal/secconftest/doc.go
+@@ -0,0 +1,59 @@
++// Package secconftest is the conformance-test instrument for the
++// security-primitives-and-conformance-ci story: deterministic fixture
++// runners, fake clocks, crash points, protocol fuzz drivers, hostile
++// strings, and platform capability skips over the Section 16 production
++// gates (internal/secprim).
++//
++// It is an instrument, not a second authority. Every behavior it covers
++// is decided by an existing owner; this package only drives those
++// decisions deterministically and proves the drive reaches them:
++//
++//   - path grammars and bounds stay in internal/scalar;
++//   - wire decoding, string measure, and bound checks stay in
++//     internal/environ;
++//   - argv, environment, redaction, escaping, and containment refusals
++//     stay in internal/secprim, whose production code this package must
++//     not change;
++//   - the pinned specification text stays in internal/specdoc, which
++//     this package reads only to derive hostile classes, never to
++//     advertise product capabilities.
++//
++// Normative scope: AX v0.5.0 Sections 16, 19.2-19.5, 20.2, Appendix D.
++// Section 19.3 provider suites and Section 19.4 lifecycle cases outside
++// Section 16 are not driven here; the per-mechanism tests name that
++// bound where it bites.
++//
++// Stated bounds. The crash Transactor is a test model of a three-phase
++// durable commit, not the product journal: it proves the injector and
++// the outcome vocabulary work, not that any product recovery path
++// works. Finalization is terminal for clean and crashed Commits alike
++// (a commit-apply fault already performed the durable write, so
++// rollback is forbidden and the bytes survive); a pre-commit Rollback
++// forgets the operation so a fresh Prepare restages the recovery
++// retry, while Prepare/Commit past finalization name the terminal
++// state instead of inheriting ENOENT. The five crash-point names are
++// instrument-local phase boundaries, not the SPEC CR-MAT-01..08
++// registry: registry-style names are refused as unknown, and a new
++// crash site added without an arm is outside this model. Every arm
++// the suite sets is consumption-checked through RemainingArmed, so an
++// armed point the drive never reaches fails its test instead of
++// passing silently; all five points are armed through the Transactor,
++// including rollback-enter. The fuzz drivers cover the Section 16
++// string and vector gates only; containment races and TOCTOU behavior
++// are out of scope for byte-mutating fuzz. The IsEnvName and Redact
++// fuzz properties pin the two poles a no-op gate fails (refused
++// empty/admitted well-formed name; rewritten secret/passing innocuous
++// line); the interior grammar and per-class markers stay covered by
++// the hostile corpus tests named on each property. Hostile members
++// derive from the specification text plus package-unicode tables and
++// internal/scalar predicates, so deleting a secprim gate arm keeps
++// the corpus and reddens the gate test instead of shrinking the
++// witness with it. Require takes a minimal testing handle so the
++// skip and fail arms are driven through the real function with a
++// recording fake (both recordVerdict call sites pinned); TestMain
++// prints the process-wide Report after every test, including the
++// parallel ones, so a real parallel verdict is observable there.
++// The per-test skip datum is still the `--- SKIP` lines under
++// `go test -v`: on a host where every probe passes no verdict is
++// recorded and the final counters honestly read zero.
++package secconftest
+diff --git a/internal/secconftest/fuzz.go b/internal/secconftest/fuzz.go
+new file mode 100644
+index 0000000..9b6fe89
+--- /dev/null
++++ b/internal/secconftest/fuzz.go
+@@ -0,0 +1,139 @@
++package secconftest
++
++import (
++	"sync/atomic"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++)
++
++// FuzzEntry identifies one production entry point a fuzz driver
++// reaches. FuzzTargetEntry maps each fuzz target to its entry so the
++// suite can assert the mapping instead of claiming it in prose.
++type FuzzEntry string
++
++const (
++	EntryCheckArgv           FuzzEntry = "secprim.CheckArgv"
++	EntryCheckMemberPath     FuzzEntry = "secprim.CheckMemberPath"
++	EntryIsEnvName           FuzzEntry = "secprim.IsEnvName"
++	EntryRedact              FuzzEntry = "secprim.Redact"
++	EntryEscapeForTerminal   FuzzEntry = "secprim.EscapeForTerminal"
++	EntryRenderForTerminal   FuzzEntry = "secprim.RenderForTerminal"
++	EntryGuardResolve        FuzzEntry = "secprim.Guard.Resolve"
++	EntryDetectCaseCollision FuzzEntry = "secprim.DetectCaseCollision"
++)
++
++// FuzzTargetEntry maps each committed fuzz target to the production
++// entry point it drives. Every target in fuzz_test.go must appear
++// here, and TestFuzzTargetsReachProduction pins both directions: no
++// target without an entry, no entry in the map without a target that
++// fires it.
++var FuzzTargetEntry = map[string]FuzzEntry{
++	"FuzzCheckArgv":           EntryCheckArgv,
++	"FuzzCheckMemberPath":     EntryCheckMemberPath,
++	"FuzzIsEnvName":           EntryIsEnvName,
++	"FuzzRedactCorpus":        EntryRedact,
++	"FuzzEscapeForTerminal":   EntryEscapeForTerminal,
++	"FuzzRenderForTerminal":   EntryRenderForTerminal,
++	"FuzzGuardResolve":        EntryGuardResolve,
++	"FuzzDetectCaseCollision": EntryDetectCaseCollision,
++}
++
++// Driver is the shared path from seed-corpus tests and fuzz targets
++// into the Section 16 production gates. Both call these methods, so
++// the seed tests prove arrival at the same entry points the fuzzer
++// mutates against. Every method records its call before delegating,
++// so a driver that stopped reaching production shows a zero count.
++type Driver struct {
++	calls map[FuzzEntry]*atomic.Int64
++}
++
++// NewDriver builds a Driver with zeroed arrival counters.
++func NewDriver() *Driver {
++	driver := &Driver{calls: map[FuzzEntry]*atomic.Int64{}}
++	for _, entry := range []FuzzEntry{
++		EntryCheckArgv, EntryCheckMemberPath, EntryIsEnvName,
++		EntryRedact, EntryEscapeForTerminal, EntryRenderForTerminal,
++		EntryGuardResolve, EntryDetectCaseCollision,
++	} {
++		driver.calls[entry] = &atomic.Int64{}
++	}
++	return driver
++}
++
++func (driver *Driver) record(entry FuzzEntry) {
++	driver.calls[entry].Add(1)
++}
++
++// Count reports arrivals at entry.
++func (driver *Driver) Count(entry FuzzEntry) int64 {
++	counter, ok := driver.calls[entry]
++	if !ok {
++		return 0
++	}
++	return counter.Load()
++}
++
++// DriveArgv drives secprim.CheckArgv and reports admission.
++func (driver *Driver) DriveArgv(argv []string) bool {
++	driver.record(EntryCheckArgv)
++	return secprim.CheckArgv(argv) == nil
++}
++
++// DriveMemberPath drives secprim.CheckMemberPath on the linux member
++// grammar and reports admission.
++func (driver *Driver) DriveMemberPath(member string) bool {
++	driver.record(EntryCheckMemberPath)
++	return secprim.CheckMemberPath(scalar.PlatformLinux, member) == nil
++}
++
++// DriveEnvName drives secprim.IsEnvName.
++func (driver *Driver) DriveEnvName(name string) bool {
++	driver.record(EntryIsEnvName)
++	return secprim.IsEnvName(name)
++}
++
++// DriveRedact drives secprim.Redact with no caller corpus and reports
++// whether the output still carries the input's non-secret marker. The
++// fixed marker keeps the driver deterministic: corpus secrets come
++// from the caller in TestFuzzDriversReachProduction, not from the
++// fuzzer.
++func (driver *Driver) DriveRedact(line string) bool {
++	driver.record(EntryRedact)
++	out := secprim.Redact(line, nil)
++	return len(out) > 0 || len(line) == 0
++}
++
++// DriveEscape drives secprim.EscapeForTerminal.
++func (driver *Driver) DriveEscape(text string) string {
++	driver.record(EntryEscapeForTerminal)
++	return secprim.EscapeForTerminal(text)
++}
++
++// DriveRender drives secprim.RenderForTerminal with no caller corpus.
++func (driver *Driver) DriveRender(line string) string {
++	driver.record(EntryRenderForTerminal)
++	return secprim.RenderForTerminal(line, nil)
++}
++
++// DriveGuardResolve drives secprim.Guard.Resolve against a fixed
++// in-memory root and reports admission. The guard construction cannot
++// fail for the fixed root; a construction failure refuses the input
++// the same way a resolution refusal does.
++func (driver *Driver) DriveGuardResolve(member string) bool {
++	driver.record(EntryGuardResolve)
++	guard, err := secprim.NewGuard("/stage", scalar.PlatformLinux, nil)
++	if err != nil {
++		return false
++	}
++	_, err = guard.Resolve(member)
++	return err == nil
++}
++
++// DriveCaseCollision drives secprim.DetectCaseCollision against a
++// fixed sibling set and reports whether a collision fired.
++func (driver *Driver) DriveCaseCollision(candidate string) bool {
++	driver.record(EntryDetectCaseCollision)
++	_, collided := secprim.DetectCaseCollision([]string{"README.md", "staging/member"}, candidate)
++	return collided
++}
+diff --git a/internal/secconftest/fuzz_test.go b/internal/secconftest/fuzz_test.go
+new file mode 100644
+index 0000000..4bde4bb
+--- /dev/null
++++ b/internal/secconftest/fuzz_test.go
+@@ -0,0 +1,254 @@
++package secconftest
++
++import (
++	"strings"
++	"testing"
++	"unicode/utf8"
++
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++)
++
++var fuzzDriver = NewDriver()
++
++var fuzzSeeds = []string{
++	"",
++	"a",
++	"staging/member",
++	"../evil",
++	"/absolute",
++	"C:/drive",
++	"a%2fb",
++	"file:stream",
++	"NUL",
++	"password=hunter2",
++	"-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----",
++	"https://user:pass@example.com/x",
++	"a\x1b[31mb",
++	"a\u202eb",
++	"a\x00b",
++	"a\xffb",
++	"; rm -rf /",
++	"$(evil)",
++	"AX_VALID_NAME",
++	"1bad-name",
++	strings.Repeat("A", 129),
++	"readme.md",
++}
++
++func TestFuzzDriversReachProduction(t *testing.T) {
++	t.Parallel()
++	driver := NewDriver()
++	for _, seed := range fuzzSeeds {
++		driver.DriveArgv([]string{"exe", seed})
++		driver.DriveMemberPath(seed)
++		driver.DriveEnvName(seed)
++		driver.DriveRedact(seed)
++		driver.DriveEscape(seed)
++		driver.DriveRender(seed)
++		driver.DriveGuardResolve(seed)
++		driver.DriveCaseCollision(seed)
++	}
++	for entry, want := range map[FuzzEntry]bool{
++		EntryCheckArgv: true, EntryCheckMemberPath: true, EntryIsEnvName: true,
++		EntryRedact: true, EntryEscapeForTerminal: true, EntryRenderForTerminal: true,
++		EntryGuardResolve: true, EntryDetectCaseCollision: true,
++	} {
++		if !want {
++			continue
++		}
++		if got := driver.Count(entry); got == 0 {
++			t.Fatalf("no seed reached %s; the corpus cannot cover it", entry)
++		}
++		t.Logf("entry %s arrivals: %d", entry, driver.Count(entry))
++	}
++	if len(FuzzTargetEntry) != 8 {
++		t.Fatalf("FuzzTargetEntry has %d targets, want the 8 committed Fuzz functions", len(FuzzTargetEntry))
++	}
++	seen := map[FuzzEntry]bool{}
++	for target, entry := range FuzzTargetEntry {
++		if !strings.HasPrefix(target, "Fuzz") || entry == "" {
++			t.Fatalf("FuzzTargetEntry[%q] = %q is malformed", target, entry)
++		}
++		seen[entry] = true
++	}
++	if len(seen) != 8 {
++		t.Fatalf("FuzzTargetEntry covers %d distinct entries, want 8", len(seen))
++	}
++}
++
++func FuzzCheckArgv(f *testing.F) {
++	for _, seed := range fuzzSeeds {
++		f.Add(seed)
++	}
++	f.Fuzz(func(t *testing.T, element string) {
++		admitted := fuzzDriver.DriveArgv([]string{"exe", element})
++		if admitted && element == "" {
++			t.Fatal("empty argv element admitted")
++		}
++		// Single-gate agreement: NewCommand validates through the same
++		// CheckArgv, so the two must agree on every input.
++		_, err := secprim.NewCommand([]string{"exe", element})
++		if admitted != (err == nil) {
++			t.Fatalf("CheckArgv(%q)=%v disagrees with NewCommand err=%v", element, admitted, err)
++		}
++	})
++}
++
++func FuzzCheckMemberPath(f *testing.F) {
++	for _, seed := range fuzzSeeds {
++		f.Add(seed)
++	}
++	f.Fuzz(func(t *testing.T, member string) {
++		admitted := fuzzDriver.DriveMemberPath(member)
++		if !admitted {
++			return
++		}
++		// Containment property: every admitted member resolves inside
++		// the fixed root through the production Guard.Resolve.
++		if !fuzzDriver.DriveGuardResolve(member) {
++			t.Fatalf("member %q admitted by CheckMemberPath but refused by Guard.Resolve", member)
++		}
++	})
++}
++
++func FuzzIsEnvName(f *testing.F) {
++	for _, seed := range fuzzSeeds {
++		f.Add(seed)
++	}
++	f.Fuzz(func(t *testing.T, name string) {
++		// Poles a no-op gate fails: the empty name is never
++		// admitted, while a well-formed name always is. The
++		// interior grammar stays covered by the hostile corpus
++		// (TestHostileEnvNamesRefused), stated in doc.go.
++		if fuzzDriver.DriveEnvName("") {
++			t.Fatal("empty env name admitted; the gate admits everything")
++		}
++		if !fuzzDriver.DriveEnvName("AX_FOO") {
++			t.Fatal("well-formed env name refused; the gate refuses everything")
++		}
++		if !fuzzDriver.DriveEnvName(name) {
++			return
++		}
++		// An admitted name must build through the production allowlist
++		// path: absent from the parent environment is skipped, never
++		// failed.
++		if _, err := secprim.BuildEnv([]string{name}, nil, func(string) (string, bool) { return "", false }); err != nil {
++			t.Fatalf("admitted env name %q fails BuildEnv: %v", name, err)
++		}
++	})
++}
++
++func FuzzRedactCorpus(f *testing.F) {
++	for _, seed := range fuzzSeeds {
++		f.Add(seed)
++	}
++	f.Fuzz(func(t *testing.T, line string) {
++		fuzzDriver.DriveRedact(line)
++		// Pins a no-op (identity) gate fails: a known secret shape
++		// must be rewritten, while an innocuous line must pass
++		// through. Per-class marker coverage stays in the hostile
++		// corpus (TestHostileRedactMembersScrubbed), stated in
++		// doc.go.
++		if got := secprim.Redact("password=hunter2", nil); got == "password=hunter2" {
++			t.Fatal("known secret passes through unchanged; the gate rewrites nothing")
++		}
++		if got := secprim.Redact("plain hello", nil); got != "plain hello" {
++			t.Fatalf("innocuous line rewritten to %q; the gate over-matches", got)
++		}
++		// Idempotency the package documents: rescanning redacted text
++		// changes nothing.
++		once := secprim.Redact(line, nil)
++		if twice := secprim.Redact(once, nil); twice != once {
++			t.Fatalf("Redact not idempotent on %q: %q then %q", line, once, twice)
++		}
++	})
++}
++
++func FuzzEscapeForTerminal(f *testing.F) {
++	for _, seed := range fuzzSeeds {
++		f.Add(seed)
++	}
++	f.Fuzz(func(t *testing.T, text string) {
++		escaped := fuzzDriver.DriveEscape(text)
++		assertTerminalInert(t, escaped)
++	})
++}
++
++func FuzzRenderForTerminal(f *testing.F) {
++	for _, seed := range fuzzSeeds {
++		f.Add(seed)
++	}
++	f.Fuzz(func(t *testing.T, line string) {
++		rendered := fuzzDriver.DriveRender(line)
++		// Wiring property: Render is Redact then Escape, in that order,
++		// so a secret containing an escape sequence is removed as a
++		// secret rather than merely neutralized.
++		if want := secprim.EscapeForTerminal(secprim.Redact(line, nil)); rendered != want {
++			t.Fatalf("RenderForTerminal(%q) = %q, want Escape(Redact) = %q", line, rendered, want)
++		}
++		assertTerminalInert(t, rendered)
++	})
++}
++
++func FuzzGuardResolve(f *testing.F) {
++	for _, seed := range fuzzSeeds {
++		f.Add(seed)
++	}
++	f.Fuzz(func(t *testing.T, member string) {
++		if !fuzzDriver.DriveGuardResolve(member) {
++			return
++		}
++		guard, err := secprim.NewGuard("/stage", "linux", nil)
++		if err != nil {
++			t.Fatalf("fixed guard construction: %v", err)
++		}
++		resolved, err := guard.Resolve(member)
++		if err != nil {
++			t.Fatalf("DriveGuardResolve admitted %q but Resolve refuses: %v", member, err)
++		}
++		if resolved != "/stage/"+member && !strings.HasPrefix(resolved, "/stage/") {
++			t.Fatalf("Resolve(%q) = %q escapes the root", member, resolved)
++		}
++	})
++}
++
++func FuzzDetectCaseCollision(f *testing.F) {
++	for _, seed := range fuzzSeeds {
++		f.Add(seed)
++	}
++	f.Fuzz(func(t *testing.T, candidate string) {
++		collided := fuzzDriver.DriveCaseCollision(candidate)
++		if !collided {
++			return
++		}
++		// A reported collision must fold-equal a listed sibling it is
++		// not identical to.
++		for _, sibling := range []string{"README.md", "staging/member"} {
++			if sibling != candidate && strings.EqualFold(sibling, candidate) {
++				return
++			}
++		}
++		t.Fatalf("collision reported for %q with no fold-equal sibling", candidate)
++	})
++}
++
++func assertTerminalInert(t *testing.T, escaped string) {
++	t.Helper()
++	if !utf8.ValidString(escaped) {
++		t.Fatalf("escaped output %q is not valid UTF-8", escaped)
++	}
++	for _, character := range escaped {
++		switch {
++		case character == '\n' || character == '\t':
++		case character < 0x20 || character == 0x7f || character >= 0x80 && character <= 0x9f:
++			t.Fatalf("escaped output carries control %U", character)
++		case character == 0x1b:
++			t.Fatal("escaped output carries ESC")
++		}
++	}
++	for _, refused := range BidiRunes() {
++		if strings.ContainsRune(escaped, refused) {
++			t.Fatalf("escaped output carries %U", refused)
++		}
++	}
++}
+diff --git a/internal/secconftest/hostile.go b/internal/secconftest/hostile.go
+new file mode 100644
+index 0000000..17f272d
+--- /dev/null
++++ b/internal/secconftest/hostile.go
+@@ -0,0 +1,181 @@
++package secconftest
++
++import (
++	"fmt"
++	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/specdoc"
++)
++
++// HostileClass is one spec-derived hostile-input class: the exact
++// specification phrase it comes from, the section that phrase lives
++// in, and the production gate that decides its members.
++//
++// The roster is derived, not listed: TestHostileRosterQuotesResolve
++// requires every Quote to occur in its Section in the pinned document,
++// so a class added to or removed from the specification fails the
++// roster instead of passing silently. Members are generated from
++// Unicode tables and internal/scalar predicates, never from the
++// secprim tables under test, so deleting a gate arm keeps the corpus
++// and reddens the gate test instead of shrinking the witness with it.
++type HostileClass struct {
++	// ID is the stable slug naming the class in test output.
++	ID string
++	// Section is the AX specification section the Quote is drawn from.
++	Section string
++	// Quote is the exact specification phrase deriving this class.
++	Quote string
++	// Gate names the production entry point deciding the members.
++	Gate string
++}
++
++// Roster lists every hostile class this instrument drives.
++func Roster() []HostileClass {
++	return []HostileClass{
++		{ID: "path-traversal", Section: "16.3", Quote: "path traversal", Gate: "secprim.CheckMemberPath"},
++		{ID: "path-absolute", Section: "16.3", Quote: "absolute paths", Gate: "secprim.CheckMemberPath"},
++		{ID: "path-drive-unc", Section: "16.3", Quote: "drive/UNC injection", Gate: "secprim.CheckMemberPath"},
++		{ID: "path-altstream", Section: "16.3", Quote: "alternate streams", Gate: "secprim.CheckMemberPath"},
++		{ID: "path-encoded-separator", Section: "16.3", Quote: "repeatedly encoded separators", Gate: "secprim.CheckMemberPath"},
++		{ID: "path-symlink-escape", Section: "16.3", Quote: "symlink/reparse escape during both validation and commit", Gate: "secprim.Guard.Open"},
++		{ID: "path-case-collision", Section: "16.3", Quote: "case-fold collisions on case-insensitive destinations", Gate: "secprim.DetectCaseCollision"},
++		{ID: "path-unmanaged", Section: "16.3", Quote: "replacement of unmanaged paths", Gate: "secprim.Guard.Resolve"},
++		{ID: "path-device", Section: "16.3", Quote: "device/FIFO/socket creation", Gate: "secprim.CheckMemberPath"},
++		{ID: "argv-vector", Section: "16.4", Quote: "Shell command construction from names, paths, provider output, or peer data is forbidden", Gate: "secprim.CheckArgv"},
++		{ID: "env-allowlist", Section: "16.7", Quote: "minimal environment allowlists", Gate: "secprim.IsEnvName"},
++		{ID: "render-ansi-osc", Section: "16.7", Quote: "ANSI/OSC sequences", Gate: "secprim.EscapeForTerminal"},
++		{ID: "render-controls", Section: "16.7", Quote: "control characters", Gate: "secprim.EscapeForTerminal"},
++		{ID: "render-bidi", Section: "16.7", Quote: "bidi overrides", Gate: "secprim.EscapeForTerminal"},
++		{ID: "render-encoding", Section: "16.7", Quote: "invalid encodings", Gate: "secprim.EscapeForTerminal"},
++		{ID: "render-width", Section: "16.7", Quote: "hostile-width graphemes", Gate: "secprim.EscapeForTerminal"},
++		{ID: "redact-persisted", Section: "16.4", Quote: "redacted before persistence", Gate: "secprim.Redact"},
++		{ID: "redact-credentials", Section: "16.2", Quote: "API keys, OAuth tokens", Gate: "secprim.Redact"},
++	}
++}
++
++// QuoteInSection reports whether quote occurs on at least one document
++// line inside section. The section check is load-bearing, not
++// ceremony: TestQuoteInSectionRejectsWrongSection drives a real quote
++// against a wrong section and requires refusal, so a mutant that
++// preserves the token match but drops the section check fails. The
++// mutant harness for that test executes the full behavioral hostile
++// battery, not only this checker.
++func QuoteInSection(document *specdoc.Document, quote, section string) error {
++	if document == nil {
++		return fmt.Errorf("secconftest: nil specification document is never a legitimate absence")
++	}
++	if strings.TrimSpace(quote) == "" {
++		return fmt.Errorf("secconftest: empty quote matches nothing")
++	}
++	lines := document.QuoteLines(quote)
++	if len(lines) == 0 {
++		return fmt.Errorf("secconftest: quote %q occurs nowhere in the pinned document", quote)
++	}
++	for _, line := range lines {
++		if got, ok := document.SectionID(line); ok && got == section {
++			return nil
++		}
++	}
++	return fmt.Errorf("secconftest: quote %q occurs but never in section %s", quote, section)
++}
++
++// bidiOverrideRunes enumerates the Section 16.7 bidi class from the
++// Unicode code chart, not from the gate under test: embeddings and
++// overrides U+202A-U+202E, isolates U+2066-U+2069, directional marks
++// U+200E, U+200F, U+061C, and zero-width U+200B-U+200D plus U+FEFF.
++// The static list is the point: a gate arm deleted with its test row
++// still faces every rune here.
++func bidiOverrideRunes() []rune {
++	return []rune{
++		0x202a, 0x202b, 0x202c, 0x202d, 0x202e,
++		0x2066, 0x2067, 0x2068, 0x2069,
++		0x200e, 0x200f, 0x061c,
++		0x200b, 0x200c, 0x200d,
++		0xfeff,
++	}
++}
++
++// Members generates the hostile inputs for a roster class ID. Every
++// member carries the class token (for example ".." for traversal):
++// the gates must refuse behavior, not merely match the token, and the
++// per-class gate tests assert refusal of every member, so a
++// token-preserving behavior change still reddens.
++func Members(id string) []string {
++	wrap := func(runes []rune) []string {
++		members := make([]string, 0, len(runes))
++		for _, character := range runes {
++			members = append(members, "a"+string(character)+"b")
++		}
++		return members
++	}
++	switch id {
++	case "path-traversal":
++		return []string{"../evil", "a/../../evil", "..", "a/../b", "a/b/../../../../c", "....//evil"}
++	case "path-absolute":
++		return []string{"/etc/passwd", "/", "/a/b"}
++	case "path-drive-unc":
++		return []string{"C:/Windows", "C:relative", "d:foo", "//server/share", `\\server\share`}
++	case "path-altstream":
++		return []string{"file:stream", "dir/file:ads", "file:$DATA"}
++	case "path-encoded-separator":
++		return []string{"a%2fb", "a%5cb", "a%252fb", "a%2F..%2Fb", "%2e%2e/evil", "a/%2e%2e/b", "%2E%2E", "a%c0%afb", "a%C0%AFb"}
++	case "path-case-collision":
++		return []string{"readme.md", "README.MD", "ReadMe.Md", "STAGING/MEMBER", "Staging/Member"}
++	case "path-unmanaged":
++		return []string{"outside-managed", "staging/other", "secret"}
++	case "path-device":
++		return []string{"NUL", "CON", "COM1", "LPT1.txt", "aux.log", "dir/PRN", "COM9", "nul"}
++	case "argv-vector":
++		return []string{"; rm -rf /", "$(evil)", "`evil`", "a|b", "a&&b", "a\nb", "--flag=value with spaces"}
++	case "env-allowlist":
++		return []string{"", "0", "1ABC", "A-B", "A B", "A.B", "A/B", "A\x00B", strings.Repeat("A", 129)}
++	case "render-ansi-osc":
++		return []string{"a\x1b[31mb", "a\x1b[0mb", "a\x1b]8;;https://evil\x07b", "a\x9bb"}
++	case "render-controls":
++		// C0 controls except newline and tab (which the gate keeps),
++		// DEL, and C1 controls: the exact refused set the section
++		// names as "control characters". Printable runes are not
++		// hostile and are not members.
++		var runes []rune
++		for character := rune(0); character < 0x20; character++ {
++			if character == '\n' || character == '\t' {
++				continue
++			}
++			runes = append(runes, character)
++		}
++		runes = append(runes, 0x7f)
++		for character := rune(0x80); character < 0xa0; character++ {
++			runes = append(runes, character)
++		}
++		return wrap(runes)
++	case "render-bidi":
++		return wrap([]rune{0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069})
++	case "render-encoding":
++		return []string{"a\xffb", "a\xfeb", "\xff", "\xfe", "a\xed\xa0\x80b"}
++	case "render-width":
++		return wrap([]rune{0x200e, 0x200f, 0x061c, 0x200b, 0x200c, 0x200d, 0xfeff})
++	case "redact-persisted":
++		return []string{
++			"-----BEGIN RSA PRIVATE KEY-----\nMIIB\n-----END RSA PRIVATE KEY-----",
++			"key without end -----BEGIN RSA PRIVATE KEY-----\nMIIB",
++			"https://deploy:s3cret@example.com/repo",
++			"password=hunter2",
++		}
++	case "redact-credentials":
++		return []string{
++			"api_key=AKIAIOSFODNN7EXAMPLE",
++			"authorization: Bearer eyJhbGciOi",
++			`"token": "xoxb-secret-value"`,
++			"cookie=sessionid=abc123",
++			"subscription_token=st_live_42",
++		}
++	default:
++		return nil
++	}
++}
++
++// BidiRunes exposes the full bidi/zero-width rune list for gate tests
++// that must assert the enumerated set without retyping it.
++func BidiRunes() []rune {
++	return bidiOverrideRunes()
++}
+diff --git a/internal/secconftest/hostile_test.go b/internal/secconftest/hostile_test.go
+new file mode 100644
+index 0000000..ff1cc6f
+--- /dev/null
++++ b/internal/secconftest/hostile_test.go
+@@ -0,0 +1,455 @@
++package secconftest
++
++import (
++	"errors"
++	"io"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++	"github.com/relux-works/agent-session-manager/internal/specdoc"
++)
++
++func TestHostileRosterQuotesResolve(t *testing.T) {
++	t.Parallel()
++	document, err := specdoc.Load()
++	if err != nil {
++		t.Fatalf("specdoc.Load: %v", err)
++	}
++	for _, class := range Roster() {
++		if err := QuoteInSection(document, class.Quote, class.Section); err != nil {
++			t.Errorf("class %q: %v", class.ID, err)
++		}
++	}
++}
++
++func TestHostileRosterShape(t *testing.T) {
++	t.Parallel()
++	roster := Roster()
++	if len(roster) != 18 {
++		t.Fatalf("roster has %d classes, want 18; a spec class added or lost must update this instrument deliberately", len(roster))
++	}
++	seen := map[string]bool{}
++	var memberless []string
++	for _, class := range roster {
++		if class.ID == "" || class.Section == "" || class.Quote == "" || class.Gate == "" {
++			t.Errorf("class %+v has an empty field", class)
++		}
++		if seen[class.ID] {
++			t.Errorf("duplicate class ID %q", class.ID)
++		}
++		seen[class.ID] = true
++		switch class.Section {
++		case "16.2", "16.3", "16.4", "16.7":
++		default:
++			t.Errorf("class %q section %q is outside the story scope", class.ID, class.Section)
++		}
++		if Members(class.ID) == nil {
++			memberless = append(memberless, class.ID)
++		}
++	}
++	// Exactly one class is an FS-behavior witness rather than a string
++	// corpus: symlink escape at commit time needs a real symlink, which
++	// Members cannot build. Its witness is
++	// TestHostileSymlinkEscapeRefusedAtCommit, skip-gated on the
++	// symlink capability.
++	if strings.Join(memberless, ",") != "path-symlink-escape" {
++		t.Fatalf("memberless classes = %v, want exactly [path-symlink-escape]", memberless)
++	}
++}
++
++func TestQuoteInSectionRefusals(t *testing.T) {
++	t.Parallel()
++	document, err := specdoc.Load()
++	if err != nil {
++		t.Fatalf("specdoc.Load: %v", err)
++	}
++	if err := QuoteInSection(document, "path traversal", "16.7"); err == nil {
++		t.Error("a Section 16.3 quote accepted for 16.7; the section check is dead")
++	}
++	if err := QuoteInSection(document, "phrase that occurs nowhere in the document", "16.3"); err == nil {
++		t.Error("unknown quote accepted")
++	}
++	// M27: a whitespace-only quote must be refused by the empty-quote
++	// guard, not merely downstream by accident. Narrowing the guard
++	// to quote == "" still refuses "   " (as "occurs nowhere"), so
++	// the message is pinned, not just the refusal.
++	if err := QuoteInSection(document, "   ", "16.3"); err == nil {
++		t.Error("empty quote accepted")
++	} else if !strings.Contains(err.Error(), "empty quote") {
++		t.Errorf("whitespace quote refused as %q, want the empty-quote guard", err)
++	}
++	if err := QuoteInSection(nil, "path traversal", "16.3"); err == nil {
++		t.Error("nil document accepted as satisfied; a failed read is never an absence")
++	}
++}
++
++func TestHostileMemberCounts(t *testing.T) {
++	t.Parallel()
++	want := map[string]int{
++		"path-traversal": 6, "path-absolute": 3, "path-drive-unc": 5,
++		"path-altstream": 3, "path-encoded-separator": 9,
++		"path-case-collision": 5, "path-unmanaged": 3, "path-device": 8,
++		"argv-vector": 7, "env-allowlist": 9,
++		"render-ansi-osc": 4, "render-controls": 63, "render-bidi": 9,
++		"render-encoding": 5, "render-width": 7,
++		"redact-persisted": 4, "redact-credentials": 5,
++	}
++	for id, count := range want {
++		if got := len(Members(id)); got != count {
++			t.Errorf("Members(%q) has %d inputs, want %d", id, got, count)
++		}
++	}
++	if got := Members("no-such-class"); got != nil {
++		t.Fatalf("Members of an unknown class = %v, want nil", got)
++	}
++}
++
++func TestBidiRunesArePinned(t *testing.T) {
++	t.Parallel()
++	// The bidi/zero-width vocabulary is enumerated from the Unicode
++	// code chart, not from the gate under test. Both narrowings —
++	// dropping U+FEFF and cutting the list to one rune — must fail
++	// here, and every rune must have a corpus member carrying it, so
++	// the vocabulary cannot shrink past the corpus silently.
++	want := []rune{
++		0x202a, 0x202b, 0x202c, 0x202d, 0x202e,
++		0x2066, 0x2067, 0x2068, 0x2069,
++		0x200e, 0x200f, 0x061c,
++		0x200b, 0x200c, 0x200d,
++		0xfeff,
++	}
++	got := BidiRunes()
++	if len(got) != len(want) {
++		t.Fatalf("BidiRunes has %d runes, want %d", len(got), len(want))
++	}
++	for index, character := range want {
++		if got[index] != character {
++			t.Fatalf("BidiRunes[%d] = %U, want %U", index, got[index], character)
++		}
++	}
++	covered := map[rune]bool{}
++	for _, member := range append(Members("render-bidi"), Members("render-width")...) {
++		for _, character := range member {
++			covered[character] = true
++		}
++	}
++	for _, character := range want {
++		if !covered[character] {
++			t.Errorf("rune %U has no corpus member; the vocabulary outruns the witness", character)
++		}
++	}
++}
++
++// gateWire pins one roster class to its production gate and to the
++// decision that gate must return on the representative member.
++type gateWire struct {
++	wantGate    string
++	platform    scalar.Platform
++	member      string
++	wantDecided bool
++}
++
++// driveGate resolves a roster Gate string to the production entry it
++// names and requires the class-appropriate decision. An unknown Gate
++// is a fatal wiring error, never a pass.
++func driveGate(t *testing.T, gate, member string, platform scalar.Platform) bool {
++	t.Helper()
++	switch gate {
++	case "secprim.CheckMemberPath":
++		return secprim.CheckMemberPath(platform, member) == nil
++	case "secprim.Guard.Open":
++		stage := t.TempDir()
++		guard, err := secprim.NewGuard(stage, platform, nil)
++		if err != nil {
++			t.Fatalf("NewGuard: %v", err)
++		}
++		root, err := secprim.OpenNoFollowDir(stage)
++		if err != nil {
++			t.Fatalf("OpenNoFollowDir: %v", err)
++		}
++		defer func() { _ = root.Close() }()
++		file, err := guard.Open(root, member)
++		if err != nil {
++			return false
++		}
++		_ = file.Close()
++		return true
++	case "secprim.DetectCaseCollision":
++		_, collided := secprim.DetectCaseCollision([]string{"README.md", "staging/member"}, member)
++		return collided
++	case "secprim.Guard.Resolve":
++		guard, err := secprim.NewGuard("/stage", platform, []string{"staging/member"})
++		if err != nil {
++			t.Fatalf("NewGuard: %v", err)
++		}
++		_, err = guard.Resolve(member)
++		return err == nil
++	case "secprim.CheckArgv":
++		return secprim.CheckArgv([]string{"exe", member}) == nil
++	case "secprim.IsEnvName":
++		return secprim.IsEnvName(member)
++	case "secprim.EscapeForTerminal":
++		escaped := secprim.EscapeForTerminal(member)
++		assertTerminalInert(t, escaped)
++		return escaped != member
++	case "secprim.Redact":
++		redacted := secprim.Redact(member, nil)
++		return strings.Contains(redacted, "[redacted]")
++	default:
++		t.Fatalf("roster Gate %q resolves to no production entry", gate)
++		return false
++	}
++}
++
++func TestHostileGatesAreWired(t *testing.T) {
++	t.Parallel()
++	// Every roster Gate is pinned and driven: renaming a Gate to any
++	// other entry fails the pin, and a Gate that stopped deciding its
++	// class fails the drive. The symlink-escape drive opens an absent
++	// member (refused); the commit-time escape proof itself is
++	// TestHostileSymlinkEscapeRefusedAtCommit.
++	wires := map[string]gateWire{
++		"path-traversal":         {wantGate: "secprim.CheckMemberPath", platform: scalar.PlatformLinux, member: "../evil", wantDecided: false},
++		"path-absolute":          {wantGate: "secprim.CheckMemberPath", platform: scalar.PlatformLinux, member: "/etc/passwd", wantDecided: false},
++		"path-drive-unc":         {wantGate: "secprim.CheckMemberPath", platform: scalar.PlatformLinux, member: "C:/Windows", wantDecided: false},
++		"path-altstream":         {wantGate: "secprim.CheckMemberPath", platform: scalar.PlatformWindows, member: "file:stream", wantDecided: false},
++		"path-encoded-separator": {wantGate: "secprim.CheckMemberPath", platform: scalar.PlatformLinux, member: "a%2fb", wantDecided: false},
++		"path-symlink-escape":    {wantGate: "secprim.Guard.Open", platform: scalar.PlatformLinux, member: "absent-member", wantDecided: false},
++		"path-case-collision":    {wantGate: "secprim.DetectCaseCollision", platform: scalar.PlatformLinux, member: "README.MD", wantDecided: true},
++		"path-unmanaged":         {wantGate: "secprim.Guard.Resolve", platform: scalar.PlatformLinux, member: "outside-managed", wantDecided: false},
++		"path-device":            {wantGate: "secprim.CheckMemberPath", platform: scalar.PlatformWindows, member: "NUL", wantDecided: false},
++		"argv-vector":            {wantGate: "secprim.CheckArgv", platform: scalar.PlatformLinux, member: "; rm -rf /", wantDecided: true},
++		"env-allowlist":          {wantGate: "secprim.IsEnvName", platform: scalar.PlatformLinux, member: "", wantDecided: false},
++		"render-ansi-osc":        {wantGate: "secprim.EscapeForTerminal", platform: scalar.PlatformLinux, member: "a\x1b[31mb", wantDecided: true},
++		"render-controls":        {wantGate: "secprim.EscapeForTerminal", platform: scalar.PlatformLinux, member: "a\x00b", wantDecided: true},
++		"render-bidi":            {wantGate: "secprim.EscapeForTerminal", platform: scalar.PlatformLinux, member: "a\u202eb", wantDecided: true},
++		"render-encoding":        {wantGate: "secprim.EscapeForTerminal", platform: scalar.PlatformLinux, member: "a\xffb", wantDecided: true},
++		"render-width":           {wantGate: "secprim.EscapeForTerminal", platform: scalar.PlatformLinux, member: "a\ufeffb", wantDecided: true},
++		"redact-persisted":       {wantGate: "secprim.Redact", platform: scalar.PlatformLinux, member: "password=hunter2", wantDecided: true},
++		"redact-credentials":     {wantGate: "secprim.Redact", platform: scalar.PlatformLinux, member: "api_key=[REDACTED]", wantDecided: true},
++	}
++	for _, class := range Roster() {
++		wire, ok := wires[class.ID]
++		if !ok {
++			t.Errorf("class %q has no gate wiring; its Gate annotation is unchecked", class.ID)
++			continue
++		}
++		if class.Gate != wire.wantGate {
++			t.Errorf("class %q Gate = %q, want %q", class.ID, class.Gate, wire.wantGate)
++			continue
++		}
++		if got := driveGate(t, class.Gate, wire.member, wire.platform); got != wire.wantDecided {
++			t.Errorf("class %q through %s: decided=%v, want %v", class.ID, class.Gate, got, wire.wantDecided)
++		}
++	}
++	for id := range wires {
++		found := false
++		for _, class := range Roster() {
++			if class.ID == id {
++				found = true
++			}
++		}
++		if !found {
++			t.Errorf("wire row %q names no roster class; the expectation is orphaned", id)
++		}
++	}
++}
++
++func TestHostilePathMembersRefused(t *testing.T) {
++	t.Parallel()
++	linux := []string{"path-traversal", "path-absolute", "path-drive-unc", "path-encoded-separator"}
++	for _, id := range linux {
++		for _, member := range Members(id) {
++			if err := secprim.CheckMemberPath(scalar.PlatformLinux, member); err == nil {
++				t.Errorf("linux admits hostile %q (%s)", member, id)
++			}
++		}
++	}
++	windows := []string{"path-altstream", "path-device"}
++	for _, id := range windows {
++		for _, member := range Members(id) {
++			if err := secprim.CheckMemberPath(scalar.PlatformWindows, member); err == nil {
++				t.Errorf("windows admits hostile %q (%s)", member, id)
++			}
++		}
++	}
++}
++
++func TestHostileCaseCollisionMembersFire(t *testing.T) {
++	t.Parallel()
++	siblings := []string{"README.md", "staging/member"}
++	for _, candidate := range Members("path-case-collision") {
++		if _, collided := secprim.DetectCaseCollision(siblings, candidate); !collided {
++			t.Errorf("candidate %q reports no collision against %v", candidate, siblings)
++		}
++	}
++	if _, collided := secprim.DetectCaseCollision(siblings, "unrelated-name"); collided {
++		t.Error("unrelated name collides; the gate over-matches")
++	}
++}
++
++func TestHostileUnmanagedMembersRefused(t *testing.T) {
++	t.Parallel()
++	guard, err := secprim.NewGuard("/stage", scalar.PlatformLinux, []string{"staging/member"})
++	if err != nil {
++		t.Fatalf("NewGuard: %v", err)
++	}
++	for _, member := range Members("path-unmanaged") {
++		if _, err := guard.Resolve(member); err == nil {
++			t.Errorf("unmanaged member %q resolved", member)
++		} else if !errors.Is(err, secprim.ErrUnsafePath) {
++			t.Errorf("unmanaged member %q error %v does not wrap ErrUnsafePath", member, err)
++		}
++	}
++	if _, err := guard.Resolve("staging/member"); err != nil {
++		t.Errorf("managed member refused: %v", err)
++	}
++}
++
++func TestHostileArgvMembersStaySingleElements(t *testing.T) {
++	t.Parallel()
++	for _, hostile := range Members("argv-vector") {
++		command, err := secprim.NewCommand([]string{"exe", hostile})
++		if err != nil {
++			t.Errorf("shell metacharacter vector %q refused as data: %v", hostile, err)
++			continue
++		}
++		argv := command.Argv()
++		if len(argv) != 2 || argv[1] != hostile {
++			t.Errorf("vector %q did not survive as one element: %q", hostile, argv)
++		}
++	}
++	refused := [][]string{{}, {""}, {"exe", ""}, {"exe", "a\x00b"}, {"exe", "a\xffb"}}
++	for _, argv := range refused {
++		if err := secprim.CheckArgv(argv); err == nil {
++			t.Errorf("CheckArgv(%q) admitted", argv)
++		} else if !errors.Is(err, secprim.ErrUnsafeArgv) {
++			t.Errorf("CheckArgv(%q) error %v does not wrap ErrUnsafeArgv", argv, err)
++		}
++	}
++}
++
++func TestHostileEnvNamesRefused(t *testing.T) {
++	t.Parallel()
++	for _, name := range Members("env-allowlist") {
++		if secprim.IsEnvName(name) {
++			t.Errorf("IsEnvName(%q) admitted", name)
++		}
++	}
++	if !secprim.IsEnvName("AX_FOO") {
++		t.Error("IsEnvName refuses a well-formed name; the gate over-matches")
++	}
++	if _, err := secprim.BuildEnv([]string{"AX_OK"}, map[string]string{"AX_OK": "x"}, os.LookupEnv); err == nil {
++		t.Error("BuildEnv admits a literal colliding with the allowlist")
++	}
++	if _, err := secprim.BuildEnv([]string{"AX_OK"}, map[string]string{"AX_BAD": "a\x00b"}, os.LookupEnv); err == nil {
++		t.Error("BuildEnv admits a NUL value")
++	}
++}
++
++func TestHostileRenderMembersNeutralized(t *testing.T) {
++	t.Parallel()
++	for _, id := range []string{"render-ansi-osc", "render-controls", "render-bidi", "render-encoding", "render-width"} {
++		for _, member := range Members(id) {
++			escaped := secprim.EscapeForTerminal(member)
++			// The output invariant every class serves: valid UTF-8,
++			// no ESC, no refused control, no bidi/zero-width rune.
++			assertTerminalInert(t, escaped)
++			switch id {
++			case "render-encoding":
++				// Invalid bytes cannot survive, and the neutralized
++				// replacement proves they were rewritten, not kept.
++				if escaped == member {
++					t.Errorf("class %s: member %q passes through unchanged", id, member)
++				}
++			default:
++				// Neutralization is visible, never a silent strip:
++				// ESC becomes U+241B, every other refused rune
++				// becomes U+FFFD.
++				if strings.ContainsRune(member, 0x1b) && !strings.Contains(escaped, "␛") {
++					t.Errorf("class %s: member %q lost its escape visibly", id, member)
++				}
++				if !strings.ContainsRune(member, 0x1b) && !strings.Contains(escaped, "�") {
++					t.Errorf("class %s: member %q shows no neutralization marker", id, member)
++				}
++			}
++		}
++	}
++}
++
++func TestHostileRedactMembersScrubbed(t *testing.T) {
++	t.Parallel()
++	for _, member := range Members("redact-persisted") {
++		redacted := secprim.Redact(member, nil)
++		if strings.Contains(redacted, "PRIVATE KEY-----\n") || strings.Contains(redacted, "s3cret") {
++			t.Errorf("member %q survives redaction: %q", member, redacted)
++		}
++	}
++	for _, member := range Members("redact-credentials") {
++		redacted := secprim.Redact(member, nil)
++		if !strings.Contains(redacted, "[redacted]") {
++			t.Errorf("credential member %q carries no redaction marker: %q", member, redacted)
++		}
++	}
++	// Caller-known corpus values are scrubbed verbatim, including when
++	// the key shape is innocuous.
++	const secret = "correct-horse-battery"
++	redacted := secprim.Redact(" InnocuousKey="+secret+" ", []string{secret})
++	if strings.Contains(redacted, secret) {
++		t.Fatalf("corpus secret survives: %q", redacted)
++	}
++}
++
++func TestHostileSymlinkEscapeRefusedAtCommit(t *testing.T) {
++	t.Parallel()
++	Require(t, SymlinkCapability())
++	base := t.TempDir()
++	stage := filepath.Join(base, "stage")
++	outside := filepath.Join(base, "outside")
++	if err := os.MkdirAll(stage, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.MkdirAll(outside, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(outside, "victim"), []byte("OUTSIDE"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(stage, "inside"), []byte("INSIDE"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, filepath.Join(stage, "link")); err != nil {
++		t.Fatal(err)
++	}
++	guard, err := secprim.NewGuard(stage, scalar.PlatformLinux, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	root, err := secprim.OpenNoFollowDir(stage)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer func() { _ = root.Close() }()
++	file, err := guard.Open(root, "link/victim")
++	if err == nil {
++		contents, _ := io.ReadAll(file)
++		_ = file.Close()
++		t.Fatalf("symlink escape committed; read %q outside the root", contents)
++	}
++	if !errors.Is(err, secprim.ErrUnsafePath) {
++		t.Fatalf("symlink escape error %v does not wrap ErrUnsafePath", err)
++	}
++	inside, err := guard.Open(root, "inside")
++	if err != nil {
++		t.Fatalf("positive control refused: %v", err)
++	}
++	contents, err := io.ReadAll(inside)
++	_ = inside.Close()
++	if err != nil || string(contents) != "INSIDE" {
++		t.Fatalf("positive control read %q, %v; want the staged bytes", contents, err)
++	}
++}
+diff --git a/internal/secconftest/main_test.go b/internal/secconftest/main_test.go
+new file mode 100644
+index 0000000..78d0463
+--- /dev/null
++++ b/internal/secconftest/main_test.go
+@@ -0,0 +1,22 @@
++package secconftest
++
++import (
++	"fmt"
++	"os"
++	"testing"
++)
++
++// TestMain runs the suite and then prints the process-wide capability
++// counters, so a real verdict recorded by a parallel Require is
++// observable in the output. Sequential tests (including
++// TestSkipReportReadsRecordedVerdicts and the fake-Require wiring
++// tests) print before the first parallel CONT, so without this hook
++// no printed report can carry a parallel verdict under any host
++// condition. The per-test --- SKIP / --- FAIL lines under go test -v
++// remain the primary skip datum; this line witnesses the counters
++// after every test, including the parallel ones.
++func TestMain(m *testing.M) {
++	code := m.Run()
++	fmt.Printf("%s\n", Report())
++	os.Exit(code)
++}
+diff --git a/internal/secconftest/runner.go b/internal/secconftest/runner.go
+new file mode 100644
+index 0000000..fbf75df
+--- /dev/null
++++ b/internal/secconftest/runner.go
+@@ -0,0 +1,100 @@
++package secconftest
++
++import (
++	"fmt"
++	"hash/fnv"
++	"sort"
++	"sync/atomic"
++)
++
++// Calls counts production entry-point invocations. A fixture receives a
++// counter and must record every production call it makes; the Runner
++// refuses fixtures that record none, so a corpus that never reaches the
++// entry point cannot pass as coverage.
++type Calls struct {
++	count atomic.Int64
++}
++
++// Add records n production calls.
++func (calls *Calls) Add(n int64) {
++	calls.count.Add(n)
++}
++
++// Count reports the recorded calls.
++func (calls *Calls) Count() int64 {
++	return calls.count.Load()
++}
++
++// Fixture is one named deterministic case. Run must be a pure function
++// of Seed: same seed, same report string. It receives a fresh Calls
++// counter and must record each production entry-point invocation it
++// performs.
++type Fixture struct {
++	Name string
++	Run  func(seed uint64, calls *Calls) (report string, err error)
++}
++
++// Result is the executed record of one fixture.
++type Result struct {
++	Name   string
++	Report string
++	Calls  int64
++}
++
++// Runner executes fixtures in sorted name order over an explicit seed.
++// Registration order and Go map iteration order never affect execution:
++// names are sorted before every run, so identical inputs produce one
++// answer no matter how the caller stored the fixtures.
++type Runner struct {
++	// AllowUnreached disables the arrival check. It exists only so the
++	// suite can prove the check is load-bearing: with it set, an
++	// unreached fixture passes, and TestRunnerRefusesUnreachedFixture
++	// pins that the default refuses. Production use leaves the zero
++	// value.
++	AllowUnreached bool
++}
++
++// Run executes every fixture once and returns results in sorted name
++// order. A fixture that records zero production calls is refused with
++// an error naming it, unless AllowUnreached is set.
++func (runner Runner) Run(fixtures []Fixture, seed uint64) ([]Result, error) {
++	ordered := append([]Fixture(nil), fixtures...)
++	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
++	results := make([]Result, 0, len(ordered))
++	for _, fixture := range ordered {
++		var calls Calls
++		report, err := fixture.Run(seed, &calls)
++		if err != nil {
++			return nil, fmt.Errorf("secconftest runner: fixture %q: %w", fixture.Name, err)
++		}
++		if !runner.AllowUnreached && calls.Count() == 0 {
++			return nil, fmt.Errorf("secconftest runner: fixture %q recorded no production call", fixture.Name)
++		}
++		results = append(results, Result{Name: fixture.Name, Report: report, Calls: calls.Count()})
++	}
++	return results, nil
++}
++
++// Digest folds the execution log into one FNV-64 hex value: fixture
++// names, reports, and call counts in execution order. Two runs with
++// identical inputs produce identical digests; any dropped, reordered,
++// or altered fixture changes it.
++func Digest(results []Result) string {
++	sum := fnv.New64a()
++	for _, result := range results {
++		_, _ = fmt.Fprintf(sum, "%s\x00%s\x00%d\x00", result.Name, result.Report, result.Calls)
++	}
++	return fmt.Sprintf("%016x", sum.Sum64())
++}
++
++// SortedNames reports the execution order for a fixture list. It shares
++// the sort with Run so the order claim is testable in isolation.
++func SortedNames(fixtures []Fixture) []string {
++	ordered := append([]Fixture(nil), fixtures...)
++	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Name < ordered[j].Name })
++	names := make([]string, 0, len(ordered))
++	for _, fixture := range ordered {
++		names = append(names, fixture.Name)
++	}
++	return names
++}
+diff --git a/internal/secconftest/runner_test.go b/internal/secconftest/runner_test.go
+new file mode 100644
+index 0000000..9c4b14a
+--- /dev/null
++++ b/internal/secconftest/runner_test.go
+@@ -0,0 +1,198 @@
++package secconftest
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestRunnerExecutesInSortedOrder(t *testing.T) {
++	t.Parallel()
++	var order []string
++	fixtures := []Fixture{
++		{Name: "zeta", Run: func(seed uint64, calls *Calls) (string, error) {
++			calls.Add(1)
++			order = append(order, "zeta")
++			return "z", nil
++		}},
++		{Name: "alpha", Run: func(seed uint64, calls *Calls) (string, error) {
++			calls.Add(2)
++			order = append(order, "alpha")
++			return "a", nil
++		}},
++		{Name: "mid", Run: func(seed uint64, calls *Calls) (string, error) {
++			calls.Add(3)
++			order = append(order, "mid")
++			return "m", nil
++		}},
++	}
++	var runner Runner
++	results, err := runner.Run(fixtures, 7)
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	want := []string{"alpha", "mid", "zeta"}
++	got := SortedNames(fixtures)
++	if strings.Join(got, ",") != strings.Join(want, ",") {
++		t.Fatalf("SortedNames = %v, want %v", got, want)
++	}
++	if strings.Join(order, ",") != strings.Join(want, ",") {
++		t.Fatalf("execution order = %v, want sorted %v", order, want)
++	}
++	for index, name := range want {
++		if results[index].Name != name {
++			t.Fatalf("results[%d].Name = %q, want %q", index, results[index].Name, name)
++		}
++	}
++}
++
++func TestRunnerDigestIsDeterministic(t *testing.T) {
++	t.Parallel()
++	fixtures := []Fixture{
++		{Name: "b", Run: func(seed uint64, calls *Calls) (string, error) {
++			calls.Add(1)
++			return "report-b", nil
++		}},
++		{Name: "a", Run: func(seed uint64, calls *Calls) (string, error) {
++			calls.Add(1)
++			return "report-a", nil
++		}},
++	}
++	var runner Runner
++	first, err := runner.Run(fixtures, 99)
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	second, err := runner.Run(fixtures, 99)
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	// Registration order must not matter: reverse and rerun.
++	reversed := []Fixture{fixtures[1], fixtures[0]}
++	third, err := runner.Run(reversed, 99)
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	if Digest(first) != Digest(second) || Digest(first) != Digest(third) {
++		t.Fatalf("digest unstable: %q %q %q", Digest(first), Digest(second), Digest(third))
++	}
++	t.Logf("deterministic digest: %s", Digest(first))
++}
++
++func TestRunnerRefusesUnreachedFixture(t *testing.T) {
++	t.Parallel()
++	var runner Runner
++	fixtures := []Fixture{
++		{Name: "reached", Run: func(seed uint64, calls *Calls) (string, error) {
++			calls.Add(1)
++			return "ok", nil
++		}},
++		{Name: "unreached", Run: func(seed uint64, calls *Calls) (string, error) {
++			return "never touched production", nil
++		}},
++	}
++	_, err := runner.Run(fixtures, 1)
++	if err == nil || !strings.Contains(err.Error(), `"unreached"`) {
++		t.Fatalf("Run with an unreached fixture = %v, want an error naming it", err)
++	}
++}
++
++func TestRunnerAllowsUnreachedWhenOptedIn(t *testing.T) {
++	t.Parallel()
++	runner := Runner{AllowUnreached: true}
++	fixtures := []Fixture{
++		{Name: "unreached", Run: func(seed uint64, calls *Calls) (string, error) {
++			return "opted in", nil
++		}},
++	}
++	results, err := runner.Run(fixtures, 1)
++	if err != nil {
++		t.Fatalf("AllowUnreached Run: %v", err)
++	}
++	if len(results) != 1 || results[0].Calls != 0 {
++		t.Fatalf("AllowUnreached results = %+v, want one zero-call result", results)
++	}
++}
++
++func TestRunnerDigestCoversAllFixtures(t *testing.T) {
++	t.Parallel()
++	var runner Runner
++	fixtures := []Fixture{
++		{Name: "a", Run: func(seed uint64, calls *Calls) (string, error) { calls.Add(1); return "ra", nil }},
++		{Name: "b", Run: func(seed uint64, calls *Calls) (string, error) { calls.Add(1); return "rb", nil }},
++	}
++	full, err := runner.Run(fixtures, 3)
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	partial, err := runner.Run(fixtures[:1], 3)
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	if Digest(full) == Digest(partial) {
++		t.Fatal("digest ignores a dropped fixture; the inventory is unwitnessed")
++	}
++	altered := []Fixture{
++		{Name: "a", Run: func(seed uint64, calls *Calls) (string, error) { calls.Add(1); return "ra", nil }},
++		{Name: "b", Run: func(seed uint64, calls *Calls) (string, error) { calls.Add(9); return "rb", nil }},
++	}
++	rerun, err := runner.Run(altered, 3)
++	if err != nil {
++		t.Fatalf("Run: %v", err)
++	}
++	if Digest(full) == Digest(rerun) {
++		t.Fatal("digest ignores a changed call count; the execution log is unwitnessed")
++	}
++}
++
++func TestRunnerDigestDistinguishesReports(t *testing.T) {
++	t.Parallel()
++	// Same names, same call counts, different reports: a digest that
++	// drops the report witnesses nothing and must fail here.
++	run := func(report string) []Result {
++		var runner Runner
++		results, err := runner.Run([]Fixture{
++			{Name: "a", Run: func(seed uint64, calls *Calls) (string, error) { calls.Add(1); return report, nil }},
++		}, 3)
++		if err != nil {
++			t.Fatalf("Run: %v", err)
++		}
++		return results
++	}
++	if Digest(run("ra")) == Digest(run("rb")) {
++		t.Fatal("digest ignores the report; the witness is call counts only")
++	}
++}
++
++func TestRunnerDigestDistinguishesNames(t *testing.T) {
++	t.Parallel()
++	// Same reports, same call counts, different names: a digest that
++	// drops the name witnesses nothing and must fail here.
++	run := func(name string) []Result {
++		var runner Runner
++		results, err := runner.Run([]Fixture{
++			{Name: name, Run: func(seed uint64, calls *Calls) (string, error) { calls.Add(1); return "r", nil }},
++		}, 3)
++		if err != nil {
++			t.Fatalf("Run: %v", err)
++		}
++		return results
++	}
++	if Digest(run("a")) == Digest(run("b")) {
++		t.Fatal("digest ignores the name; the witness is call counts only")
++	}
++}
++
++func TestRunnerPropagatesFixtureError(t *testing.T) {
++	t.Parallel()
++	var runner Runner
++	fixtures := []Fixture{
++		{Name: "broken", Run: func(seed uint64, calls *Calls) (string, error) {
++			calls.Add(1)
++			return "", errTestSentinel
++		}},
++	}
++	_, err := runner.Run(fixtures, 1)
++	if err == nil || !strings.Contains(err.Error(), `"broken"`) {
++		t.Fatalf("Run with a failing fixture = %v, want an error naming it", err)
++	}
++}
+diff --git a/internal/secconftest/skip.go b/internal/secconftest/skip.go
+new file mode 100644
+index 0000000..aa2477f
+--- /dev/null
++++ b/internal/secconftest/skip.go
+@@ -0,0 +1,313 @@
++package secconftest
++
++import (
++	"fmt"
++	"os"
++	"path/filepath"
++	"runtime"
++	"sort"
++	"strings"
++	"sync"
++	"testing"
++)
++
++// Capability is one platform capability a test may need. Probe reports
++// whether it holds here and now; StrictGOOS lists the GOOS values
++// where absence is a failure rather than a skip. A skip asserts "this
++// cannot run here": the probe must really attempt the capability, and
++// an unexpected skip on a strict platform must fail rather than pass
++// quietly.
++type Capability struct {
++	// ID is the stable slug naming the capability in reports.
++	ID string
++	// Detail explains what the probe attempts.
++	Detail string
++	// Probe attempts the capability and reports availability.
++	Probe func() (ok bool, reason string)
++	// StrictGOOS names platforms where unavailability fails the test.
++	StrictGOOS []string
++}
++
++// Verdict is the outcome of requiring one capability.
++type Verdict struct {
++	ID      string
++	Skipped bool
++	Failed  bool
++	Reason  string
++}
++
++// decision is the testable core of Require: pass, skip, or fail for a
++// probed capability. It carries no testing handle so the table test
++// can drive every arm, including the failing ones, without failing
++// the suite.
++type decision int
++
++const (
++	decisionPass decision = iota
++	decisionSkip
++	decisionFail
++)
++
++func decide(capability Capability, ok bool) decision {
++	if capability.ID == "" || capability.Probe == nil {
++		return decisionFail
++	}
++	if ok {
++		return decisionPass
++	}
++	if strictOn(capability) {
++		return decisionFail
++	}
++	return decisionSkip
++}
++
++// SymlinkCapability probes symlink creation and Lstat identification
++// in a fresh temporary directory. Symlink-escape commit tests require
++// it; Windows hosts without privilege report unavailable.
++func SymlinkCapability() Capability {
++	return Capability{
++		ID:     "symlink",
++		Detail: "create a symlink in a temp dir and identify it with Lstat",
++		Probe: func() (bool, string) {
++			dir, err := os.MkdirTemp("", "secconftest-symlink")
++			if err != nil {
++				return false, fmt.Sprintf("temp dir: %v", err)
++			}
++			defer func() { _ = os.RemoveAll(dir) }()
++			target := filepath.Join(dir, "target")
++			link := filepath.Join(dir, "link")
++			if err := os.WriteFile(target, []byte("x"), 0o600); err != nil {
++				return false, fmt.Sprintf("write target: %v", err)
++			}
++			if err := os.Symlink(target, link); err != nil {
++				return false, fmt.Sprintf("symlink: %v", err)
++			}
++			info, err := os.Lstat(link)
++			if err != nil {
++				return false, fmt.Sprintf("lstat: %v", err)
++			}
++			if info.Mode()&os.ModeSymlink == 0 {
++				return false, "created link is not a symlink"
++			}
++			return true, "symlink create+identify works"
++		},
++		StrictGOOS: []string{"linux", "darwin"},
++	}
++}
++
++// FifoCapability probes named-pipe creation: it builds a real FIFO
++// in a fresh temporary directory and identifies it with Lstat. It is
++// unavailable on Windows by construction, so Windows is not strict:
++// the special-file gate there is covered by other means, stated on
++// the callers. A probe that returned true without creating anything
++// would advertise an unbuilt capability; TestSkipFifoFixtureExchangesBytes
++// drives a second FIFO through the same helper so the probe cannot
++// pass while fixtures cannot build.
++func FifoCapability() Capability {
++	return Capability{
++		ID:     "fifo",
++		Detail: "create a named pipe in a temp dir and identify it with Lstat",
++		Probe: func() (bool, string) {
++			dir, err := os.MkdirTemp("", "secconftest-fifo")
++			if err != nil {
++				return false, fmt.Sprintf("temp dir: %v", err)
++			}
++			defer func() { _ = os.RemoveAll(dir) }()
++			path, err := makeFifo(dir, "probe")
++			if err != nil {
++				return false, fmt.Sprintf("mkfifo: %v", err)
++			}
++			info, err := os.Lstat(path)
++			if err != nil {
++				return false, fmt.Sprintf("lstat: %v", err)
++			}
++			if info.Mode()&os.ModeNamedPipe == 0 {
++				return false, "created file is not a named pipe"
++			}
++			return true, "named-pipe create+identify works"
++		},
++		StrictGOOS: []string{"linux", "darwin"},
++	}
++}
++
++// ModeBitsCapability probes whether permission bits are enforceable:
++// it removes all permissions from a temp file and checks the open
++// fails. Root bypasses mode bits and Windows ACLs do not express
++// them, so neither is strict.
++func ModeBitsCapability() Capability {
++	return Capability{
++		ID:     "mode-bits",
++		Detail: "chmod 000 a temp file and require the open to fail",
++		Probe: func() (bool, string) {
++			if runtime.GOOS == "windows" {
++				return false, "Windows ACLs do not express mode bits"
++			}
++			dir, err := os.MkdirTemp("", "secconftest-modebits")
++			if err != nil {
++				return false, fmt.Sprintf("temp dir: %v", err)
++			}
++			defer func() { _ = os.RemoveAll(dir) }()
++			path := filepath.Join(dir, "guarded")
++			if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
++				return false, fmt.Sprintf("write: %v", err)
++			}
++			if err := os.Chmod(path, 0); err != nil {
++				return false, fmt.Sprintf("chmod: %v", err)
++			}
++			file, err := os.Open(path)
++			if err != nil {
++				return true, "mode bits enforced"
++			}
++			_ = file.Close()
++			return false, "open succeeded despite mode 000 (root or unenforceable bits)"
++		},
++	}
++}
++
++// NonRootCapability probes that the suite does not run as superuser.
++// Permission-refusal vectors that need denial require it.
++func NonRootCapability() Capability {
++	return Capability{
++		ID:     "nonroot",
++		Detail: "require a non-privileged uid on unix",
++		Probe: func() (bool, string) {
++			if runtime.GOOS == "windows" {
++				return true, "Windows: no unix superuser"
++			}
++			if os.Geteuid() == 0 {
++				return false, "running as root: permission denials are untestable"
++			}
++			return true, "non-root user"
++		},
++	}
++}
++
++// DefaultCapabilities lists every capability this instrument probes.
++func DefaultCapabilities() []Capability {
++	return []Capability{SymlinkCapability(), FifoCapability(), ModeBitsCapability(), NonRootCapability()}
++}
++
++// strictOn reports whether id is strict on this host's GOOS.
++func strictOn(capability Capability) bool {
++	for _, goos := range capability.StrictGOOS {
++		if goos == runtime.GOOS {
++			return true
++		}
++	}
++	return false
++}
++
++// report aggregates verdicts with a process-wide skip counter the
++// suite logs once, so the skip count on the host is evidence rather
++// than prose.
++var report struct {
++	mutex   sync.Mutex
++	skipped []string
++	failed  []string
++}
++
++func recordVerdict(verdict Verdict) {
++	report.mutex.Lock()
++	defer report.mutex.Unlock()
++	if verdict.Skipped {
++		report.skipped = append(report.skipped, verdict.ID)
++	}
++	if verdict.Failed {
++		report.failed = append(report.failed, verdict.ID)
++	}
++}
++
++// SkippedIDs reports capability IDs skipped so far, sorted.
++func SkippedIDs() []string {
++	report.mutex.Lock()
++	defer report.mutex.Unlock()
++	out := append([]string(nil), report.skipped...)
++	sort.Strings(out)
++	return out
++}
++
++// requireT is the minimal testing handle Require needs. *testing.T
++// satisfies it, and the wiring tests pass a fake that records Skipf
++// and Fatalf without aborting the suite — so both the skip and the
++// fail arms are driven through the real Require and their
++// recordVerdict calls are pinned (M04/M05). A fake that never sees
++// the verdict while the counters stay empty fails its test.
++type requireT interface {
++	Helper()
++	Skipf(format string, args ...any)
++	Fatalf(format string, args ...any)
++}
++
++// Require enforces one capability: it returns a passing verdict when
++// the probe holds, skips the test when the probe fails on a
++// non-strict platform, and fails the test when the probe fails on a
++// strict platform or the probe result contradicts a strict
++// expectation the caller states. Every skip and failure is recorded
++// for the final count.
++func Require(t requireT, capability Capability) Verdict {
++	t.Helper()
++	if capability.ID == "" || capability.Probe == nil {
++		verdict := Verdict{ID: capability.ID, Failed: true, Reason: "capability without identity or probe is unusable"}
++		recordVerdict(verdict)
++		t.Fatalf("secconftest: capability %q has no identity or probe", capability.ID)
++		return verdict
++	}
++	ok, reason := capability.Probe()
++	switch decide(capability, ok) {
++	case decisionPass:
++		return Verdict{ID: capability.ID, Reason: reason}
++	case decisionFail:
++		verdict := Verdict{ID: capability.ID, Failed: true, Reason: reason}
++		recordVerdict(verdict)
++		t.Fatalf("secconftest: capability %q unavailable on strict platform %s: %s", capability.ID, runtime.GOOS, reason)
++		return verdict
++	default:
++		verdict := Verdict{ID: capability.ID, Skipped: true, Reason: reason}
++		recordVerdict(verdict)
++		t.Skipf("secconftest: capability %q unavailable here: %s", capability.ID, reason)
++		return verdict
++	}
++}
++
++// Report formats the capability skip/fail counts recorded so far on
++// this host. It reads the live counters: an empty suite records
++// nothing and reports zeros, and every recorded skip or failure moves
++// the numbers. Citing a Report line as host evidence is only honest
++// for verdicts the suite really recorded; the per-test skip datum is
++// the `--- SKIP` lines under `go test -v`, which reproduce without
++// any counter.
++func Report() string {
++	report.mutex.Lock()
++	skipped := append([]string(nil), report.skipped...)
++	failed := append([]string(nil), report.failed...)
++	report.mutex.Unlock()
++	sort.Strings(skipped)
++	sort.Strings(failed)
++	return fmt.Sprintf("secconftest capabilities on %s: skipped=%d %q failed=%d %q",
++		runtime.GOOS, len(skipped), strings.Join(skipped, ","), len(failed), strings.Join(failed, ","))
++}
++
++// snapshotReport copies the process-wide counters so a test can
++// record synthetic verdicts and restore the suite state afterwards.
++func snapshotReport() (skipped, failed []string) {
++	report.mutex.Lock()
++	defer report.mutex.Unlock()
++	return append([]string(nil), report.skipped...), append([]string(nil), report.failed...)
++}
++
++// restoreReport replaces the process-wide counters, undoing synthetic
++// verdicts a test recorded. It exists only for test isolation.
++func restoreReport(skipped, failed []string) {
++	report.mutex.Lock()
++	defer report.mutex.Unlock()
++	report.skipped = append([]string(nil), skipped...)
++	report.failed = append([]string(nil), failed...)
++}
++
++// LogReport logs the capability skip/fail counts on this host. Call
++// it after the suite recorded its verdicts so the line carries real
++// counters. It never skips or fails: it reports.
++func LogReport(t *testing.T) {
++	t.Helper()
++	t.Log(Report())
++}
+diff --git a/internal/secconftest/skip_fifo_unix.go b/internal/secconftest/skip_fifo_unix.go
+new file mode 100644
+index 0000000..86998dc
+--- /dev/null
++++ b/internal/secconftest/skip_fifo_unix.go
+@@ -0,0 +1,29 @@
++//go:build !windows
++
++package secconftest
++
++import (
++	"fmt"
++	"path/filepath"
++	"syscall"
++)
++
++// makeFifo creates a named pipe at dir/name with mode 0600. Unix-only:
++// Windows has no Mkfifo and its file carries the unavailable stub, so
++// the fifo probe fails (and skips, since Windows is not strict)
++// instead of pretending.
++func makeFifo(dir, name string) (string, error) {
++	return fifoBuild(dir, name)
++}
++
++// fifoBuild is the seam the probe-honesty test faults: it swaps in a
++// failing build, drives FifoCapability().Probe(), and requires
++// failure. A probe closure hardened to constant true ignores the
++// fault and fails the test.
++var fifoBuild = func(dir, name string) (string, error) {
++	path := filepath.Join(dir, name)
++	if err := syscall.Mkfifo(path, 0o600); err != nil {
++		return "", fmt.Errorf("secconftest: mkfifo %q: %w", path, err)
++	}
++	return path, nil
++}
+diff --git a/internal/secconftest/skip_fifo_windows.go b/internal/secconftest/skip_fifo_windows.go
+new file mode 100644
+index 0000000..36b3fb9
+--- /dev/null
++++ b/internal/secconftest/skip_fifo_windows.go
+@@ -0,0 +1,20 @@
++//go:build windows
++
++package secconftest
++
++import "errors"
++
++// makeFifo is unavailable on Windows: named pipes there are not
++// filesystem FIFOs and this instrument does not emulate them. The
++// fifo probe reports unavailable (and skips, since Windows is not
++// strict) instead of pretending.
++func makeFifo(dir, name string) (string, error) {
++	return fifoBuild(dir, name)
++}
++
++// fifoBuild is the seam the probe-honesty test faults. It always
++// fails on Windows, matching makeFifo; the test only asserts the
++// probe reports the failure honestly.
++var fifoBuild = func(dir, name string) (string, error) {
++	return "", errors.New("secconftest: named-pipe fixtures are unavailable on Windows")
++}
+diff --git a/internal/secconftest/skip_test.go b/internal/secconftest/skip_test.go
+new file mode 100644
+index 0000000..004fa55
+--- /dev/null
++++ b/internal/secconftest/skip_test.go
+@@ -0,0 +1,383 @@
++package secconftest
++
++import (
++	"fmt"
++	"os"
++	"path/filepath"
++	"runtime"
++	"sort"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestSkipDecideTable(t *testing.T) {
++	t.Parallel()
++	strict := Capability{ID: "strict-cap", Probe: func() (bool, string) { return false, "down" }, StrictGOOS: []string{runtime.GOOS}}
++	lax := Capability{ID: "lax-cap", Probe: func() (bool, string) { return false, "down" }, StrictGOOS: []string{"plan9"}}
++	other := Capability{ID: "other-cap", Probe: func() (bool, string) { return false, "down" }}
++	if got := decide(strict, true); got != decisionPass {
++		t.Errorf("available strict capability decides %v, want pass", got)
++	}
++	if got := decide(lax, true); got != decisionPass {
++		t.Errorf("available lax capability decides %v, want pass", got)
++	}
++	if got := decide(strict, false); got != decisionFail {
++		t.Errorf("unavailable strict capability decides %v, want fail: an unexpected skip must not pass quietly", got)
++	}
++	if got := decide(lax, false); got != decisionSkip {
++		t.Errorf("unavailable lax capability decides %v, want skip", got)
++	}
++	if got := decide(other, false); got != decisionSkip {
++		t.Errorf("unavailable unlisted capability decides %v, want skip", got)
++	}
++	if got := decide(Capability{}, false); got != decisionFail {
++		t.Errorf("malformed capability decides %v, want fail", got)
++	}
++	if got := decide(Capability{ID: "no-probe"}, false); got != decisionFail {
++		t.Errorf("probeless capability decides %v, want fail", got)
++	}
++	// M02: an empty ID with a healthy probe must still fail. Dropping
++	// the empty-ID disjunct admits it whenever the probe holds, so
++	// both polarities are pinned here.
++	emptyWithProbe := Capability{ID: "", Probe: func() (bool, string) { return true, "up" }}
++	if got := decide(emptyWithProbe, true); got != decisionFail {
++		t.Errorf("empty-ID capability with a passing probe decides %v, want fail", got)
++	}
++	if got := decide(emptyWithProbe, false); got != decisionFail {
++		t.Errorf("empty-ID capability with a failing probe decides %v, want fail", got)
++	}
++}
++
++func TestSkipDefaultProbesTerminate(t *testing.T) {
++	t.Parallel()
++	capabilities := DefaultCapabilities()
++	if len(capabilities) != 4 {
++		t.Fatalf("DefaultCapabilities has %d entries, want 4", len(capabilities))
++	}
++	seen := map[string]bool{}
++	for _, capability := range capabilities {
++		if capability.ID == "" || capability.Probe == nil || capability.Detail == "" {
++			t.Errorf("capability %+v is malformed", capability)
++		}
++		if seen[capability.ID] {
++			t.Errorf("duplicate capability %q", capability.ID)
++		}
++		seen[capability.ID] = true
++		ok, reason := capability.Probe()
++		if reason == "" {
++			t.Errorf("capability %q probed without a reason", capability.ID)
++		}
++		t.Logf("capability %q on %s: ok=%v (%s)", capability.ID, runtime.GOOS, ok, reason)
++	}
++}
++
++func TestSkipProbesAreDeterministic(t *testing.T) {
++	t.Parallel()
++	for _, capability := range DefaultCapabilities() {
++		first, _ := capability.Probe()
++		second, _ := capability.Probe()
++		if first != second {
++			t.Errorf("capability %q probe flips: %v then %v", capability.ID, first, second)
++		}
++	}
++}
++
++func TestSkipFifoFixtureExchangesBytes(t *testing.T) {
++	t.Parallel()
++	// The fifo probe gates this test: where the platform cannot
++	// provide named pipes the test skips (Windows is not strict)
++	// instead of passing over an unbuilt fixture.
++	Require(t, FifoCapability())
++	dir := t.TempDir()
++	path, err := makeFifo(dir, "exchange")
++	if err != nil {
++		t.Fatalf("makeFifo: %v", err)
++	}
++	info, err := os.Lstat(path)
++	if err != nil {
++		t.Fatalf("Lstat: %v", err)
++	}
++	if info.Mode()&os.ModeNamedPipe == 0 {
++		t.Fatalf("fixture %q is not a named pipe", path)
++	}
++	// Negative control: a regular file beside the fifo must not
++	// identify as one, so the suite can tell the kinds apart.
++	control := filepath.Join(dir, "regular")
++	if err := os.WriteFile(control, []byte("x"), 0o600); err != nil {
++		t.Fatalf("write control: %v", err)
++	}
++	controlInfo, err := os.Lstat(control)
++	if err != nil {
++		t.Fatalf("Lstat control: %v", err)
++	}
++	if controlInfo.Mode()&os.ModeNamedPipe != 0 {
++		t.Fatal("regular file identifies as a named pipe")
++	}
++	// Byte exchange. A bare FIFO open blocks until the peer end
++	// opens, so both ends open in goroutines and rendezvous in the
++	// kernel; the main goroutine joins both with a timeout so a
++	// broken fifo fails the test instead of hanging it. The byte
++	// then moves synchronously with both ends held.
++	type openResult struct {
++		file *os.File
++		err  error
++	}
++	readerCh := make(chan openResult, 1)
++	writerCh := make(chan openResult, 1)
++	go func() {
++		reader, err := os.OpenFile(path, os.O_RDONLY, 0)
++		readerCh <- openResult{reader, err}
++	}()
++	go func() {
++		writer, err := os.OpenFile(path, os.O_WRONLY, 0)
++		writerCh <- openResult{writer, err}
++	}()
++	timer := time.NewTimer(30 * time.Second)
++	defer timer.Stop()
++	var reader, writer *os.File
++	for range 2 {
++		select {
++		case result := <-readerCh:
++			if result.err != nil {
++				t.Fatalf("fifo read-end open: %v", result.err)
++			}
++			reader = result.file
++		case result := <-writerCh:
++			if result.err != nil {
++				t.Fatalf("fifo write-end open: %v", result.err)
++			}
++			writer = result.file
++		case <-timer.C:
++			t.Fatal("fifo open handshake blocked; the fixture does not exchange")
++		}
++	}
++	defer func() { _ = reader.Close() }()
++	defer func() { _ = writer.Close() }()
++	if _, err := writer.Write([]byte("p")); err != nil {
++		t.Fatalf("fifo write: %v", err)
++	}
++	buf := make([]byte, 1)
++	n, err := reader.Read(buf)
++	if err != nil || n != 1 || buf[0] != 'p' {
++		t.Fatalf("fifo exchange read %d bytes %q, %v; want one byte %q", n, buf, err, "p")
++	}
++}
++
++func TestSkipFifoProbeAttemptsItsCapability(t *testing.T) {
++	// Not parallel: it faults the fifo build seam. With the build
++	// broken, the probe must report unavailable; a probe closure
++	// hardened to constant true ignores the fault and fails here.
++	// On a strict host (linux, darwin) the unbroken probe must hold:
++	// absence there is unexpected and must fail, not skip.
++	real := fifoBuild
++	t.Cleanup(func() { fifoBuild = real })
++	capability := FifoCapability()
++	if runtime.GOOS == "windows" {
++		if ok, _ := capability.Probe(); ok {
++			t.Fatal("fifo probe holds on Windows, where named-pipe fixtures are unavailable")
++		}
++		return
++	}
++	strict := false
++	for _, goos := range capability.StrictGOOS {
++		if goos == runtime.GOOS {
++			strict = true
++		}
++	}
++	if !strict {
++		t.Fatalf("fifo probe is not strict on %s; unexpected absence would skip quietly", runtime.GOOS)
++	}
++	if ok, reason := capability.Probe(); !ok {
++		t.Fatalf("fifo probe fails on strict host %s: %s", runtime.GOOS, reason)
++	}
++	fifoBuild = func(dir, name string) (string, error) { return "", errTestSentinel }
++	if ok, _ := capability.Probe(); ok {
++		t.Fatal("fifo probe holds with its build broken; the probe attempts nothing")
++	}
++}
++
++func TestSkipModeBitsAndNonRootDenialsHold(t *testing.T) {
++	t.Parallel()
++	// Both probes gate this test. As superuser the first Require
++	// skips (permission denials are untestable past the uid check);
++	// where mode bits are unenforceable the second Require skips;
++	// where both hold, the denial must be a permission error, not
++	// merely any failure.
++	Require(t, NonRootCapability())
++	Require(t, ModeBitsCapability())
++	dir := t.TempDir()
++	path := filepath.Join(dir, "guarded")
++	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
++		t.Fatalf("write: %v", err)
++	}
++	if err := os.Chmod(path, 0); err != nil {
++		t.Fatalf("chmod: %v", err)
++	}
++	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
++	file, err := os.Open(path)
++	if err == nil {
++		_ = file.Close()
++		t.Fatal("open succeeded despite mode 000; permission bits are not enforced here")
++	}
++	if !os.IsPermission(err) {
++		t.Fatalf("denial error %v is not a permission error", err)
++	}
++}
++
++func TestSkipReportReadsRecordedVerdicts(t *testing.T) {
++	// Not parallel: it mutates the process-wide counters. It records
++	// its own synthetic verdicts, asserts the report moves, then
++	// restores the suite state — so the numbers below are evidence
++	// that Report reads the live counters, not a constant. Gutting
++	// recordVerdict leaves both assertions red. This pins Report, not
++	// the Require wiring: M04/M05 are pinned by the fake-Require
++	// tests below, which drive the real Require through both arms.
++	const skipID = "self-test-skip-probe"
++	const failID = "self-test-fail-probe"
++	beforeSkipped, beforeFailed := snapshotReport()
++	t.Cleanup(func() {
++		restoreReport(beforeSkipped, beforeFailed)
++		for _, id := range SkippedIDs() {
++			if id == skipID || id == failID {
++				t.Errorf("synthetic verdict %q leaked into the suite counters", id)
++			}
++		}
++	})
++	recordVerdict(Verdict{ID: skipID, Skipped: true, Reason: "synthetic skip"})
++	recordVerdict(Verdict{ID: failID, Failed: true, Reason: "synthetic failure"})
++	found := false
++	for _, id := range SkippedIDs() {
++		if id == skipID {
++			found = true
++		}
++	}
++	if !found {
++		t.Fatalf("SkippedIDs() = %q, want it to contain %q", SkippedIDs(), skipID)
++	}
++	report := Report()
++	if !strings.Contains(report, skipID) || !strings.Contains(report, failID) {
++		t.Fatalf("Report() = %q, want it to carry both synthetic verdicts", report)
++	}
++	// Attached evidence with real nonzero counters from this test's
++	// own recorded verdicts.
++	LogReport(t)
++	t.Logf("skipped IDs: %q", SkippedIDs())
++}
++
++// fakeRequireT records Skipf/Fatalf without aborting the test, so the
++// wiring tests can drive Require through arms that would otherwise
++// skip or fail the suite.
++type fakeRequireT struct {
++	skipped bool
++	failed  bool
++	skipMsg string
++	failMsg string
++}
++
++func (fake *fakeRequireT) Helper() {}
++
++func (fake *fakeRequireT) Skipf(format string, args ...any) {
++	fake.skipped = true
++	fake.skipMsg = fmt.Sprintf(format, args...)
++}
++
++func (fake *fakeRequireT) Fatalf(format string, args ...any) {
++	fake.failed = true
++	fake.failMsg = fmt.Sprintf(format, args...)
++}
++
++func TestRequireSkipArmRecordsVerdict(t *testing.T) {
++	// Not parallel: it mutates the process-wide counters. It drives
++	// the real Require through the skip arm with a fake T, so the
++	// suite stays green while the wiring is observed. Deleting
++	// recordVerdict from the skip arm (M05) leaves the counters empty
++	// and fails here.
++	const skipID = "self-test-require-skip"
++	beforeSkipped, beforeFailed := snapshotReport()
++	t.Cleanup(func() { restoreReport(beforeSkipped, beforeFailed) })
++	fake := &fakeRequireT{}
++	capability := Capability{
++		ID:         skipID,
++		Detail:     "synthetic always-unavailable non-strict capability",
++		Probe:      func() (bool, string) { return false, "synthetic down" },
++		StrictGOOS: []string{"plan9"},
++	}
++	verdict := Require(fake, capability)
++	if !fake.skipped {
++		t.Fatal("Require through the skip arm never called Skipf")
++	}
++	if fake.failed {
++		t.Fatalf("skip arm called Fatalf: %q", fake.failMsg)
++	}
++	if !verdict.Skipped || verdict.Failed || verdict.ID != skipID {
++		t.Fatalf("skip verdict = %+v, want Skipped with ID %q", verdict, skipID)
++	}
++	found := false
++	for _, id := range SkippedIDs() {
++		if id == skipID {
++			found = true
++		}
++	}
++	if !found {
++		t.Fatalf("SkippedIDs() = %q, want it to contain the Require-driven %q", SkippedIDs(), skipID)
++	}
++	if report := Report(); !strings.Contains(report, skipID) {
++		t.Fatalf("Report() = %q, want it to carry the Require-driven %q", report, skipID)
++	}
++}
++
++func TestRequireFailArmRecordsVerdict(t *testing.T) {
++	// Not parallel: it mutates the process-wide counters. It drives
++	// the real Require through the fail arm with a fake T, so the
++	// suite stays green while the wiring is observed. Deleting
++	// recordVerdict from the fail arm (M04) leaves the failed list
++	// empty and fails here.
++	const failID = "self-test-require-fail"
++	beforeSkipped, beforeFailed := snapshotReport()
++	t.Cleanup(func() { restoreReport(beforeSkipped, beforeFailed) })
++	fake := &fakeRequireT{}
++	capability := Capability{
++		ID:         failID,
++		Detail:     "synthetic always-unavailable strict capability",
++		Probe:      func() (bool, string) { return false, "synthetic down" },
++		StrictGOOS: []string{runtime.GOOS},
++	}
++	verdict := Require(fake, capability)
++	if !fake.failed {
++		t.Fatal("Require through the fail arm never called Fatalf")
++	}
++	if fake.skipped {
++		t.Fatalf("fail arm called Skipf: %q", fake.skipMsg)
++	}
++	if !verdict.Failed || verdict.Skipped || verdict.ID != failID {
++		t.Fatalf("fail verdict = %+v, want Failed with ID %q", verdict, failID)
++	}
++	if report := Report(); !strings.Contains(report, failID) {
++		t.Fatalf("Report() = %q, want it to carry the Require-driven %q", report, failID)
++	}
++}
++
++func TestSkipStrictPlatformsArePinned(t *testing.T) {
++	t.Parallel()
++	// M08/M09: the symlink and fifo probes are strict on linux and
++	// darwin, where an unexpected absence must fail rather than skip
++	// quietly. Dropping darwin from either list would let an absent
++	// capability skip on the developers' primary host. Both lists are
++	// pinned exactly here; fifo's list was already pinned by the
++	// honesty test's strict assertion, symlink's was not.
++	for _, kase := range []struct {
++		name string
++		got  []string
++	}{
++		{"symlink", SymlinkCapability().StrictGOOS},
++		{"fifo", FifoCapability().StrictGOOS},
++	} {
++		want := []string{"darwin", "linux"}
++		got := append([]string(nil), kase.got...)
++		sort.Strings(got)
++		if strings.Join(got, ",") != strings.Join(want, ",") {
++			t.Errorf("%s StrictGOOS = %q, want %q", kase.name, kase.got, want)
++		}
++	}
++}
+diff --git a/task-board.config.json b/task-board.config.json
+index 192bea9..4e32dce 100644
+--- a/task-board.config.json
++++ b/task-board.config.json
+@@ -256,6 +256,14 @@
+           "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1",
+           "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1",
+           "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1",
++          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzCheckArgv$ -fuzztime=100x -parallel=1",
++          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzCheckMemberPath$ -fuzztime=100x -parallel=1",
++          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzIsEnvName$ -fuzztime=100x -parallel=1",
++          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzRedactCorpus$ -fuzztime=100x -parallel=1",
++          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzEscapeForTerminal$ -fuzztime=100x -parallel=1",
++          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzRenderForTerminal$ -fuzztime=100x -parallel=1",
++          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzGuardResolve$ -fuzztime=100x -parallel=1",
++          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzDetectCaseCollision$ -fuzztime=100x -parallel=1",
+           "go run ./internal/traceability/cmd/tracecheck",
+           "go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check",
+           "GOOS=linux GOARCH=amd64 go build ./...",

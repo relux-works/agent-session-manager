@@ -1,0 +1,190 @@
+TASK-260830-2ciy0s — reviewer probe/mutant log, CR revision 3
+Host: darwin/arm64, go1.25.5. Worktree tree OID 5eb6d8a547b6efa392cdfe0c66dc2132fed96ce5
+(verified identical before and after every probe; all mutants ran through
+`go test -overlay`, which never writes into the worktree — the four
+filesystem plants below are the exception and were removed individually).
+
+=====================================================================
+G-A — is the guard root check a real identity check?
+=====================================================================
+Source: internal/secprim/nofollow.go:29-39 guardRootMatches
+  root.Stat() (fstat on the handle) vs os.Stat(rootPath), compared with
+  os.SameFile => device+inode on unix, volume+file index on Windows.
+  Either stat error => false => refusal. Called from Guard.Open
+  (nofollow.go:124) in SHARED code with no build tag, before either walk.
+
+Reviewer probes driven through the production entry (guard.Open):
+
+  vector                                              result
+  --------------------------------------------------- ------------------------------
+  directory REPLACED at the same path (path strings   REFUSED "guard root mismatch"
+    identical, inode differs)                           no bytes admitted
+  guard root RENAMED away under the open handle       REFUSED "guard root mismatch"
+    (os.Stat(rootPath) fails => fail-closed)
+  foreign handle (base/elsewhere vs root base/stage)  REFUSED "guard root mismatch"
+  foreign handle with the SAME BASENAME               REFUSED "guard root mismatch"
+    (root base/a/stage, handle base/b/stage)
+  guard root path replaced by a symlink to the        ADMITTED (os.Stat follows the
+    handle's own directory                              link; same directory, operator-
+                                                        configured root, not an escape)
+
+Conclusion: identity, not a path/name comparison. Confirmed adversarially
+below — a name-equality mutant produces a real escape.
+
+unix vs Windows: the BINDING is one semantics (shared code, one function,
+identical on both platforms by construction, and any SameFile error fails
+closed). The DESCENT is two: unix descends from the verified handle,
+Windows from the verified rootPath string. They name the same directory at
+bind time; a root swap AFTER the bind would diverge on Windows and falls
+under the check-then-open bound already stated in open_member_windows.go.
+Windows is compile-and-vet only, never executed.
+
+=====================================================================
+G-B — fd lifetime
+=====================================================================
+Read directly (internal/secprim/open_member_unix.go:41-76):
+  loop error arm  : classified := classifyCommitErr(current, segment, err)
+                    THEN if previous >= 0 { unix.Close(previous) }
+  final error arm : classified := classifyCommitErr(current, last, err)
+                    THEN if previous >= 0 { unix.Close(previous) }
+  success arms    : previous is closed only after the next openat has
+                    already consumed current.
+No descriptor is read after close on any arm, error arms included.
+
+Driven (all through guard.Open):
+  a/b/c/d/file        (depth 5, honest)          ADMITTED, read "inside5"
+  a/b/c/hop/loot      (symlinked intermediate @4) REFUSED "member symlink escape"
+  a/b/c/d/hop2/loot   (symlinked intermediate @5) REFUSED "member symlink escape"
+  a/b/link            (FINAL component symlink @3) REFUSED "member symlink escape"
+  a/b/c/d/link5       (FINAL component symlink @5) REFUSED "member symlink escape"
+Every refusal names the symlink arm, not a generic open failure.
+
+  400 x a/b/c/d/hop/loot -> ONE distinct refusal string (no fd recycling drift)
+  6000 walks (3000 success + 3000 error arm) -> no descriptor exhaustion
+
+=====================================================================
+G-C — which C3 answer was taken
+=====================================================================
+Answer taken: STATED BOUND (not go/types). Stated in errors.go:59-68, in
+the deriveRefusals doc (inventory_test.go:202-212), and in README. The
+bound names exactly what escapes it: `type X = Error`, `type X Error`
+(even converted back to *Error), and an alias-spelled factory result.
+Pinned executably by TestRefusalInventorySpellingBoundIsStated, which
+feeds plants H/I/J through the PRODUCTION deriveRefusals and requires
+silence (no site, no stray). No test or document claims the class:
+README says "outside the witness, stated as a bound".
+
+Reviewer plant controls (real files on disk, run, then removed; tree OID
+re-verified identical afterwards):
+  unexercised failArgv call            CAUGHT: "refusal site
+                                       zzrv_plant_control.go:4 never fired
+                                       during the suite"
+  os/exec import, shell name built     CAUGHT by TestPackageLaunchesNoProcess
+    from variables (token-preserving)  ("zzrv_plant_exec.go imports os/exec")
+  "/bin/sh -c" literal                 CAUGHT by TestPackageHasNoShellString
+  os.StartProcess, no os/exec import,  NOT CAUGHT (advisory A6 — the gate
+    no shell token                     enforces "no os/exec import", which is
+                                       what the README says; the test comment
+                                       says "never launches", which is broader)
+
+=====================================================================
+G-D — battery arithmetic, re-run by the reviewer
+=====================================================================
+Denominator independently re-derived from the candidate source:
+  42 refusal exits: argv.go 5, env.go 9, nofollow.go 15, path.go 13
+  29 distinct rules
+  -> matches the producer's claim exactly.
+
+Battery log: 61 rows = 59 KILLED + 1 KILLED-OTHER (D14) + 1 SURVIVED (N7).
+Arithmetic honest.
+
+Contested rows re-run by the reviewer via overlay (independent of the
+producer's script):
+  V-N24        KILLED        TestCheckRegularTarget  (restoration is valid;
+                                                      rev2 withdrawal was wrong)
+  V-N24 Size>0 SURVIVED      genuinely vacuous: IsDir() && Size()>0 == IsDir()
+                             for real directories on this host
+  V-N7         SURVIVED      bound correct (subsumed by !mode.IsRegular())
+  V-N7b        KILLED        TestCheckRegularTarget  (two-arm, admits FIFOs)
+  V-N28        KILLED        TestGuardOpenRefusesForeignRootHandle
+  V-D20        KILLED        TestGuardOpenRefusesForeignRootHandle
+  V-N29        KILLED        TestGuardOpenRefusesDeepSymlinkedParent
+  V-D14        COMPILE-FAIL  (reported honestly as not a kill)
+  V-D14b       KILLED        TestExecRunnerRefusesUnusableExecutable
+  V-D21        KILLED        TestGuardResolve
+
+"22 of 29 rules narrowing-covered": the remaining 7 are 6 stated bounds
+(env lookup missing, guard root, guard root handle, open failed, open stat
+failed, target stat missing) plus 1 probe-verified defensive conjunct
+(member containment / R12). Each carries a reason in the AC table. None is
+arm-deletion-only wearing a coverage costume.
+
+=====================================================================
+Reviewer-authored narrowing mutants (24 built, 20 KILLED)
+=====================================================================
+KILLED by the committed suite:
+  W1..W6  each of the six cliresult terminalLine wire sites unwired
+  E1 drop ESC arm            E2 C1 range 0x9f->0x9e   E3 bidi 0x202e->0x202d
+  E5b zero-width 200d->200c  E6 drop U+061C           E7 FEFF->FEFE
+  E8 isolates 2069->2068     E9 drop DEL              E10 admit CR
+  G1 leading digit in IsEnvName  G2 length 128->129   G3 same via provhost
+  R-env  `Env != nil` -> `len(Env) > 0`  (empty-list-denies-all)
+  X1 minSecretRunes 8->9     X2 narrow PEM header     X3 drop a table key
+  X4 userinfo "@"->"@@"      X5 unterminated key block fails open
+  X7 maskSensitiveChunk case-fold dropped
+  P2 EqualFold -> ==         A1 NUL narrowed          A2 argv[:1]
+  A3/A4 Command copy-in / copy-out dropped
+
+SURVIVED (advisory findings, each control-planted to prove it really admits):
+  A1  os.SameFile(handleInfo,pathInfo) -> handleInfo.Name()==pathInfo.Name()
+      control: root base/a/stage, handle base/b/stage
+      => "ESCAPE: same-basename foreign handle admitted, read \"FOREIGN\""
+  A2  guardRootMatches os.Stat error arm: return false -> return true
+      control: guard root removed, foreign handle passed
+      => "ESCAPE: unreadable guard root admitted a foreign handle, read \"FOREIGN\""
+      (nofollow.go:26-28 explicitly claims this arm fails closed; nothing pins it)
+  A3  isBareSensitiveKey: sensitiveKeyNames[strings.ToLower(core)] -> [core]
+      control: Redact("SECRET = hunter2abcdef") -> unchanged, while
+      "secret = hunter2abcdef" -> "secret = [redacted]"
+      (Redact is wired into all six cliresult text paths)
+  A4  drop strings.ToValidUTF8 from EscapeForTerminal entirely
+      (range already yields U+FFFD per invalid BYTE; only the documented
+      "per run" coalescing changes — no security delta)
+  A5  memberErrorTarget: len > 64 -> len > 65 (bound witnessed far out of range;
+      production truncates a 65-char member correctly, verified)
+  A8  final-arm classify/close REORDER survives everything — because a final
+      component symlink fails with ELOOP, which classifyCommitErr answers
+      without touching a descriptor. The loop site (N29) is the load-bearing
+      one and IS pinned. Not a defect.
+  P3  withinRoot slash boundary dropped — SURVIVED, exactly as the producer
+      already documents (R12, defensive conjunct, double-probed).
+
+=====================================================================
+Directed containment enumeration (reviewer instrument)
+=====================================================================
+Alphabet {a,b,hop,..,%2e%2e,%252e%252e,.,"",%2f,%c0%af,loot,flink,file,..%2f,\,:}
+to depth 4 => 69904 members, each driven through BOTH production entries
+against a stage carrying symlinked intermediates at depths 1/2/3 and a
+final-component symlink. Admitted results checked against the REAL
+filesystem with EvalSymlinks, not lexically.
+
+  members=69904  Resolve admitted=2800  Open admitted=1 (a/b/file)  escapes=0
+
+Instrument non-vacuity asserted in the test (an all-refusing run fails).
+
+=====================================================================
+Gates run by the reviewer in this session
+=====================================================================
+  go build ./...                                exit 0
+  gofmt -l internal/                            clean
+  go vet ./...                                  exit 0
+  GOOS=windows go vet ./...                     exit 0
+  GOOS=windows go build ./...                   exit 0
+  go test ./... -count=1                        exit 0, 20 packages ok
+  go test ./internal/secprim -cover             94.4%
+  go test -race ./internal/secprim ./internal/cliresult   exit 0
+  go run ./internal/traceability/cmd/tracecheck exit 0
+  1295 test runs across secprim/provhost/cliresult, ZERO skips on this host
+
+Tree integrity: worktree tree OID 5eb6d8a5... verified identical before and
+after all probes, mutants and plants.

@@ -1,0 +1,124 @@
+TASK-260830-2ciy0s reviewer probe log, CR rev2 (RUN-260906-26a2e6)
+Host: darwin/arm64, go1.25.5. Worktree .temp/STORY-260830-1i3qu7/worktree
+Candidate tree OID 703ee895c6b5f8bc2e6a97cb4aff7e538ce79c90, verified
+byte-identical before the first probe and after the last revert.
+
+== BASELINE GATES (re-run by the reviewer) ==
+go test ./... -count=1                                  exit 0, 20 packages ok
+go test ./internal/{secprim,cliresult,provhost,scalar}   exit 0 (post-revert)
+go test -race ./internal/{secprim,cliresult}             exit 0 (post-revert)
+gofmt -l internal/                                       clean
+go vet ./...                                              exit 0
+GOOS=windows go vet ./...                                 exit 0
+GOOS=windows go build ./...                               exit 0
+
+== G-A: COMMIT WALK, driven through Guard.Open on a real filesystem ==
+PROBE depth1 symlinked intermediate (hop1/loot)   REFUSED  member symlink escape: hop1/loot
+PROBE depth2 symlinked intermediate (l1/hop/loot) REFUSED  open failed: l1/hop/loot: not a directory   <-- C2
+PROBE depth3 symlinked intermediate (a/b/hop/loot) REFUSED open failed: a/b/hop/loot: not a directory  <-- C2
+PROBE errno for O_NOFOLLOW|O_DIRECTORY on symlink: ENOTDIR (ELOOP=false ENOTDIR=true)
+PROBE FIFO via Guard.Open (d/pipe)                REFUSED  target special file: pipe   (< 4s deadline)
+PROBE TOCTOU swap dir->symlink after Resolve      REFUSED  member symlink escape: sub/loot
+PROBE Resolve+OpenNoFollowFile composition        ADMITTED "ESCAPED"   (advisory 1: doc points here)
+PROBE guard.Open with a FOREIGN root handle       ADMITTED "FOREIGN"   <-- C1
+
+C2 mechanism proof: reordering classifyCommitErr before Close(previous) in
+open_member_unix.go makes all three depths report "member symlink escape":
+PROBE depth2 (patched)  REFUSED  member symlink escape: l1/hop/loot
+PROBE depth3 (patched)  REFUSED  member symlink escape: a/b/hop/loot
+(patch reverted from /tmp backup, never via git checkout)
+
+Grammar obligations through Guard.Open, 15 of 15 refused:
+".."                -> member grammar          "../x"            -> member grammar
+"d/../../etc/passwd"-> member grammar          "/etc/passwd"     -> member grammar
+"d//f"              -> member grammar          "d/./f"           -> member grammar
+"."                 -> member grammar          ""                -> member grammar
+"d/f/"              -> member grammar          "./d/f"           -> member grammar
+"C:/x"              -> member grammar          "d\\f"            -> member grammar
+"d/%2e%2e/f"        -> member encoded dot      "d/%252e%252e/f"  -> member encoded dot
+"d/%c0%af/f"        -> member overlong separator
+
+== G-B: TestNoArchiveEmissionPath, live plants (archive/zip import) ==
+PLANT internal/scalar/path.go                        CAUGHT (path named)
+PLANT internal/catalog/cmd/cataloggen/main.go        CAUGHT (path named)   <-- rev1 bypass, now closed
+PLANT internal/secprim/argv.go                       CAUGHT (path named)   <-- package added since
+PLANT internal/traceability/cmd/tracecheck/main.go   CAUGHT (path named)
+Own fail-closed arms measured under internal/scalar/testdata (toolchain ignores,
+walk reads):
+  unparseable .go  -> "emission-path walk failed closed: parse ...: import path must be a string"
+  chmod 000 .go    -> "emission-path walk failed closed: open ...: permission denied"
+  archive/zip      -> CAUGHT (scan is over-broad: covers testdata; safe direction)
+File count derived, not asserted: t.Logf "emission-path scan covered 110 production files"
+
+== G-C: refusal-inventory bypass plants (live production files, full suite per plant) ==
+PLANT plant_control_rv.go  (bare unexercised failArgv)          CAUGHT
+       "refusal site plant_control_rv.go:4 never fired during the suite"
+PLANT plant_h_typealias.go (type shadowAlias = Error; &shadowAlias{...})   *** BYPASSED ***
+PLANT plant_i_namedtype.go (type shadowNamed Error; (*Error)(&shadowNamed{...})) *** BYPASSED ***
+PLANT plant_j_aliasfactory.go (factory result spelled *shadowResult)       *** BYPASSED ***
+
+== G-D: narrowing mutants ==
+render.go (all six killed):
+  >= 0x202a -> >= 0x202b   admits U+202A   KILLED TestEscapeForTerminal/bidi_embedding_202a
+  <= 0x202e -> <= 0x202d   admits U+202E   KILLED TestEscapeForTerminal/bidi_override
+  <= 0x2069 -> <= 0x2068   admits U+2069   KILLED TestEscapeForTerminal/bidi_isolate_2069
+  >= 0x2066 -> >= 0x2067   admits U+2066   KILLED TestEscapeForTerminal/bidi_isolate
+  >= 0x200b -> >= 0x200c   admits U+200B   KILLED TestEscapeForTerminal/zero_width_space
+  drop == 0x061c           admits U+061C   KILLED TestEscapeForTerminal/directional_isolate_061c
+cliresult/output.go, terminalLine(x) -> x (all six sites killed):
+  R27 Emit success stdout   KILLED TestTextSuccessEmissionNeutralizes
+  R22 Emit failure stderr   KILLED TestTextEmissionNeutralizesHostileContent
+  R23 Progress              KILLED TestProgressEmissionNeutralizes
+  R24 Prompt refusal text   KILLED TestPromptRefusalCarriesNeutralizedText
+  R28 Log                   KILLED TestTextEmissionNeutralizesHostileContent
+  R28b Prompt interactive   KILLED TestTextEmissionNeutralizesHostileContent
+provhost/runner.go:
+  R26  Env != nil -> len(Env) > 0        KILLED TestExecRunnerEmptyEnvIsDenyAll
+  R26b drop the Env wiring entirely      KILLED TestExecRunnerDeliversExactlyTheBuiltEnv + EmptyEnvIsDenyAll
+  R25n CheckArgv strips NUL first        KILLED TestExecRunnerRefusesUnusableExecutable
+        'Run("bad\x00bin") = *exec.Error ..., want *secprim.Error'
+  R25e gate applied only when executable == ""   KILLED (same test, same message)
+
+== G-E: denominator and survivors ==
+deriveRefusals over the candidate's non-test sources (12 files):
+  argv.go 5 | env.go 9 | nofollow.go 14 | path.go 13 | TOTAL 41 | STRAYS []
+  -> matches the reported 41 component by component.
+Narrowing mutants on the deletion-only env gates (all six killed by TestBuildEnvRefuses):
+  env value NUL, allowlist arm -> prefix-only          KILLED
+  env value NUL, literals arm  -> prefix-only          KILLED
+  env value encoding, allowlist arm -> len(value) > 4  KILLED
+  env value encoding, literals arm  -> len(value) > 4  KILLED
+  env allowlist duplicate -> len(name) > 3             KILLED
+  env literal collision   -> len(key) > 3              KILLED
+Survivor checks:
+  N7  drop ModeNamedPipe disjunct alone        SURVIVES  (bound correct: !mode.IsRegular() subsumes)
+  N24 drop the directory arm alone             KILLED    TestCheckRegularTarget + TestOpenNoFollowFile
+                                                          -> "withdrawn as invalid" is wrong
+  RV-S1 target symlink -> mode == ModeSymlink  KILLED    TestCheckRegularTarget
+  R12  withinRoot drop slash boundary          SURVIVES  (declared defensive)
+  RV-S2 withinRoot -> return true              SURVIVES  (same, stronger form)
+defensiveSites bound verified by relaxing the shared grammar
+(scalar.ParseRelativePath admits ".." segments):
+  grammar weakened, withinRoot intact  -> TestGuardPrefixCheckIsLoadBearing PASSES
+                                          (prefix conjunct catches the escape)
+  grammar weakened + withinRoot=true   -> FAILS: 'Resolve("x/../..") escaped to "/stage"',
+                                          '24 admitted members escaped the root'
+  -> the defensive site and its rationale are both load-bearing as stated.
+
+== WINDOWS reparse mapping, checked against $GOROOT/src/os/types_windows.go (go1.25.5) ==
+(*fileStat).mode():
+  IO_REPARSE_TAG_SYMLINK            -> ModeSymlink       refused
+  default arm (junction/MOUNT_POINT, AppExecLink, cloud placeholder)
+                                    -> ModeIrregular     refused
+  IO_REPARSE_TAG_AF_UNIX            -> ModeSocket        passes Lstat gate, caught by CheckRegularTarget
+  IO_REPARSE_TAG_DEDUP              -> no type bit       admitted (Go's explicit "close enough to regular")
+modePreGo1_23() (GODEBUG=winsymlink=0): MOUNT_POINT -> ModeSymlink, still refused.
+=> escape-capable tags established; the "every other reparse point" universal has
+   two counterexamples, neither an escape. Advisory.
+
+== TREE INTEGRITY ==
+git read-tree HEAD; git add -A .; git write-tree
+  -> 703ee895c6b5f8bc2e6a97cb4aff7e538ce79c90  (before probes)
+  -> 703ee895c6b5f8bc2e6a97cb4aff7e538ce79c90  (after all reverts)
+All mutants restored from /tmp file backups; no repo-wide git restore/checkout used.
+No zz_*, .bak, or plant_* residue in the tree.

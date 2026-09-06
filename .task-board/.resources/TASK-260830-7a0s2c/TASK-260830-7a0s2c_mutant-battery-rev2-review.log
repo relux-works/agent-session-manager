@@ -1,0 +1,86 @@
+# TASK-260830-7a0s2c CR rev2 — independent reviewer mutant battery
+# Sandbox: /tmp/axrev2 (byte copy of the candidate tree, .git/.temp/.task-board excluded)
+# Pristine reference: /tmp/pristine-secconftest ; every mutant reverted by rsync --delete before the next
+# Harness: go vet ./internal/secconftest  ->  go test ./internal/secconftest -v -count=1  (full behavioural suite)
+# Baseline: exit 0, 233 --- PASS, 0 --- SKIP, 0 --- FAIL, digest 5569f34caab734eb
+#
+# label                                          verdict     failing tests / notes
+# ---------------------------------------------------------------------------------------------------
+# --- G-A / G-B capability-probe attack (fault the ATTEMPT, observe the gated test) ---
+GA1-symlink-attempt-fails                        KILLED      exit=1 FAIL=[TestHostileSymlinkEscapeRefusedAtCommit]  (strict darwin)
+GA2-modebits-attempt-fails                       SURVIVED    exit=0 SKIP=[TestSkipModeBitsAndNonRootDenialsHold]    (non-strict; = producer S1)
+GB3-fifo-attempt-fails                           KILLED      exit=1 FAIL=[TestSkipFifoFixtureExchangesBytes, TestSkipFifoProbeAttemptsItsCapability]
+GB4-nonroot-attempt-fails                        SURVIVED    exit=0 SKIP=[TestSkipModeBitsAndNonRootDenialsHold]    (non-strict; S1 class)
+# --- gated-test-body vacuity defeats (probe left intact, body defeated) ---
+V1-symlink-body-vacuity                          KILLED      exit=1 FAIL=[TestHostileSymlinkEscapeRefusedAtCommit]
+V2-fifo-body-vacuity                             KILLED      exit=1 FAIL=[TestSkipFifoFixtureExchangesBytes]
+V3-modebits-body-vacuity                         KILLED      exit=1 FAIL=[TestSkipModeBitsAndNonRootDenialsHold]
+# --- Driver delegation census (all 8 entries; producer bounded only DriveRedact as N16) ---
+D1-DriveArgv-stops-delegating                    KILLED      exit=1 FAIL=[FuzzCheckArgv +3 seeds]
+D2-DriveMemberPath-stops-delegating              KILLED      exit=1 FAIL=[FuzzCheckMemberPath +9 seeds]
+D3-DriveEnvName-stops-delegating                 KILLED      exit=1 FAIL=[FuzzIsEnvName +22 seeds]
+D4-DriveRedact-stops-delegating                  SURVIVED    exit=0  (= producer N16; bound honest)
+D5-DriveEscape-stops-delegating                  KILLED      exit=1 FAIL=[FuzzEscapeForTerminal +4 seeds]
+D6-DriveRender-stops-delegating                  KILLED      exit=1 FAIL=[FuzzRenderForTerminal +7 seeds]
+D7-DriveGuardResolve-stops-delegating            KILLED      exit=1 FAIL=[FuzzGuardResolve +9 seeds]
+D8-DriveCaseCollision-stops-delegating           KILLED      exit=1 FAIL=[FuzzDetectCaseCollision +21 seeds]
+# --- skip.go ---
+M01-N-decide-drops-probe-nil-disjunct            KILLED      exit=1 FAIL=[TestSkipDecideTable]
+M02-N-decide-drops-empty-id-disjunct             SURVIVED    exit=0  UNBOUNDED
+M03-N-strictOn-never-strict                      VET_FAIL    "suspect and: goos == runtime.GOOS && goos == \"plan9\"" -> repaired as M03b
+M03b-N-strictOn-never-strict                     KILLED      exit=1 FAIL=[TestSkipDecideTable]
+M04-N-Require-FAIL-arm-stops-recording           SURVIVED    exit=0  UNBOUNDED  (production wiring Require->recordVerdict unmeasured)
+M05-N-Require-SKIP-arm-stops-recording           SURVIVED    exit=0  UNBOUNDED  (same)
+M06-N-SkippedIDs-returns-nil                     KILLED      exit=1 FAIL=[TestSkipReportReadsRecordedVerdicts]
+M07-N-Report-drops-failed-component              KILLED      exit=1 FAIL=[TestSkipReportReadsRecordedVerdicts]
+M08-N-SymlinkCapability-strict-drops-darwin      SURVIVED    exit=0  UNBOUNDED  (fifo strictness IS pinned, symlink's is not)
+M09-N-FifoCapability-strict-drops-darwin         KILLED      exit=1 FAIL=[TestSkipFifoProbeAttemptsItsCapability]
+M10-C-DefaultCapabilities-drops-symlink          KILLED      exit=1 FAIL=[TestSkipDefaultProbesTerminate]
+P1-A-recordVerdict-gutted                        KILLED      exit=1 FAIL=[TestSkipReportReadsRecordedVerdicts]   (reproduces producer A4)
+# --- crash.go ---
+M11-N-Classify-rollback-enter->safe_retry        KILLED      exit=1 FAIL=[TestCrashClassifyTable, TestCrashPointVocabularyIsPinned]
+M12-N-Classify-admits-CR-MAT-01                  KILLED      exit=1 FAIL=[TestCrashPointVocabularyIsPinned]
+M13-N-MaybeFail-keeps-arm-except-prepare-enter   KILLED      exit=1 FAIL=[TestTransactorCrashOutcomes x3, TestTransactorRecoversAfterFault]
+M14-N-finalize-gate-narrowed-by-id-length        KILLED      exit=1 FAIL=[TestTransactorRefusesRollbackPastFinalize]
+M15-N-Commit-marks-finalized-only-for-empty-body KILLED      exit=1 FAIL=[TestTransactorRefusesRollbackPastFinalize]
+M16-N-Prepare-empty-operation-id-admitted        SURVIVED    exit=0  UNBOUNDED
+M17-N-Prepare-digest-compared-by-length          KILLED      exit=1 FAIL=[TestTransactorIdempotentRetry]
+M18-N-Commit-without-prepare-narrowed            KILLED      exit=1 FAIL=[TestTransactorCommitRequiresPrepare]
+M19-N-Rollback-without-prepare-narrowed          KILLED      exit=1 FAIL=[TestTransactorRefusesRollbackPastFinalize]
+P2-N-RemainingArmed-constant-empty               KILLED      exit=1 FAIL=[TestInjectorArmedPointIsConsumedByTheDrive]  (reproduces producer N12)
+P7-N-Arm-silently-drops-PointRollbackEnter       SURVIVED    exit=0  UNBOUNDED  (5th crash point never armed anywhere)
+# --- runner.go ---
+M20-N-zero-call-refusal-narrowed                 KILLED      exit=1 FAIL=[TestRunnerRefusesUnreachedFixture]
+M21-N-Run-sort-reversed                          KILLED      exit=1 FAIL=[TestRunnerExecutesInSortedOrder]
+M22-N-Digest-drops-Calls-component               KILLED      exit=1 FAIL=[TestRunnerDigestCoversAllFixtures]
+N1-N-Digest-drops-Report-component               KILLED      exit=1 FAIL=[TestRunnerDigestDistinguishesReports]
+N2-N-Digest-drops-Name-component                 KILLED      exit=1 FAIL=[TestRunnerDigestDistinguishesNames]
+P6-A-Runner-fixture-error-propagation-dropped    KILLED      exit=1 FAIL=[TestRunnerPropagatesFixtureError]
+# --- clock.go ---
+M23-N-Fake-negative-Advance-narrowed-to-<-1h     KILLED      exit=1 FAIL=[TestFakeAdvanceAndSet]
+M24-N-Recording-counts-first-call-only           KILLED      exit=1 FAIL=[TestRecordingCountsConcurrentReads]
+P8-N-Fake.Now-reads-the-wall-clock               KILLED      exit=1 FAIL=[TestFakeAdvanceAndSet, TestFakeClockIgnoresRealTime]
+# --- hostile.go (incl. token-preserving source-text attack) ---
+M25-N-QuoteInSection-section-compared-by-prefix  KILLED      exit=1 FAIL=[TestQuoteInSectionRefusals]   TOKEN-PRESERVING: `section` still read
+M26-N-QuoteInSection-nil-doc-check-narrowed      KILLED      exit=1 FAIL=[TestQuoteInSectionRefusals]
+M27-N-empty-quote-guard-narrowed-to-quote==""    SURVIVED    exit=0  UNBOUNDED  (whitespace-only quote refused only downstream, by accident)
+M28-C-render-controls-corpus-drops-one           KILLED      exit=1 FAIL=[TestHostileMemberCounts]
+M29-N-traversal-corpus-member-made-benign        KILLED      exit=1 FAIL=[TestHostilePathMembersRefused]
+M30-N-bidi-vocabulary-drops-U+FEFF               KILLED      exit=1 FAIL=[TestBidiRunesArePinned]
+M31-N-path-traversal-Gate-renamed-to-Redact      KILLED      exit=1 FAIL=[TestHostileGatesAreWired]
+P3-C-Roster-drops-path-device                    KILLED      exit=1 FAIL=[TestHostileGatesAreWired, TestHostileRosterShape]
+P5-C-path-device-corpus-drops-one                KILLED      exit=1 FAIL=[TestHostileMemberCounts]
+# --- fuzz.go census ---
+P4-C-FuzzTargetEntry-drops-one-target            KILLED      exit=1 FAIL=[TestFuzzDriversReachProduction]
+#
+# TOTALS  applied 54 | NOT_APPLIED 0 | COMPILE_FAIL 0 | VET_FAIL 1 (M03, repaired and re-run as M03b)
+#         KILLED 44 | SURVIVED 10
+# by kind narrowing        44 applied -> 36 killed /  8 survived
+#         arm-deletion      2 applied ->  2 killed /  0 survived
+#         census-only       5 applied ->  5 killed /  0 survived
+#         body-vacuity      3 applied ->  3 killed /  0 survived
+# survivors bounded by the producer  3  (D4 = N16 ; GA2 + GB4 = S1 class)
+# survivors UNBOUNDED                7  (M02, M04, M05, M08, M16, M27, P7)
+#
+# Sandbox verified byte-identical to the pristine reference after the last mutant.
+# Live worktree tree OID re-verified 3c8eb31ca785c53bc613b4df2cda19c8bb6a1939 before and after the battery.
