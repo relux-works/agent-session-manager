@@ -1987,7 +1987,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
 repository gate used by CI. Its reviewed
 [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
 registry independently enumerates implementation owners for all 60 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 81
+contract rows, 36 pinned or catalog-referenced normative section keys, 94
 executable acceptance cases, 53 exact section bindings with their declared
 coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
@@ -2157,6 +2157,56 @@ unknown extension are not an unknown session event, and the four numbered reader
 rules that binding does implement carry no RFC 2119 keyword and are invisible to
 the clause scanner; and Section 2.1's single clause is a replica runtime
 obligation that no code here implements.
+
+The Session Adapter host surface lives in
+[`internal/sessadapter`](internal/sessadapter): discovery binding
+(`Discover`), manifest and probe decoding (`DecodeManifest`, `DecodeProbe`),
+the closed fourteen-operation request/success bodies (`CheckRequestBody`,
+`CheckSuccessBody`), resource limits (`DecodeResourceLimits`), the
+request-digest binding and byte-for-byte context echo that carry this
+package's idempotency (`VerifyRequestDigest`, `CheckContextEcho`, and the
+fresh-sink rule), and the tuple-registry admission gates
+(`CheckTupleAdmission`). Seven executable acceptance cases
+(`session-adapter-discovery`, `session-adapter-manifest`,
+`session-adapter-probe`, `session-adapter-operations`,
+`session-adapter-limits`, `session-adapter-idempotency`,
+`session-adapter-tuple-gates`) bind those entry points to their named
+positive and refusal tests. The Section 7.8 clause-level binding stays
+`unevidenced` (catalog `ForRelease` only): no clause of 7.8 is enumerated
+against an acceptance case, so the registry makes no clause-level claim
+about the obligations it carries.
+
+The Directory Node host surface lives in
+[`internal/dirnode`](internal/dirnode): the two-major manifest
+bootstrap (`DecideBootstrapStep` with its exact downgrade tuple,
+`ProcessGuard`, `NextLowerMajor`), request/response envelope
+framing (`EncodeRequest`, `DecodeRequestFrame`,
+`CheckSuccessEnvelope`, `CheckFailureEnvelope`), manifest decoding
+with façade binding checks (`DecodeManifest`,
+`CheckManifestBindings`, `AvailableCapabilities`), per-major probe
+framing with the node-build equality gate (`CheckProbeRequest`,
+`CheckProbeResponse`, `CheckNodeBuildEqualsManifest`), scan
+framing with the `(operation, operation_id)` idempotency journal
+and its crash-recovery export/import (`CheckScanRequest`,
+`CheckScanResponse`, `Journal`), and Session Directory Query
+framing (`DecodeQuery`, `CheckCursorReuse`). Six executable
+acceptance cases (`directory-node-bootstrap`,
+`directory-node-manifest`, `directory-node-probe`,
+`directory-node-scan`, `directory-node-query`,
+`directory-node-idempotency`) bind those entry points to their
+named positive and refusal tests, and an AST-derived refusal-arm
+inventory (`census_test.go`) requires every production refusal arm
+— literal, fault-detail conduit, and branch-prefix expression
+shapes — to resolve to a named asserting test in both directions,
+with two recorded defensive arms that no public input can fire.
+The Section 7.9 clause-level binding stays `unevidenced` (catalog
+`ForRelease` only): no clause of 7.9 is enumerated against an
+acceptance case, so the registry makes no clause-level claim
+about the obligations it carries. The framed subset is exactly
+manifest, probe, and scan plus the Directory Query contract; the
+remaining eight registry operations carry nested content owned by
+the sibling leaves and are pinned as unframed by
+`TestFramedSubsetIsExact`, not silently absent.
 
 Successful output reports ownership inventory counts and the measured coverage
 ratio only. The gate does not mutate repository or product state, add an `ax`
