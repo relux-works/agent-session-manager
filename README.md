@@ -2474,6 +2474,24 @@ Project management is intentionally global. The repository does not declare or
 install `project-management`; development uses the globally installed skill
 and `task-board` CLI.
 
+Repository development routing in `task-board.config.json` admits only Codex
+`gpt-6-astra` with `medium` or `high` reasoning for all new spawns, including
+producers and reviewers. Mechanical, documentation, and operations workloads
+recommend medium first; all other workloads, including review, recommend high
+then medium. Every recommendation uses Astra. Existing runs and their work are
+preserved. Retained Claude and Muse ceiling definitions are inactive under
+exclusive Codex admission; Claude, Muse, and Fable are not active spawn routes.
+
+Inspect effective admission and recommendations before spawning:
+
+```bash
+task-board q 'project_config(view=spawn-preflight, role=developer, agent=codex, workload_class=mechanical)'
+task-board q 'project_config(view=spawn-preflight, role=reviewer, agent=codex, workload_class=review)'
+```
+
+Preflight prints JSON to stdout; save task validation evidence under
+`.temp/<TASK-ID>/` and attach it to the owning board item.
+
 Curator owns `.agents/`, `.claude/skills/`, and `.codex/skills/`. Do not edit
 their generated contents directly; change `Skillfile.json` and rerun Curator.
 
