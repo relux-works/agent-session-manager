@@ -1,0 +1,70 @@
+# TASK-260907-9ny4xl reviewer mutation battery (RUN-260907-c77ada)
+
+Harness: .temp/TASK-260907-9ny4xl/{battery.py,mutants.py,run_battery.py}
+Restore: cp-aside/cp-back; candidate tree OID 1ed479a0c1228b651f06fa2f9c8a80350a304fe6 re-derived after every row.
+Command per row: full package suite (go test ./internal/cigate -count=1 -v or ./internal/catalog/... ), never a -run mask.
+
+## Applied rows
+| ID | Class | Verdict | Exit | Failing tests | Mutation |
+| --- | --- | --- | ---: | --- | --- |
+| H1 | harness | NOT_APPLIED | - | anchor text not found | anchor text that does not exist in production |
+| H2 | harness | COMPILE_FAIL | 1 |  | arity break: CheckAdvertisements loses a parameter |
+
+## Harness controls (verdict classes are distinct, not claimed)
+| H1 | harness | NOT_APPLIED | - | anchor text not found | non-existent anchor must never read as SURVIVED |
+| H2 | harness | COMPILE_FAIL | 1 | build failed | CheckAdvertisements arity break must never read as SURVIVED |
+
+## Mask-separated kill attribution (behavioural vs census vs real-corpus)
+| Mutant | behavioural mask | census mask | real-README mask |
+| --- | --- | --- | --- |
+| N1 paragraph granularity | FAIL TestSameBlockSentencesSplitOnTerminal | FAIL | pass |
+| N2 dot-only terminals    | FAIL TestSameBlockSentencesSplitOnTerminal | pass | pass |
+| N5 substring matching    | FAIL TestSubstringIsNotAMarker | FAIL | pass |
+| N7 drop marker "skip"    | pass | FAIL | FAIL TestRealREADMECarriesNoPositiveClaim |
+
+## Census control: old (occurrence) vs new (effect)
+| Plant | Old census | New census |
+| --- | --- | --- |
+| C1 "kernel" (present, never sole) | PASS | FAIL |
+| C2 "absence" (present only in a negated mention - the R3 shape) | PASS | FAIL |
+| C3 "quokka" (absent) | FAIL | FAIL |
+| baseline (no plant) | PASS | PASS |
+
+## CI catalog-freshness step (executed, not read)
+| Tree | old step exit | new step (with the ci.yml:48 pin) exit |
+| --- | ---: | ---: |
+| clean | 0 | 0 |
+| // go:generate  (token preserved) | 0  <- the pre-existing defect | 1 |
+| \t//go:generate (indented, token preserved) | 0 | 1 |
+| //go:generate true (token AND form preserved) | 0 | 0  <- residue; caught by cataloggen/generate_test.go |
+
+## R2 replica: derive-fuzz-targets step against a real empty leg
+| Leg shape | grep in pipeline | test -s | -eq 13 count pin | step exit |
+| --- | --- | --- | --- | ---: |
+| secconftest + canonicaljson + scalar | - | PASS | PASS | 0 |
+| secconftest + canonicaljson + fuzzless axerror | refuses nothing | PASS (12 lines) | REFUSES | 1 |
+| axerror + cigate (both fuzzless) | refuses nothing | REFUSES | not reached | 1 |
+
+## R5 replica: 13 derived targets at -fuzztime=100x
+internal/secconftest     FuzzCheckArgv                             elapsed=3 now_fuzzing=1
+internal/secconftest     FuzzCheckMemberPath                       elapsed=3 now_fuzzing=1
+internal/secconftest     FuzzIsEnvName                             elapsed=3 now_fuzzing=1
+internal/secconftest     FuzzRedactCorpus                          elapsed=2 now_fuzzing=0
+internal/secconftest     FuzzEscapeForTerminal                     elapsed=3 now_fuzzing=1
+internal/secconftest     FuzzRenderForTerminal                     elapsed=3 now_fuzzing=1
+internal/secconftest     FuzzGuardResolve                          elapsed=3 now_fuzzing=1
+internal/secconftest     FuzzDetectCaseCollision                   elapsed=3 now_fuzzing=1
+internal/canonicaljson   FuzzCanonicalizeRoundTrip                 elapsed=2 now_fuzzing=0
+internal/canonicaljson   FuzzObjectIdentityRepresentationInvariant elapsed=2 now_fuzzing=0
+internal/canonicaljson   FuzzClosedIdentityShapeRefusal            elapsed=2 now_fuzzing=0
+internal/canonicaljson   FuzzObservationEventRefusal               elapsed=2 now_fuzzing=0
+internal/scalar          FuzzScalarProductionEntries               elapsed=3 now_fuzzing=1
+13/13 elapsed; 8 reach the mutation phase; the 5 that do not are exactly the ones the README row and ci.yml:285-289 name.
+
+## Leaf-5 bound attacks
+| Bound | Attack | Delegation/shape gates | Caught in depth by |
+| --- | --- | --- | --- |
+| delegation gate ignores delegated-call arguments | sessadapter.checkStringBounds -> environ.CheckStringBounds(raw, minimum, maximum+1) | PASS (bound holds) | environ/tuple_agreement_test.go:194, sessadapter/probe_test.go:207 |
+| rune-measure detector keyed to the utf8 selector | planted len([]rune(value)) > 64 in sessadapter/decode.go | environ census PASS (bound holds) | sessadapter TestBoundGuardsAreCensused |
+| TestEveryRefusalSiteIsExercised fires only on a full package run | ran under -run mask | ok - audit skipped (bound holds exactly) | unmasked go test ./... in CI test/race/coverage jobs |
+| TestCIWorkflowInvokesTraceabilityGate presence gate | deleted the real Vet AND Build steps outright | ok - gate defeated (GOOS=windows legs carry both substrings) | nothing; pre-existing, traceability scope |

@@ -1,0 +1,493 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 38beafb..16ecafb 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,15 @@
+ 
+ ## 2026-09-07
+ 
++### 0839 — 2okwyf: A5/A7/A8/A9/F-B1 closed (cross-package agreement, trust asymmetry, three nits, digit-guard sentence)
++- SCOPE: TASK-260906-2okwyf, fourth leaf of STORY-260905-3t31e9. Production: `terminalbackend.go` (ParseID grammar arm drops BackendID echo; DigestFile §6.5/§7.1 asymmetry note), `provider.go` (trustCandidate §7.1/§6.5 mirror note), `provhost/probe.go` (decodeValidatedProbe single-decode split; RequireCapability consumes validated members), `provhost/protocol.go` (parseMajor leading-zero stated bound). Tests: new `provhost/profile_agreement_test.go` (order-sensitive cross-package equality), `TestParseIDGrammarRefusalEchoesNothing`, `TestParseMajorLeadingZeroIsClassifiedAsForeign`, `TestDecodeValidatedProbeHandsUsableMembersToRequireCapability`; one false sentence corrected in `digit_guard_census_test.go`.
++- FINDING (A5 premise narrowed): a direct set-equality pin already exists (`TestSixProviderSetMatchesDiscoveryRegistry`, story-2 base) — the live hole was ORDER agreement only. Reorder mutant on either side alone leaves the whole old suite green and reddens only the new order pin (M-xprov-reorder: census 27 ran SURVIVED, behav 2 ran KILLED by the new test).
++- FINDING (F-B1 sentence false as stated): pure named-const digit chain prunes silently — additive plant in `provhost/protocol.go` left both packages green (full suites) — while a mixed chain (named leaf + literal leaf) fails as unclassifiable (`mixes digit comparisons with unrelated comparisons`). First mixed probe passed vacuously on a wrong `-run` mask (matched only the unit test, census never ran); re-ran with `TestDigitCensusCoversEveryLeafGuard` non-empty. Sentence corrected to the precise split; absence re-verified by AST scan (0 digit-valued named constants, 0 such comparisons).
++- FINDING (parseMajor strictness not free): rejecting leading zeros spells `== '0'`, which the digit-guard census rejects as unclassifiable (verified: strict mutant kills `TestDigitCensusCoversEveryLeafGuard` with ran=1 plus the provhost inventory with an unwitnessed parse arm) — so the bound close (classify-only, both arms refuse, gate admits exactly "2.0.0") is the correct one, pinned by `TestParseMajorLeadingZeroIsClassifiedAsForeign`.
++- EVIDENCE: outcome `TASK-260906-2okwyf_outcome.md` + `battery_2okwyf.json` (9 applied/9 killed/0 survived; narrowing 4, arm-deletion 2, census-only 1, audit-only 1 [leaf3 S-tb-shadow re-verified: census 15 + behav 229 SURVIVED, audit 658 KILLED naming conformance.go:713,:716], agreement 1; NOT_APPLIED/COMPILE_FAIL distinct) attached as task resources. AC 4/4 rows driven. Candidate tree OID in the outcome doc, verified by `ls-tree` after every artifact write.
++- GATES: `go test ./...` exit 0 (23 ok, 0 FAIL), `-race` exit 0 (23 ok), `-cover` exit 0 (provhost 86.0%, provider 97.8%, terminalbackend 95.0%), `go vet` + `GOOS=windows go vet` exit 0, `go build` + `GOOS=windows go build` exit 0, gofmt clean, `tracecheck` ok, catalog current, cigate contracts 6/6 + claims 6/6, fuzz smoke 13/13.
++- STATUS: Ready for review, handed off to review (review/integration are orchestrator steps).
++
+ ### 0715 — v8heil round 2: site-recording seam closes the sibling-swallow class (F1/F2), all six findings fixed
+ - SCOPE: TASK-260906-v8heil rework (review rev2 CHANGES REQUESTED). Production seam in 4 files: `recordRefusal` hook (nil in prod) + `refuse` funnel (`//go:noinline`), hook calls in `mismatchf`/`integrityFailure`, 89 `&Error{}` literals routed through `refuse` same-line. Tests: new `refusal_site_audit_test.go` (TestMain exercised-line audit, row↔line mapping, skip pin, refuse-alias pins), line-carrying derivation with refuse-wrap enforcement, derived shadow-cover analysis replacing the 19 hand pairs, corrected N-R1 bound, dead loop deleted.
+ - FINDING (measured): pair-proves do not attribute — P8 plant left derivation identical + all 184 witnesses green; the audit kills it naming `conformance.go:713, :716`. The audit also caught a REAL pre-existing swallow on first run (`descriptor.go:123` never fired; #2 witness proved via sibling #1) — fixed as a witness (rename-away), not a bound.
+diff --git a/internal/provhost/probe.go b/internal/provhost/probe.go
+index d4dd7c4..18e48f5 100644
+--- a/internal/provhost/probe.go
++++ b/internal/provhost/probe.go
+@@ -100,77 +100,91 @@ var probeCapabilityRequired = []string{"status", "enabled", "evidence", "detail"
+ // refused here, not at use time: an advertised-but-unusable surface
+ // must never reach the caller as a probe result.
+ func DecodeProbe(body []byte) error {
++	_, err := decodeValidatedProbe(body)
++	return err
++}
++
++// decodeValidatedProbe is the single site that decodes a probe body
++// into members: every check DecodeProbe performs lives here, and the
++// validated members are returned for use sites to consume. Validation
++// and use couple here on purpose — RequireCapability must consume
++// these members rather than re-decoding the body after a separate
++// DecodeProbe call, so a future reorder cannot silently drop faults
++// between the validation and the use. Keep the validation first at
++// every caller: the sub-object replays below prove nothing on their
++// own.
++func decodeValidatedProbe(body []byte) (map[string]json.RawMessage, error) {
+ 	members, fault := decodeStrictObject(body)
+ 	if fault != nil {
+ 		failure, err := failProtocol(fault.detail, fault.member)
+ 		if err != nil {
+-			return err
++			return nil, err
+ 		}
+-		return failure
++		return nil, failure
+ 	}
+ 	if name, unknown := unknownMember(members, probeMembers); unknown {
+ 		failure, err := failProtocol("probe carries unknown member", name)
+ 		if err != nil {
+-			return err
++			return nil, err
+ 		}
+-		return failure
++		return nil, failure
+ 	}
+ 	if name, missing := missingMember(members, probeRequired); missing {
+ 		failure, err := failProtocol("probe misses a required member", name)
+ 		if err != nil {
+-			return err
++			return nil, err
+ 		}
+-		return failure
++		return nil, failure
+ 	}
+ 	if schema, ok := rawString(members["schema"]); !ok || schema != probeSchema {
+ 		failure, err := failProtocol("probe schema is not the provider probe", "schema")
+ 		if err != nil {
+-			return err
++			return nil, err
+ 		}
+-		return failure
++		return nil, failure
+ 	}
+ 	if version, ok := rawString(members["schema_version"]); !ok || version != probeSchemaVersion {
+ 		failure, err := failProtocol("probe schema_version is not 1.0.0", "schema_version")
+ 		if err != nil {
+-			return err
++			return nil, err
+ 		}
+-		return failure
++		return nil, failure
+ 	}
+ 	if provider, ok := rawString(members["provider_id"]); !ok || !validProviderID(provider) {
+ 		failure, err := failProtocol("probe provider_id is not a provider id", "provider_id")
+ 		if err != nil {
+-			return err
++			return nil, err
+ 		}
+-		return failure
++		return nil, failure
+ 	}
+ 	if version, ok := rawString(members["provider_version"]); !ok || runeLength(version) < 1 || runeLength(version) > 128 {
+ 		failure, err := failProtocol("probe provider_version is not 1..128 characters", "provider_version")
+ 		if err != nil {
+-			return err
++			return nil, err
+ 		}
+-		return failure
++		return nil, failure
+ 	}
+ 	if platform, ok := rawString(members["platform"]); !ok || !isProbePlatform(platform) {
+ 		failure, err := failProtocol("probe platform is not a registry member", "platform")
+ 		if err != nil {
+-			return err
++			return nil, err
+ 		}
+-		return failure
++		return nil, failure
+ 	}
+ 	if architecture, ok := rawString(members["architecture"]); !ok || !isProbeArchitecture(architecture) {
+ 		failure, err := failProtocol("probe architecture is not amd64 or arm64", "architecture")
+ 		if err != nil {
+-			return err
++			return nil, err
+ 		}
+-		return failure
++		return nil, failure
+ 	}
+ 	if err := checkProbeCapabilities(members["capabilities"]); err != nil {
+-		return err
++		return nil, err
+ 	}
+ 	if err := checkProbeWarnings(members["warnings"]); err != nil {
+-		return err
++		return nil, err
+ 	}
+-	return nil
++	return members, nil
+ }
+ 
+ func isProbePlatform(value string) bool {
+@@ -369,15 +383,18 @@ func CapabilityUsable(status string, enabled bool) bool {
+ // probe plane never proved. Either way no plugin process starts for
+ // the gated operation.
+ func RequireCapability(probeBody []byte, name string) error {
+-	if err := DecodeProbe(probeBody); err != nil {
++	// The probe body is decoded exactly once, here: the members below
++	// are the validated output of decodeValidatedProbe, not a second
++	// decode of the body after a separate DecodeProbe call. The
++	// sub-object replays over members["capabilities"] and
++	// capabilities[name] stay explicit replays — decodeValidatedProbe
++	// just proved them well-formed, so their faults are nil by
++	// construction — but they replay validated members, never the
++	// body, so no validation can drift after the use.
++	members, err := decodeValidatedProbe(probeBody)
++	if err != nil {
+ 		return err
+ 	}
+-	// The re-decodes below are exact replays over bytes DecodeProbe
+-	// just validated, in this order: their faults are nil by
+-	// construction, so discarding them is a coupling to the call
+-	// above, not to untrusted input. Moving DecodeProbe after them
+-	// would silently drop faults; keep the validation first.
+-	members, _ := decodeStrictObject(probeBody)
+ 	capabilities, _ := decodeStrictObject(members["capabilities"])
+ 	known := false
+ 	for _, registry := range capabilityOrder {
+diff --git a/internal/provhost/probe_test.go b/internal/provhost/probe_test.go
+index 661b351..97b4be6 100644
+--- a/internal/provhost/probe_test.go
++++ b/internal/provhost/probe_test.go
+@@ -318,3 +318,46 @@ func TestRequireCapabilityRefusesUnprovenSurfaces(t *testing.T) {
+ 	requireFrameRefusal(t, RequireCapability([]byte(`{"schema":"x"}`), "native_resume"), "schema_version", "misses a required member")
+ 	t.Logf("capability gate coverage: 1 usable, %d refused of %d registry keys", refused, len(Capabilities()))
+ }
++
++// TestDecodeValidatedProbeHandsUsableMembersToRequireCapability pins the
++// single-decode structure behind RequireCapability: decodeValidatedProbe
++// is the one site that turns a probe body into members, DecodeProbe is
++// its boolean form, and RequireCapability consumes those members instead
++// of re-decoding the body after a separate validation. The test names
++// the helper directly, so it fails to compile against the pre-fix shape
++// (two body decodes with the second discarding faults); the ordering
++// rows below pin validation-first behaviorally, so dropping the
++// validation slides malformed bodies from provider_protocol_error to
++// invalid_config and reddens here rather than only in the inventory.
++func TestDecodeValidatedProbeHandsUsableMembersToRequireCapability(t *testing.T) {
++	t.Parallel()
++
++	members, err := decodeValidatedProbe([]byte(specProbeExample))
++	if err != nil {
++		t.Fatalf("decodeValidatedProbe(valid probe): %v", err)
++	}
++	if _, ok := members["capabilities"]; !ok {
++		t.Fatal("decodeValidatedProbe(valid probe) members miss capabilities: RequireCapability cannot consume them")
++	}
++	if err := DecodeProbe([]byte(specProbeExample)); err != nil {
++		t.Fatalf("DecodeProbe(valid probe): %v", err)
++	}
++
++	// A malformed body is a provider_protocol_error at validation, and
++	// RequireCapability agrees even when the capability name is unknown:
++	// validation runs before the registry-membership check, so the
++	// unknown name never masks the malformed body as invalid_config.
++	malformed := []byte(`{"schema":"x"}`)
++	if _, err := decodeValidatedProbe(malformed); err == nil {
++		t.Fatal("decodeValidatedProbe(malformed) = nil, want provider_protocol_error")
++	}
++	if err := DecodeProbe(malformed); failureCode(t, err) != "provider_protocol_error" {
++		t.Fatalf("DecodeProbe(malformed) code = %v, want provider_protocol_error", err)
++	}
++	for _, name := range []string{"native_resume", "remote_exec"} {
++		err := RequireCapability(malformed, name)
++		if failureCode(t, err) != "provider_protocol_error" {
++			t.Fatalf("RequireCapability(malformed, %q) code = %v, want provider_protocol_error: validation must precede use", name, err)
++		}
++	}
++}
+diff --git a/internal/provhost/profile_agreement_test.go b/internal/provhost/profile_agreement_test.go
+new file mode 100644
+index 0000000..7640708
+--- /dev/null
++++ b/internal/provhost/profile_agreement_test.go
+@@ -0,0 +1,39 @@
++package provhost
++
++import (
++	"reflect"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/provider"
++)
++
++// TestBuiltinsEqualProfileProviders pins the cross-package agreement
++// between the two hand-written six-provider literals directly: the
++// Section 7.1 built-in registry behind provider.Builtins and the
++// Section 7.7 provider registry behind profileProviders. It reads no
++// SPEC.md line, so the agreement no longer runs only transitively
++// through the two derivations' different line windows (provider's
++// TestSection71BuiltinRegistryIsDocumentOrder against Section 7.1,
++// this package's TestProfileYOLOMappingIsDerivedFromSpec against the
++// Section 7.7 table).
++//
++// Set agreement already has a direct pin:
++// TestSixProviderSetMatchesDiscoveryRegistry balances the two sets.
++// That pin is order-insensitive, so a reorder on exactly one side
++// leaves the whole suite green — the remaining structural hole. This
++// test closes it with an order-sensitive comparison: both orders are
++// independently spec-pinned (Section 7.1 listed order is the discovery
++// enumeration order, Section 7.7 table order is the profile registry
++// order), so ordered equality holds today, and a seventh member, a
++// rename, a removal, or a reorder on either side alone reddens here.
++// A future spec bump that legitimately reorders one table must
++// consciously revisit this agreement rather than drift through a
++// set-only check.
++func TestBuiltinsEqualProfileProviders(t *testing.T) {
++	t.Parallel()
++
++	got := provider.Builtins()
++	if !reflect.DeepEqual(got, profileProviders) {
++		t.Fatalf("provider.Builtins() = %v, want provhost profileProviders %v: the two six-provider literals disagree without a spec change", got, profileProviders)
++	}
++}
+diff --git a/internal/provhost/protocol.go b/internal/provhost/protocol.go
+index 1fbdc38..6a43af1 100644
+--- a/internal/provhost/protocol.go
++++ b/internal/provhost/protocol.go
+@@ -368,6 +368,24 @@ func checkResponseMembers(members map[string]json.RawMessage, ok bool) *frameFau
+ // (99999999999999999999.abc.def) is unrecognized like any other
+ // malformed version. Saturation adds no rejection branch, so the
+ // derived parse-arm census needs no new row for it.
++//
++// Leading zeros are accepted, not rejected: "03.0.0" reports major 3
++// and "02.0.0" reports major 2. The looseness is classification-only
++// and deliberately stays. parseMajor never admits a version — the
++// version gate admits exactly "2.0.0" by string equality — it only
++// chooses which refusal a foreign frame takes: a recognizable major
++// other than 2 is a major mismatch (incompatible_protocol), anything
++// else is an unusable frame (provider_protocol_error). "03.0.0" is
++// observably foreign either way, so strictness would only move it
++// from the mismatch arm to the unusable arm, and "02.0.0" already
++// lands unusable and is never admitted. Strict SemVer (no leading
++// zeros) is enforced where a version is admitted — manifest
++// plugin_version and the shared semver grammar — never at this
++// foreign-frame classifier. A leading-zero rejection here would also
++// spell an equality against '0', which the digit-guard census rejects
++// as unclassifiable, so the stricter spelling costs census churn for
++// zero admission gain. TestParseMajorLeadingZeroIsClassifiedAsForeign
++// pins both rows through DecodeResponse.
+ func parseMajor(version string) (int, bool) {
+ 	parts := strings.Split(version, ".")
+ 	if len(parts) != 3 {
+diff --git a/internal/provhost/protocol_test.go b/internal/provhost/protocol_test.go
+index 3b2b5d5..9372e97 100644
+--- a/internal/provhost/protocol_test.go
++++ b/internal/provhost/protocol_test.go
+@@ -756,6 +756,38 @@ func TestParseMajorDigitBoundariesRefuseAtEntry(t *testing.T) {
+ 	}
+ }
+ 
++// TestParseMajorLeadingZeroIsClassifiedAsForeign pins the stated bound
++// on parseMajor's leading-zero looseness (see the parseMajor doc
++// comment): "03.0.0" reports major 3 and takes the foreign-major
++// mismatch arm, "02.0.0" reports major 2 and takes the unusable-frame
++// arm. Neither is admitted — the version gate admits exactly "2.0.0"
++// by string equality — so the looseness only chooses the refusal.
++// The production entry point is DecodeResponse.
++func TestParseMajorLeadingZeroIsClassifiedAsForeign(t *testing.T) {
++	want := mustUUIDv7(t, testRequestID)
++	if major, recognized := parseMajor("03.0.0"); !recognized || major != 3 {
++		t.Fatalf("parseMajor(%q) = (%d, %v), want (3, true): leading zeros stay classified, not rejected", "03.0.0", major, recognized)
++	}
++	_, err := DecodeResponse(armVersionFrame("03.0.0"), want)
++	if failureCode(t, err) != "incompatible_protocol" {
++		t.Fatalf("DecodeResponse(%q) code = %v, want incompatible_protocol", "03.0.0", err)
++	}
++	if failureExit(t, err) != 6 {
++		t.Fatalf("DecodeResponse(%q) exit = %d, want 6", "03.0.0", failureExit(t, err))
++	}
++	if major, recognized := parseMajor("02.0.0"); !recognized || major != 2 {
++		t.Fatalf("parseMajor(%q) = (%d, %v), want (2, true): leading zeros stay classified, not rejected", "02.0.0", major, recognized)
++	}
++	_, err = DecodeResponse(armVersionFrame("02.0.0"), want)
++	if failureCode(t, err) != "provider_protocol_error" {
++		t.Fatalf("DecodeResponse(%q) code = %v, want provider_protocol_error", "02.0.0", err)
++	}
++	if failureExit(t, err) != 13 {
++		t.Fatalf("DecodeResponse(%q) exit = %d, want 13", "02.0.0", failureExit(t, err))
++	}
++	requireFrameRefusal(t, err, "protocol_version", "unsupported protocol version")
++}
++
+ // TestDecodeResponseUnrecognizedVersionRunsMemberRules proves the foreignMajor
+ // peek arms only on recognizable foreign majors: a bare frame (protocol,
+ // protocol_version, request_id, body — no `ok`) carrying an unrecognized
+diff --git a/internal/provider/provider.go b/internal/provider/provider.go
+index eeba26f..dfb8159 100644
+--- a/internal/provider/provider.go
++++ b/internal/provider/provider.go
+@@ -390,7 +390,15 @@ func collectDirectory(owner OwnerPolicy, system System, dir, source string, add
+ 
+ // trustCandidate establishes the trust-time facts for one external
+ // executable: symlink resolution before comparison, regular-file target,
+-// approved owner, and digest over the target bytes.
++// approved owner, and digest over the target bytes. The approved-owner
++// fact implements the Section 7.1 rule that the target be owned by the
++// operator or an administrator-approved identity (OwnerPolicy names the
++// approver in OwnerIdentity form). That dimension is provider-specific:
++// the Section 6.5 external-trust entry for terminal executables is
++// closed over backend ID, absolute path, digest, and enabled with no
++// owner member, so terminalbackend.DigestFile deliberately performs no
++// owner check. The asymmetry is contractual, not drift; see the note on
++// DigestFile before unifying the two paths.
+ func trustCandidate(owner OwnerPolicy, system System, id, path, source string) (Candidate, error) {
+ 	canon, err := system.Canonicalize(path)
+ 	if err != nil {
+diff --git a/internal/terminalbackend/digit_guard_census_test.go b/internal/terminalbackend/digit_guard_census_test.go
+index 83d6f40..b8bd51e 100644
+--- a/internal/terminalbackend/digit_guard_census_test.go
++++ b/internal/terminalbackend/digit_guard_census_test.go
+@@ -56,11 +56,17 @@
+ //     pinned by TestDigitGuardDigitRuneAdmitsCodePointSpellings;
+ //     2. named rune constants (`const zero = '0'; c < zero`) are
+ //     OUTSIDE: an identifier is not a literal, so the comparison
+-//     classifies as other and the chain prunes. No such site
+-//     exists in either package today (reviewer-grepped at N-R1,
+-//     re-verified here by the census passing with the classifier
+-//     unchanged: a named-constant gate would classify as other and
+-//     fail as unclassifiable, not pass silently);
++//     classifies as other. A pure named-constant chain (every leaf
++//     other) prunes silently — a control plant of an additive pure
++//     named-const digit gate in provhost/protocol.go leaves both
++//     packages green, so this spelling is a genuine blind spot, not
++//     a fail-closed one. Only a mixed chain (a named-constant leaf
++//     beside a literal-digit or accumulator leaf) fails as
++//     unclassifiable. No such site exists in either package today
++//     (reviewer-grepped at N-R1, re-verified for this leaf by AST
++//     scan: zero digit-valued named constants and zero such
++//     comparisons); the absence is a stated bound, not a derived
++//     pin.
+ //     3. strconv-delegated admission is OUTSIDE the comparison
+ //     classifier: it is not a comparison at all, so there is no
+ //     chain to classify. One such site EXISTS:
+diff --git a/internal/terminalbackend/terminalbackend.go b/internal/terminalbackend/terminalbackend.go
+index 9c40f1e..05aeb6b 100644
+--- a/internal/terminalbackend/terminalbackend.go
++++ b/internal/terminalbackend/terminalbackend.go
+@@ -153,12 +153,18 @@ func IsStaleGeneration(err error) bool { return errorCode(err, CodeStaleGenerati
+ // matching [a-z][a-z0-9]*(?:[.-][a-z0-9]+)*. It admits the reserved ax.
+ // namespace only for the two canonical built-ins; every other ax.-prefixed ID
+ // is refused so a third party cannot mint a trusted-looking identity.
++//
++// The bound and grammar arms omit BackendID on purpose: a value refused
++// there is arbitrary UTF-8 up to 128 bytes, and the package posture is
++// that refusals never echo local data. Only the reserved-namespace arm
++// names the identity, because its input already passed the grammar and
++// is a validated identity like every other BackendID in the package.
+ func ParseID(value string) (string, error) {
+ 	if !utf8.ValidString(value) || len(value) < 1 || len(value) > maxIDBytes {
+ 		return "", refuse(&Error{Code: CodeNotFound, Detail: "terminal_backend_id bound"})
+ 	}
+ 	if !idPattern.MatchString(value) {
+-		return "", refuse(&Error{Code: CodeNotFound, BackendID: value, Detail: "terminal_backend_id grammar"})
++		return "", refuse(&Error{Code: CodeNotFound, Detail: "terminal_backend_id grammar"})
+ 	}
+ 	if strings.HasPrefix(value, reservedNamespace) && value != BuiltinTmux && value != BuiltinConpty {
+ 		return "", refuse(&Error{Code: CodeNotFound, BackendID: value, Detail: "terminal_backend_id reserved namespace"})
+@@ -648,6 +654,18 @@ func checkGeneration(generation string) error {
+ // resolving symlinks. The target must be a regular file; anything else (or a
+ // read failure) is an error, never a digest. It distinguishes a failed read
+ // from an absent trust entry: callers must not fall back to PATH discovery.
++//
++// Trust here is Section 6.5 external_trust: the closed entry carries
++// exactly backend ID, absolute executable path, executable digest, and
++// enabled — there is no owner member, so no owner check applies. That
++// differs deliberately from provider trust under Section 7.1, which
++// requires the target be owned by the operator or an
++// administrator-approved identity (see provider.trustCandidate). The
++// symlink-resolution and regular-file steps mirror Section 7.1's
++// mechanics; the missing owner dimension is contractual — the closed
++// entry leaves no member to record an owner in — not drift. Do not add
++// an owner check here without a spec change, and do not read this
++// function as the provider trust path.
+ func DigestFile(path string) (string, error) {
+ 	resolved, err := filepath.EvalSymlinks(path)
+ 	if err != nil {
+diff --git a/internal/terminalbackend/terminalbackend_test.go b/internal/terminalbackend/terminalbackend_test.go
+index dad85cf..2ffad03 100644
+--- a/internal/terminalbackend/terminalbackend_test.go
++++ b/internal/terminalbackend/terminalbackend_test.go
+@@ -1032,3 +1032,66 @@ func TestErrorPredicatesAreExclusive(t *testing.T) {
+ 		})
+ 	}
+ }
++
++// TestParseIDGrammarRefusalEchoesNothing proves the grammar arm never
++// echoes refused input: a grammar-refused value is arbitrary UTF-8 up
++// to 128 bytes (control bytes, path traversal, multibyte runes), and
++// the package posture is that Detail never echoes local data. The
++// bound arm already omits BackendID; the grammar arm must do the same,
++// so neither the BackendID field nor the rendered Error() may contain
++// the refused value. The reserved-namespace arm keeps echoing: its
++// input already passed the grammar, so it names a validated identity
++// like every other arm in the package.
++func TestParseIDGrammarRefusalEchoesNothing(t *testing.T) {
++	t.Parallel()
++
++	grammarRefused := []string{
++		"AX.TMUX",
++		"ax tmux",
++		"../../etc/passwd",
++		"ax.tmux界",
++		"ax\x00tmux",
++		strings.Repeat("A", 128),
++		strings.Repeat("ë", 64),
++	}
++	for _, value := range grammarRefused {
++		_, err := terminalbackend.ParseID(value)
++		if !terminalbackend.IsNotFound(err) {
++			t.Errorf("ParseID(%q) error = %v, want terminal_backend_not_found", value, err)
++			continue
++		}
++		var refusal *terminalbackend.Error
++		if !errors.As(err, &refusal) {
++			t.Errorf("ParseID(%q) error = %T, want *terminalbackend.Error", value, err)
++			continue
++		}
++		if refusal.BackendID != "" {
++			t.Errorf("ParseID(%q) BackendID = %q, want empty: the grammar arm must not echo refused input", value, refusal.BackendID)
++		}
++		if strings.Contains(refusal.Error(), value) {
++			t.Errorf("ParseID(%q) Error() = %q, want no echo of the refused value", value, refusal.Error())
++		}
++	}
++
++	// Control: the bound arm already omits, and the reserved arm still
++	// names its grammar-valid identity.
++	if _, err := terminalbackend.ParseID(strings.Repeat("a", 129)); !terminalbackend.IsNotFound(err) {
++		t.Errorf("ParseID(bound) error = %v, want terminal_backend_not_found", err)
++	} else {
++		var refusal *terminalbackend.Error
++		if errors.As(err, &refusal) && refusal.BackendID != "" {
++			t.Errorf("ParseID(bound) BackendID = %q, want empty", refusal.BackendID)
++		}
++	}
++	if _, err := terminalbackend.ParseID("ax.evil"); !terminalbackend.IsNotFound(err) {
++		t.Errorf("ParseID(ax.evil) error = %v, want terminal_backend_not_found", err)
++	} else {
++		var refusal *terminalbackend.Error
++		if !errors.As(err, &refusal) {
++			t.Fatalf("ParseID(ax.evil) error = %T, want *terminalbackend.Error", err)
++		}
++		if refusal.BackendID != "ax.evil" {
++			t.Errorf("ParseID(ax.evil) BackendID = %q, want the validated identity", refusal.BackendID)
++		}
++	}
++}

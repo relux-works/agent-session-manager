@@ -1,0 +1,1776 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 7de976c..718ddac 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,34 @@
+ 
+ ## 2026-09-06
+ 
++### 2252 — review round 3: saturation short-circuit reclassified malformed versions (G1)
++
++- SCOPE: TASK-260906-vmzk0y rework (G1 blocking + N1–N3 notes; F1/F2/F4/F5 and the F3 rewrite stand as the reviewer verified them and were not re-litigated). Production: `provhost/protocol.go` `parseMajor` only — the saturating early `return math.MaxInt, true` is now `major = math.MaxInt; continue`, so an overflowing first component still saturates but the minor/patch shape check always runs. Doc paragraph narrowed to what the code enforces (only a fully numeric X.Y.Z reports a recognized major). Tests: new `TestParseMajorSaturationStillValidatesTheRest` (5 giant-malformed rows assert `parseMajor` unrecognized AND `DecodeResponse` provider_protocol_error/exit 13 through the production entry).
++- FINDING (measured through `DecodeResponse`, pre-fix probe): `99999999999999999999.abc.def`, `99999999999999999999.0.x`, `18446744073709551618..0` classified `incompatible_protocol`/exit 6 while `2.abc.def` classified `provider_protocol_error`/exit 13 — a plugin chose the refusal class and exit status, and the whole provhost suite passed identically on both behaviors (effect census, not branch census: the parse-arm census enumerates rejection branches and cannot see inputs moving between existing arms). Post-fix measurement: all-numeric giants (`18446744073709551618.0.0`, `99999999999999999999.0.0`) stay `incompatible_protocol`/exit 6 — that 13→6 shift is the intended, still-measured F2 effect; every malformed-rest giant is back to exit 13.
++- CORRECTION: the round-2 outcome sentence "no gate was weakened … parse-arm census derives the identical set" is withdrawn as classification-stability evidence in `TASK-260906-vmzk0y_outcome-round3.md`; the census claim survives only in its scoped form (saturation adds no `return 0, false` branch, so the inventory needs no new row). AC ratio corrected to 14 of 15 driven + 1 stated bound (row 14, F6 future-caller prose). N2 bound stated: the attestation tripwire matches `CallExpr` only, so a function-value binding would be missed (0 such references today). Battery scripts live at repo-root `.temp/TASK-260906-vmzk0y/` (N3).
++- EVIDENCE: outcome `TASK-260906-vmzk0y_outcome-round3.md` on the board task (G1 table, corrected arm-shift sentence, 14+1 AC ratio, 8-mutant battery table); battery script `mutG1_round3.py` + `mutsG1_round3.json` under repo-root `.temp/TASK-260906-vmzk0y/`.
++- GATES: `go test ./... -count=1` exit 0 (22 pkgs), `-race` provider/provhost/terminalbackend exit 0, `-cover` exit 0 (provider 97.8%, provhost 85.8%, terminalbackend 94.2%), `go vet` + `GOOS=windows go vet` exit 0, `go build` + `GOOS=windows go build` exit 0, gofmt clean, `tracecheck` ok (60 contracts, 98 acceptance cases). Battery on the 6-obligation parseMajor denominator: 8 applied / 8 killed / 0 survivors (narrowing 4/4 incl. the round-2 shape, arm-deletion 2/2, census-only 2/2 incl. a token-preserving collapse) + NOT_APPLIED and COMPILE_FAIL as distinct control rows.
++- STATUS: Ready for review, handed off to review (review/integration are orchestrator steps).
++
++### 2251 — review round 2: two wrapping bounds gates, fail-open lift arm, false-fact bound, blind census
++
++- SCOPE: TASK-260906-vmzk0y rework (F1–F5 blocking, F6–F7 notes). Production: `terminalbackend/descriptor.go` (early bound refusal in `descriptorGeometry`), `terminalbackend.go` (`semverMajor` saturates), `provhost/protocol.go` (`parseMajor` saturates, no new census branch), `provider/lift.go` (default arm fail-closed: unregistered → registry refusal, registered-no-arm → input handed back, never a wire object). Docs: provhost `doc.go`/`identity.go` bounds rewritten, descriptor future-caller paragraph. Tests: overflow vectors (F1/F2), registered-no-arm refusal (F4), §5.5 verify measurement + attestation tripwire (F3), whole-package multi-form derivation + 4 plants (F5), v3-error DecodeBound premise proof.
++- FINDING (measured, not inferred): `VerifyObjectIdentity` on the pinned §5.5 example returns the claimed `record_id` with nil error — the example IS the true omit-self digest, so the old bound's justification was false; rewritten around the true deferral (admission contract includes non-recomputed digests; mismatched-live-binding ruling belongs to the identity owner). `VerifyObjectIdentity` has 0 production call sites repo-wide (AST scan over 125 files in `TestNoProductionPathAttestsProviderIdentityBinding`).
++- FINDING: `provider` refusal inventory forbids `errors.New`/`fmt.Errorf`/`panic` outside `os_unix.go`/`os_windows.go`, so the F4 fix returns the input failure itself for registered-no-arm codes — no new construction site, audit untouched.
++- FINDING: saturating (not unrecognizing) huge majors keeps the provhost parse-arm census stable (no new `return 0, false` branch) and routes 2^64+2 to `incompatible_protocol`/exit 6 instead of the exit-13 unusable-frame arm.
++- EVIDENCE: outcome `TASK-260906-vmzk0y_outcome.md` updated on the board task (15/15 AC rows with call sites; battery 26 applied / 26 killed / 0 survivors + NOT_APPLIED and COMPILE_FAIL controls as distinct rows; candidate tree OID verified by `ls-tree`).
++- GATES: `go test ./... -count=1` exit 0 (22 pkgs), `-race` on provider/provhost/terminalbackend exit 0, `-cover` exit 0 (provider 97.8%, provhost 85.8%, terminalbackend 94.2%), `go vet` + `GOOS=windows go vet` exit 0, gofmt clean, `go build` + `GOOS=windows go build` exit 0, catalog current, `tracecheck` ok (60 contracts, 98 acceptance cases).
++- STATUS: Ready for review, handed off to review (review/integration are orchestrator steps).
++
++### 2250 — v3 envelope owner named (terminalbackend), provider error lift built
++- SCOPE: TASK-260906-vmzk0y (second leaf of STORY-260905-3t31e9; advisories A3/A4 + carried F3). New: `terminalbackend/descriptor.go` (closed §7.A descriptor parse + `AdmitProviderDescriptor`), `provider/lift.go` (`Lift`); edited: provhost protocol/doc/identity comments + derived error contract, provider doc, 7.A registry group + digest, terminalbackend inventory rows. Leaf-1 production untouched.
++- DECISION: §7.A owner is terminalbackend, not provhost. Provhost cannot admit 3.0.0 transport: our host writes v2 requests and §7.A sends v2/v3 mismatches down the §15.1 close/termination rule, so admission would trust a foreign major and redden the pinned `3.0.0 → incompatible_protocol` gates. Refusal is the specified outcome; the dual-stack host (v3 requests + descriptor carriage + 1.3.0 decode) is a follow-up specified in the outcome, not a silent scope.
++- DECISION: `provider.Error` keeps machine-local facts for logs; the wire message is rebuilt from the stable code alone by `Lift` (static text, empty details, cause local-only). Constructor restructuring would not remove the rebuild need, so the seam is the lift, documented in `provider/doc.go`.
++- FINDING: `git stash create -u` trees omit untracked files — verify candidate trees with `git ls-tree`. The recorded tree OID was built via a detached index (`GIT_INDEX_FILE` copy + `add -A` + `write-tree`) with blob hashes checked against worktree bytes.
++- EVIDENCE: outcome `TASK-260906-vmzk0y_outcome.md` on the board task (11/11 AC rows with call sites, 19-row mutant table, gates with exit codes, candidate tree OID verified by `ls-tree`).
++- GATES: `go test ./... -count=1` exit 0 (22 pkgs), `-race` exit 0, `-cover` exit 0, `go vet` + `GOOS=windows go vet/build` exit 0, gofmt clean, catalog current, `tracecheck` ok. Battery 17 applied / 17 killed / 0 survivors (+ NOT_APPLIED and COMPILE_FAIL controls). Fuzz smoke not run (targets in untouched packages; CI runs it).
++- STATUS: Ready for review, handed off to review (review/integration are orchestrator steps).
++
+ ### 2249 — CI gates leaf round 2: five review findings closed, all claims reproduce
+ - SCOPE: TASK-260830-2uowwk rework (review-verdict-rev1, F1–F5 blocking + verb-battery observation). `internal/cigate` + `.github/workflows/ci.yml` + README. `internal/secprim` + `internal/secconftest` production untouched (restored byte-identical after two probe mutants; `git status` clean on both).
+ - F1: deleted the `Record live probe verdicts` step — it ran a synthetic-verdict test and grepped a constant line through a non-gating pipe. CI now scans the README with every probe forced unavailable (stronger than live scanning, host-independent); README table and `cigate/doc.go` say so, and the workflow comment states `ProbeState.Available` is consumed by no call site.
+diff --git a/internal/provhost/doc.go b/internal/provhost/doc.go
+index 3b038c4..558e600 100644
+--- a/internal/provhost/doc.go
++++ b/internal/provhost/doc.go
+@@ -56,11 +56,26 @@
+ // cell value. Section 8.2 store-exclusion roots and the remaining
+ // Section 7.5 request vocabularies have no host production yet.
+ //
+-// Provider Protocol 3.0.0, which the v0.5.0 catalog pins alongside
+-// 2.0.0, has no implementation owner in this package: this host
+-// speaks major 2 only, classifies any recognizable 3.x envelope as
+-// incompatible_protocol without trusting its payload, and carries no
+-// Structured Error 1.3.0 binding or launch/resume descriptor carriage.
+-// A v3 plugin is therefore refused loudly rather than misread as v2;
+-// naming the v3 envelope owner is open work, not a silent scope.
++// Provider Protocol 3.0.0 (§7.A), which the v0.5.0 catalog pins
++// alongside 2.0.0, is owned by internal/terminalbackend, not by this
++// package: the v3-specific production rule — parsing the closed v3
++// TerminalDescriptor and matching it against the AX-validated
++// host-local binding before a provider process is launched or observed
++// — is terminalbackend.AdmitProviderDescriptor, and the traceability
++// registry records section 7.A against terminalbackend for it. This
++// host speaks major 2 only: it classifies any recognizable 3.x
++// envelope as incompatible_protocol without trusting its payload,
++// which is the Section 7.A v2/v3 major-mismatch outcome (a v2/v3
++// mismatch follows the Section 15.1 close/termination rule; the caller
++// never trusts a different major's error), and any other unusable
++// frame as provider_protocol_error. A v3 plugin is therefore refused
++// loudly rather than misread as v2. The failure-error version is still
++// selected by the observed major, never the document: major 2 decodes
++// under Structured Error 1.0.0 and major 3 would decode under 1.3.0
++// (axerror.BindingFor), but no 3.x envelope reaches the decoder while
++// this host writes v2 requests. Sending v3 requests, carrying v3
++// descriptors in launch/resume bodies, and decoding v3 failures under
++// Error 1.3.0 is the dual-stack host follow-up described in this
++// task's outcome; until it exists, the 1.3.0 binding is named here
++// and implemented in axerror, not silently defaulted to 1.0.0.
+ package provhost
+diff --git a/internal/provhost/identity.go b/internal/provhost/identity.go
+index 12ae1cb..6c12f94 100644
+--- a/internal/provhost/identity.go
++++ b/internal/provhost/identity.go
+@@ -30,6 +30,34 @@ import (
+ // which judges escape and raw-UTF-8 vectors through the shared
+ // decodeStrictObject every entry here reads through, and any shape-rule
+ // change must land in both validators in the same change.
++//
++// Binding verification split, stated plainly: the three terminal
++// schemas verify their identity binding — terminalbackend's Parse
++// entries recompute the omit-self digest and refuse a mismatched claim
++// — while provider-identity records admitted here do not. CheckIdentity
++// requires record_id to be a well-formed digest but never recomputes
++// it, and the conjoined CalculateObjectIdentity entry validates shape
++// only (its digest return is discarded below); the entry that would
++// attest the binding, canonicaljson.VerifyObjectIdentity, has no
++// production call site anywhere in the repository, so no transport gate
++// and no persistence path recomputes a provider-identity digest today.
++//
++// This is deferred, not decided. Conjoining Verify here would refuse
++// records this gate documents as admitted: every boundary admission in
++// identity_test.go mutates content while keeping the example record_id,
++// so its claim no longer matches recomputation. Changing that admission
++// contract needs the identity owner's ruling on what a mismatched live
++// binding must do (refuse? re-resolve? at which layer?), which this leaf
++// cannot give for another owner's entry point. Until that ruling lands
++// — wired as a board element after this story's final leaf closes —
++// this gate admits any well-formed digest, and says so.
++//
++// The earlier justification for the deferral is withdrawn as false: it
++// claimed the gate must admit the pinned Section 5.5 example whose
++// record_id is merely illustrative. Measured in
++// TestSpecIdentityExampleVerifiesAgainstItsClaimedDigest, Verify returns
++// the example's own record_id with nil error, so the example IS the true
++// omit-self digest and cannot justify skipping attestation.
+ 
+ // identitySchema is the exact schema identifier the record carries.
+ const identitySchema = "urn:ax:schema:provider-identity"
+diff --git a/internal/provhost/identity_test.go b/internal/provhost/identity_test.go
+index dad39ca..45089a6 100644
+--- a/internal/provhost/identity_test.go
++++ b/internal/provhost/identity_test.go
+@@ -1,8 +1,17 @@
+ package provhost
+ 
+ import (
++	"fmt"
++	"go/ast"
++	"go/parser"
++	"go/token"
++	"os"
++	"path/filepath"
++	"runtime"
+ 	"strings"
+ 	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
+ )
+ 
+ // specIdentityExample is the Section 5.5 Provider Identity Record
+@@ -35,6 +44,113 @@ func TestSpecIdentityExampleDecodes(t *testing.T) {
+ 	}
+ }
+ 
++// TestSpecIdentityExampleVerifiesAgainstItsClaimedDigest pins the true
++// fact the identity stated bound rests on: VerifyObjectIdentity over the
++// pinned Section 5.5 example returns the example's own record_id with nil
++// error, so the example IS the true omit-self digest. A bound claiming
++// the example is merely illustrative — and justifying skipped attestation
++// by it — fails here instead of shipping as a considered decision. The
++// assertion is exact (field and digest), never a nil-error-only check
++// that would also pass on a vacuous verifier.
++func TestSpecIdentityExampleVerifiesAgainstItsClaimedDigest(t *testing.T) {
++	verified, field, err := canonicaljson.VerifyObjectIdentity([]byte(specIdentityExample))
++	if err != nil {
++		t.Fatalf("VerifyObjectIdentity(spec example): %v", err)
++	}
++	if field != canonicaljson.SelfRecordID {
++		t.Fatalf("VerifyObjectIdentity(spec example) field = %q, want record_id", field)
++	}
++	const want = "sha256:c879d766da67a8cfb3a3f6eae2234faa5d52d8df987496eae2218f40e5e220c2"
++	if verified.String() != want {
++		t.Fatalf("VerifyObjectIdentity(spec example) = %q, want the claimed %q", verified, want)
++	}
++}
++
++// TestNoProductionPathAttestsProviderIdentityBinding pins the second
++// half of the stated bound: no non-test Go file anywhere in the module
++// calls VerifyObjectIdentity, so provider-identity binding attestation
++// happens nowhere in production — not at this gate and not at the
++// persistence layer the old bound named. The day the deferred ruling
++// lands a production call site, this test reddens and forces the bound
++// to be rewritten around the new truth. The scan is AST-based (comments
++// and test files never count) and fails closed when it sees nothing.
++func TestNoProductionPathAttestsProviderIdentityBinding(t *testing.T) {
++	_, self, _, ok := runtime.Caller(0)
++	if !ok {
++		t.Fatal("runtime.Caller cannot locate the test file")
++	}
++	root := filepath.Dir(self)
++	for {
++		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
++			break
++		}
++		parent := filepath.Dir(root)
++		if parent == root {
++			t.Fatal("no module root above the test file; the scan is blind")
++		}
++		root = parent
++	}
++	var scanned, parsed int
++	var callers []string
++	fileSet := token.NewFileSet()
++	for _, tree := range []string{"internal", "cmd"} {
++		base := filepath.Join(root, tree)
++		if _, err := os.Stat(base); err != nil {
++			continue
++		}
++		if err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
++			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
++				return err
++			}
++			scanned++
++			source, err := os.ReadFile(path)
++			if err != nil {
++				t.Fatalf("read %s: %v", path, err)
++			}
++			if !strings.Contains(string(source), "VerifyObjectIdentity") {
++				return nil
++			}
++			parsed++
++			syntax, err := parser.ParseFile(fileSet, path, source, 0)
++			if err != nil {
++				t.Fatalf("parse %s: %v", path, err)
++			}
++			ast.Inspect(syntax, func(node ast.Node) bool {
++				call, ok := node.(*ast.CallExpr)
++				if !ok {
++					return true
++				}
++				switch fun := call.Fun.(type) {
++				case *ast.SelectorExpr:
++					if fun.Sel.Name == "VerifyObjectIdentity" {
++						position := fileSet.Position(call.Pos())
++						callers = append(callers, fmt.Sprintf("%s:%d", position.Filename, position.Line))
++					}
++				case *ast.Ident:
++					if fun.Name == "VerifyObjectIdentity" {
++						// The canonicaljson definition itself is a
++						// FuncDecl, never a call; a bare-identifier call
++						// anywhere is a production call site.
++						position := fileSet.Position(call.Pos())
++						callers = append(callers, fmt.Sprintf("%s:%d", position.Filename, position.Line))
++					}
++				}
++				return true
++			})
++			return nil
++		}); err != nil {
++			t.Fatalf("walk %s: %v", base, err)
++		}
++	}
++	if scanned == 0 {
++		t.Fatal("scanned no production sources; the check is blind")
++	}
++	if len(callers) != 0 {
++		t.Fatalf("production call sites attest the identity binding, contradicting the stated bound:\n  %s", strings.Join(callers, "\n  "))
++	}
++	t.Logf("attestation scan: %d production files, %d parsed, 0 production call sites", scanned, parsed)
++}
++
+ // identityVariant rewrites one unique substring of the example.
+ func identityVariant(t *testing.T, old, new string) []byte {
+ 	t.Helper()
+diff --git a/internal/provhost/protocol.go b/internal/provhost/protocol.go
+index af7809e..1fbdc38 100644
+--- a/internal/provhost/protocol.go
++++ b/internal/provhost/protocol.go
+@@ -4,6 +4,7 @@ import (
+ 	"bytes"
+ 	"encoding/json"
+ 	"io"
++	"math"
+ 	"strconv"
+ 	"strings"
+ 	"time"
+@@ -357,7 +358,16 @@ func checkResponseMembers(members map[string]json.RawMessage, ok bool) *frameFau
+ 
+ // parseMajor extracts the major from a strict numeric X.Y.Z version.
+ // Anything else is not a recognizable major, so the frame is unusable
+-// rather than a mismatch.
++// rather than a mismatch. A major that does not fit an int saturates
++// instead of wrapping, but saturation never short-circuits the shape
++// check: only a fully numeric X.Y.Z reports a recognized major. An
++// all-numeric giant is observably foreign (it is not 2), so it takes
++// the mismatch arm, never aliases a small native major
++// (18446744073709551618 must not read as 2) and never slides to the
++// unusable-frame arm; a giant with a non-numeric or empty rest
++// (99999999999999999999.abc.def) is unrecognized like any other
++// malformed version. Saturation adds no rejection branch, so the
++// derived parse-arm census needs no new row for it.
+ func parseMajor(version string) (int, bool) {
+ 	parts := strings.Split(version, ".")
+ 	if len(parts) != 3 {
+@@ -369,7 +379,12 @@ func parseMajor(version string) (int, bool) {
+ 		if digit < '0' || digit > '9' {
+ 			return 0, false
+ 		}
+-		major = major*10 + int(digit-'0')
++		step := int(digit - '0')
++		if major > (math.MaxInt-step)/10 {
++			major = math.MaxInt
++			continue
++		}
++		major = major*10 + step
+ 	}
+ 	if len(parts[0]) == 0 {
+ 		return 0, false
+@@ -387,11 +402,6 @@ func parseMajor(version string) (int, bool) {
+ 	return major, true
+ }
+ 
+-// providerContract is the static Section 7.2 binding every failure
+-// envelope is decoded under: provider protocol major 2 binds Structured
+-// Error 1.0.0. The version is never taken from the document.
+-var providerContract = axerror.ContainingContract{ID: "urn:ax:protocol:provider", Major: 2}
+-
+ // DecodeResponse validates one stdout line as the single response frame
+ // for the request carrying wantRequestID. It returns the success body, or
+ // the bound child failure, or a local failure that trusts nothing from
+@@ -537,7 +547,18 @@ func DecodeResponse(frame []byte, wantRequestID scalar.UUIDv7) (Response, error)
+ 		}
+ 		return Response{}, failure
+ 	}
+-	child, err := axerror.DecodeBound(providerContract, members["error"])
++	// The failure-error version is selected by the observed envelope
++	// major through the static Section 15.1/17.1 table, never from the
++	// document: major 2 decodes under Structured Error 1.0.0, and major
++	// 3 would decode under Structured Error 1.3.0. Only 2.0.0 reaches
++	// this line — a recognizable 3.x envelope was refused above as a
++	// major mismatch, because a v2-only host never trusts a different
++	// major's error (Section 7.A) — so the contract below carries major
++	// 2 on every reachable path today, and admits 1.3.0 by construction
++	// the day the version gate admits 3.0.0. The blank parse result is
++	// total here: the gate above admitted exactly "2.0.0".
++	observedMajor, _ := parseMajor(version)
++	child, err := axerror.DecodeBound(axerror.ContainingContract{ID: ProtocolID, Major: observedMajor}, members["error"])
+ 	if err != nil {
+ 		failure, fault := failProtocol("error is not a bound Structured Error 1.0.0", "error")
+ 		if fault != nil {
+diff --git a/internal/provhost/protocol_test.go b/internal/provhost/protocol_test.go
+index 7821352..501266b 100644
+--- a/internal/provhost/protocol_test.go
++++ b/internal/provhost/protocol_test.go
+@@ -521,3 +521,146 @@ func TestEncodeRequestRefusesOversizeFrame(t *testing.T) {
+ 		t.Fatalf("boundary EncodeRequest: %v", err)
+ 	}
+ }
++
++// TestDecodeResponseWellFormedV3SuccessIsMismatch proves the documented
++// v2-only outcome for a syntactically valid 3.0.0 success envelope: it
++// is incompatible_protocol, not an admission. A v2/v3 major mismatch
++// follows the Section 15.1 close/termination rule; the caller never
++// trusts a different major's payload (Section 7.A). The production
++// entry point is DecodeResponse.
++func TestDecodeResponseWellFormedV3SuccessIsMismatch(t *testing.T) {
++	want := mustUUIDv7(t, testRequestID)
++	frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"3.0.0","request_id":"` + testRequestID + `","ok":true,"body":{}}`)
++	_, err := DecodeResponse(frame, want)
++	if failureCode(t, err) != "incompatible_protocol" {
++		t.Fatalf("DecodeResponse(3.0.0 success) code = %v, want incompatible_protocol", err)
++	}
++	if observed, ok := failureObject(t, err).Detail("observed"); !ok || observed != "3.0.0" {
++		t.Fatalf("DecodeResponse(3.0.0 success) observed = %v, want 3.0.0", observed)
++	}
++	if failureObject(t, err).Version() != axerror.Version100 {
++		t.Fatalf("DecodeResponse(3.0.0 success) version = %v, want the local Error 1.0.0", failureObject(t, err).Version())
++	}
++}
++
++// TestDecodeResponseV3FailureWithValid130ErrorIsMismatch proves the v3
++// binding is named but never trusted: a 3.0.0 failure envelope carrying
++// a well-formed Structured Error 1.3.0 object (the exact binding
++// Section 7.A assigns v3) is still incompatible_protocol, and no member
++// of the foreign error — code, message, retryable bit, or details —
++// reaches the local failure. The embedded error is first decoded through
++// the production (provider, 3) → 1.3.0 binding, so the test proves
++// refusal of a genuinely well-formed foreign error rather than refusal
++// of malformed bytes that any arm would reject. The full rendering is
++// asserted, never a shared code: incompatible_protocol is the documented
++// mismatch arm, and the assertion pins that the v3 outcome is refusal,
++// not admission.
++func TestDecodeResponseV3FailureWithValid130ErrorIsMismatch(t *testing.T) {
++	want := mustUUIDv7(t, testRequestID)
++	foreign := []byte(`{"schema":"urn:ax:schema:error","schema_version":"1.3.0","code":"terminal_backend_integrity_failure",` +
++		`"message":"v3 backend binding failed","exit_code":9,"retryable":false,"details":{}}`)
++	if _, err := axerror.DecodeBound(axerror.ContainingContract{ID: ProtocolID, Major: 3}, foreign); err != nil {
++		t.Fatalf("embedded v3 error is not well-formed 1.3.0 under the (provider, 3) binding: %v", err)
++	}
++	frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"3.0.0","request_id":"` + testRequestID + `","ok":false,` +
++		`"error":` + string(foreign) + `}`)
++	_, err := DecodeResponse(frame, want)
++	if failureCode(t, err) != "incompatible_protocol" {
++		t.Fatalf("DecodeResponse(3.0.0 failure) code = %v, want incompatible_protocol", err)
++	}
++	rendered := err.Error()
++	for _, foreign := range []string{"terminal_backend_integrity_failure", "v3 backend binding failed"} {
++		if strings.Contains(rendered, foreign) {
++			t.Fatalf("foreign v3 payload leaked into the local failure: %v", err)
++		}
++	}
++	if observed, ok := failureObject(t, err).Detail("observed"); !ok || observed != "3.0.0" {
++		t.Fatalf("DecodeResponse(3.0.0 failure) observed = %v, want 3.0.0", observed)
++	}
++}
++
++// TestDecodeResponseV2FailureWith130ErrorIsBoundTo100 proves the
++// failure-error contract is selected by the observed envelope major,
++// never the document: a well-formed 1.3.0 error under a 2.0.0 envelope
++// is refused as unbound under 1.0.0 rather than decoded as 1.3.0. A
++// gate that decoded whatever version the document claimed would admit
++// this frame; the named arm below is what keeps the 1.0.0 binding
++// exact.
++func TestDecodeResponseV2FailureWith130ErrorIsBoundTo100(t *testing.T) {
++	want := mustUUIDv7(t, testRequestID)
++	frame := []byte(`{"protocol":"urn:ax:protocol:provider","protocol_version":"2.0.0","request_id":"` + testRequestID + `","ok":false,` +
++		`"error":{"schema":"urn:ax:schema:error","schema_version":"1.3.0","code":"invalid_config",` +
++		`"message":"wrong version for this envelope","exit_code":3,"retryable":false,"details":{}}}`)
++	_, err := DecodeResponse(frame, want)
++	requireFrameRefusal(t, err, "error", "error is not a bound Structured Error 1.0.0")
++	if strings.Contains(err.Error(), "wrong version for this envelope") {
++		t.Fatalf("foreign-version payload leaked into the local failure: %v", err)
++	}
++}
++
++// TestParseMajorNeverWraps proves the major is decided on the digit
++// string, never on a wrapped accumulator: 18446744073709551617.0.0
++// wraps to major 1 and 18446744073709551618.0.0 wraps to major 2 in 64
++// bits, so an accumulating gate mistakes both foreign majors for native
++// ones. A wrapped major is a version-confusion primitive: the envelope
++// gate below decides admission on this number. All four literals are
++// recognized (all-numeric X.Y.Z) and must report a major other than 1
++// or 2; the wrap-to-2 row additionally must refuse at DecodeResponse as
++// a foreign major (incompatible_protocol, exit 6), not as an unusable
++// frame (exit 13) and never as 2.0.0.
++func TestParseMajorNeverWraps(t *testing.T) {
++	for _, version := range []string{
++		"18446744073709551617.0.0",
++		"18446744073709551618.0.0",
++		"18446744073709551616.0.0",
++		"99999999999999999999999999999999999999999.0.0",
++	} {
++		major, recognized := parseMajor(version)
++		if !recognized {
++			t.Fatalf("parseMajor(%q) = unrecognized, want a recognized foreign major", version)
++		}
++		if major == 1 || major == 2 {
++			t.Fatalf("parseMajor(%q) = %d, want a major other than 1 or 2", version, major)
++		}
++	}
++
++	want := mustUUIDv7(t, testRequestID)
++	_, err := DecodeResponse(armVersionFrame("18446744073709551618.0.0"), want)
++	if failureCode(t, err) != "incompatible_protocol" {
++		t.Fatalf("DecodeResponse(wrapped-to-2 major) code = %v, want incompatible_protocol", err)
++	}
++	if failureExit(t, err) != 6 {
++		t.Fatalf("DecodeResponse(wrapped-to-2 major) exit = %d, want 6", failureExit(t, err))
++	}
++}
++
++// TestParseMajorSaturationStillValidatesTheRest proves saturation never
++// short-circuits the X.Y.Z shape check: a version whose first component
++// overflows but whose rest is malformed is unrecognized, so
++// DecodeResponse refuses it as an unusable frame
++// (provider_protocol_error, exit 13), not as a foreign major
++// (incompatible_protocol, exit 6). The saturating early return this
++// test guards against reported exactly these inputs as recognized; the
++// rows below pin the two classes apart so a future short-circuit
++// reddens here. The production entry point is DecodeResponse.
++func TestParseMajorSaturationStillValidatesTheRest(t *testing.T) {
++	want := mustUUIDv7(t, testRequestID)
++	for _, version := range []string{
++		"99999999999999999999.abc.def",
++		"99999999999999999999.0.x",
++		"99999999999999999999..0",
++		"18446744073709551618..0",
++		"18446744073709551618.0.x",
++	} {
++		if major, recognized := parseMajor(version); recognized {
++			t.Fatalf("parseMajor(%q) = (%d, true), want unrecognized", version, major)
++		}
++		_, err := DecodeResponse(armVersionFrame(version), want)
++		if failureCode(t, err) != "provider_protocol_error" {
++			t.Fatalf("DecodeResponse(%q) code = %v, want provider_protocol_error", version, err)
++		}
++		if failureExit(t, err) != 13 {
++			t.Fatalf("DecodeResponse(%q) exit = %d, want 13", version, failureExit(t, err))
++		}
++	}
++}
+diff --git a/internal/provider/doc.go b/internal/provider/doc.go
+index 016326e..0cdba44 100644
+--- a/internal/provider/doc.go
++++ b/internal/provider/doc.go
+@@ -37,9 +37,11 @@
+ // the filesystem cause verbatim for errors.Is and errors.As. That
+ // rendering must never become a wire message as-is:
+ // axerror.refuseCausalLeak refuses any message reproducing a local
+-// cause, so the future cmd/ax lift of a discovery failure into a
+-// Structured Error must rebuild the message (dynamic facts into the
+-// Details map, cause stripped) rather than quoting Error(). No such
+-// call site exists yet; this paragraph names the rule that lift must
+-// follow.
++// cause, so the lift of a discovery failure into a Structured Error
++// rebuilds the message from the stable code alone (no dynamic fact
++// reaches the message or the details map) and carries the cause as the
++// local Go cause only, rather than quoting Error(). Lift in lift.go is
++// the single production call site that rule names: the future cmd/ax
++// caller lifts through Lift, and the local Error value stays the
++// host-log record, never the wire message.
+ package provider
+diff --git a/internal/provider/lift.go b/internal/provider/lift.go
+new file mode 100644
+index 0000000..4ad643d
+--- /dev/null
++++ b/internal/provider/lift.go
+@@ -0,0 +1,60 @@
++package provider
++
++import (
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++)
++
++// Lift carries one discovery or trust refusal across the seam into a
++// wire-ready Structured Error. It is the only production path from a
++// provider.Error to the wire, and the composition contract of package
++// doc is enforced here rather than stated there:
++//
++//   - The wire message is rebuilt from the stable code alone. Detail,
++//     which deliberately names provider IDs, canonical paths, and owner
++//     identities for host-local diagnostics, never crosses: the three
++//     messages below are static text with no interpolation point.
++//   - The filesystem cause crosses only as the local Go cause, kept for
++//     errors.Is and errors.As and structurally unreachable from the
++//     encoded object. Because the message cannot reproduce the rendered
++//     cause, axerror's causal-leak gate admits what Lift builds and
++//     refuses the naive shape (message from Error(), cause attached).
++//   - The code crosses verbatim: invalid_config,
++//     local_precondition_failed, and integrity_failure are registered in
++//     Structured Error 1.0.0, the version a pre-protocol host failure
++//     carries. An Error carrying any other code is failed closed and
++//     never produces a wire object, in two sub-arms: a code the registry
++//     does not carry is refused by axerror and Lift returns that
++//     refusal; a registered code with no lift arm (today: any registered
++//     code outside the three above, e.g. not_found) is handed back as
++//     the error itself, so the caller keeps the local diagnostic without
++//     minting a wire object under a generic message it never reviewed.
++//     A generic message would carry the code's exit status without the
++//     code's meaning, which is fail-open, not fail-closed.
++//
++// Lift builds no refusal of its own: every error it returns is axerror's
++// or the input failure itself, so the provider refusal inventory (four
++// constructors, closed code set) is unchanged by this file — it holds no
++// Error literal and no errors.New, fmt.Errorf, or panic site.
++func Lift(failure Error) (*axerror.Error, error) {
++	var message string
++	switch failure.code {
++	case codeInvalidConfig:
++		message = "provider discovery refused the request: invalid configuration"
++	case codeLocalPrecondition:
++		message = "provider discovery could not establish its filesystem preconditions"
++	case codeIntegrityFailure:
++		message = "provider trust receipt no longer matches the filesystem"
++	default:
++		if _, err := axerror.ExitCodeFor(axerror.Version100, axerror.Code(failure.code)); err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	return axerror.New(axerror.Spec{
++		Version: axerror.Version100,
++		Code:    axerror.Code(failure.code),
++		Message: message,
++		Details: axerror.Details{},
++		Cause:   failure,
++	})
++}
+diff --git a/internal/provider/lift_test.go b/internal/provider/lift_test.go
+new file mode 100644
+index 0000000..af670e9
+--- /dev/null
++++ b/internal/provider/lift_test.go
+@@ -0,0 +1,492 @@
++package provider
++
++import (
++	"encoding/json"
++	"errors"
++	"fmt"
++	"go/ast"
++	"go/parser"
++	"go/token"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++)
++
++// liftVector is one production-derived discovery failure and the secrets
++// its local rendering carries: the machine-local paths, provider IDs,
++// and owner identities the wire message must not reproduce.
++type liftVector struct {
++	name string
++	// make drives the real production entry (Discover or Verify) to a
++	// refusal.
++	make func(t *testing.T) error
++	// secrets are concrete local strings the failure's Error() carries.
++	secrets []string
++	// code is the stable provider code the failure carries.
++	code string
++	// message is the exact static wire message Lift builds for it.
++	message string
++	// exit is the Section 15.2 status of the lifted code.
++	exit int
++}
++
++func liftVectors() []liftVector {
++	return []liftVector{
++		{
++			name: "duplicate invalid_config",
++			make: func(t *testing.T) error {
++				t.Helper()
++				fake := newFakeSystem()
++				fake.addFile("/plugins/a", "ax-provider-dup", []byte("one"), fakeUID)
++				fake.addFile("/plugins/b", "ax-provider-dup", []byte("two"), fakeUID)
++				_, err := Discover(fakeConfig("/plugins/a", "/plugins/b"), fakeOwner(), fake)
++				if err == nil {
++					t.Fatal("Discover admitted a duplicate provider ID")
++				}
++				return err
++			},
++			secrets: []string{"dup"},
++			code:    codeInvalidConfig,
++			message: "provider discovery refused the request: invalid configuration",
++			exit:    3,
++		},
++		{
++			name: "unreadable directory local_precondition_failed",
++			make: func(t *testing.T) error {
++				t.Helper()
++				fake := newFakeSystem()
++				fake.entries["/plugins"] = []string{}
++				fake.readDirErr["/plugins"] = errors.New("permission denied at /plugins")
++				_, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++				if err == nil {
++					t.Fatal("Discover admitted an unreadable plugin directory")
++				}
++				return err
++			},
++			secrets: []string{"/plugins", "permission denied at /plugins"},
++			code:    codeLocalPrecondition,
++			message: "provider discovery could not establish its filesystem preconditions",
++			exit:    3,
++		},
++		{
++			name: "retargeted executable integrity_failure",
++			make: func(t *testing.T) error {
++				t.Helper()
++				fake := newFakeSystem()
++				fake.addLinkedFile("/plugins", "ax-provider-foo", "/opt/real/foo", []byte("bytes"), fakeUID, true)
++				record := trustOneFoo(t, discoverOneFoo(t, fake))
++				fake.canon["/plugins/ax-provider-foo"] = "/opt/real/evil"
++				fake.files["/opt/real/evil"] = fakeFile{content: []byte("bytes"), uid: fakeUID, regular: true}
++				err := Verify(record, fakeOwner(), fake)
++				if err == nil {
++					t.Fatal("Verify accepted a retargeted symlink")
++				}
++				return err
++			},
++			secrets: []string{"foo", "/opt/real/foo", "/opt/real/evil"},
++			code:    codeIntegrityFailure,
++			message: "provider trust receipt no longer matches the filesystem",
++			exit:    9,
++		},
++		{
++			name: "changed owner integrity_failure",
++			make: func(t *testing.T) error {
++				t.Helper()
++				fake := newFakeSystem()
++				fake.addLinkedFile("/plugins", "ax-provider-foo", "/opt/real/foo", []byte("bytes"), fakeUID, true)
++				record := trustOneFoo(t, discoverOneFoo(t, fake))
++				fake.files["/opt/real/foo"] = fakeFile{content: []byte("bytes"), uid: foreignUID, regular: true}
++				err := Verify(record, fakeOwner(), fake)
++				if err == nil {
++					t.Fatal("Verify accepted a changed owner")
++				}
++				return err
++			},
++			secrets: []string{"foo", "uid:2000"},
++			code:    codeIntegrityFailure,
++			message: "provider trust receipt no longer matches the filesystem",
++			exit:    9,
++		},
++	}
++}
++
++// TestLiftCarriesDiscoveryFailuresToTheWire drives the real lift: every
++// production-derived failure above lifts through Lift into a Structured
++// Error axerror accepts, carrying the stable code and exit with the
++// exact static message, and no machine-local path, provider ID, or
++// owner identity reaches the wire message. The secrets are asserted
++// present in the local rendering first, so the absence below is a
++// measured removal rather than a vacuous non-mention.
++func TestLiftCarriesDiscoveryFailuresToTheWire(t *testing.T) {
++	t.Parallel()
++
++	for _, vector := range liftVectors() {
++		t.Run(vector.name, func(t *testing.T) {
++			t.Parallel()
++			failure := vector.make(t)
++			var local Error
++			if !errors.As(failure, &local) {
++				t.Fatalf("failure %v is not a provider Error", failure)
++			}
++			for _, secret := range vector.secrets {
++				if !strings.Contains(local.Error(), secret) {
++					t.Fatalf("local rendering %q does not carry %q; the wire absence below would prove nothing", local.Error(), secret)
++				}
++			}
++			lifted, err := Lift(local)
++			if err != nil {
++				t.Fatalf("Lift: %v", err)
++			}
++			if lifted.Version() != axerror.Version100 {
++				t.Fatalf("lifted version = %q, want Structured Error 1.0.0", lifted.Version())
++			}
++			if string(lifted.Code()) != vector.code {
++				t.Fatalf("lifted code = %q, want %q", lifted.Code(), vector.code)
++			}
++			if lifted.Message() != vector.message {
++				t.Fatalf("lifted message = %q, want %q", lifted.Message(), vector.message)
++			}
++			if lifted.ExitCode() != vector.exit {
++				t.Fatalf("lifted exit = %d, want %d", lifted.ExitCode(), vector.exit)
++			}
++			if lifted.Retryable() {
++				t.Fatalf("lifted failure claims retryable: %v", lifted)
++			}
++			if len(lifted.DetailKeys()) != 0 {
++				t.Fatalf("lifted details = %v, want no diagnostic values", lifted.DetailKeys())
++			}
++			wire, err := json.Marshal(lifted)
++			if err != nil {
++				t.Fatalf("marshal lifted failure: %v", err)
++			}
++			for _, secret := range vector.secrets {
++				if strings.Contains(string(wire), secret) {
++					t.Fatalf("wire message %s reproduces local secret %q", wire, secret)
++				}
++			}
++			// The cause stays local and usable: the lifted failure
++			// unwraps to the provider refusal it was built from.
++			var back Error
++			if !errors.As(lifted, &back) {
++				t.Fatalf("lifted failure does not unwrap to a provider Error")
++			}
++			if back.Code() != vector.code {
++				t.Fatalf("unwrapped code = %q, want %q", back.Code(), vector.code)
++			}
++		})
++	}
++}
++
++// TestLiftRefusesUnregisteredCode fails closed: an Error carrying a code
++// outside the closed set lifts to no wire object, and the refusal is the
++// registry's unregistered-code refusal rather than a minted default.
++func TestLiftRefusesUnregisteredCode(t *testing.T) {
++	t.Parallel()
++
++	lifted, err := Lift(Error{code: "bogus_code", detail: "planted control"})
++	if err == nil {
++		t.Fatalf("Lift admitted an unregistered code: %v", lifted)
++	}
++	if lifted != nil {
++		t.Fatalf("Lift returned a wire object alongside its refusal: %v", lifted)
++	}
++	if !errors.Is(err, axerror.ErrUnregisteredCode) {
++		t.Fatalf("Lift refusal = %v, want the unregistered-code refusal", err)
++	}
++}
++
++// TestLiftRefusesRegisteredCodeWithoutLiftArm drives the case the
++// closed-set negative misses: a REGISTERED code with no lift arm.
++// not_found is registered by Structured Error 1.0.0 (exit 4), so the
++// registry admits it and only Lift's default arm decides. Fail-open
++// would hand back a wire object carrying exit 4 under a generic message
++// the lift author never reviewed for this code; fail-closed returns no
++// wire object and hands the local failure back so the caller keeps the
++// diagnostic without minting anything. The errors.Is refusal pins which
++// sub-arm fired: the unregistered-code refusal must NOT fire here, which
++// is also what pins the premise that not_found is registered.
++func TestLiftRefusesRegisteredCodeWithoutLiftArm(t *testing.T) {
++	t.Parallel()
++
++	lifted, err := Lift(Error{code: "not_found", detail: "planted control"})
++	if err == nil {
++		t.Fatalf("Lift admitted a registered code with no lift arm: %v", lifted)
++	}
++	if lifted != nil {
++		t.Fatalf("Lift returned a wire object alongside its refusal: %v", lifted)
++	}
++	if errors.Is(err, axerror.ErrUnregisteredCode) {
++		t.Fatalf("Lift refusal took the unregistered-code arm for registered code not_found: %v", err)
++	}
++	var back Error
++	if !errors.As(err, &back) {
++		t.Fatalf("Lift refusal %v does not hand back the local failure", err)
++	}
++	if back.Code() != "not_found" {
++		t.Fatalf("handed-back code = %q, want not_found", back.Code())
++	}
++}
++
++// TestNaiveLiftShapeIsRefusedByTheWireGate proves the seam Lift exists
++// to close: a message built from Error() with the cause attached — the
++// ordinary fmt.Errorf("...: %v", err) lift — is refused by the
++// production axerror gate with the causal-leak refusal, in both the
++// message and the details direction.
++func TestNaiveLiftShapeIsRefusedByTheWireGate(t *testing.T) {
++	t.Parallel()
++
++	fake := newFakeSystem()
++	fake.entries["/plugins"] = []string{}
++	cause := errors.New("local disk permission denied for the lift control")
++	fake.readDirErr["/plugins"] = cause
++	_, err := Discover(fakeConfig("/plugins"), fakeOwner(), fake)
++	if err == nil {
++		t.Fatal("Discover admitted an unreadable plugin directory")
++	}
++	var local Error
++	if !errors.As(err, &local) {
++		t.Fatalf("failure %v is not a provider Error", err)
++	}
++	if !strings.Contains(local.Error(), cause.Error()) {
++		t.Fatalf("local rendering %q does not reproduce its cause; the control is misbuilt", local.Error())
++	}
++	if _, err := axerror.New(axerror.Spec{
++		Version: axerror.Version100,
++		Code:    axerror.Code(local.Code()),
++		Message: local.Error(),
++		Details: axerror.Details{},
++		Cause:   cause,
++	}); !errors.Is(err, axerror.ErrCausalLeak) {
++		t.Fatalf("naive message lift error = %v, want the causal-leak refusal", err)
++	}
++	if _, err := axerror.New(axerror.Spec{
++		Version: axerror.Version100,
++		Code:    axerror.Code(local.Code()),
++		Message: "provider discovery could not establish its filesystem preconditions",
++		Details: axerror.Details{"failure": "wrapping " + cause.Error()},
++		Cause:   cause,
++	}); !errors.Is(err, axerror.ErrCausalLeak) {
++		t.Fatalf("naive details lift error = %v, want the causal-leak refusal", err)
++	}
++}
++
++// loadProviderCodes derives the closed refusal-code set from every
++// production source file of the package rooted at dir, never from
++// memory: a code added to production without a lift vector reddens the
++// totality test below instead of shipping unwitnessed. Both const and
++// var bindings count, in any file, grouped or alone, with or without an
++// explicit type — the value must be a string literal in each case. Any
++// code-prefixed declaration the scan cannot classify to a literal value
++// (an identifier or call value, an iota-inherited empty value list, or
++// a code-prefixed type declaration such as an alias) is an error, not a
++// skip: an unclassifiable binding must fail the census loudly rather
++// than pass the totality test silently. Test files never count.
++func loadProviderCodes(dir string) (map[string]bool, error) {
++	entries, err := os.ReadDir(dir)
++	if err != nil {
++		return nil, err
++	}
++	codes := map[string]bool{}
++	scanned := 0
++	fileSet := token.NewFileSet()
++	for _, entry := range entries {
++		name := entry.Name()
++		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
++			continue
++		}
++		scanned++
++		path := filepath.Join(dir, name)
++		source, err := os.ReadFile(path)
++		if err != nil {
++			return nil, err
++		}
++		syntax, err := parser.ParseFile(fileSet, path, source, 0)
++		if err != nil {
++			return nil, err
++		}
++		for _, decl := range syntax.Decls {
++			general, ok := decl.(*ast.GenDecl)
++			if !ok {
++				continue
++			}
++			if general.Tok == token.TYPE {
++				for _, spec := range general.Specs {
++					if alias, ok := spec.(*ast.TypeSpec); ok && strings.HasPrefix(alias.Name.Name, "code") {
++						position := fileSet.Position(alias.Pos())
++						return nil, fmt.Errorf("%s:%d: code-prefixed type declaration %q has no classifiable literal value", name, position.Line, alias.Name.Name)
++					}
++				}
++				continue
++			}
++			if general.Tok != token.CONST && general.Tok != token.VAR {
++				continue
++			}
++			for _, spec := range general.Specs {
++				values, ok := spec.(*ast.ValueSpec)
++				if !ok {
++					continue
++				}
++				for i, ident := range values.Names {
++					if !strings.HasPrefix(ident.Name, "code") {
++						continue
++					}
++					if i >= len(values.Values) {
++						// Grouped specs inherit the previous value
++						// list when Values is empty; resolving that
++						// needs constant evaluation, so fail closed.
++						position := fileSet.Position(ident.Pos())
++						return nil, fmt.Errorf("%s:%d: code binding %q carries no value expression", name, position.Line, ident.Name)
++					}
++					value := values.Values[i]
++					if len(values.Values) == 1 && len(values.Names) > 1 {
++						// `var a, b = f()` shares one value across
++						// names; same constant-evaluation problem.
++						position := fileSet.Position(ident.Pos())
++						return nil, fmt.Errorf("%s:%d: code binding %q shares its value expression", name, position.Line, ident.Name)
++					}
++					literal, ok := value.(*ast.BasicLit)
++					if !ok || literal.Kind != token.STRING {
++						position := fileSet.Position(value.Pos())
++						return nil, fmt.Errorf("%s:%d: code binding %q is not a string literal", name, position.Line, ident.Name)
++					}
++					codes[strings.Trim(literal.Value, `"`)] = true
++				}
++			}
++		}
++	}
++	if scanned == 0 {
++		return nil, fmt.Errorf("scanned no production sources in %s; the check is blind", dir)
++	}
++	return codes, nil
++}
++
++// derivedProviderCodes derives the closed refusal-code set from the
++// production package, failing the test on any blind or unclassifiable
++// scan.
++func derivedProviderCodes(t *testing.T) map[string]bool {
++	t.Helper()
++	codes, err := loadProviderCodes(mustProviderDir(t))
++	if err != nil {
++		t.Fatalf("derive provider codes: %v", err)
++	}
++	if len(codes) == 0 {
++		t.Fatal("derived zero provider codes; the scan is blind, not the package")
++	}
++	return codes
++}
++
++// writeFixtureFile stages one package source file under dir for the
++// derivation control plants below. Fixtures live in a temporary
++// directory, never in the production package.
++func writeFixtureFile(t *testing.T, dir, name, body string) {
++	t.Helper()
++	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
++		t.Fatalf("write fixture %s: %v", name, err)
++	}
++}
++
++// TestDerivedCodesIncludesVarBinding plants the first control the old
++// single-file const-only scan missed: a var-bound code counts toward
++// the closed set, so a production var code without a lift vector
++// reddens the totality test instead of passing silently.
++func TestDerivedCodesIncludesVarBinding(t *testing.T) {
++	t.Parallel()
++
++	dir := t.TempDir()
++	writeFixtureFile(t, dir, "codes.go", "package provider\n\nconst codeHeld = \"held_code\"\n")
++	writeFixtureFile(t, dir, "extra.go", "package provider\n\nvar codePlanted = \"planted_var_code\"\n")
++	codes, err := loadProviderCodes(dir)
++	if err != nil {
++		t.Fatalf("loadProviderCodes: %v", err)
++	}
++	for _, want := range []string{"held_code", "planted_var_code"} {
++		if !codes[want] {
++			t.Fatalf("derived codes = %v, want %q", codes, want)
++		}
++	}
++}
++
++// TestDerivedCodesScansEveryPackageFile plants the second control the
++// old scan missed: a const declared in another file of the same package
++// counts. A scan reading only provider.go derives one code here and the
++// assertion on the second reddens it.
++func TestDerivedCodesScansEveryPackageFile(t *testing.T) {
++	t.Parallel()
++
++	dir := t.TempDir()
++	writeFixtureFile(t, dir, "a.go", "package provider\n\nconst codeFirst = \"first_code\"\n")
++	writeFixtureFile(t, dir, "b.go", "package provider\n\nconst codeSecond = \"second_file_code\"\n")
++	codes, err := loadProviderCodes(dir)
++	if err != nil {
++		t.Fatalf("loadProviderCodes: %v", err)
++	}
++	for _, want := range []string{"first_code", "second_file_code"} {
++		if !codes[want] {
++			t.Fatalf("derived codes = %v, want %q", codes, want)
++		}
++	}
++}
++
++// TestDerivedCodesIncludesGroupedConsts pins the grouped form: every
++// member of a parenthesized const block counts individually.
++func TestDerivedCodesIncludesGroupedConsts(t *testing.T) {
++	t.Parallel()
++
++	dir := t.TempDir()
++	writeFixtureFile(t, dir, "codes.go", "package provider\n\nconst (\n\tcodeGroupedA = \"grouped_a\"\n\tcodeGroupedB string = \"grouped_b\"\n)\n")
++	codes, err := loadProviderCodes(dir)
++	if err != nil {
++		t.Fatalf("loadProviderCodes: %v", err)
++	}
++	for _, want := range []string{"grouped_a", "grouped_b"} {
++		if !codes[want] {
++			t.Fatalf("derived codes = %v, want %q", codes, want)
++		}
++	}
++}
++
++// TestDerivedCodesFailsClosedOnUnclassifiableBinding plants the
++// fail-closed controls: a code-prefixed type alias and a code binding
++// whose value is an identifier rather than a literal cannot be
++// classified to a code value, so the derivation errors instead of
++// silently omitting them from the denominator.
++func TestDerivedCodesFailsClosedOnUnclassifiableBinding(t *testing.T) {
++	t.Parallel()
++
++	aliased := t.TempDir()
++	writeFixtureFile(t, aliased, "codes.go", "package provider\n\ntype codeHandle = string\n\nconst codeHeld codeHandle = \"held_code\"\n")
++	if codes, err := loadProviderCodes(aliased); err == nil {
++		t.Fatalf("aliased-type derivation = %v, want a fail-closed error", codes)
++	}
++
++	indirect := t.TempDir()
++	writeFixtureFile(t, indirect, "codes.go", "package provider\n\nconst codeBase = \"base_code\"\n\nconst codeAlias = codeBase\n")
++	if codes, err := loadProviderCodes(indirect); err == nil {
++		t.Fatalf("identifier-valued derivation = %v, want a fail-closed error", codes)
++	}
++}
++
++// TestLiftCoversTheClosedCodeSet is the totality direction: every
++// production-derived code has a real-failure lift vector above, and
++// every vector names a derived code, so neither an unwitnessed code
++// nor an orphan row survives.
++func TestLiftCoversTheClosedCodeSet(t *testing.T) {
++	t.Parallel()
++
++	derived := derivedProviderCodes(t)
++	covered := map[string]bool{}
++	for _, vector := range liftVectors() {
++		if !derived[vector.code] {
++			t.Errorf("lift vector %q names underived code %q", vector.name, vector.code)
++		}
++		covered[vector.code] = true
++	}
++	for code := range derived {
++		if !covered[code] {
++			t.Errorf("production code %q has no lift vector; the lift is partial", code)
++		}
++	}
++}
+diff --git a/internal/terminalbackend/descriptor.go b/internal/terminalbackend/descriptor.go
+new file mode 100644
+index 0000000..1b57b04
+--- /dev/null
++++ b/internal/terminalbackend/descriptor.go
+@@ -0,0 +1,254 @@
++// Provider Protocol 3.0.0 Terminal Instance descriptor admission.
++//
++// Normative scope is relux-works/agent-session-manager-spec@v0.5.0 §7.A:
++// Provider Protocol 3.0.0 retains the exact v2 framing and replaces every
++// occurrence of the v2 TerminalDescriptor with one closed v3 object. This
++// file owns the v3-specific production rule: parsing the closed descriptor
++// document and matching it against the AX-validated host-local binding
++// before a provider process is launched or observed. Transport framing,
++// deadlines, and dispatch stay with the v2 machinery; the v3 failure-error
++// binding (Structured Error 1.3.0) is resolved through axerror.BindingFor
++// by the dual-stack host, which does not exist yet (see the stated bound
++// in internal/provhost/doc.go).
++//
++// The provider-side MUST this file enforces is: reject a descriptor whose
++// binding digest, backend ID/version, or generation does not match the
++// AX-validated host-local binding. Shape validation (the closed member set
++// and every per-member constraint) runs first so a malformed descriptor is
++// refused as a protocol violation, never compared as a binding.
++//
++// Future caller, recorded so the next leaf inherits the question rather
++// than rediscovering it: AdmitProviderDescriptor has no production caller
++// yet. It belongs on the v3 launch/observe path — the dual-stack host
++// follow-up named in internal/provhost/doc.go — which must admit the
++// candidate TerminalDescriptor against the AX-validated host-local
++// binding immediately before spawning the provider process (launch) and
++// before trusting a status observation (observe), and refuse the
++// operation on mismatch. Wiring it anywhere else (after spawn, on a
++// retry path that reuses an admitted descriptor without re-checking
++// generation) would admit a stale binding; the call order is parse,
++// match, then launch, with no caching of the admitted value across
++// generation changes.
++package terminalbackend
++
++import (
++	"encoding/json"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// descriptorMembers is the exact closed §7.A member set: eight table rows,
++// nine members, because columns and rows are two members. No other member
++// is permitted. It is package-level so the inventory derivation sees the
++// single construction site; widening it must redden the member-set test,
++// not pass silently.
++var descriptorMembers = []string{
++	"terminal_binding_id",
++	"terminal_instance_id",
++	"terminal_backend_id",
++	"implementation_version",
++	"protocol_version",
++	"backend_generation",
++	"interactive",
++	"columns",
++	"rows",
++}
++
++// ProviderDescriptor is one validated §7.A v3 TerminalDescriptor. Every
++// value is trustworthy only when produced by ParseProviderDescriptor: the
++// zero value is not valid (empty digest, empty generation, zero geometry),
++// and no constructor outside this file may mint one. Columns and Rows
++// carry the §7.A uint16[1..1000] bound; the Go type holds the uint16 half
++// and the parse entry holds the 1..1000 half.
++type ProviderDescriptor struct {
++	TerminalBindingID     string
++	TerminalInstanceID    string
++	TerminalBackendID     string
++	ImplementationVersion string
++	ProtocolVersion       string
++	BackendGeneration     string
++	Interactive           bool
++	Columns               uint16
++	Rows                  uint16
++}
++
++// Binding projects the AX-validated binding subset §7.A matches: binding
++// digest, backend ID, versions, and generation. Instance identity,
++// interactivity, and geometry are carried context, matched to nothing.
++func (descriptor ProviderDescriptor) Binding() InstanceBinding {
++	return InstanceBinding{
++		BackendID:             descriptor.TerminalBackendID,
++		ImplementationVersion: descriptor.ImplementationVersion,
++		ProtocolVersion:       descriptor.ProtocolVersion,
++		Generation:            descriptor.BackendGeneration,
++		TerminalBindingID:     descriptor.TerminalBindingID,
++	}
++}
++
++// AdmitProviderDescriptor is the complete §7.A provider-side gate: parse
++// the closed descriptor document, then match it against the AX-validated
++// host-local binding. A malformed document is refused with
++// terminal_backend_protocol_error before any comparison runs; a
++// well-formed document that does not match is refused with the binding
++// arm CheckProviderDescriptor reports. Admitted documents return the
++// parsed descriptor for the launch path to carry.
++func AdmitProviderDescriptor(doc []byte, binding InstanceBinding) (ProviderDescriptor, error) {
++	descriptor, err := ParseProviderDescriptor(doc)
++	if err != nil {
++		return ProviderDescriptor{}, err
++	}
++	if err := CheckProviderDescriptor(descriptor.Binding(), binding); err != nil {
++		return ProviderDescriptor{}, err
++	}
++	return descriptor, nil
++}
++
++// ParseProviderDescriptor validates one closed §7.A descriptor document.
++// Member-set violations (an unknown member or a missing member) are one
++// arm: the rule is the closed set itself, and the member-set test
++// enumerates the extra, missing, and duplicate shapes against it. Member
++// type violations (a non-string string member) are one arm for the same
++// reason: JSON type discipline is one obligation, enumerated across all
++// six string members by the member-type test.
++func ParseProviderDescriptor(doc []byte) (ProviderDescriptor, error) {
++	object, err := decodeStrictObject(doc)
++	if err != nil {
++		return ProviderDescriptor{}, err
++	}
++	if len(object) != len(descriptorMembers) {
++		return ProviderDescriptor{}, &Error{Code: CodeProtocolError, Detail: "descriptor member set"}
++	}
++	for _, member := range descriptorMembers {
++		if _, known := object[member]; !known {
++			return ProviderDescriptor{}, &Error{Code: CodeProtocolError, Detail: "descriptor member set"}
++		}
++	}
++	bindingID, err := descriptorText(object, "terminal_binding_id")
++	if err != nil {
++		return ProviderDescriptor{}, err
++	}
++	if _, err := scalar.ParseDigest(bindingID); err != nil {
++		return ProviderDescriptor{}, &Error{Code: CodeProtocolError, Detail: "descriptor digest"}
++	}
++	instanceID, err := descriptorText(object, "terminal_instance_id")
++	if err != nil {
++		return ProviderDescriptor{}, err
++	}
++	// The UUIDv7 grammar is the decidable half of the §7.A identity rule:
++	// a PID, socket, path, pipe, URL, handle, token, or native reference
++	// cannot spell a 36-character hyphenated UUIDv7, so grammar admission
++	// is identity-shape admission. The undecidable half (a UUIDv7 that
++	// names no live instance) is the binding's business, not the
++	// document's.
++	if _, err := scalar.ParseUUIDv7(instanceID); err != nil {
++		return ProviderDescriptor{}, &Error{Code: CodeProtocolError, Detail: "descriptor instance"}
++	}
++	backendID, err := descriptorText(object, "terminal_backend_id")
++	if err != nil {
++		return ProviderDescriptor{}, err
++	}
++	if _, err := ParseID(backendID); err != nil {
++		return ProviderDescriptor{}, err
++	}
++	implementationVersion, err := descriptorText(object, "implementation_version")
++	if err != nil {
++		return ProviderDescriptor{}, err
++	}
++	// Shape only: equality to the admitted Manifest and Probe is the
++	// binding match CheckProviderDescriptor performs against versions the
++	// registry validated at admission, so a well-formed version here is
++	// compared, never trusted, there.
++	if !semverPattern.MatchString(implementationVersion) {
++		return ProviderDescriptor{}, &Error{Code: CodeProtocolError, Detail: "descriptor implementation version"}
++	}
++	protocolVersion, err := descriptorText(object, "protocol_version")
++	if err != nil {
++		return ProviderDescriptor{}, err
++	}
++	if !semverPattern.MatchString(protocolVersion) || semverMajor(protocolVersion) != 1 {
++		return ProviderDescriptor{}, &Error{Code: CodeProtocolError, Detail: "descriptor protocol version"}
++	}
++	generation, err := descriptorText(object, "backend_generation")
++	if err != nil {
++		return ProviderDescriptor{}, err
++	}
++	// The string[1..256] bound is the registry's own rule, enforced by
++	// its own arm; a descriptor generation outside it is the same
++	// violation wherever it is read.
++	if err := checkGeneration(generation); err != nil {
++		return ProviderDescriptor{}, err
++	}
++	interactive, ok := object["interactive"].(bool)
++	if !ok {
++		return ProviderDescriptor{}, &Error{Code: CodeProtocolError, Detail: "descriptor interactive"}
++	}
++	columns, err := descriptorGeometry(object, "columns")
++	if err != nil {
++		return ProviderDescriptor{}, err
++	}
++	rows, err := descriptorGeometry(object, "rows")
++	if err != nil {
++		return ProviderDescriptor{}, err
++	}
++	return ProviderDescriptor{
++		TerminalBindingID:     bindingID,
++		TerminalInstanceID:    instanceID,
++		TerminalBackendID:     backendID,
++		ImplementationVersion: implementationVersion,
++		ProtocolVersion:       protocolVersion,
++		BackendGeneration:     generation,
++		Interactive:           interactive,
++		Columns:               columns,
++		Rows:                  rows,
++	}, nil
++}
++
++// descriptorText extracts a required string member. Numbers, booleans,
++// nulls, arrays, and objects are refused: no string member of the §7.A
++// descriptor takes them.
++func descriptorText(object map[string]any, name string) (string, error) {
++	value, ok := object[name].(string)
++	if !ok {
++		return "", &Error{Code: CodeProtocolError, Detail: "descriptor member type"}
++	}
++	return value, nil
++}
++
++// descriptorGeometry extracts a required uint16[1..1000] member. The
++// strict decoder delivers numbers as json.Number, so the literal must
++// spell an unsigned integer: a fraction, exponent, or sign is not one,
++// even when it names the same mathematical value. Canonical geometry
++// carries counts, never measurements.
++func descriptorGeometry(object map[string]any, name string) (uint16, error) {
++	// Three arms, one site each, shared by both geometry members: the JSON
++	// number type, the unsigned-integer literal shape, and the 1..1000
++	// bound are three distinct rules, and the geometry test enumerates the
++	// columns shapes and the rows shapes against each of them.
++	literal, ok := object[name].(json.Number)
++	if !ok {
++		return 0, &Error{Code: CodeProtocolError, Detail: "descriptor geometry type"}
++	}
++	digits := literal.String()
++	value := 0
++	for i := 0; i < len(digits); i++ {
++		digit := digits[i]
++		if digit < '0' || digit > '9' {
++			return 0, &Error{Code: CodeProtocolError, Detail: "descriptor geometry digits"}
++		}
++		// Refuse on the first digit that would exceed the bound rather
++		// than accumulating past it: value is at most 100 here, so the
++		// multiply below cannot wrap on any platform, and a literal
++		// naming more than 1000 is refused before its low bits can
++		// alias an in-range number downstream would trust as read.
++		if value > 100 {
++			return 0, &Error{Code: CodeProtocolError, Detail: "descriptor geometry bound"}
++		}
++		value = value*10 + int(digit-'0')
++	}
++	// An empty literal spells no digits, so value stays 0 and lands on
++	// the bound arm rather than needing an arm of its own.
++	if value < 1 || value > 1000 {
++		return 0, &Error{Code: CodeProtocolError, Detail: "descriptor geometry bound"}
++	}
++	return uint16(value), nil
++}
+diff --git a/internal/terminalbackend/descriptor_test.go b/internal/terminalbackend/descriptor_test.go
+new file mode 100644
+index 0000000..ea0dad3
+--- /dev/null
++++ b/internal/terminalbackend/descriptor_test.go
+@@ -0,0 +1,336 @@
++package terminalbackend_test
++
++import (
++	"strings"
++	"testing"
++
++	terminalbackend "github.com/relux-works/agent-session-manager/internal/terminalbackend"
++)
++
++// validDescriptorDoc is one fully valid §7.A descriptor document: every
++// member in range, matching the validDescriptorBinding below field for
++// field on the binding subset.
++const validDescriptorDoc = `{
++  "terminal_binding_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
++  "terminal_instance_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "terminal_backend_id": "com.example.term",
++  "implementation_version": "1.2.3",
++  "protocol_version": "1.0.0",
++  "backend_generation": "generation-1",
++  "interactive": true,
++  "columns": 80,
++  "rows": 24
++}`
++
++func validDescriptorBinding() terminalbackend.InstanceBinding {
++	return terminalbackend.InstanceBinding{
++		BackendID:             "com.example.term",
++		ImplementationVersion: "1.2.3",
++		ProtocolVersion:       "1.0.0",
++		Generation:            "generation-1",
++		TerminalBindingID:     testDigest,
++	}
++}
++
++// setDescriptorMember rewrites one top-level member literal of the valid
++// document. The anchor must occur exactly once.
++func setDescriptorMember(t *testing.T, member, literal string) []byte {
++	t.Helper()
++	anchors := map[string]string{
++		"terminal_binding_id":    `"terminal_binding_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000"`,
++		"terminal_instance_id":   `"terminal_instance_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab"`,
++		"terminal_backend_id":    `"terminal_backend_id": "com.example.term"`,
++		"implementation_version": `"implementation_version": "1.2.3"`,
++		"protocol_version":       `"protocol_version": "1.0.0"`,
++		"backend_generation":     `"backend_generation": "generation-1"`,
++		"interactive":            `"interactive": true`,
++		"columns":                `"columns": 80`,
++		"rows":                   `"rows": 24`,
++	}
++	anchor, known := anchors[member]
++	if !known {
++		t.Fatalf("unknown descriptor member %q", member)
++	}
++	if strings.Count(validDescriptorDoc, anchor) != 1 {
++		t.Fatalf("descriptor anchor for %q is not unique", member)
++	}
++	return []byte(strings.Replace(validDescriptorDoc, anchor, `"`+member+`": `+literal, 1))
++}
++
++// requireDescriptorRefusal asserts the full arm identity: the protocol
++// code and the exact static detail. The code alone cannot discriminate
++// the nine parse arms, and the detail alone cannot discriminate the
++// match arms sharing a dimension, so both are asserted every time.
++func requireDescriptorRefusal(t *testing.T, err error, detail string) {
++	t.Helper()
++	if err == nil {
++		t.Fatalf("want refusal with detail %q, got admission", detail)
++	}
++	if !terminalbackend.IsProtocolError(err) {
++		t.Fatalf("error %v is not terminal_backend_protocol_error", err)
++	}
++	if got := refusalDetail(t, err); got != detail {
++		t.Fatalf("refusal detail = %q, want %q", got, detail)
++	}
++}
++
++// TestAdmitProviderDescriptorAdmitsMatchingBinding is the admit direction
++// of the §7.A gate: a closed, well-formed descriptor matching the
++// AX-validated host-local binding is admitted, and the parsed value
++// carries every member.
++func TestAdmitProviderDescriptorAdmitsMatchingBinding(t *testing.T) {
++	t.Parallel()
++
++	descriptor, err := terminalbackend.AdmitProviderDescriptor([]byte(validDescriptorDoc), validDescriptorBinding())
++	if err != nil {
++		t.Fatalf("AdmitProviderDescriptor(match) error = %v, want admission", err)
++	}
++	if descriptor.TerminalBindingID != testDigest ||
++		descriptor.TerminalInstanceID != "0198f4c8-3e70-7a11-8a2b-1234567890ab" ||
++		descriptor.TerminalBackendID != "com.example.term" ||
++		descriptor.ImplementationVersion != "1.2.3" ||
++		descriptor.ProtocolVersion != "1.0.0" ||
++		descriptor.BackendGeneration != "generation-1" ||
++		!descriptor.Interactive ||
++		descriptor.Columns != 80 ||
++		descriptor.Rows != 24 {
++		t.Fatalf("AdmitProviderDescriptor(match) = %+v, want the valid descriptor", descriptor)
++	}
++}
++
++// TestParseProviderDescriptorMemberSet proves the closed set in three
++// shapes: an extra member, a missing member, and a duplicate member. The
++// first two share the descriptor member set arm (one rule: the closed
++// set); the duplicate is refused earlier by the strict decoder with the
++// document duplicate member arm, so a decoder bypass cannot smuggle a
++// repeated member past the set check.
++func TestParseProviderDescriptorMemberSet(t *testing.T) {
++	t.Parallel()
++
++	extra := strings.Replace(validDescriptorDoc, `"rows": 24`, `"rows": 24, "session_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab"`, 1)
++	_, err := terminalbackend.ParseProviderDescriptor([]byte(extra))
++	requireDescriptorRefusal(t, err, "descriptor member set")
++
++	missing := strings.Replace(validDescriptorDoc, ",\n  \"rows\": 24", "", 1)
++	_, err = terminalbackend.ParseProviderDescriptor([]byte(missing))
++	requireDescriptorRefusal(t, err, "descriptor member set")
++
++	duplicate := strings.Replace(validDescriptorDoc, `"rows": 24`, `"rows": 24, "rows": 25`, 1)
++	_, err = terminalbackend.ParseProviderDescriptor([]byte(duplicate))
++	if err == nil || !terminalbackend.IsMismatch(err) {
++		t.Fatalf("duplicate member error = %v, want a document mismatch refusal", err)
++	}
++	if got := refusalDetail(t, err); got != "document duplicate member" {
++		t.Fatalf("duplicate member detail = %q, want document duplicate member", got)
++	}
++}
++
++// TestParseProviderDescriptorMemberType enumerates the JSON type
++// discipline across all six string members: a number where a string
++// belongs is refused with the single descriptor member type arm, no
++// matter which member carries it.
++func TestParseProviderDescriptorMemberType(t *testing.T) {
++	t.Parallel()
++
++	for _, member := range []string{
++		"terminal_binding_id", "terminal_instance_id", "terminal_backend_id",
++		"implementation_version", "protocol_version", "backend_generation",
++	} {
++		_, err := terminalbackend.ParseProviderDescriptor(setDescriptorMember(t, member, `80`))
++		requireDescriptorRefusal(t, err, "descriptor member type")
++	}
++	_, err := terminalbackend.ParseProviderDescriptor(setDescriptorMember(t, "interactive", `"true"`))
++	requireDescriptorRefusal(t, err, "descriptor interactive")
++}
++
++// TestParseProviderDescriptorValueRefusals drives one shape per value
++// arm, asserting the full arm identity each time.
++func TestParseProviderDescriptorValueRefusals(t *testing.T) {
++	t.Parallel()
++
++	cases := []struct {
++		name    string
++		member  string
++		literal string
++		detail  string
++	}{
++		{"binding digest malformed", "terminal_binding_id", `"not-a-digest"`, "descriptor digest"},
++		{"binding digest empty", "terminal_binding_id", `""`, "descriptor digest"},
++		{"binding id null", "terminal_binding_id", `null`, "descriptor member type"},
++		{"instance pid", "terminal_instance_id", `"1234"`, "descriptor instance"},
++		{"instance path", "terminal_instance_id", `"/tmp/instance"`, "descriptor instance"},
++		{"instance uuid v4", "terminal_instance_id", `"550e8400-e29b-41d4-a716-446655440000"`, "descriptor instance"},
++		{"implementation version not semver", "implementation_version", `"1.2"`, "descriptor implementation version"},
++		{"implementation version empty", "implementation_version", `""`, "descriptor implementation version"},
++		{"protocol version not semver", "protocol_version", `"one"`, "descriptor protocol version"},
++		// The narrowing shape for the major-1 rule: a well-formed semver
++		// outside major 1 must still refuse. A mutant admitting any
++		// semver here passes every other row of this table.
++		{"protocol version major 2", "protocol_version", `"2.0.0"`, "descriptor protocol version"},
++		{"interactive number", "interactive", `1`, "descriptor interactive"},
++		{"interactive null", "interactive", `null`, "descriptor interactive"},
++		{"columns zero", "columns", `0`, "descriptor geometry bound"},
++		{"columns over bound", "columns", `1001`, "descriptor geometry bound"},
++		{"columns fraction", "columns", `80.0`, "descriptor geometry digits"},
++		{"columns exponent", "columns", `1e2`, "descriptor geometry digits"},
++		{"columns negative", "columns", `-80`, "descriptor geometry digits"},
++		{"columns string", "columns", `"80"`, "descriptor geometry type"},
++		{"columns null", "columns", `null`, "descriptor geometry type"},
++		{"rows zero", "rows", `0`, "descriptor geometry bound"},
++		{"rows over bound", "rows", `65535`, "descriptor geometry bound"},
++		{"rows fraction", "rows", `24.5`, "descriptor geometry digits"},
++		{"rows boolean", "rows", `true`, "descriptor geometry type"},
++	}
++	for _, testCase := range cases {
++		t.Run(testCase.name, func(t *testing.T) {
++			t.Parallel()
++			_, err := terminalbackend.ParseProviderDescriptor(setDescriptorMember(t, testCase.member, testCase.literal))
++			requireDescriptorRefusal(t, err, testCase.detail)
++		})
++	}
++}
++
++// TestParseProviderDescriptorGeometryOverflowVectors proves the 1..1000
++// bound is decided on the digit string, never on a wrapped accumulator:
++// every literal below names a value outside 1..1000 whose low 64 bits
++// land inside it (2^64+1 wraps to 1, 2^64+1000 wraps to 1000,
++// 18446744073709552116 wraps to 500, and the 20-digit row wraps twice),
++// so an accumulating gate admits them with a fabricated in-range number
++// downstream cannot distinguish from a real one. All must refuse with
++// the bound arm; rows spots the shared site on the second member.
++func TestParseProviderDescriptorGeometryOverflowVectors(t *testing.T) {
++	t.Parallel()
++
++	columns := []string{
++		"1000",
++		"1001",
++		"9223372036854775808",
++		"18446744073709551616",
++		"18446744073709551617",
++		"18446744073709552116",
++		"18446744073709552616",
++		"55340232221128655348",
++		"99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
++	}
++	for _, literal := range columns {
++		if literal == "1000" {
++			if _, err := terminalbackend.ParseProviderDescriptor(setDescriptorMember(t, "columns", literal)); err != nil {
++				t.Fatalf("ParseProviderDescriptor(columns=%s) error = %v, want admission", literal, err)
++			}
++			continue
++		}
++		_, err := terminalbackend.ParseProviderDescriptor(setDescriptorMember(t, "columns", literal))
++		requireDescriptorRefusal(t, err, "descriptor geometry bound")
++	}
++	for _, literal := range []string{"18446744073709551617", "55340232221128655348"} {
++		_, err := terminalbackend.ParseProviderDescriptor(setDescriptorMember(t, "rows", literal))
++		requireDescriptorRefusal(t, err, "descriptor geometry bound")
++	}
++}
++
++// TestParseProviderDescriptorProtocolVersionOverflowVectors proves the
++// major-1 rule is decided on the digit string, never on a wrapped
++// accumulator: 18446744073709551617 wraps to 1 in 64 bits, so an
++// accumulating major gate admits this foreign major as the native one.
++// All three literals name non-1 majors and must refuse with the protocol
++// version arm.
++func TestParseProviderDescriptorProtocolVersionOverflowVectors(t *testing.T) {
++	t.Parallel()
++
++	for _, literal := range []string{
++		`"18446744073709551617.0.0"`,
++		`"18446744073709551618.0.0"`,
++		`"99999999999999999999999999999999999999999.0.0"`,
++	} {
++		_, err := terminalbackend.ParseProviderDescriptor(setDescriptorMember(t, "protocol_version", literal))
++		requireDescriptorRefusal(t, err, "descriptor protocol version")
++	}
++}
++
++// TestParseProviderDescriptorGeometryBounds proves the 1..1000 bound
++// itself: 1 and 1000 admit on both members, so the bound refusals above
++// cannot be attributed to the type or digit arms.
++func TestParseProviderDescriptorGeometryBounds(t *testing.T) {
++	t.Parallel()
++
++	for _, literal := range []string{`1`, `1000`} {
++		for _, member := range []string{"columns", "rows"} {
++			doc := setDescriptorMember(t, member, literal)
++			if _, err := terminalbackend.ParseProviderDescriptor(doc); err != nil {
++				t.Errorf("ParseProviderDescriptor(%s=%s) error = %v, want admission", member, literal, err)
++			}
++		}
++	}
++}
++
++// TestParseProviderDescriptorRefusesWithoutEchoingLocalData proves the
++// package's never-echoes-local-data posture at the new arms: refused
++// values reach the error only through the static clause, never
++// interpolated. The first document carries a well-formed but unmatched
++// digest past a broken instance, so the digest is traversed and still
++// not echoed; the second breaks the digest itself with a distinctive
++// token.
++func TestParseProviderDescriptorRefusesWithoutEchoingLocalData(t *testing.T) {
++	t.Parallel()
++
++	foreignDigest := "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
++	doc := setDescriptorMember(t, "terminal_binding_id", `"`+foreignDigest+`"`)
++	doc = []byte(strings.Replace(string(doc),
++		`"terminal_instance_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab"`,
++		`"terminal_instance_id": "not-a-uuid"`, 1))
++	_, err := terminalbackend.ParseProviderDescriptor(doc)
++	requireDescriptorRefusal(t, err, "descriptor instance")
++	if strings.Contains(err.Error(), foreignDigest) {
++		t.Fatalf("refusal echoes the digest under test: %v", err)
++	}
++
++	brokenDigest := "digest-ZZZ-not-a-digest"
++	_, err = terminalbackend.ParseProviderDescriptor(setDescriptorMember(t, "terminal_binding_id", `"`+brokenDigest+`"`))
++	requireDescriptorRefusal(t, err, "descriptor digest")
++	if strings.Contains(err.Error(), "ZZZ") {
++		t.Fatalf("refusal echoes the digest under test: %v", err)
++	}
++}
++
++// TestAdmitProviderDescriptorRefusesMismatch is the refuse direction of
++// the §7.A gate through the complete entry: a well-formed descriptor
++// that does not match the binding is refused with the binding arm
++// CheckProviderDescriptor reports, not with a parse arm.
++func TestAdmitProviderDescriptorRefusesMismatch(t *testing.T) {
++	t.Parallel()
++
++	binding := validDescriptorBinding()
++
++	drift := binding
++	drift.ImplementationVersion = "1.2.4"
++	if _, err := terminalbackend.AdmitProviderDescriptor([]byte(validDescriptorDoc), drift); !terminalbackend.IsDrift(err) {
++		t.Fatalf("AdmitProviderDescriptor(version drift) error = %v, want terminal_backend_implementation_drift", err)
++	}
++
++	foreign := binding
++	foreign.BackendID = "com.example.other"
++	if _, err := terminalbackend.AdmitProviderDescriptor([]byte(validDescriptorDoc), foreign); !terminalbackend.IsNotFound(err) {
++		t.Fatalf("AdmitProviderDescriptor(ID mismatch) error = %v, want terminal_backend_not_found", err)
++	}
++
++	stale := binding
++	stale.Generation = "generation-2"
++	if _, err := terminalbackend.AdmitProviderDescriptor([]byte(validDescriptorDoc), stale); !terminalbackend.IsStaleGeneration(err) {
++		t.Fatalf("AdmitProviderDescriptor(stale generation) error = %v, want terminal_backend_stale_generation", err)
++	}
++
++	// Generation match is byte equality, not case folding: a
++	// case-variant generation is stale, and a mutant folding case
++	// admits it.
++	folded := binding
++	folded.Generation = "GENERATION-1"
++	if _, err := terminalbackend.AdmitProviderDescriptor([]byte(validDescriptorDoc), folded); !terminalbackend.IsStaleGeneration(err) {
++		t.Fatalf("AdmitProviderDescriptor(case-variant generation) error = %v, want terminal_backend_stale_generation", err)
++	}
++
++	foreignDigest := binding
++	foreignDigest.TerminalBindingID = testDigestOther
++	if _, err := terminalbackend.AdmitProviderDescriptor([]byte(validDescriptorDoc), foreignDigest); !terminalbackend.IsNotFound(err) {
++		t.Fatalf("AdmitProviderDescriptor(digest mismatch) error = %v, want terminal_backend_not_found", err)
++	}
++}
+diff --git a/internal/terminalbackend/refusal_arm_inventory_test.go b/internal/terminalbackend/refusal_arm_inventory_test.go
+index 5fb0690..95a0452 100644
+--- a/internal/terminalbackend/refusal_arm_inventory_test.go
++++ b/internal/terminalbackend/refusal_arm_inventory_test.go
+@@ -735,6 +735,18 @@ var declaredRefusalArms = []declaredRefusalArm{
+ 	{"terminalbackend.go", "validateProtocolVersions", "CodeDrift", "protocol_versions bound", 1, "New", "", nil, []refusalTestRef{{file: "terminalbackend_test.go", test: "TestNewRefusesBadVersionTuples"}}},
+ 	{"terminalbackend.go", "validateProtocolVersions", "CodeDrift", "protocol_versions major 1", 1, "RegisterExternal", "", nil, []refusalTestRef{{file: "terminalbackend_test.go", test: "TestRegisterExternalRefusals"}}},
+ 	{"terminalbackend.go", "validateProtocolVersions", "CodeDrift", "protocol_versions sorted unique", 1, "New", "", nil, []refusalTestRef{{file: "terminalbackend_test.go", test: "TestNewRefusesBadVersionTuples"}}},
++	{"descriptor.go", "ParseProviderDescriptor", "CodeProtocolError", "descriptor member set", 1, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorMemberSet"}}},
++	{"descriptor.go", "ParseProviderDescriptor", "CodeProtocolError", "descriptor member set", 2, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorMemberSet"}}},
++	{"descriptor.go", "ParseProviderDescriptor", "CodeProtocolError", "descriptor digest", 1, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorValueRefusals"}}},
++	{"descriptor.go", "ParseProviderDescriptor", "CodeProtocolError", "descriptor instance", 1, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorValueRefusals"}}},
++	{"descriptor.go", "ParseProviderDescriptor", "CodeProtocolError", "descriptor implementation version", 1, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorValueRefusals"}}},
++	{"descriptor.go", "ParseProviderDescriptor", "CodeProtocolError", "descriptor protocol version", 1, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorValueRefusals"}}},
++	{"descriptor.go", "ParseProviderDescriptor", "CodeProtocolError", "descriptor interactive", 1, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorValueRefusals"}}},
++	{"descriptor.go", "descriptorText", "CodeProtocolError", "descriptor member type", 1, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorMemberType"}}},
++	{"descriptor.go", "descriptorGeometry", "CodeProtocolError", "descriptor geometry type", 1, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorValueRefusals"}}},
++	{"descriptor.go", "descriptorGeometry", "CodeProtocolError", "descriptor geometry digits", 1, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorValueRefusals"}}},
++	{"descriptor.go", "descriptorGeometry", "CodeProtocolError", "descriptor geometry bound", 1, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorGeometryOverflowVectors"}, {file: "descriptor_test.go", test: "TestParseProviderDescriptorValueRefusals"}}},
++	{"descriptor.go", "descriptorGeometry", "CodeProtocolError", "descriptor geometry bound", 2, "ParseProviderDescriptor", "", nil, []refusalTestRef{{file: "descriptor_test.go", test: "TestParseProviderDescriptorValueRefusals"}, {file: "descriptor_test.go", test: "TestParseProviderDescriptorGeometryOverflowVectors"}}},
+ }
+ 
+ // funneledPlatformDetails is the exact error set validatePlatforms can
+diff --git a/internal/terminalbackend/terminalbackend.go b/internal/terminalbackend/terminalbackend.go
+index 654e210..ff0a716 100644
+--- a/internal/terminalbackend/terminalbackend.go
++++ b/internal/terminalbackend/terminalbackend.go
+@@ -16,6 +16,7 @@ import (
+ 	"encoding/hex"
+ 	"errors"
+ 	"fmt"
++	"math"
+ 	"os"
+ 	"path/filepath"
+ 	"regexp"
+@@ -242,13 +243,22 @@ func validateProtocolVersions(backendID string, versions []string) error {
+ }
+ 
+ // semverMajor returns the major number of a validated semver string.
++// A major that does not fit an int saturates instead of wrapping, so a
++// huge foreign major compares foreign at every != 1 call site rather
++// than aliasing a small native one (18446744073709551617 must not read
++// as 1). Saturation preserves every comparison against the small
++// constants the call sites use, in the correct direction.
+ func semverMajor(version string) int {
+ 	major := 0
+ 	for i := 0; i < len(version); i++ {
+ 		if version[i] == '.' {
+ 			break
+ 		}
+-		major = major*10 + int(version[i]-'0')
++		digit := int(version[i] - '0')
++		if major > (math.MaxInt-digit)/10 {
++			return math.MaxInt
++		}
++		major = major*10 + digit
+ 	}
+ 	return major
+ }
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 492c379..6a90bfd 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -2423,6 +2423,14 @@
+         "declaration": "CheckProviderDescriptor"
+       },
+       "tests": [
++        {
++          "path": "internal/terminalbackend/descriptor_test.go",
++          "declaration": "TestAdmitProviderDescriptorAdmitsMatchingBinding"
++        },
++        {
++          "path": "internal/terminalbackend/descriptor_test.go",
++          "declaration": "TestAdmitProviderDescriptorRefusesMismatch"
++        },
+         {
+           "path": "internal/terminalbackend/terminalbackend_test.go",
+           "declaration": "TestCheckProviderDescriptor"
+@@ -3386,14 +3394,14 @@
+         "section:7.A"
+       ],
+       "production": {
+-        "path": "internal/catalog/catalog.go",
+-        "declaration": "ForRelease"
++        "path": "internal/terminalbackend/descriptor.go",
++        "declaration": "AdmitProviderDescriptor"
+       },
+       "acceptance_cases": [
+-        "catalog-v050-exact"
++        "terminal-provider-descriptor-7a"
+       ],
+       "coverage": "unevidenced",
+-      "gap": "ForRelease only returns the reviewed typed catalog rows that reference 7.A; no clause of 7.A is enumerated against an acceptance case, so the registry makes no clause-level claim about the 2 obligations it carries."
++      "gap": "AdmitProviderDescriptor is the complete Section 7.A provider-side gate: it parses the closed v3 TerminalDescriptor document and matches binding digest, backend ID/version, and generation against the AX-validated host-local binding, refusing mismatches before launch or observation. The v3 transport envelope stays with provhost's v2 machinery, which speaks major 2 only and refuses recognizable 3.x as incompatible_protocol per the Section 7.A mismatch rule; decoding v3 failures under Structured Error 1.3.0 awaits the dual-stack host follow-up described in TASK-260906-vmzk0y's outcome. No clause of 7.A is enumerated against an acceptance case, so the registry makes no clause-level claim about the 2 obligations it carries."
+     },
+     {
+       "kind": "section_binding",
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 089ef34..3056626 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "5581f5eb95bfc5762bb4af0d72b6895c5f4da9bcd63d14709124bd264de1b489"
++	reviewedOwnershipCanonicalSHA256 = "caaca4c9b2d0a2ddb225810dba757807474230cf20e39cb3676c902f83fd9faa"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")

@@ -1,0 +1,10 @@
+# TASK-260906-2okwyf: close-cross-package-agreement-and-trust-asymmetry
+
+## Description
+Close advisories A5, A7, A8 and A9. A5: the six-provider set exists as two hand-written literals, provider.builtinOrder and provhost.profileProviders, each derived-checked against a different SPEC.md line window and bridged only by the spec pin; no test asserts provider.Builtins() equals provhost's registry directly, and provhost scopes profileProviders out of its census. Add one cross-package equality test. A7: terminalbackend.DigestFile (terminalbackend.go:603) establishes trust with EvalSymlinks plus regular-file plus sha256 and no owner check, while provider.trustCandidate (provider.go:394) adds an owner policy and constant-time re-verification; if 6.5 genuinely lacks the owner dimension that 7.1 has, cite the asymmetry at both sites, and if the spec is silent, make and record the decision. A9 nits: terminalbackend.ParseID puts raw grammar-refused input into Error.BackendID which Error() prints, at odds with the package never-echoes-local-data posture; provhost.parseMajor accepts leading zeros; provhost.RequireCapability re-decodes the probe body three times after DecodeProbe validated it.
+
+## Scope
+relux-works/agent-session-manager-spec@v0.5.0 (commit 28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c). Resolve seams found by the consolidated cross-Story review (.temp/fable-consolidated-review.md). Work only inside the cross-story-identity-ownership-and-inventory-consistency story boundary. Preserve all stronger existing invariants; no gate may be weakened to close a seam.
+
+## Acceptance Criteria
+Production behavior demonstrates: one test asserts the two six-provider literals equal directly and fails when either changes alone, independent of the SPEC.md line windows. The 6.5 versus 7.1 trust asymmetry is cited at both trust-establishment sites with the spec clause, or a recorded decision closes it. ParseID no longer prints unbounded refused input. Every nit closed carries a test that fails before the fix; a nit deliberately left open carries a stated bound naming why.

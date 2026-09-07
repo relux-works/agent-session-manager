@@ -1,0 +1,3354 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 3ca1742..4ece114 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,24 @@
+ 
+ ## 2026-09-07
+ 
++### 33xcnc round 2: review F1/F2/F3 closed test-only, 70/71 battery on the corrected 101-exit denominator
++- SCOPE (test-only; no production touched, frozen files intact): `internal/environ/shape_census_test.go` (load-bearing delegation pins + 9 synthetic decoy controls), `tuple_agreement_test.go` (uppercase-hex fingerprint vector), `frame_agreement_test.go` (per-member duplicate sweeper over 30 production-derived keys × 4 judges), `decode_unit_test.go` (R_digestnonstr downstream pin), `internal/provhost/protocol_test.go` (DecodeResponse per-member duplicate test, 6 derived + 4 foreign keys).
++- F1 (decoy defeated the gate): `pinsCheckDelegation`/`pinsDelegation` required only an `environ` reference, so `_, _ = environ.CheckDigest(raw)` + a regrown `ParseDigest(ToLower)` copy stayed green while `sessadapter.DecodeTuple` admitted uppercase-hex fingerprints `environ` refuses. Fix: helpers must be exactly `return environ.Twin(args)` with twin-name match; wrappers must attribute the owner verdict to reused non-blank names with no other call, plus a duplicate-rule check. The plant now fails `TestCheckHelpersDelegateToEnviron` AND `TestTupleAgreementAcrossFacades/uppercase_fingerprint_refused`; harness mutants D1/D2 report `suites=behavioral,census`.
++- F2 (duplicate class measured at one key): narrowing `duplicate && key != K` survived 6/8 response keys and 7/10 owner keys. Fix: derivation-backed sweepers (member sets derived from tuple/observation/response/scan-request production; new members auto-swept) through `DecodeTuple`/`CheckScanRequest`/`DecodeManifest`/`DecodeResponse`/`DecodeStrictObject`. Battery adds 8 owner + 6 retained narrowing mutants, one per survived key. Survivor honest-report: first `P_dupnarrow_provider_id` run SURVIVED and exposed a real test gap (foreign `provider_id` missing from the envelope sweeper); key added, mutant re-run KILLED.
++- F3 (denominator basis): corrected — 31 refuse sites + 59 bool-false + 11 `&Fault{}` frame exits = 101 (105 counting the 4 bool-`return <expr>` arms: CheckEnvironmentID/CheckSemver/isNull/rawUint53-forward). The "27 of 100" figure was the corrected basis pre-ladder-guard; 90 was the uncorrected one. Harness derives all three components at runtime; F3 residue exits attacked by N1/M15/M15n/M16/M17/M17n inside the previously excluded 11.
++- EVIDENCE: battery `/tmp/mutbattery_leaf6/run.py` + `battery.log` + `results.json`: 70 killed / 71 applied (49 narrowing incl. D1 token-preserving delegation decoy + 8 owner + 6 retained duplicate narrowings; 17 arm-deletion incl. D2; 3 census-only; 1 audit-only; H1 NOT_APPLIED + H2 COMPILE_FAIL distinct rows; 1 predicted survivor R_digestnonstr, now property-pinned by `TestDigestBridgeRefusesEmptyDownstream`). Mutant table + outcome attached as round-2 resources.
++- GATES: `go build` + `go vet` + `GOOS=windows` build/vet exit 0, gofmt clean, `go test ./...` exit 0 (23 ok), `go test ./... -race` exit 0 (23 ok, full repo — no race bound this round), `-cover` (env 92.4/sess 82.0/dir 87.7/ph 86.0/scalar 90.1/invcore 70.2).
++- STATUS: handed off to review, work left uncommitted in the worktree for board CR.
++
++### 1215 — 33xcnc: remaining environment copies converged, residue re-derived, 54/55 battery
++- SCOPE: TASK-260906-33xcnc (story final leaf). Production: `sessadapter/decode.go` + `dirnode/decode.go` (9 Check*/measure/extensions helpers each delegate to `environ.*`, 6 grammar vars deleted, rawUint53 trailing arm + ladder empty-guard hardened to the environ texture), grammar call sites (`sessadapter/manifest.go`, `tuple.go`, `probe.go`, `dirnode/probe.go`, `query.go`), `provhost/opdecode.go` (same trailing arm), `environ/decode.go` (ladder guard, refuse func→var). No leaf-owned production touched (`provhost/protocol.go`, `identity.go`, `probe.go`, `canonicaljson/closed_shapes.go` frozen). Tests: scalar agreement battery (15 vectors), site audit (31 sites/39 rules, TestMain swap + recorder), census alias audit (import-alias/var-binding/dot-import/shadow plants), delegation pins, sibling trailing units, ladder/array units.
++- FINDING (ladder hole, caught by the new unit pre-fix): `parseUint53Literal("")` admitted 0 in all three packages; unreachable via rawUint53 (guarded) but hardened identically everywhere.
++- FINDING (union coverage): in-package + external test files compile to one binary, so the TestMain audit sees exercised sites from both; the in-package driver table is load-bearing for the two frame-fault passthrough sites (external corpora carry no frame-faulty tuple/observation bodies). Proven: dropping one passthrough driver fails the closed rule set (`want exactly 39 codes, observed 38`).
++- FINDING (mutant quality): M13n v1 (presence skip without decode skip) survived — the nil member refuses at decode fall-through. v2 (with `continue`) kills. R_rawstringerr predicted-survivor was wrong: direct-rawString arms (platform/arch/version/provider) refuse at the wrong arm, killed by exact-text drivers.
++- EVIDENCE: outcome `TASK-260906-33xcnc_outcome.md` + battery log + mutants JSON + harness + mutant table (54 killed/55 applied on denominator 90 = 31 refuse + 59 bool; 34 narrowing incl. T1/C3 token-preserving raw-scans; 3 census-only; 1 audit-only; 1 predicted survivor R_digestnonstr with downstream-hold bound; H1/H2 prove NOT_APPLIED/COMPILE_FAIL rows). Callerless closed for 10 Check* symbols via delegation; DecodeTuple/DecodeEnvironmentObservation/rawUint53/Fault.Error/HasLoneSurrogateEscape re-stated with reasons.
++- GATES: `go test ./...` exit 0 (23 ok), `-race` exit 0 (environ/sessadapter/dirnode/scalar/provhost/canonicaljson/provider; full-repo race not run), `-cover` exit 0 (env 92.4/sess 82.0/dir 87.7/ph 86.0/scalar 90.1), `go vet` + `GOOS=windows go vet` + both builds exit 0, gofmt clean, tracecheck exit 0, catalog current, cigate selections exit 0, fuzz smoke 13/13.
++- STATUS: Ready for review, handed off to review. Open need (in outcome, no board element): provhost decoder convergence needs unfreezing `provhost/protocol.go`.
++
+ ### 1111 — 2okwyf round 4: F3 stray file out of the tree, N1/N2 instrument gates fail closed, N3/N4 bounds
+ - SCOPE: TASK-260906-2okwyf rework (review rev3 CHANGES REQUESTED, blocking F3 + non-blocking N1–N4). F3: `probe_f2_main.go.bak` (F2 probe, `package main`, repo root) moved to `.temp/TASK-260906-2okwyf/` (gitignored, outside the candidate tree; `git status` clean of it). No production behavior change this round. Test instrument only: `refusal_arm_inventory_test.go` (refusalArm gains the derivation-time `backendID` AST-key flag; `deriveRefusalArmsIn` dir parameter), `backend_id_entry_census_test.go` (site filter reads the flag — any composite-literal spelling; entry enumeration fails closed on bare-name collision via `collectExportedEntries`; two synthetic-package-dir derivation tests; N3 stated bound for the 44 free-entry reasons). LOGBOOK: N4 number/typo fixes (59 derived = 10 pair + 5 hostile-only + 44 free; round-2 entry cited rev1, not rev3).
+ - FINDING (holes reproduced pre-fix, both GREEN on the old tree): P2 exported method `(*Registry).Reconcile` absorbed by the bare-name dedupe; P3 dead multi-line BackendID arm missed by the line-text filter. Post-fix both RED in one `TestBackendIDEntryCensus` run: `has no census pair` for the multiline site, `collide on one bare name: Reconcile: Reconcile in manifest.go against Registry.Reconcile in manifest.go`. Plants reverted byte-identical (`git diff` shows no PLANT; full suite green).
+diff --git a/internal/dirnode/bound_census_test.go b/internal/dirnode/bound_census_test.go
+index 56b5498..fe4529c 100644
+--- a/internal/dirnode/bound_census_test.go
++++ b/internal/dirnode/bound_census_test.go
+@@ -102,11 +102,12 @@ import (
+ 	"go/printer"
+ 	"go/token"
+ 	"os"
+-	"path/filepath"
+ 	"sort"
+ 	"strconv"
+ 	"strings"
+ 	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/invcore"
+ )
+ 
+ // boundRegistration is one production bound site with its proof:
+@@ -155,37 +156,22 @@ var boundHelpers = map[string]bool{
+ // TestBoundLenScanSeesLengthVariables prove the halves.
+ func scanBoundSiteIDs(t *testing.T, directory string) []string {
+ 	t.Helper()
+-	entries, err := os.ReadDir(directory)
+-	if err != nil {
+-		t.Fatalf("bound census: %v", err)
+-	}
++	// Production file selection and fail-closed parsing come
++	// from invcore: an unreadable or unparseable production file
++	// fails the suite instead of scanning as clean, and zero
++	// production files fail instead of passing vacuously. The
++	// bound-site extraction below is unchanged: the synthetic
++	// indirection plants drive boundSitesInSyntax directly, so
++	// both prove the same extractor.
++	files, _ := invcore.MustScanProduction(t, directory)
+ 	var ids []string
+-	scanned := 0
+-	for _, entry := range entries {
+-		name := entry.Name()
+-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+-			continue
+-		}
+-		scanned++
+-		path := filepath.Join(directory, name)
+-		source, err := os.ReadFile(path)
+-		if err != nil {
+-			t.Fatalf("bound census: %v", err)
+-		}
+-		fileSet := token.NewFileSet()
+-		syntax, err := parser.ParseFile(fileSet, path, source, 0)
+-		if err != nil {
+-			t.Fatalf("bound census: %v", err)
+-		}
+-		sites, violations := boundSitesInSyntax(syntax, name)
++	for _, production := range files {
++		sites, violations := boundSitesInSyntax(production.Syntax, production.Name)
+ 		for _, violation := range violations {
+-			t.Errorf("bound census: %s: %s", name, violation)
++			t.Errorf("bound census: %s: %s", production.Name, violation)
+ 		}
+ 		ids = append(ids, sites...)
+ 	}
+-	if scanned == 0 {
+-		t.Fatal("bound census scanned zero production files; the scanner is broken, not the package")
+-	}
+ 	return ids
+ }
+ 
+@@ -523,23 +509,23 @@ func isBoundIdentChar(c byte) bool {
+ // repetition needs none because every other repeated literal in
+ // this package sits in a distinct function.
+ var boundRegistrations = []boundRegistration{
+-	// decode.go: reverse-DNS key bounds and shared mechanisms.
+-	{id: `decode.go|checkExtensions|len|len(name) < N|0`, exempt: true, reason: "equivalent: no 2-character key satisfies the reverse-DNS grammar (minimum \"a.b\" is 3), so narrowing the floor changes no verdict; the ceiling and the refusal are pinned by TestExtensionKeyBoundEdges"},
+-	{id: `decode.go|checkExtensions|len|len(name) > N|0`, driver: "TestExtensionKeyBoundEdges", reason: "extension key maximum 253"},
++	// decode.go: the shared character-count, sorted-unique, and
++	// extensions enforcements converged onto environ this leaf
++	// (checkStringBounds, checkSortedUniqueStrings,
++	// checkSortedUniqueDigests, and checkExtensions delegate to
++	// the environ gates), so their len comparisons no longer
++	// derive here and their rows are GONE, not retained. The
++	// bounds still refuse at the same production entries through
++	// the same drivers (TestStringBoundEdges,
++	// TestSortedUniqueStringsEdges, TestDigestArrayBoundEdges,
++	// TestExtensionKeyBoundEdges), and the delegation itself is
++	// pinned structurally by TestCheckHelpersDelegateToEnviron
++	// in internal/environ. A revived local comparison fails here
++	// as unrostered.
+ 	{id: `decode.go|checkOptionalString|checkStringBounds|raw|0`, driver: "TestStringBoundEdges", exempt: true, reason: "mechanism: transparent bound forwarder for cursor, next_cursor, and remediation; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueDigests|len|index < len(values)|0`, exempt: true, reason: "plumbing: pairwise sortedness scan index, not a domain bound; element and count edges pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueDigests|len|uint64(len(elements)) < minimumCount|0`, driver: "TestDigestArrayBoundEdges", exempt: true, reason: "mechanism: shared count floor; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueDigests|len|uint64(len(elements)) > maximumCount|0`, driver: "TestDigestArrayBoundEdges", exempt: true, reason: "mechanism: shared count ceiling; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueStrings|len|index < len(values)|0`, exempt: true, reason: "plumbing: pairwise sortedness scan index, not a domain bound; element and count edges pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueStrings|len|length < minimumLength|0`, driver: "TestSortedUniqueStringsEdges", exempt: true, reason: "mechanism: shared element-minimum enforcement; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueStrings|len|length > maximumLength|0`, driver: "TestSortedUniqueStringsEdges", exempt: true, reason: "mechanism: shared element-maximum enforcement; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueStrings|len|uint64(len(elements)) < minimumCount|0`, driver: "TestSortedUniqueStringsEdges", exempt: true, reason: "mechanism: shared count floor; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueStrings|len|uint64(len(elements)) > maximumCount|0`, driver: "TestSortedUniqueStringsEdges", exempt: true, reason: "mechanism: shared count ceiling; values pinned at the caller rows"},
+ 	{id: `decode.go|checkSortedUniqueUUIDv7|len|index < len(values)|0`, exempt: true, reason: "plumbing: pairwise sortedness scan index, not a domain bound; element and count edges pinned at the caller rows"},
+ 	{id: `decode.go|checkSortedUniqueUUIDv7|len|uint64(len(elements)) < minimumCount|0`, driver: "TestSortedUniqueUUIDv7Edges", exempt: true, reason: "mechanism: shared count floor; values pinned at the caller rows"},
+ 	{id: `decode.go|checkSortedUniqueUUIDv7|len|uint64(len(elements)) > maximumCount|0`, driver: "TestSortedUniqueUUIDv7Edges", exempt: true, reason: "mechanism: shared count ceiling; values pinned at the caller rows"},
+-	{id: `decode.go|checkStringBounds|len|length < minimum|0`, driver: "TestStringBoundEdges", exempt: true, reason: "mechanism: shared minimum enforcement; values pinned at the caller rows"},
+-	{id: `decode.go|checkStringBounds|len|length > maximum|0`, driver: "TestStringBoundEdges", exempt: true, reason: "mechanism: shared maximum enforcement; values pinned at the caller rows"},
+ 	{id: `decode.go|checkURI|len|length < N|0`, driver: "TestStringBoundEdges", exempt: true, reason: "mechanism: shared URI floor; the 1..2 range is unreachable behind the colon grammar and the values live at the contract_id row"},
+ 	{id: `decode.go|checkURI|len|length > N|0`, driver: "TestStringBoundEdges", exempt: true, reason: "mechanism: shared URI ceiling; values pinned at the contract_id row"},
+ 	{id: `decode.go|parseUint53Literal|len|index < len(literal)|0`, exempt: true, reason: "plumbing: digit-scan index, not a domain bound; value edges pinned by TestUint53RepresentabilityCeiling"},
+@@ -640,10 +626,10 @@ var boundCensusCanaries = []string{
+ 	`scan.go|CheckScanRequest|checkUint53Bounds|"max_instances"`,
+ 	`query.go|checkFilters|checkEnumSubset|"kinds"`,
+ 	`query.go|checkFilters|checkUUIDv7DigestSubset|"lineage_anchors"`,
+-	`decode.go|checkExtensions|len|len(name) > N`,
++	`decode.go|checkURI|len|length > N`,
+ 	`manifest.go|checkContractAssertions|len|index < len(encodings)`,
+ 	`decode.go|parseUint53Literal|len|index < len(literal)`,
+-	`decode.go|checkStringBounds|len|length < minimum`,
++	`decode.go|checkSortedUniqueUUIDv7|len|uint64(len(elements)) < minimumCount`,
+ 	`query.go|CheckCursorReuse|len|stringLength(cursor) > N`,
+ 	`protocol.go|checkResponseIdentity|len|len(frame) > MaxFrameBytes`,
+ }
+diff --git a/internal/dirnode/decode.go b/internal/dirnode/decode.go
+index 8439c6b..53eac64 100644
+--- a/internal/dirnode/decode.go
++++ b/internal/dirnode/decode.go
+@@ -4,9 +4,7 @@ import (
+ 	"bytes"
+ 	"encoding/json"
+ 	"io"
+-	"regexp"
+ 	"strings"
+-	"unicode/utf8"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/environ"
+ 	"github.com/relux-works/agent-session-manager/internal/scalar"
+@@ -106,6 +104,14 @@ func rawUint53(raw json.RawMessage) (uint64, bool) {
+ 	if err := decoder.Decode(&value); err != nil {
+ 		return 0, false
+ 	}
++	// Decode reads one value and stops: without the trailing
++	// check a hostile slice like `12a` would read as 12. Member
++	// slices arriving through decodeStrictObject can never carry
++	// trailing data, but this entry takes raw slices and must
++	// not trust them.
++	if _, err := decoder.Token(); err != io.EOF {
++		return 0, false
++	}
+ 	number, ok := value.(json.Number)
+ 	if !ok {
+ 		return 0, false
+@@ -121,6 +127,9 @@ func rawUint53(raw json.RawMessage) (uint64, bool) {
+ // float conversion: the magnitude bound is checked on the digit
+ // string, so 2^53 is refused even on platforms that could hold it.
+ func parseUint53Literal(literal string) (uint64, bool) {
++	if literal == "" {
++		return 0, false
++	}
+ 	var value uint64
+ 	for index := 0; index < len(literal); index++ {
+ 		digit := literal[index]
+@@ -136,77 +145,42 @@ func parseUint53Literal(literal string) (uint64, bool) {
+ }
+ 
+ // stringLength is the Section 1.6 string measure in characters, not
+-// bytes.
++// bytes. It delegates to the single environ measure so the two can
++// never drift; the delegation battery pins both directions.
+ func stringLength(value string) int {
+-	return utf8.RuneCountInString(value)
++	return environ.StringLength(value)
+ }
+ 
+ // checkStringBounds reports whether the member is a JSON string whose
+-// character count falls in the inclusive bound.
++// character count falls in the inclusive bound. It delegates to the
++// environ gate.
+ func checkStringBounds(raw json.RawMessage, minimum, maximum int) (string, bool) {
+-	value, ok := rawString(raw)
+-	if !ok {
+-		return "", false
+-	}
+-	length := stringLength(value)
+-	if length < minimum || length > maximum {
+-		return "", false
+-	}
+-	return value, true
++	return environ.CheckStringBounds(raw, minimum, maximum)
+ }
+ 
+ // checkUint53Bounds reports whether the member is a uint53 in the
+ // inclusive bound. Both edges are checked: a one-sided check would
+-// admit the open side.
++// admit the open side. It delegates to the environ gate.
+ func checkUint53Bounds(raw json.RawMessage, minimum, maximum uint64) (uint64, bool) {
+-	value, ok := rawUint53(raw)
+-	if !ok {
+-		return 0, false
+-	}
+-	if value < minimum || value > maximum {
+-		return 0, false
+-	}
+-	return value, true
++	return environ.CheckUint53Bounds(raw, minimum, maximum)
+ }
+ 
+ // checkDigest reports whether the member is a digest of the pinned
+-// sha256 form.
++// sha256 form. It delegates to the environ gate.
+ func checkDigest(raw json.RawMessage) (scalar.Digest, bool) {
+-	value, ok := rawString(raw)
+-	if !ok {
+-		return scalar.Digest{}, false
+-	}
+-	digest, err := scalar.ParseDigest(value)
+-	if err != nil {
+-		return scalar.Digest{}, false
+-	}
+-	return digest, true
++	return environ.CheckDigest(raw)
+ }
+ 
+-// checkUUIDv7 reports whether the member is a lowercase UUIDv7.
++// checkUUIDv7 reports whether the member is a lowercase UUIDv7. It
++// delegates to the environ gate.
+ func checkUUIDv7(raw json.RawMessage) (scalar.UUIDv7, bool) {
+-	value, ok := rawString(raw)
+-	if !ok {
+-		return scalar.UUIDv7{}, false
+-	}
+-	identifier, err := scalar.ParseUUIDv7(value)
+-	if err != nil {
+-		return scalar.UUIDv7{}, false
+-	}
+-	return identifier, true
++	return environ.CheckUUIDv7(raw)
+ }
+ 
+ // checkTimestamp reports whether the member is a pinned timestamp.
++// It delegates to the environ gate.
+ func checkTimestamp(raw json.RawMessage) (scalar.Timestamp, bool) {
+-	value, ok := rawString(raw)
+-	if !ok {
+-		return scalar.Timestamp{}, false
+-	}
+-	instant, err := scalar.ParseTimestamp(value)
+-	if err != nil {
+-		return scalar.Timestamp{}, false
+-	}
+-	return instant, true
++	return environ.CheckTimestamp(raw)
+ }
+ 
+ // checkDigestString reports whether the value parses as a digest of
+@@ -257,59 +231,17 @@ func decodeArray(raw json.RawMessage) ([]json.RawMessage, bool) {
+ 
+ // checkSortedUniqueStrings reports whether the member is an array of
+ // strings in the item bound whose encodings order strictly
+-// increasingly with no duplicates, in the count bound.
++// increasingly with no duplicates, in the count bound. It delegates
++// to the environ gate.
+ func checkSortedUniqueStrings(raw json.RawMessage, minimumLength, maximumLength int, minimumCount, maximumCount uint64) ([]string, bool) {
+-	elements, ok := decodeArray(raw)
+-	if !ok {
+-		return nil, false
+-	}
+-	if uint64(len(elements)) < minimumCount || uint64(len(elements)) > maximumCount {
+-		return nil, false
+-	}
+-	values := make([]string, 0, len(elements))
+-	for _, element := range elements {
+-		value, ok := rawString(element)
+-		if !ok {
+-			return nil, false
+-		}
+-		length := stringLength(value)
+-		if length < minimumLength || length > maximumLength {
+-			return nil, false
+-		}
+-		values = append(values, value)
+-	}
+-	for index := 1; index < len(values); index++ {
+-		if values[index-1] >= values[index] {
+-			return nil, false
+-		}
+-	}
+-	return values, true
++	return environ.CheckSortedUniqueStrings(raw, minimumLength, maximumLength, minimumCount, maximumCount)
+ }
+ 
+ // checkSortedUniqueDigests reports whether the member is a sorted
+-// unique digest array in the count bound.
++// unique digest array in the count bound. It delegates to the
++// environ gate.
+ func checkSortedUniqueDigests(raw json.RawMessage, minimumCount, maximumCount uint64) ([]scalar.Digest, bool) {
+-	elements, ok := decodeArray(raw)
+-	if !ok {
+-		return nil, false
+-	}
+-	if uint64(len(elements)) < minimumCount || uint64(len(elements)) > maximumCount {
+-		return nil, false
+-	}
+-	values := make([]scalar.Digest, 0, len(elements))
+-	for _, element := range elements {
+-		digest, ok := checkDigest(element)
+-		if !ok {
+-			return nil, false
+-		}
+-		values = append(values, digest)
+-	}
+-	for index := 1; index < len(values); index++ {
+-		if values[index-1].String() >= values[index].String() {
+-			return nil, false
+-		}
+-	}
+-	return values, true
++	return environ.CheckSortedUniqueDigests(raw, minimumCount, maximumCount)
+ }
+ 
+ // checkSortedUniqueUUIDv7 reports whether the member is a sorted
+@@ -364,40 +296,26 @@ func checkOptionalString(raw json.RawMessage, minimum, maximum int) (string, boo
+ 	return value, true, false
+ }
+ 
+-// semverPattern is the SemVer grammar versions satisfy: three
+-// dot-separated non-negative integers with no leading zeros, an
+-// optional pre-release, and optional build metadata.
+-var semverPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
+-
+-// environmentIDPattern is the environment-id grammar:
+-// [a-z][a-z0-9.-]{0,63}.
+-var environmentIDPattern = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
+-
+-// reverseDNSPattern is the Section 1.6 extension-key grammar:
+-// dot-separated lowercase labels.
+-var reverseDNSPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(\.[a-z][a-z0-9-]{0,62})+$`)
+-
+-// checkSemver reports whether the value is a SemVer string.
++// checkSemver reports whether the value is a SemVer string. It
++// delegates to the environ grammar so the two can never drift; the
++// one-language battery pins the retained copies in both directions.
+ func checkSemver(value string) bool {
+-	return semverPattern.MatchString(value)
++	return environ.CheckSemver(value)
++}
++
++// checkEnvironmentID reports whether the value is an environment-id.
++// It delegates to the environ grammar.
++func checkEnvironmentID(value string) bool {
++	return environ.CheckEnvironmentID(value)
+ }
+ 
+ // checkExtensions reports whether the member is an object whose keys
+ // are all reverse-DNS names. Values cross opaquely: extensions
+ // cannot add operations, capabilities, or trust facts, and no member
+ // of this package reads an extension value for any admission
+-// decision.
++// decision. It delegates to the environ gate.
+ func checkExtensions(raw json.RawMessage) bool {
+-	members, fault := decodeStrictObject(raw)
+-	if fault != nil {
+-		return false
+-	}
+-	for name := range members {
+-		if len(name) < 3 || len(name) > 253 || !reverseDNSPattern.MatchString(name) {
+-			return false
+-		}
+-	}
+-	return true
++	return environ.CheckExtensions(raw)
+ }
+ 
+ // checkURI reports whether the value is a URI reference of 1..512
+diff --git a/internal/dirnode/probe.go b/internal/dirnode/probe.go
+index 8932d01..55a7225 100644
+--- a/internal/dirnode/probe.go
++++ b/internal/dirnode/probe.go
+@@ -170,7 +170,7 @@ func CheckProbeRequest(major int, body []byte) (ProbeRequest, error) {
+ 		return ProbeRequest{}, failure
+ 	}
+ 	for _, environment := range environments {
+-		if !environmentIDPattern.MatchString(environment) {
++		if !checkEnvironmentID(environment) {
+ 			failure, err := failViolation("probe request environment identifier is not an environment-id", "requested_environment_ids")
+ 			if err != nil {
+ 				return ProbeRequest{}, err
+diff --git a/internal/dirnode/query.go b/internal/dirnode/query.go
+index 021f607..e3c59d4 100644
+--- a/internal/dirnode/query.go
++++ b/internal/dirnode/query.go
+@@ -735,7 +735,7 @@ func checkEnvironmentsParameters(members map[string]json.RawMessage) bool {
+ 		return false
+ 	}
+ 	for _, environment := range environments {
+-		if !environmentIDPattern.MatchString(environment) {
++		if !checkEnvironmentID(environment) {
+ 			return false
+ 		}
+ 	}
+diff --git a/internal/dirnode/rawuint53_test.go b/internal/dirnode/rawuint53_test.go
+new file mode 100644
+index 0000000..1323660
+--- /dev/null
++++ b/internal/dirnode/rawuint53_test.go
+@@ -0,0 +1,49 @@
++package dirnode
++
++import (
++	"encoding/json"
++	"testing"
++)
++
++// This file pins the rawUint53 trailing-data texture this leaf
++// hardened onto the environ shape. Decode reads one value and
++// stops, so without the trailing check a hostile slice like `12a`
++// reads as 12 (and `12 13` reads as 12 with a silent second
++// value). Member slices arriving through decodeStrictObject can
++// never carry trailing data — the frame gate strips them first —
++// so these rows drive the helper directly, the way
++// decode_unit_test.go drives the environ entries no facade
++// reaches. Both hostile shapes are separate rows because they
++// fail for different reasons: `12a` errors at the trailing token
++// while `12 13` yields one, so a gate that refuses only error
++// trailing (the narrowing mutant) admits the second and fails
++// exactly its row.
++func TestRawUint53RefusesTrailingData(t *testing.T) {
++	refuse := func(literal string) {
++		t.Helper()
++		if got, ok := rawUint53(json.RawMessage(literal)); ok {
++			t.Fatalf("rawUint53(%q) admitted %d, want refusal", literal, got)
++		}
++	}
++	accept := func(literal string, want uint64) {
++		t.Helper()
++		got, ok := rawUint53(json.RawMessage(literal))
++		if !ok {
++			t.Fatalf("rawUint53(%q) refused, want %d", literal, want)
++		}
++		if got != want {
++			t.Fatalf("rawUint53(%q) = %d, want %d", literal, got, want)
++		}
++	}
++	refuse("12a")
++	refuse("12 13")
++	refuse("0x10")
++	accept("12", 12)
++	accept("12 ", 12)
++	accept(" 12", 12)
++	accept("9007199254740991", 9007199254740991)
++	refuse("9007199254740992")
++	if _, ok := checkUint53Bounds(json.RawMessage("12a"), 0, 100); ok {
++		t.Fatal("checkUint53Bounds admitted `12a`, want refusal")
++	}
++}
+diff --git a/internal/environ/census_audit_test.go b/internal/environ/census_audit_test.go
+new file mode 100644
+index 0000000..beaeeae
+--- /dev/null
++++ b/internal/environ/census_audit_test.go
+@@ -0,0 +1,254 @@
++package environ
++
++import (
++	"path/filepath"
++	"sort"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/invcore"
++)
++
++// This file is the alias-bypass audit over the shared-rule census
++// scope. The name layer (census_test.go) derives definitions by
++// identifier and the shape layer (shape_census_test.go) derives
++// implementations by texture; neither sees a use-site alias — an
++// import alias rebound to a shared helper, or a package-level var
++// rebound to one — because no new definition appears. This audit
++// closes that direction with invcore.AuditConstructorReferences:
++// every reference to a ledgered shared-rule name outside
++// direct-call position fails, every shape the audit cannot
++// classify (dot imports, shadowed names) fails closed, and the
++// synthetic plants below prove each shape reports while direct
++// calls and the constructors' own declarations stay clean.
++
++// sharedRuleConstructorSpec watches the ledgered shared-rule
++// names: package-local bare identifiers by spelling, and the
++// canonical environ members by import path and member name, so an
++// import alias cannot change what the audit sees. The local set
++// is the name layer's symbol map minus
++// validateProviderIdentityRecord: canonicaljson registers that
++// validator by function value in its schema dispatch table
++// (closed_shapes.go), which is same-function dispatch rather
++// than a copy or an alias — every invocation still executes the
++// censused definition. A true rebinding of it (`var f =
++// validateProviderIdentityRecord`) still fails, via the shape
++// layer's var-alias rule, which inherits the helper's
++// string-measure shape onto the new name and reports it as an
++// unregistered site (proven by the C1 controls in
++// TestShapeCensusCatchesControls). The qualified set is the
++// environ surface the facades delegate to.
++func sharedRuleConstructorSpec() invcore.ConstructorSpec {
++	local := make(map[string]bool, len(sharedFunctionSymbols))
++	for name := range sharedFunctionSymbols {
++		if name == "validateProviderIdentityRecord" {
++			continue
++		}
++		local[name] = true
++	}
++	return invcore.ConstructorSpec{
++		Local: local,
++		Qualified: map[string]map[string]bool{
++			"github.com/relux-works/agent-session-manager/internal/environ": {
++				"DecodeStrictObject":           true,
++				"HasLoneSurrogateEscape":       true,
++				"StringLength":                 true,
++				"CheckStringBounds":            true,
++				"CheckUint53Bounds":            true,
++				"CheckDigest":                  true,
++				"CheckUUIDv7":                  true,
++				"CheckTimestamp":               true,
++				"CheckSortedUniqueStrings":     true,
++				"CheckSortedUniqueDigests":     true,
++				"CheckExtensions":              true,
++				"CheckEnvironmentID":           true,
++				"CheckSemver":                  true,
++				"DecodeTuple":                  true,
++				"DecodeEnvironmentObservation": true,
++			},
++		},
++	}
++}
++
++// censusScopePackages lists the audit scope in a fixed order: the
++// name layer's package set, which this audit shares by
++// construction.
++func censusScopePackages() []string {
++	packages := make([]string, 0, len(censusPackages))
++	for pkg := range censusPackages {
++		packages = append(packages, pkg)
++	}
++	sort.Strings(packages)
++	return packages
++}
++
++// TestCensusScopeHasNoAliasedSharedRules requires every
++// shared-rule reference in census-scope production to sit in
++// direct-call position: an aliased, rebound, or otherwise
++// indirected construction fails here even though the name and
++// shape censuses stay green over it. The delegation this leaf
++// added (sessadapter and dirnode calling environ.Check* and
++// friends directly) is the allowed position and stays clean.
++func TestCensusScopeHasNoAliasedSharedRules(t *testing.T) {
++	root, err := internalRoot(t)
++	if err != nil {
++		t.Fatalf("alias audit: %v", err)
++	}
++	spec := sharedRuleConstructorSpec()
++	for _, pkg := range censusScopePackages() {
++		files, fileSet := invcore.MustScanProduction(t, filepath.Join(root, pkg))
++		for _, production := range files {
++			display := pkg + "/" + production.Name
++			invcore.MustAuditConstructorReferences(t, production.Syntax, fileSet, display, spec)
++		}
++	}
++}
++
++// aliasPlant is one synthetic control for the audit: the source,
++// whether the audit must report, and the fragment the failure
++// must carry ("" for clean plants).
++type aliasPlant struct {
++	name        string
++	source      string
++	wantFailure string
++}
++
++// aliasPlants enumerates the bypass shapes. The import-alias and
++// var-binding plants are the shapes that walked through every
++// identifier-keyed gate in this repository's history; the dot
++// import and shadow plants are the shapes the audit cannot
++// classify and must fail closed rather than prune.
++func aliasPlants() []aliasPlant {
++	return []aliasPlant{
++		{
++			name: "var binding of a local shared helper reports",
++			source: `package provider
++func stringLength(value string) int { return len(value) }
++var measure = stringLength
++func use(value string) int { return measure(value) }
++`,
++			wantFailure: "outside direct-call position",
++		},
++		{
++			name: "import alias rebound to the canonical helper reports",
++			source: `package provider
++import env "github.com/relux-works/agent-session-manager/internal/environ"
++var length = env.StringLength
++func use(value string) int { return length(value) }
++`,
++			wantFailure: "outside direct-call position",
++		},
++		{
++			name: "aliased direct call stays clean",
++			source: `package provider
++import env "github.com/relux-works/agent-session-manager/internal/environ"
++func use(value string) int { return env.StringLength(value) }
++`,
++		},
++		{
++			name: "canonical direct call stays clean",
++			source: `package provider
++import "github.com/relux-works/agent-session-manager/internal/environ"
++func use(value string) int { return environ.StringLength(value) }
++func decode(data []byte) bool {
++	members, _ := environ.DecodeStrictObject(data)
++	return members != nil
++}
++`,
++		},
++		{
++			name: "local direct call stays clean",
++			source: `package provider
++func stringLength(value string) int { return len(value) }
++func use(value string) int { return stringLength(value) }
++`,
++		},
++		{
++			name: "dot import of the watched path fails closed",
++			source: `package provider
++import . "github.com/relux-works/agent-session-manager/internal/environ"
++func use(value string) int { return StringLength(value) }
++`,
++			wantFailure: "dot-imports watched path",
++		},
++		{
++			name: "shadowed constructor name fails closed",
++			source: `package provider
++func use(stringLength string) string { return stringLength }
++`,
++			wantFailure: "stringLength",
++		},
++	}
++}
++
++// TestCensusAuditCatchesAliasShapes drives every plant through
++// the production audit spec and requires the ledgered outcome:
++// reporting shapes fail with their fragment, clean shapes stay
++// clean. A plant that stops reporting proves nothing and fails
++// here by construction.
++func TestCensusAuditCatchesAliasShapes(t *testing.T) {
++	spec := sharedRuleConstructorSpec()
++	for _, plant := range aliasPlants() {
++		t.Run(plant.name, func(t *testing.T) {
++			syntax, fileSet, failure := invcore.ParseSource("plant.go", []byte(plant.source))
++			if failure != "" {
++				t.Fatalf("control does not parse: %s", failure)
++			}
++			failures := invcore.AuditConstructorReferences(syntax, fileSet, "plant.go", spec)
++			if plant.wantFailure == "" {
++				if len(failures) != 0 {
++					t.Fatalf("clean plant reported: %s", strings.Join(failures, "; "))
++				}
++				return
++			}
++			matched := false
++			for _, failure := range failures {
++				if strings.Contains(failure, plant.wantFailure) {
++					matched = true
++				}
++			}
++			if !matched {
++				t.Fatalf("plant reported %q, want a failure containing %q", failures, plant.wantFailure)
++			}
++		})
++	}
++}
++
++// TestCensusAuditParsingFailsClosed proves the plant harness
++// itself is fail-closed: an unparseable control is a harness
++// failure, never a clean plant.
++func TestCensusAuditParsingFailsClosed(t *testing.T) {
++	_, _, failure := invcore.ParseSource("plant.go", []byte("package provider\nfunc broken( {\n"))
++	if failure == "" {
++		t.Fatal("unparseable control parsed clean; the harness would pass a blind plant")
++	}
++}
++
++// TestRegistryExcludedNameStillFailsOnRebind proves the
++// validateProviderIdentityRecord exclusion above loses nothing:
++// a true rebinding of the excluded name derives an unregistered
++// shape site through the production shape extractor, so the
++// shape census fails it even though this audit stays silent.
++func TestRegistryExcludedNameStillFailsOnRebind(t *testing.T) {
++	source := `package provider
++import "unicode/utf8"
++func validateProviderIdentityRecord(value string) int { return utf8.RuneCountInString(value) }
++var rebound = validateProviderIdentityRecord
++`
++	sites := shapeSitesInPackage("provider", map[string][]byte{"control.go": []byte(source)})
++	matched := false
++	for _, site := range sites {
++		if site.symbol == "rebound" {
++			matched = true
++			if _, ok := shapeLedger[site.key()]; ok {
++				t.Fatalf("rebound site %q is registered; the control proves nothing", site.key())
++			}
++			if _, ok := sharedLedger[site.key()]; ok {
++				t.Fatalf("rebound site %q is registered; the control proves nothing", site.key())
++			}
++		}
++	}
++	if !matched {
++		t.Fatalf("rebinding derived no site for the new name (all sites: %v); the shape layer would pass a true alias", sites)
++	}
++}
+diff --git a/internal/environ/census_test.go b/internal/environ/census_test.go
+index 3da8b5d..0f7300d 100644
+--- a/internal/environ/census_test.go
++++ b/internal/environ/census_test.go
+@@ -1,14 +1,17 @@
+ package environ
+ 
+ import (
++	"errors"
+ 	"go/ast"
+ 	"go/parser"
+-	"go/token"
+ 	"os"
+ 	"path/filepath"
++	"sort"
+ 	"strconv"
+ 	"strings"
+ 	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/invcore"
+ )
+ 
+ // This file is the name layer of the shared-implementation
+@@ -29,15 +32,24 @@ import (
+ // Removing or renaming a ledgered implementation orphans its row
+ // and fails too. An empty scan fails closed. The ledger records
+ // the single canonical owner per rule (this package, or scalar
+-// where the grammar already has one) plus the copies this leaf
+-// does not unify; each copy names the battery file that pins it
+-// to the canonical semantics. The sessadapter and dirnode frame
++// where the grammar already has one) plus the retained copies;
++// each copy names the battery file that pins it to the canonical
++// semantics in both directions. The sessadapter and dirnode frame
+ // decoders are delegating wrappers onto environ.DecodeStrictObject
+ // (their raw-scan divergence, once ledgered here, was closed by
+ // delegation and is proven in both directions by the
+-// frame-agreement battery); the remaining provhost, canonicaljson,
+-// and scalar copies are unification residue tracked in the
+-// cross-story follow-up, not harmless divergence.
++// frame-agreement battery), and their per-helper Check*,
++// stringLength, and grammar copies converged the same way. The
++// provhost decoder and surrogate gate stay independent because
++// their owning assembly is frozen by the accepted story leaves
++// (protocol.go); the canonicaljson gates stay independent
++// because the canonicalizer validates any JSON value with its
++// own depth, number, and control rules rather than closed
++// objects; the scalar gate stays independent because it
++// validates a single JSON string scalar rather than a frame.
++// Each retained copy carries a bidirectional battery row that
++// fails when the two diverge in either direction, and the
++// outcome names the freeze or role split behind every one.
+ //
+ // Scope. The scan covers the story packages (environ, provider,
+ // provhost, sessadapter, dirnode) plus the grammar owners
+@@ -95,8 +107,8 @@ var sharedLedger = map[string]string{
+ 	// String measures.
+ 	"string-measure|environ|decode.go|StringLength":     "canonical owner: runes per Section 1.6",
+ 	"string-measure|provhost|opdecode.go|runeLength":    "runes, pinned by measure_agreement_test.go",
+-	"string-measure|sessadapter|decode.go|stringLength": "byte-frozen leaf 1: runes, pinned by measure_agreement_test.go",
+-	"string-measure|dirnode|decode.go|stringLength":     "byte-frozen leaf 2: runes, pinned by measure_agreement_test.go",
++	"string-measure|sessadapter|decode.go|stringLength": "delegating wrapper onto environ.StringLength, pinned by TestCheckHelpersDelegateToEnviron + measure_agreement_test.go",
++	"string-measure|dirnode|decode.go|stringLength":     "delegating wrapper onto environ.StringLength, pinned by TestCheckHelpersDelegateToEnviron + measure_agreement_test.go",
+ 	// Identity validators: two refusal dialects over one rule.
+ 	"identity-validator|provhost|identity.go|CheckIdentity":                           "provider-stdio refusal dialect, pinned by identity_agreement_test.go",
+ 	"identity-validator|canonicaljson|core_records.go|validateProviderIdentityRecord": "identity refusal dialect, pinned by identity_agreement_test.go",
+@@ -151,74 +163,54 @@ func deriveSharedSites(t *testing.T) map[string]bool {
+ 
+ // scanSharedSymbols scans the census packages for function or
+ // package-level variable definitions whose names appear in the
+-// symbol map, and returns ledger keys for each hit.
++// symbol map, and returns ledger keys for each hit. Production
++// file selection and fail-closed parsing come from invcore: an
++// unreadable or unparseable production file fails the suite
++// instead of scanning as clean, and a package with zero
++// production files fails instead of passing vacuously.
+ func scanSharedSymbols(t *testing.T, symbols map[string]string, functions bool) []string {
+ 	t.Helper()
+ 	root, err := internalRoot(t)
+ 	if err != nil {
+ 		t.Fatalf("census: %v", err)
+ 	}
++	packages := make([]string, 0, len(censusPackages))
++	for pkg := range censusPackages {
++		packages = append(packages, pkg)
++	}
++	sort.Strings(packages)
+ 	var keys []string
+-	count := 0
+-	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+-		if err != nil {
+-			return err
+-		}
+-		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+-			return nil
+-		}
+-		rel, err := filepath.Rel(root, path)
+-		if err != nil {
+-			return err
+-		}
+-		parts := strings.Split(rel, string(filepath.Separator))
+-		pkg := parts[0]
+-		if !censusPackages[pkg] {
+-			return nil
+-		}
+-		count++
+-		source, err := os.ReadFile(path)
+-		if err != nil {
+-			t.Fatalf("census: read %s: %v", path, err)
+-		}
+-		syntax, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
+-		if err != nil {
+-			t.Fatalf("census: parse %s: %v", path, err)
+-		}
+-		file := parts[len(parts)-1]
+-		for _, decl := range syntax.Decls {
+-			switch node := decl.(type) {
+-			case *ast.FuncDecl:
+-				if !functions || node.Name == nil {
+-					continue
+-				}
+-				if class, ok := symbols[node.Name.Name]; ok {
+-					keys = append(keys, sharedSite{class, pkg, file, node.Name.Name}.sharedSiteKey())
+-				}
+-			case *ast.GenDecl:
+-				if functions {
+-					continue
+-				}
+-				for _, spec := range node.Specs {
+-					value, ok := spec.(*ast.ValueSpec)
+-					if !ok {
++	for _, pkg := range packages {
++		files, _ := invcore.MustScanProduction(t, filepath.Join(root, pkg))
++		for _, production := range files {
++			syntax, file := production.Syntax, production.Name
++			for _, decl := range syntax.Decls {
++				switch node := decl.(type) {
++				case *ast.FuncDecl:
++					if !functions || node.Name == nil {
+ 						continue
+ 					}
+-					for _, name := range value.Names {
+-						if class, ok := symbols[name.Name]; ok {
+-							keys = append(keys, sharedSite{class, pkg, file, name.Name}.sharedSiteKey())
++					if class, ok := symbols[node.Name.Name]; ok {
++						keys = append(keys, sharedSite{class, pkg, file, node.Name.Name}.sharedSiteKey())
++					}
++				case *ast.GenDecl:
++					if functions {
++						continue
++					}
++					for _, spec := range node.Specs {
++						value, ok := spec.(*ast.ValueSpec)
++						if !ok {
++							continue
++						}
++						for _, name := range value.Names {
++							if class, ok := symbols[name.Name]; ok {
++								keys = append(keys, sharedSite{class, pkg, file, name.Name}.sharedSiteKey())
++							}
+ 						}
+ 					}
+ 				}
+ 			}
+ 		}
+-		return nil
+-	})
+-	if err != nil {
+-		t.Fatalf("census: walk: %v", err)
+-	}
+-	if count == 0 {
+-		t.Fatal("census scanned zero files; the scanner is broken, not the tree")
+ 	}
+ 	return keys
+ }
+@@ -238,37 +230,42 @@ func internalRoot(t *testing.T) (string, error) {
+ // implementation set to equal the ledger exactly: an unregistered
+ // copy fails as a unification violation, and a row naming an
+ // implementation production no longer derives fails as orphaned.
++// Both directions run through the invcore harness, so a truncated
++// derivation fails instead of passing vacuously.
+ func TestSharedImplementationsAreCensused(t *testing.T) {
+ 	derived := deriveSharedSites(t)
+-	for key := range derived {
+-		if _, ok := sharedLedger[key]; !ok {
+-			t.Errorf("unregistered shared-rule copy %q: add one canonical implementation in internal/environ instead, or ledger the divergence with its agreement battery", key)
+-		}
++	rows := make(map[string]struct{}, len(sharedLedger))
++	for key := range sharedLedger {
++		rows[key] = struct{}{}
+ 	}
+-	for key, rationale := range sharedLedger {
+-		if !derived[key] {
+-			t.Errorf("orphaned ledger row %q (%s): production no longer derives it", key, rationale)
+-		}
++	derivedSet := make(map[string]struct{}, len(derived))
++	for key := range derived {
++		derivedSet[key] = struct{}{}
+ 	}
++	invcore.MustCheckBothDirections(t, "shared-rule copy", derivedSet, rows)
+ }
+ 
+ // grammarSiteLedger names every grammar definition site in the
+ // census scope. A new grammar definition fails here even when it
+ // carries an identical literal: a second copy is a second copy,
+ // and the next edit drifts exactly one of them.
++// grammarSiteLedger names every grammar definition site in the
++// census scope. The sessadapter and dirnode env-id, semver, and
++// extensions copies converged onto the environ grammars (their
++// check sites call environ.CheckEnvironmentID, environ.CheckSemver,
++// and environ.CheckExtensions directly), so their rows are GONE,
++// not retained: a revived copy fails here as unregistered. The
++// retained copies each name their owner: provider-id is scalar's
++// rule everywhere, while the provhost and canonicaljson copies of
++// the environ-owned grammars are pinned by the one-language
++// battery in both directions.
+ var grammarSiteLedger = map[string]bool{
+ 	"env-id-grammar|environ|tuple.go|environmentIDPattern":                true,
+-	"env-id-grammar|sessadapter|decode.go|environmentIDPattern":           true,
+-	"env-id-grammar|dirnode|decode.go|environmentIDPattern":               true,
+ 	"env-id-grammar|canonicaljson|closed_shapes.go|environmentIDPattern":  true,
+ 	"semver-grammar|environ|tuple.go|semverPattern":                       true,
+-	"semver-grammar|sessadapter|decode.go|semverPattern":                  true,
+-	"semver-grammar|dirnode|decode.go|semverPattern":                      true,
+ 	"semver-grammar|canonicaljson|closed_shapes.go|semverPattern":         true,
+ 	"semver-grammar|provhost|manifest.go|semverPattern":                   true,
+ 	"extensions-grammar|environ|decode.go|reverseDNSPattern":              true,
+-	"extensions-grammar|sessadapter|decode.go|reverseDNSPattern":          true,
+-	"extensions-grammar|dirnode|decode.go|reverseDNSPattern":              true,
+ 	"extensions-grammar|canonicaljson|closed_shapes.go|reverseDNSPattern": true,
+ 	"provider-id-grammar|scalar|names.go|providerIDPattern":               true,
+ 	"provider-id-grammar|provhost|manifest.go|providerIDPattern":          true,
+@@ -286,12 +283,23 @@ type grammarCandidate struct {
+ // grammarCandidatesInFile extracts every package-level single
+ // MustCompile definition from one source file. It is pure over
+ // its inputs, so the synthetic controls drive this exact
+-// function on planted sources.
++// function on planted sources. Parsing is fail-closed through
++// invcore: an unparseable file fails instead of scanning as
++// clean.
+ func grammarCandidatesInFile(path string, source []byte) ([]grammarCandidate, error) {
+-	syntax, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
+-	if err != nil {
+-		return nil, err
++	syntax, _, failure := invcore.ParseBytes(path, source, parser.ParseComments)
++	if failure != "" {
++		return nil, errors.New(failure)
+ 	}
++	return grammarCandidatesInSyntax(syntax), nil
++}
++
++// grammarCandidatesInSyntax extracts every package-level single
++// MustCompile definition from one parsed file. Production
++// derivation drives this over invcore-scanned files; the
++// synthetic controls reach it through grammarCandidatesInFile,
++// so both prove the same extractor.
++func grammarCandidatesInSyntax(syntax *ast.File) []grammarCandidate {
+ 	var candidates []grammarCandidate
+ 	for _, decl := range syntax.Decls {
+ 		node, ok := decl.(*ast.GenDecl)
+@@ -322,7 +330,7 @@ func grammarCandidatesInFile(path string, source []byte) ([]grammarCandidate, er
+ 			candidates = append(candidates, grammarCandidate{symbol: value.Names[0].Name, literal: text})
+ 		}
+ 	}
+-	return candidates, nil
++	return candidates
+ }
+ 
+ // deriveGrammarLiterals derives the regex literal behind every
+@@ -347,37 +355,18 @@ func deriveGrammarLiterals(t *testing.T) (map[string]map[string]bool, map[string
+ 		candidate grammarCandidate
+ 	}
+ 	var collected []collectedCandidate
+-	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+-		if err != nil {
+-			return err
+-		}
+-		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+-			return nil
+-		}
+-		rel, err := filepath.Rel(root, path)
+-		if err != nil {
+-			return err
+-		}
+-		parts := strings.Split(rel, string(filepath.Separator))
+-		pkg := parts[0]
+-		if !censusPackages[pkg] {
+-			return nil
+-		}
+-		source, err := os.ReadFile(path)
+-		if err != nil {
+-			t.Fatalf("grammar: read %s: %v", path, err)
+-		}
+-		candidates, err := grammarCandidatesInFile(path, source)
+-		if err != nil {
+-			t.Fatalf("grammar: parse %s: %v", path, err)
+-		}
+-		for _, candidate := range candidates {
+-			collected = append(collected, collectedCandidate{pkg: pkg, file: parts[len(parts)-1], candidate: candidate})
++	packages := make([]string, 0, len(censusPackages))
++	for pkg := range censusPackages {
++		packages = append(packages, pkg)
++	}
++	sort.Strings(packages)
++	for _, pkg := range packages {
++		files, _ := invcore.MustScanProduction(t, filepath.Join(root, pkg))
++		for _, production := range files {
++			for _, candidate := range grammarCandidatesInSyntax(production.Syntax) {
++				collected = append(collected, collectedCandidate{pkg: pkg, file: production.Name, candidate: candidate})
++			}
+ 		}
+-		return nil
+-	})
+-	if err != nil {
+-		t.Fatalf("grammar: walk: %v", err)
+ 	}
+ 	for _, entry := range collected {
+ 		class, known := grammarSymbols[entry.candidate.symbol]
+@@ -435,19 +424,18 @@ func classifyGrammarCandidate(candidate grammarCandidate, known map[string]strin
+ // and a mutant rewriting one copy's literal reddens here.
+ func TestSharedGrammarsAreOneLanguage(t *testing.T) {
+ 	literals, sites, fresh := deriveGrammarLiterals(t)
++	derived := make(map[string]struct{}, len(sites))
+ 	for key := range sites {
+-		if !grammarSiteLedger[key] {
+-			t.Errorf("unregistered grammar copy %q: one language means one definition site per package at most", key)
+-		}
++		derived[key] = struct{}{}
+ 	}
++	rows := make(map[string]struct{}, len(grammarSiteLedger))
++	for key := range grammarSiteLedger {
++		rows[key] = struct{}{}
++	}
++	invcore.MustCheckBothDirections(t, "grammar copy", derived, rows)
+ 	for key := range fresh {
+ 		t.Errorf("unregistered grammar copy under a fresh name %q: a second copy is a second copy even when the symbol is new", key)
+ 	}
+-	for key := range grammarSiteLedger {
+-		if !sites[key] {
+-			t.Errorf("orphaned grammar row %q: production no longer derives it", key)
+-		}
+-	}
+ 	for class, texts := range literals {
+ 		if len(texts) != 1 {
+ 			var variants []string
+diff --git a/internal/environ/decode.go b/internal/environ/decode.go
+index 3f8a35b..d7d033f 100644
+--- a/internal/environ/decode.go
++++ b/internal/environ/decode.go
+@@ -244,6 +244,9 @@ func rawUint53(raw json.RawMessage) (uint64, bool) {
+ // string, so 2^53 is refused even on platforms that could hold
+ // it.
+ func parseUint53Literal(literal string) (uint64, bool) {
++	if literal == "" {
++		return 0, false
++	}
+ 	var value uint64
+ 	for index := 0; index < len(literal); index++ {
+ 		digit := literal[index]
+@@ -465,7 +468,13 @@ func CheckSortedUniqueDigests(raw json.RawMessage, minimumCount, maximumCount ui
+ // rule in human text automation must never branch on, naming the
+ // member. Tests assert the full text, so a reworded rule fails
+ // its row instead of passing against a stale copy.
+-func refuse(rule, member string) error {
++//
++// refuse is a variable, not a function, so the refusal-site audit
++// (refusal_site_audit_test.go) can swap it in TestMain and record
++// the production file:line behind every exercised refusal. Every
++// call site invokes it directly; an aliased call records its real
++// use site and fails the reverse direction of the audit.
++var refuse = func(rule, member string) error {
+ 	if member == "" {
+ 		return fmt.Errorf("environment %s", rule)
+ 	}
+diff --git a/internal/environ/decode_unit_test.go b/internal/environ/decode_unit_test.go
+index 0a0e38e..e6c431a 100644
+--- a/internal/environ/decode_unit_test.go
++++ b/internal/environ/decode_unit_test.go
+@@ -4,6 +4,8 @@ import (
+ 	"encoding/json"
+ 	"strings"
+ 	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
+ )
+ 
+ // This file drives the environ entries no facade reaches
+@@ -105,6 +107,60 @@ func TestCheckSortedUniqueStringsHalves(t *testing.T) {
+ 	})
+ }
+ 
++// TestParseUint53LiteralRefusesNonDigits drives the digit
++// ladder directly: it is unreachable with hostile input through
++// CheckUint53Bounds (the trailing-data arm refuses first), so
++// these rows call it with hostile literals itself. A ladder
++// that admitted one digit class would pass the bound battery
++// and fail exactly here.
++func TestParseUint53LiteralRefusesNonDigits(t *testing.T) {
++	for _, literal := range []string{"1a2", "a", "12 ", " 12", "+12", "0x10", ""} {
++		if value, ok := parseUint53Literal(literal); ok {
++			t.Fatalf("parseUint53Literal(%q) admitted %d, want refusal", literal, value)
++		}
++	}
++	if value, ok := parseUint53Literal("1024"); !ok || value != 1024 {
++		t.Fatalf("parseUint53Literal(1024) = (%d, %v), want (1024, true)", value, ok)
++	}
++}
++
++// TestDecodeArrayRefusesTrailingData drives the array reader
++// directly: member slices arriving through DecodeStrictObject
++// can never carry trailing data, so no facade entry reaches
++// this arm with hostile input. A reader that admitted trailing
++// data would pass every entry battery and fail exactly here.
++func TestDecodeArrayRefusesTrailingData(t *testing.T) {
++	if _, ok := decodeArray(json.RawMessage(`["a"] trailing`)); ok {
++		t.Fatal("decodeArray admitted trailing data after the array")
++	}
++	if _, ok := decodeArray(json.RawMessage(`["a"] ["b"]`)); ok {
++		t.Fatal("decodeArray admitted a second value after the array")
++	}
++	elements, ok := decodeArray(json.RawMessage(`["a", "b"]`))
++	if !ok || len(elements) != 2 {
++		t.Fatalf("decodeArray refused a clean array: (%v, %v)", elements, ok)
++	}
++}
++
++// TestDigestBridgeRefusesEmptyDownstream pins the property the
++// R_digestnonstr survivor bound rests on: scalar.ParseDigest
++// refuses the empty string, so removing CheckDigest's type arm
++// changes no entry verdict because the zero value the arm would
++// have admitted is refused downstream. If ParseDigest("") ever
++// started admitting, both the removed arm and the live gate
++// would open silently — this test reddens first.
++func TestDigestBridgeRefusesEmptyDownstream(t *testing.T) {
++	if _, err := scalar.ParseDigest(""); err == nil {
++		t.Fatal(`scalar.ParseDigest("") admitted, want refusal: the R_digestnonstr bound no longer holds`)
++	}
++	if _, ok := CheckDigest(json.RawMessage(`""`)); ok {
++		t.Fatal(`CheckDigest("") admitted, want refusal at the live gate`)
++	}
++	if _, ok := CheckDigest(json.RawMessage(`null`)); ok {
++		t.Fatal(`CheckDigest(null) admitted, want refusal at the type arm`)
++	}
++}
++
+ // TestFaultErrorRendersMember drives Fault.Error through the
+ // production type: memberless faults name only the detail, and
+ // member faults name both. The rendering is what the facade
+diff --git a/internal/environ/frame_agreement_test.go b/internal/environ/frame_agreement_test.go
+index a75c700..ba8b13f 100644
+--- a/internal/environ/frame_agreement_test.go
++++ b/internal/environ/frame_agreement_test.go
+@@ -6,6 +6,7 @@ import (
+ 	"go/token"
+ 	"os"
+ 	"path/filepath"
++	"sort"
+ 	"strconv"
+ 	"strings"
+ 	"testing"
+@@ -436,6 +437,125 @@ func orBody(shared, override []byte) []byte {
+ 	return shared
+ }
+ 
++// deriveMapKeys derives the key set behind a package-level
++// map[string]bool variable in one production file. The
++// comparison travels with the derivation: an added, removed, or
++// renamed key fails the sweeper below, not silently.
++func deriveMapKeys(t *testing.T, pkg, file, symbol string) []string {
++	t.Helper()
++	path := filepath.Join(mustInternalRoot(t), pkg, file)
++	source, err := os.ReadFile(path)
++	if err != nil {
++		t.Fatalf("members: %v", err)
++	}
++	syntax, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
++	if err != nil {
++		t.Fatalf("members: %v", err)
++	}
++	for _, decl := range syntax.Decls {
++		node, ok := decl.(*ast.GenDecl)
++		if !ok {
++			continue
++		}
++		for _, spec := range node.Specs {
++			value, ok := spec.(*ast.ValueSpec)
++			if !ok || len(value.Names) != 1 || value.Names[0].Name != symbol {
++				continue
++			}
++			if len(value.Values) != 1 {
++				t.Fatalf("members: %s %s is not a single literal; the extractor cannot see through indirection", path, symbol)
++			}
++			composite, ok := value.Values[0].(*ast.CompositeLit)
++			if !ok {
++				t.Fatalf("members: %s %s is not a composite literal; the extractor cannot see through indirection", path, symbol)
++			}
++			var keys []string
++			for _, element := range composite.Elts {
++				pair, ok := element.(*ast.KeyValueExpr)
++				if !ok {
++					t.Fatalf("members: %s %s holds a non-pair; the extractor cannot see through indirection", path, symbol)
++				}
++				literal, ok := pair.Key.(*ast.BasicLit)
++				if !ok {
++					t.Fatalf("members: %s %s holds a non-literal key; the extractor cannot see through indirection", path, symbol)
++				}
++				keys = append(keys, strings.Trim(literal.Value, `"`))
++			}
++			return keys
++		}
++	}
++	t.Fatalf("members: %s %s not found; the extractor is blind, not the table absent", path, symbol)
++	return nil
++}
++
++// duplicateMemberNames derives the swept duplicate-member set
++// from production: the tuple required list, the observation
++// required list, the provhost response member set, and the
++// dirnode scan-request required list, plus the battery's generic
++// frame key. The duplicate rule is key-agnostic, so this test
++// proves the class over every in-scope member rather than the
++// single key the first battery happened to witness. A new member
++// in any derived set is automatically swept: the set travels
++// with the derivation, so an added member cannot pass silently.
++func duplicateMemberNames(t *testing.T) []string {
++	t.Helper()
++	seen := map[string]bool{}
++	var names []string
++	add := func(keys []string) {
++		for _, key := range keys {
++			if !seen[key] {
++				seen[key] = true
++				names = append(names, key)
++			}
++		}
++	}
++	add(deriveRequiredList(t, "environ", "tuple.go", "tupleRequired"))
++	add(deriveRequiredList(t, "environ", "observation.go", "observationRequired"))
++	add(deriveMapKeys(t, "provhost", "protocol.go", "responseMembers"))
++	add(deriveRequiredList(t, "dirnode", "scan.go", "scanRequestRequired"))
++	add([]string{"v"})
++	sort.Strings(names)
++	if len(names) == 0 {
++		t.Fatal("derived zero duplicate keys; the scanner is blind, not the class empty")
++	}
++	return names
++}
++
++// TestFrameAgreementRefusesDuplicateOfEveryDerivedMember requires
++// every derived member to be refused as a duplicate on all five
++// judges when doubled. The environ verdict is exact (detail and
++// member); the facade rows assert the frame-duplicate phrase,
++// which the minimal bodies can reach only through the frame
++// gate: no member arm runs before it. A narrowing mutant
++// admitting exactly one duplicated member fails its own row
++// while every other row stays green, so the suite measures the
++// class, not the witness.
++func TestFrameAgreementRefusesDuplicateOfEveryDerivedMember(t *testing.T) {
++	for _, key := range duplicateMemberNames(t) {
++		t.Run(key, func(t *testing.T) {
++			body := []byte(`{` + strconv.Quote(key) + `:1,` + strconv.Quote(key) + `:2}`)
++			_, fault := environ.DecodeStrictObject(body)
++			if fault == nil {
++				t.Fatalf("environ admitted duplicated %q", key)
++			}
++			if fault.Detail != environ.FaultDuplicate || fault.Member != key {
++				t.Fatalf("environ fault = (%q, %q), want (%q, %q)", fault.Detail, fault.Member, environ.FaultDuplicate, key)
++			}
++			assertFacadeVerdict(t, "sessadapter", body, false, environ.FaultDuplicate, "", func(body []byte) error {
++				_, err := sessadapter.DecodeTuple(body)
++				return err
++			})
++			assertFacadeVerdict(t, "dirnode", body, false, environ.FaultDuplicate, "", func(body []byte) error {
++				_, err := dirnode.CheckScanRequest(body)
++				return err
++			})
++			assertFacadeVerdict(t, "provhost", body, false, environ.FaultDuplicate, "", func(body []byte) error {
++				return provhost.DecodeManifest(body)
++			})
++		})
++	}
++}
++
+ // assertFacadeVerdict requires the ledgered verdict at one
+ // facade entry: an accept, or a refusal whose text contains the
+ // frame phrase (and never contains the absent phrase, which
+diff --git a/internal/environ/refusal_site_audit_test.go b/internal/environ/refusal_site_audit_test.go
+new file mode 100644
+index 0000000..92f0b1e
+--- /dev/null
++++ b/internal/environ/refusal_site_audit_test.go
+@@ -0,0 +1,628 @@
++package environ
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"flag"
++	"fmt"
++	"go/ast"
++	"go/parser"
++	"go/token"
++	"os"
++	"path/filepath"
++	"sort"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/invcore"
++)
++
++// This file is the refusal-site audit for the environ library.
++// Every refusal in this package funnels through the refuse
++// constructor var, and every battery witness must resolve to the
++// production SITE that refused it — not to a (code, detail) text
++// pair a sibling arm could share. Before runtime site recording,
++// 62 of 184 arms elsewhere in this repository shared a pair with
++// a sibling, so a witness could pass through the wrong arm; this
++// audit applies that lesson here in three parts:
++//
++//  1. Static derivation: every direct refuse() call site is
++//     derived from production AST as file:line, with its rule
++//     expanded over the frame-fault space for the two
++//     passthrough arms. Every call must sit on a single source
++//     line so the runtime site and the parsed site agree, and
++//     every expanded rule must be unique, which promotes the
++//     batteries' full-text assertions to site witnesses.
++//  2. Runtime recording: TestMain swaps the refuse var with a
++//     recording wrapper, so an aliased call still executes the
++//     swapped var and records its real production use site. The
++//     driver table below exercises every derived site through
++//     the production entries and asserts the recorded rule per
++//     vector; the audit requires the exercised site set to
++//     equal the derived set in both directions, and the
++//     observed rule set to equal the derived rule set exactly.
++//  3. Alias audit: every refuse reference outside direct-call
++//     position fails, through invcore.AuditConstructorReferences
++//     with the funnel's own declaration allowlisted by derived
++//     position (a var funnel, unlike a func declaration, needs
++//     its position allowlisted explicitly; the plants prove a
++//     second binding still fails).
++
++// refusalRecorder is the shared core's runtime direction: the
++// production file:line behind every exercised refusal plus the
++// rule strings those refusals carried.
++var refusalRecorder = invcore.NewSiteRecorder()
++
++// TestMain swaps the refuse constructor var with a recording
++// wrapper for the whole in-package run, then audits the
++// exercised sites against the derived inventory on a full run.
++func TestMain(main *testing.M) {
++	original := refuse
++	refuse = func(rule, member string) error {
++		err := original(rule, member)
++		refusalRecorder.Record(rule, 1)
++		return err
++	}
++	code := main.Run()
++	if code == 0 && fullPackageTestRun() {
++		if failures := auditRefusalSites(); len(failures) != 0 {
++			for _, failure := range failures {
++				fmt.Fprintln(os.Stderr, failure)
++			}
++			code = 1
++		}
++	}
++	os.Exit(code)
++}
++
++func fullPackageTestRun() bool {
++	selected := flag.Lookup("test.run")
++	return selected == nil || selected.Value.String() == ""
++}
++
++// refuseSite is one derived refusal site: where it is, what rule
++// it emits, and which member it names ("*" when dynamic).
++type refuseSite struct {
++	file   string
++	line   int
++	rule   string
++	member string
++}
++
++func (site refuseSite) key() string {
++	return site.file + ":" + strconv.Itoa(site.line)
++}
++
++// deriveFaultDetails derives the frame-fault space from decode.go
++// production: every Fault* constant value. A sixth fault shape
++// fails the audit instead of passing unrostered.
++func deriveFaultDetails() (map[string]bool, []string) {
++	directory, err := os.Getwd()
++	if err != nil {
++		return nil, []string{"refusal audit: " + err.Error()}
++	}
++	path := filepath.Join(directory, "decode.go")
++	source, err := os.ReadFile(path)
++	if err != nil {
++		return nil, []string{"refusal audit: read decode.go: " + err.Error()}
++	}
++	syntax, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
++	if err != nil {
++		return nil, []string{"refusal audit: parse decode.go: " + err.Error() + "; an unparseable derivation proves nothing"}
++	}
++	details := map[string]bool{}
++	for _, decl := range syntax.Decls {
++		node, ok := decl.(*ast.GenDecl)
++		if !ok {
++			continue
++		}
++		for _, spec := range node.Specs {
++			value, ok := spec.(*ast.ValueSpec)
++			if !ok {
++				continue
++			}
++			for index, name := range value.Names {
++				if !strings.HasPrefix(name.Name, "Fault") || index >= len(value.Values) {
++					continue
++				}
++				literal, ok := value.Values[index].(*ast.BasicLit)
++				if !ok {
++					return nil, []string{"refusal audit: Fault constant is not a literal; the extractor cannot see through indirection"}
++				}
++				text, err := strconv.Unquote(literal.Value)
++				if err != nil {
++					return nil, []string{"refusal audit: " + err.Error()}
++				}
++				details[text] = true
++			}
++		}
++	}
++	if len(details) == 0 {
++		return nil, []string{"refusal audit derived zero fault details; the scanner is blind, not the space empty"}
++	}
++	return details, nil
++}
++
++// deriveRefuseSites derives every direct refuse() call in the
++// environ package as file:line with its expanded rule. The two
++// frame-fault passthrough arms expand over the derived fault
++// space; every other arm carries literal rule and member. A
++// non-literal rule outside the passthrough shape, or a call
++// spanning several lines, fails closed.
++func deriveRefuseSites(files []invcore.ProductionFile, fileSet *token.FileSet, faults map[string]bool) ([]refuseSite, []string) {
++	var sites []refuseSite
++	var failures []string
++	for _, production := range files {
++		ast.Inspect(production.Syntax, func(node ast.Node) bool {
++			call, ok := node.(*ast.CallExpr)
++			if !ok {
++				return true
++			}
++			identifier, ok := call.Fun.(*ast.Ident)
++			if !ok || identifier.Name != "refuse" || len(call.Args) != 2 {
++				return true
++			}
++			position := fileSet.Position(identifier.Pos())
++			if !position.IsValid() {
++				failures = append(failures, production.Name+": refuse call at an invalid position")
++				return true
++			}
++			end := fileSet.Position(call.End())
++			if end.Line != position.Line {
++				failures = append(failures, production.Name+":"+strconv.Itoa(position.Line)+": refuse call spans several lines; the runtime site and the parsed site would disagree")
++				return true
++			}
++			site := refuseSite{file: production.Name, line: position.Line}
++			switch first := call.Args[0].(type) {
++			case *ast.BasicLit:
++				rule, err := strconv.Unquote(first.Value)
++				if err != nil {
++					failures = append(failures, site.key()+": refuse rule is not a string literal")
++					return true
++				}
++				site.rule = rule
++				if member, ok := call.Args[1].(*ast.BasicLit); ok {
++					text, err := strconv.Unquote(member.Value)
++					if err != nil {
++						failures = append(failures, site.key()+": refuse member is not a string literal")
++						return true
++					}
++					site.member = text
++				} else {
++					site.member = "*"
++				}
++				sites = append(sites, site)
++			case *ast.BinaryExpr:
++				prefix, ok := passthroughPrefix(first)
++				if !ok {
++					failures = append(failures, site.key()+": refuse rule is neither a literal nor a frame-fault passthrough; the extractor cannot see through it")
++					return true
++				}
++				for detail := range faults {
++					expanded := site
++					expanded.rule = prefix + detail
++					expanded.member = "*"
++					sites = append(sites, expanded)
++				}
++			default:
++				failures = append(failures, site.key()+": refuse rule is neither a literal nor a frame-fault passthrough; the extractor cannot see through it")
++				return true
++			}
++			return true
++		})
++	}
++	return sites, failures
++}
++
++// passthroughPrefix matches `"tuple "+fault.Detail` and
++// `"observation "+fault.Detail` and reports the literal prefix.
++func passthroughPrefix(expression *ast.BinaryExpr) (string, bool) {
++	if expression.Op != token.ADD {
++		return "", false
++	}
++	literal, ok := expression.X.(*ast.BasicLit)
++	if !ok || literal.Kind != token.STRING {
++		return "", false
++	}
++	prefix, err := strconv.Unquote(literal.Value)
++	if err != nil {
++		return "", false
++	}
++	selector, ok := expression.Y.(*ast.SelectorExpr)
++	if !ok || selector.Sel.Name != "Detail" {
++		return "", false
++	}
++	if identifier, ok := selector.X.(*ast.Ident); !ok || identifier.Name != "fault" {
++		return "", false
++	}
++	return prefix, true
++}
++
++// funnelDeclarationPositions derives the positions of the refuse
++// funnel's own declaration: a package-level `var refuse = ...`
++// binding a function literal. invcore's audit allowlists func
++// declarations by position but has no var-funnel rule, so this
++// audit allowlists the derived position explicitly; any other
++// binding of the name still fails.
++func funnelDeclarationPositions(syntax *ast.File) map[token.Pos]bool {
++	positions := map[token.Pos]bool{}
++	for _, decl := range syntax.Decls {
++		general, ok := decl.(*ast.GenDecl)
++		if !ok || general.Tok != token.VAR {
++			continue
++		}
++		for _, spec := range general.Specs {
++			value, ok := spec.(*ast.ValueSpec)
++			if !ok {
++				continue
++			}
++			for index, name := range value.Names {
++				if name.Name != "refuse" || index >= len(value.Values) {
++					continue
++				}
++				if _, ok := value.Values[index].(*ast.FuncLit); ok {
++					positions[name.Pos()] = true
++				}
++			}
++		}
++	}
++	return positions
++}
++
++// auditRefuseReferences runs the alias audit over one file,
++// allowlisting the funnel's own declaration position. Every
++// other refuse reference outside direct-call position — an
++// aliased, rebound, shadowed, or otherwise indirected use —
++// fails.
++func auditRefuseReferences(syntax *ast.File, fileSet *token.FileSet, display string) []string {
++	spec := invcore.ConstructorSpec{Local: map[string]bool{"refuse": true}}
++	allowed := funnelDeclarationPositions(syntax)
++	var failures []string
++	for _, failure := range invcore.AuditConstructorReferences(syntax, fileSet, display, spec) {
++		if failureAtFunnelDeclaration(failure, display, fileSet, allowed) {
++			continue
++		}
++		failures = append(failures, failure)
++	}
++	return failures
++}
++
++// failureAtFunnelDeclaration reports whether an audit failure
++// names the funnel's own declaration position.
++func failureAtFunnelDeclaration(failure, display string, fileSet *token.FileSet, allowed map[token.Pos]bool) bool {
++	for position := range allowed {
++		located := fileSet.Position(position)
++		if !located.IsValid() {
++			continue
++		}
++		prefix := display + ":" + strconv.Itoa(located.Line) + ":" + strconv.Itoa(located.Column) + ":"
++		if strings.HasPrefix(failure, prefix) {
++			return true
++		}
++	}
++	return false
++}
++
++// auditRefusalSites derives the refusal inventory from package
++// source and compares it against the exercised run: derived
++// sites without an exercised path and exercised sites outside
++// the derivation fail together through the invcore harness, the
++// observed rule set must equal the derived rule set exactly,
++// every expanded rule must be unique (so a full-text witness
++// resolves to exactly one site), and every refuse reference
++// outside direct-call position fails.
++func auditRefusalSites() []string {
++	directory, err := os.Getwd()
++	if err != nil {
++		return []string{"refusal audit: " + err.Error()}
++	}
++	files, fileSet, failures := invcore.ScanProduction(directory)
++	for _, failure := range failures {
++		return []string{"refusal audit: " + failure}
++	}
++	faults, faultFailures := deriveFaultDetails()
++	if len(faultFailures) != 0 {
++		return faultFailures
++	}
++	sites, siteFailures := deriveRefuseSites(files, fileSet, faults)
++	failures = append(failures, siteFailures...)
++	seen := map[string]string{}
++	for _, site := range sites {
++		if first, duplicate := seen[site.rule]; duplicate {
++			failures = append(failures, "refusal audit: rule "+strconv.Quote(site.rule)+" is shared by "+first+" and "+site.key()+"; a witness asserting it resolves to two sites, not one")
++			continue
++		}
++		seen[site.rule] = site.key()
++	}
++	derived := map[string]struct{}{}
++	rules := map[string]struct{}{}
++	for _, site := range sites {
++		derived[site.key()] = struct{}{}
++		rules[site.rule] = struct{}{}
++	}
++	var wantRules []string
++	for rule := range rules {
++		wantRules = append(wantRules, rule)
++	}
++	sort.Strings(wantRules)
++	failures = append(failures, refusalRecorder.AuditSites("environ refusals", len(files), derived, wantRules)...)
++	for _, production := range files {
++		display := production.Name
++		failures = append(failures, auditRefuseReferences(production.Syntax, fileSet, display)...)
++	}
++	return failures
++}
++
++// auditDigest returns the pinned digest of one seed, mirroring
++// the shared battery fixtures without importing them.
++func auditDigest(seed string) string {
++	sum := sha256.Sum256([]byte(seed))
++	return "sha256:" + hex.EncodeToString(sum[:])
++}
++
++// auditTupleJSON is one valid Environment Tuple over locally
++// computed identities.
++func auditTupleJSON() []byte {
++	return []byte(`{"environment_id":"test.env","environment_version":"2.1.0","platform":"linux","architecture":"amd64","store_schema_fingerprint":` +
++		strconv.Quote(auditDigest("test-store-fingerprint")) + `,"adapter_version":"1.2.3"}`)
++}
++
++// auditCapabilitiesJSON is the exact eight-name capability map
++// with every capability available.
++func auditCapabilitiesJSON() string {
++	names := []string{
++		"directory_discovery",
++		"directory_incremental_scan",
++		"directory_head_digest",
++		"directory_tail_preview",
++		"native_title_read",
++		"native_runtime_observation",
++		"existing_session_adoption",
++		"native_resume",
++	}
++	parts := make([]string, 0, len(names))
++	for _, name := range names {
++		parts = append(parts, strconv.Quote(name)+`:`+auditAvailableCapabilityJSON())
++	}
++	return "{" + strings.Join(parts, ",") + "}"
++}
++
++// auditAvailableCapabilityJSON is one available CapabilityResult
++// with null reason.
++func auditAvailableCapabilityJSON() string {
++	return `{"status":"available","reason_code":null,"evidence_ids":[],"observed_at":"2026-08-19T04:05:00.000Z","extensions":{}}`
++}
++
++// auditObservationJSON is one valid Environment Observation over
++// locally computed identities.
++func auditObservationJSON() []byte {
++	return []byte(`{"schema":"urn:ax:schema:environment-observation","schema_version":"1.0.0","observation_id":` +
++		strconv.Quote(auditDigest("test-observation")) + `,"host_id":"0198f4c8-8e50-7f66-8f70-1234567890ab","installation_id":` +
++		strconv.Quote(auditDigest("test-installation")) + `,"environment_id":"test.env","environment_version":"2.1.0","provider_id":"test-provider",` +
++		`"platform":"linux","architecture":"amd64","backend_realm_fingerprint":` + strconv.Quote(auditDigest("test-realm")) +
++		`,"capabilities":` + auditCapabilitiesJSON() + `,"authentication_status":"available","runtime_status":"available",` +
++		`"observed_at":"2026-08-19T04:05:00.000Z","extensions":{}}`)
++}
++
++// decodeAuditMembers parses one JSON object into raw member
++// texts.
++func decodeAuditMembers(body []byte) (map[string]string, error) {
++	var raw map[string]json.RawMessage
++	if err := json.Unmarshal(body, &raw); err != nil {
++		return nil, err
++	}
++	members := make(map[string]string, len(raw))
++	for name, value := range raw {
++		members[name] = string(value)
++	}
++	return members, nil
++}
++
++// encodeAuditMembers renders the member map as one JSON object
++// with sorted member names, so the drivers are deterministic.
++func encodeAuditMembers(members map[string]string) []byte {
++	names := make([]string, 0, len(members))
++	for name := range members {
++		names = append(names, name)
++	}
++	sort.Strings(names)
++	parts := make([]string, 0, len(members))
++	for _, name := range names {
++		parts = append(parts, strconv.Quote(name)+":"+members[name])
++	}
++	return []byte("{" + strings.Join(parts, ",") + "}")
++}
++
++// mutateAuditMember returns the object with one top-level member
++// replaced by the given raw JSON.
++func mutateAuditMember(t *testing.T, body []byte, member, replacement string) []byte {
++	t.Helper()
++	parsed, err := decodeAuditMembers(body)
++	if err != nil {
++		t.Fatalf("driver: fixture is not JSON: %v", err)
++	}
++	parsed[member] = replacement
++	return encodeAuditMembers(parsed)
++}
++
++// dropAuditMember returns the object without one top-level
++// member.
++func dropAuditMember(t *testing.T, body []byte, member string) []byte {
++	t.Helper()
++	parsed, err := decodeAuditMembers(body)
++	if err != nil {
++		t.Fatalf("driver: fixture is not JSON: %v", err)
++	}
++	delete(parsed, member)
++	return encodeAuditMembers(parsed)
++}
++
++// appendAuditMember returns the object with one added top-level
++// member.
++func appendAuditMember(t *testing.T, body []byte, member, literal string) []byte {
++	t.Helper()
++	parsed, err := decodeAuditMembers(body)
++	if err != nil {
++		t.Fatalf("driver: fixture is not JSON: %v", err)
++	}
++	if _, present := parsed[member]; present {
++		t.Fatalf("driver: %q already present", member)
++	}
++	parsed[member] = literal
++	return encodeAuditMembers(parsed)
++}
++
++// refusalDriver is one exercised refusal: the body, the entry
++// that must refuse it, and the exact rule the recorder must
++// observe behind it.
++type refusalDriver struct {
++	name  string
++	body  []byte
++	drive func([]byte) error
++	rule  string
++	// member is the exact member the refusal must name, or ""
++	// when the refusal must name none. Missing-member members
++	// follow the required-list order and single-unknown members
++	// are deterministic, so every expectation here is exact.
++	member string
++}
++
++// refusalDrivers exercises every derived refuse site through the
++// production entries. The frame-fault passthrough arms expand to
++// one vector per fault detail; every literal arm owns one
++// vector. Each vector asserts the recorded rule, so a witness
++// that passed through the wrong arm fails here rather than
++// passing on shared text.
++func refusalDrivers(t *testing.T) []refusalDriver {
++	t.Helper()
++	tuple := auditTupleJSON()
++	observation := auditObservationJSON()
++	mutateTuple := func(member, literal string) []byte { return mutateAuditMember(t, tuple, member, literal) }
++	mutateObservation := func(member, literal string) []byte {
++		return mutateAuditMember(t, observation, member, literal)
++	}
++	tupleEntry := func(body []byte) error {
++		_, err := DecodeTuple(body)
++		return err
++	}
++	observationEntry := func(body []byte) error {
++		_, err := DecodeEnvironmentObservation(body)
++		return err
++	}
++	badDigest := strconv.Quote("sha256:zzzz")
++	return []refusalDriver{
++		{name: "tuple non-utf8", body: []byte("{\"environment_id\":\"a\xff\"}"), drive: tupleEntry, rule: "tuple not valid UTF-8"},
++		{name: "tuple lone surrogate", body: []byte("{\"environment_id\":\"A\\ud800B\"}"), drive: tupleEntry, rule: "tuple lone surrogate escape"},
++		{name: "tuple non-object", body: []byte("[1,2]"), drive: tupleEntry, rule: "tuple not a JSON object"},
++		{name: "tuple duplicate", body: []byte(`{"environment_id":"a","environment_id":"b"}`), drive: tupleEntry, rule: "tuple duplicate member", member: "environment_id"},
++		{name: "tuple trailing", body: []byte(`{"environment_id":"a"} {}`), drive: tupleEntry, rule: "tuple trailing data after the object"},
++		{name: "tuple unknown", body: appendAuditMember(t, tuple, "score", `1`), drive: tupleEntry, rule: "tuple carries unknown member", member: "score"},
++		{name: "tuple missing", body: dropAuditMember(t, tuple, "platform"), drive: tupleEntry, rule: "tuple misses a required member", member: "platform"},
++		{name: "tuple environment id", body: mutateTuple("environment_id", `"Test.Env"`), drive: tupleEntry, rule: "tuple environment identifier is not an environment-id", member: "environment_id"},
++		{name: "tuple version", body: mutateTuple("environment_version", `""`), drive: tupleEntry, rule: "tuple environment version is not a string[1..128]", member: "environment_version"},
++		{name: "tuple platform string", body: mutateTuple("platform", `42`), drive: tupleEntry, rule: "tuple platform is not a string", member: "platform"},
++		{name: "tuple platform vocab", body: mutateTuple("platform", `"darwin"`), drive: tupleEntry, rule: "tuple platform is outside linux|macos|windows|wsl2", member: "platform"},
++		{name: "tuple architecture", body: mutateTuple("architecture", `"x86"`), drive: tupleEntry, rule: "tuple architecture is outside amd64|arm64", member: "architecture"},
++		{name: "tuple fingerprint", body: mutateTuple("store_schema_fingerprint", badDigest), drive: tupleEntry, rule: "tuple store fingerprint is not a digest", member: "store_schema_fingerprint"},
++		{name: "tuple semver", body: mutateTuple("adapter_version", `"1.2"`), drive: tupleEntry, rule: "tuple adapter version is not SemVer", member: "adapter_version"},
++		{name: "observation non-utf8", body: []byte("{\"schema\":\"a\xff\"}"), drive: observationEntry, rule: "observation not valid UTF-8"},
++		{name: "observation lone surrogate", body: []byte("{\"schema\":\"A\\ud800B\"}"), drive: observationEntry, rule: "observation lone surrogate escape"},
++		{name: "observation non-object", body: []byte("[1,2]"), drive: observationEntry, rule: "observation not a JSON object"},
++		{name: "observation duplicate", body: []byte(`{"schema":"a","schema":"b"}`), drive: observationEntry, rule: "observation duplicate member", member: "schema"},
++		{name: "observation trailing", body: []byte(`{"schema":"a"} {}`), drive: observationEntry, rule: "observation trailing data after the object"},
++		{name: "observation unknown", body: appendAuditMember(t, observation, "score", `1`), drive: observationEntry, rule: "observation carries unknown member", member: "score"},
++		{name: "observation missing", body: dropAuditMember(t, observation, "platform"), drive: observationEntry, rule: "observation misses a required member", member: "platform"},
++		{name: "observation schema", body: mutateObservation("schema", `"urn:ax:schema:session-adapter-manifest"`), drive: observationEntry, rule: "observation schema is not the environment observation", member: "schema"},
++		{name: "observation schema version", body: mutateObservation("schema_version", `"2.0.0"`), drive: observationEntry, rule: "observation schema version is not 1.0.0", member: "schema_version"},
++		{name: "observation id", body: mutateObservation("observation_id", badDigest), drive: observationEntry, rule: "observation identifier is not a digest", member: "observation_id"},
++		{name: "observation host", body: mutateObservation("host_id", `"not-a-uuid"`), drive: observationEntry, rule: "observation host identifier is not a UUIDv7", member: "host_id"},
++		{name: "observation installation", body: mutateObservation("installation_id", `"42"`), drive: observationEntry, rule: "observation installation identifier is not a digest", member: "installation_id"},
++		{name: "observation environment id", body: mutateObservation("environment_id", `"Test.Env"`), drive: observationEntry, rule: "observation environment identifier is not an environment-id", member: "environment_id"},
++		{name: "observation environment version", body: mutateObservation("environment_version", `""`), drive: observationEntry, rule: "observation environment version is not a string[1..128]", member: "environment_version"},
++		{name: "observation provider string", body: mutateObservation("provider_id", `42`), drive: observationEntry, rule: "observation provider identifier is not a string", member: "provider_id"},
++		{name: "observation provider grammar", body: mutateObservation("provider_id", `"Test-Provider"`), drive: observationEntry, rule: "observation provider identifier is not a provider-id", member: "provider_id"},
++		{name: "observation platform string", body: mutateObservation("platform", `42`), drive: observationEntry, rule: "observation platform is not a string", member: "platform"},
++		{name: "observation platform vocab", body: mutateObservation("platform", `"darwin"`), drive: observationEntry, rule: "observation platform is outside linux|macos|windows|wsl2", member: "platform"},
++		{name: "observation architecture", body: mutateObservation("architecture", `"x86"`), drive: observationEntry, rule: "observation architecture is outside amd64|arm64", member: "architecture"},
++		{name: "observation realm", body: mutateObservation("backend_realm_fingerprint", `"null"`), drive: observationEntry, rule: "observation realm fingerprint is not a digest", member: "backend_realm_fingerprint"},
++		{name: "observation capabilities", body: mutateObservation("capabilities", `{}`), drive: observationEntry, rule: "observation capabilities are not the exact eight-name result map", member: "capabilities"},
++		{name: "observation authentication", body: mutateObservation("authentication_status", `"signed-in"`), drive: observationEntry, rule: "observation authentication status is outside available|missing|expired|unknown", member: "authentication_status"},
++		{name: "observation runtime", body: mutateObservation("runtime_status", `"sleeping"`), drive: observationEntry, rule: "observation runtime status is outside available|degraded|unavailable", member: "runtime_status"},
++		{name: "observation timestamp", body: mutateObservation("observed_at", `"yesterday"`), drive: observationEntry, rule: "observation timestamp is not a timestamp", member: "observed_at"},
++		{name: "observation extensions", body: mutateObservation("extensions", `{"nodots":1}`), drive: observationEntry, rule: "observation extensions are not reverse-DNS keyed", member: "extensions"},
++	}
++}
++
++// TestEveryRefusalSiteIsExercised drives the driver table
++// through the production entries and requires each vector to
++// refuse with exactly its ledgered rule recorded behind it. The
++// TestMain audit compares the exercised site set against the
++// derived inventory; this test proves each witness reaches its
++// own arm.
++func TestEveryRefusalSiteIsExercised(t *testing.T) {
++	for _, driver := range refusalDrivers(t) {
++		t.Run(driver.name, func(t *testing.T) {
++			before := refusalRecorder.Codes()
++			err := driver.drive(driver.body)
++			if err == nil {
++				t.Fatalf("admitted %s, want rule %q", driver.body, driver.rule)
++			}
++			want := "environment " + driver.rule
++			if driver.member != "" {
++				want += ": " + driver.member
++			}
++			if err.Error() != want {
++				t.Fatalf("error = %q, want exactly %q", err.Error(), want)
++			}
++			after := refusalRecorder.Codes()
++			var fresh []string
++			for _, code := range after {
++				seen := false
++				for _, old := range before {
++					if old == code {
++						seen = true
++					}
++				}
++				if !seen {
++					fresh = append(fresh, code)
++				}
++			}
++			if len(fresh) != 1 || fresh[0] != driver.rule {
++				t.Fatalf("recorded rules = %q, want exactly [%q]", fresh, driver.rule)
++			}
++		})
++	}
++}
++
++// TestRefuseAliasShapesAreRejected plants the bypass shapes
++// against the refuse audit: a rebound var, a shadowed name, and
++// a second funnel-shaped declaration alongside an alias. Direct
++// calls and the funnel's own declaration stay clean.
++func TestRefuseAliasShapesAreRejected(t *testing.T) {
++	audit := func(source string) []string {
++		t.Helper()
++		syntax, fileSet, failure := invcore.ParseSource("plant.go", []byte(source))
++		if failure != "" {
++			t.Fatalf("control does not parse: %s", failure)
++		}
++		return auditRefuseReferences(syntax, fileSet, "plant.go")
++	}
++	rebound := audit("package environ\nfunc use(member string) error { return reboundRefuse(\"rule\", member) }\nvar reboundRefuse = refuse\nfunc direct(member string) error { return refuse(\"rule\", member) }\n")
++	if len(rebound) == 0 {
++		t.Fatal("rebound var admitted: the alias bypasses site attribution")
++	}
++	shadow := audit("package environ\nfunc use(refuse string) string { return refuse }\n")
++	if len(shadow) == 0 {
++		t.Fatal("shadowed constructor name admitted: the audit cannot classify it")
++	}
++	clean := audit("package environ\nfunc use(member string) error { return refuse(\"rule\", member) }\n")
++	if len(clean) != 0 {
++		t.Fatalf("direct call reported: %s", strings.Join(clean, "; "))
++	}
++	funnel := audit("package environ\nimport \"fmt\"\nvar refuse = func(rule, member string) error { return fmt.Errorf(rule) }\nfunc use(member string) error { return refuse(\"rule\", member) }\n")
++	if len(funnel) != 0 {
++		t.Fatalf("funnel declaration reported: %s", strings.Join(funnel, "; "))
++	}
++}
+diff --git a/internal/environ/scalar_agreement_test.go b/internal/environ/scalar_agreement_test.go
+new file mode 100644
+index 0000000..f5051f3
+--- /dev/null
++++ b/internal/environ/scalar_agreement_test.go
+@@ -0,0 +1,126 @@
++package environ_test
++
++import (
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/environ"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// This file is the scalar lone-surrogate agreement battery: the
++// third spelling of the gate. scalar.decodeJSONString validates a
++// single JSON string scalar (the data IS one JSON string), while
++// environ.DecodeStrictObject validates a full object frame, so
++// the two cannot share an implementation — delegating either way
++// would be the wrong unit — and this battery is what keeps the
++// retained copy honest in both directions.
++//
++// Both sides are driven through production entries on one shared
++// corpus: the environ side wraps the literal as {"v":LITERAL} and
++// asserts the frame fault, while the scalar side drives
++// scalar.DecodeClosedEnumJSON and asserts the scalar refusal
++// text. A verdict flip in EITHER direction reddens its row.
++//
++// The gate verdict is isolated from the content rules behind it:
++// scalar rows that admit at the gate but refuse at the closed
++// vocabulary arm assert the membership text with the gate phrase
++// asserted ABSENT, proving travel past the gate (the same
++// absent-phrase technique the frame battery uses). A gate that
++// refused everything would fail those rows; a gate that admitted
++// a lone escape would fail the refuse rows. Malformed and
++// truncated escapes fall through to the syntax arms on both
++// sides and assert those arms explicitly, so a gate that claimed
++// them could not pass.
++
++// scalarRow is one agreement vector: the JSON string literal, the
++// environ frame verdict ("" admits), and the scalar verdict.
++type scalarRow struct {
++	name string
++	// inner is the raw JSON string content between the quotes:
++	// backslashes here are JSON source backslashes.
++	inner string
++	// environRefuse names the frame fault, or "" when the frame
++	// gate admits.
++	environRefuse string
++	// scalarRefuse names the scalar refusal text the verdict
++	// must contain, or "" when the scalar entry admits. A
++	// membership refusal proves the gate admitted: the
++	// vocabulary arm runs behind it.
++	scalarRefuse string
++	// scalarAbsent names a phrase the scalar error must not
++	// contain, pinning travel past the named gate.
++	scalarAbsent string
++}
++
++const (
++	scalarGateText   = "lone Unicode surrogate"
++	scalarSyntaxText = "must be a JSON string"
++	scalarMemberText = "is not a member of the negotiated vocabulary"
++)
++
++// scalarCorpus enumerates the gate shape: bare highs and lows,
++// mispairs in both orders, the admitting pair, backslash-run
++// parity (even runs quote, odd runs escape), the composed
++// even-run-plus-real-escape shapes that hid the original admit
++// hole, the malformed fall-throughs, and multibyte text.
++func scalarCorpus() []scalarRow {
++	return []scalarRow{
++		{name: "plain admits", inner: `abc`, environRefuse: "", scalarRefuse: ""},
++		{name: "bare high refused", inner: `A\ud800B`, environRefuse: environ.FaultLoneSurrogate, scalarRefuse: scalarGateText},
++		{name: "bare low refused", inner: `A\udc00B`, environRefuse: environ.FaultLoneSurrogate, scalarRefuse: scalarGateText},
++		{name: "high followed by non-low refused", inner: `A\uD83D\u0041B`, environRefuse: environ.FaultLoneSurrogate, scalarRefuse: scalarGateText},
++		{name: "low followed by high refused", inner: `A\udc00\uD83DB`, environRefuse: environ.FaultLoneSurrogate, scalarRefuse: scalarGateText},
++		{name: "paired surrogates admit", inner: `A\uD83D\uDE00B`, environRefuse: "", scalarRefuse: scalarMemberText, scalarAbsent: scalarGateText},
++		{name: "escaped backslash high run2 admits", inner: `A\\ud800B`, environRefuse: "", scalarRefuse: scalarMemberText, scalarAbsent: scalarGateText},
++		{name: "escaped backslash low run2 admits", inner: `A\\udc00B`, environRefuse: "", scalarRefuse: scalarMemberText, scalarAbsent: scalarGateText},
++		{name: "escaped backslash high run3 refused", inner: `A\\\ud800B`, environRefuse: environ.FaultLoneSurrogate, scalarRefuse: scalarGateText},
++		{name: "escaped backslash plus real lone low refused", inner: `A\\ud800\udc00B`, environRefuse: environ.FaultLoneSurrogate, scalarRefuse: scalarGateText},
++		{name: "escaped backslash plus real lone high refused", inner: `A\\udc00\ud800B`, environRefuse: environ.FaultLoneSurrogate, scalarRefuse: scalarGateText},
++		{name: "escaped backslash plus real pair admits", inner: `A\\ud800\uD83D\uDE00B`, environRefuse: "", scalarRefuse: scalarMemberText, scalarAbsent: scalarGateText},
++		{name: "malformed escape falls to syntax", inner: `A\uDEFG B`, environRefuse: environ.FaultNotObject, scalarRefuse: scalarSyntaxText},
++		{name: "truncated escape falls to syntax", inner: `A\uD83`, environRefuse: environ.FaultNotObject, scalarRefuse: scalarSyntaxText},
++		{name: "multibyte text admits", inner: `plain ü ☃`, environRefuse: "", scalarRefuse: scalarMemberText, scalarAbsent: scalarGateText},
++	}
++}
++
++// TestScalarSurrogateAgreementAcrossUnits drives the shared
++// corpus through both gate units and requires the ledgered
++// verdict at each.
++func TestScalarSurrogateAgreementAcrossUnits(t *testing.T) {
++	for _, row := range scalarCorpus() {
++		t.Run(row.name, func(t *testing.T) {
++			literal := `"` + row.inner + `"`
++			frame := []byte(`{"v":` + literal + `}`)
++			_, fault := environ.DecodeStrictObject(frame)
++			if row.environRefuse == "" {
++				if fault != nil {
++					t.Fatalf("environ refused %q: %v", frame, fault)
++				}
++			} else {
++				if fault == nil {
++					t.Fatalf("environ admitted %q, want fault %q", frame, row.environRefuse)
++				}
++				if fault.Detail != row.environRefuse {
++					t.Fatalf("environ fault = %q, want %q", fault.Detail, row.environRefuse)
++				}
++			}
++			_, err := scalar.DecodeClosedEnumJSON([]byte(literal), "abc")
++			if row.scalarRefuse == "" {
++				if err != nil {
++					t.Fatalf("scalar refused %q, want admit: %v", literal, err)
++				}
++				return
++			}
++			if err == nil {
++				t.Fatalf("scalar admitted %q, want refusal containing %q", literal, row.scalarRefuse)
++			}
++			if !strings.Contains(err.Error(), row.scalarRefuse) {
++				t.Fatalf("scalar error = %v, want text containing %q", err, row.scalarRefuse)
++			}
++			if row.scalarAbsent != "" && strings.Contains(err.Error(), row.scalarAbsent) {
++				t.Fatalf("scalar error = %v, must not contain %q", err, row.scalarAbsent)
++			}
++		})
++	}
++}
+diff --git a/internal/environ/shape_census_test.go b/internal/environ/shape_census_test.go
+index e392259..454d397 100644
+--- a/internal/environ/shape_census_test.go
++++ b/internal/environ/shape_census_test.go
+@@ -10,6 +10,8 @@ import (
+ 	"strconv"
+ 	"strings"
+ 	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/invcore"
+ )
+ 
+ // This file is the shape layer of the shared-implementation
+@@ -107,15 +109,19 @@ var shapeLedger = map[string]string{
+ 	"surrogate-gate|provhost|protocol.go|decodeStrictObject":             "caller: owns the gate call, pinned by frame_agreement_test.go",
+ 	"surrogate-gate|canonicaljson|canonical.go|validateSurrogateEscapes": "canonicalizer gate: string-aware walk, pinned by frame_agreement_test.go",
+ 	"surrogate-gate|canonicaljson|canonical.go|decodeStrict":             "caller: owns the gate call, pinned by frame_agreement_test.go",
+-	"surrogate-gate|scalar|scalar.go|hasLoneJSONSurrogate":               "third spelling (raw scan, scalar-owned): unification tracked in the cross-story follow-up, behaviorally unpinned here",
+-	"surrogate-gate|scalar|scalar.go|decodeJSONString":                   "caller: owns the scalar gate call, pinned by the scalar suite",
++	"surrogate-gate|scalar|scalar.go|hasLoneJSONSurrogate":               "third spelling (single-string unit, scalar-owned): retained, pinned both directions by scalar_agreement_test.go",
++	"surrogate-gate|scalar|scalar.go|decodeJSONString":                   "caller: owns the scalar gate call, pinned by scalar_agreement_test.go through DecodeClosedEnumJSON",
+ 	// Rune measures: one per package plus the canonicalizer's
+ 	// internal bounded-string helpers, which the name census
+-	// never saw under their fresh spellings.
++	// never saw under their fresh spellings. The sessadapter and
++	// dirnode measures converged onto environ.StringLength: their
++	// delegating wrappers carry no rune count of their own, so
++	// they derive no shape row here (the name layer still ledgers
++	// the wrapper names, and TestCheckHelpersDelegateToEnviron
++	// pins the delegation structurally). A revived local count
++	// fails here as unregistered.
+ 	"string-measure|environ|decode.go|StringLength":                               "canonical owner: runes per Section 1.6",
+ 	"string-measure|provhost|opdecode.go|runeLength":                              "runes, pinned by measure_agreement_test.go",
+-	"string-measure|sessadapter|decode.go|stringLength":                           "runes, pinned by measure_agreement_test.go",
+-	"string-measure|dirnode|decode.go|stringLength":                               "runes, pinned by measure_agreement_test.go",
+ 	"string-measure|canonicaljson|closed_shapes.go|requireBoundedString":          "canonicalizer-internal rune bound, pinned by the canonicaljson suite",
+ 	"string-measure|canonicaljson|closed_shapes.go|validateBlobDescriptor":        "canonicalizer-internal rune bound, pinned by the canonicaljson suite",
+ 	"string-measure|canonicaljson|closed_shapes.go|validateManifestEntries":       "canonicalizer-internal rune bound, pinned by the canonicaljson suite",
+@@ -140,19 +146,18 @@ type packageShapes struct {
+ // to be a registered row, and every row to be derived: an
+ // unregistered copy fails as a unification violation, and a row
+ // naming an implementation production no longer derives fails
+-// as orphaned.
++// as orphaned. Both directions run through the invcore harness.
+ func TestSharedShapesAreLedgered(t *testing.T) {
+ 	derived := deriveShapeSites(t)
+-	for key := range derived {
+-		if _, ok := shapeLedger[key]; !ok {
+-			t.Errorf("unregistered shared-rule copy %q: add one canonical implementation in internal/environ instead, or register the shape with its agreement battery", key)
+-		}
++	rows := make(map[string]struct{}, len(shapeLedger))
++	for key := range shapeLedger {
++		rows[key] = struct{}{}
+ 	}
+-	for key, rationale := range shapeLedger {
+-		if !derived[key] {
+-			t.Errorf("orphaned shape row %q (%s): production no longer derives it", key, rationale)
+-		}
++	derivedSet := make(map[string]struct{}, len(derived))
++	for key := range derived {
++		derivedSet[key] = struct{}{}
+ 	}
++	invcore.MustCheckBothDirections(t, "shared-rule shape", derivedSet, rows)
+ }
+ 
+ // deriveShapeSites walks the census scope and derives every
+@@ -178,42 +183,25 @@ func deriveShapeSites(t *testing.T) map[string]bool {
+ 
+ // readScopeSources reads every production Go file in the census
+ // packages into memory, keyed by package then file name.
++// Production file selection and fail-closed parsing come from
++// invcore: an unreadable or unparseable production file fails the
++// suite instead of scanning as clean.
+ func readScopeSources(t *testing.T, root string) map[string]map[string][]byte {
+ 	t.Helper()
+ 	sources := map[string]map[string][]byte{}
+-	count := 0
+-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+-		if err != nil {
+-			return err
+-		}
+-		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+-			return nil
+-		}
+-		rel, err := filepath.Rel(root, path)
+-		if err != nil {
+-			return err
+-		}
+-		parts := strings.Split(rel, string(filepath.Separator))
+-		pkg := parts[0]
+-		if !censusPackages[pkg] {
+-			return nil
+-		}
+-		source, err := os.ReadFile(path)
+-		if err != nil {
+-			t.Fatalf("shapes: read %s: %v", path, err)
+-		}
++	packages := make([]string, 0, len(censusPackages))
++	for pkg := range censusPackages {
++		packages = append(packages, pkg)
++	}
++	sort.Strings(packages)
++	for _, pkg := range packages {
++		files, _ := invcore.MustScanProduction(t, filepath.Join(root, pkg))
+ 		if sources[pkg] == nil {
+ 			sources[pkg] = map[string][]byte{}
+ 		}
+-		sources[pkg][parts[len(parts)-1]] = source
+-		count++
+-		return nil
+-	})
+-	if err != nil {
+-		t.Fatalf("shapes: walk: %v", err)
+-	}
+-	if count == 0 {
+-		t.Fatal("shapes scanned zero files; the scanner is broken, not the tree")
++		for _, production := range files {
++			sources[pkg][production.Name] = production.Source
++		}
+ 	}
+ 	return sources
+ }
+@@ -972,32 +960,307 @@ func TestDelegatingWrappersCallEnviron(t *testing.T) {
+ 	}
+ }
+ 
+-// pinsDelegation requires the wrapper to reference environ and
+-// to hold no decoder, gate, or measure of its own.
+-func pinsDelegation(t *testing.T, pkg string, wrapper *ast.FuncDecl) {
++// delegatedCheckHelpers names every sessadapter and dirnode
++// decode.go helper that must delegate to environ rather than
++// reimplement the rule. The frame decoder above is pinned
++// separately; these are the per-helper copies this leaf
++// converged. A helper that regrows a local rule fails here
++// structurally, before any behavioral battery runs.
++var delegatedCheckHelpers = []string{
++	"stringLength",
++	"checkStringBounds",
++	"checkUint53Bounds",
++	"checkDigest",
++	"checkUUIDv7",
++	"checkTimestamp",
++	"checkSortedUniqueStrings",
++	"checkSortedUniqueDigests",
++	"checkExtensions",
++}
++
++// removedGrammarCopies names the grammar variables the converged
++// helpers deleted. A revived copy fails here as well as in the
++// grammar census, so the failure names the file, not just the
++// class.
++var removedGrammarCopies = []string{
++	"semverPattern",
++	"environmentIDPattern",
++	"reverseDNSPattern",
++}
++
++// TestCheckHelpersDelegateToEnviron pins the per-helper
++// convergence structurally: every delegated helper must reference
++// the environ package and must hold no decoder, surrogate gate,
++// rune count, or compiled grammar of its own, and the removed
++// grammar copies must not come back. dirnode's checkSemver and
++// checkEnvironmentID delegate the same way through local names
++// the shared list does not ledger.
++func TestCheckHelpersDelegateToEnviron(t *testing.T) {
++	root, err := internalRoot(t)
++	if err != nil {
++		t.Fatalf("check-delegation: %v", err)
++	}
++	for _, pkg := range []string{"sessadapter", "dirnode"} {
++		t.Run(pkg, func(t *testing.T) {
++			path := filepath.Join(root, pkg, "decode.go")
++			source, err := os.ReadFile(path)
++			if err != nil {
++				t.Fatalf("check-delegation: %v", err)
++			}
++			syntax, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
++			if err != nil {
++				t.Fatalf("check-delegation: %v", err)
++			}
++			found := map[string]bool{}
++			for _, decl := range syntax.Decls {
++				node, ok := decl.(*ast.FuncDecl)
++				if !ok {
++					continue
++				}
++				for _, name := range delegatedCheckHelpers {
++					if node.Name.Name == name {
++						found[name] = true
++						pinsCheckDelegation(t, pkg, node)
++					}
++				}
++				if pkg == "dirnode" && (node.Name.Name == "checkSemver" || node.Name.Name == "checkEnvironmentID") {
++					found[node.Name.Name] = true
++					pinsCheckDelegation(t, pkg, node)
++				}
++			}
++			for _, name := range delegatedCheckHelpers {
++				if !found[name] {
++					t.Fatalf("check-delegation: %s helper %q missing in %s/decode.go", pkg, name, pkg)
++				}
++			}
++			if pkg == "dirnode" && (!found["checkSemver"] || !found["checkEnvironmentID"]) {
++				t.Fatalf("check-delegation: dirnode grammar helpers missing in dirnode/decode.go")
++			}
++			assertNoRevivedGrammarCopies(t, pkg, syntax)
++		})
++	}
++}
++
++// checkHelperDelegation reports why the helper is not a pure
++// load-bearing delegation onto its environ twin, or "" when it
++// is. A pure delegation is exactly `return environ.Twin(args)`
++// as the body's only statement: the helper's result IS the
++// owner's answer. A discarded call (`_, _ = environ.Twin(...)`)
++// plus a regrown local rule preserves the searched-for token
++// while the helper's result no longer depends on the owner at
++// all — the decoy the review planted green — so anything but a
++// directly returned single environ call fails here. The twin
++// name must match the wrapper name: delegating to the wrong
++// environ member preserves the token while changing behavior.
++// This check is pure over the declaration so the synthetic
++// controls in TestDelegationPinsAreLoadBearing drive this exact
++// function: a decoy that passes here passes the production
++// census by construction.
++func checkHelperDelegation(wrapper *ast.FuncDecl) string {
++	if wrapper.Body == nil || len(wrapper.Body.List) != 1 {
++		return "holds more than the single delegating return"
++	}
++	ret, ok := wrapper.Body.List[0].(*ast.ReturnStmt)
++	if !ok || len(ret.Results) != 1 {
++		return "does not return exactly one result"
++	}
++	call, ok := ret.Results[0].(*ast.CallExpr)
++	if !ok {
++		return "does not return a call"
++	}
++	selector, ok := call.Fun.(*ast.SelectorExpr)
++	if !ok {
++		return "does not return an environ call"
++	}
++	identifier, ok := selector.X.(*ast.Ident)
++	if !ok || identifier.Name != "environ" {
++		return "does not return an environ call"
++	}
++	twin := wrapper.Name.Name
++	if len(twin) > 0 && twin[0] >= 'a' && twin[0] <= 'z' {
++		twin = string(twin[0]-'a'+'A') + twin[1:]
++	}
++	if selector.Sel.Name != twin {
++		return "delegates to environ." + selector.Sel.Name + ", want the " + twin + " twin"
++	}
++	return ""
++}
++
++// pinsCheckDelegation requires the helper to reference environ and
++// to hold no rule of its own: no decoder, no surrogate signal, no
++// rune count, and no compiled grammar. The reference alone is not
++// enough — a discarded call satisfies it while regrowing the rule
++// — so the helper must additionally be a pure load-bearing
++// delegation per checkHelperDelegation: the owner's answer must
++// be the helper's result.
++func pinsCheckDelegation(t *testing.T, pkg string, wrapper *ast.FuncDecl) {
+ 	t.Helper()
+-	referencesEnviron := false
++	if failure := checkHelperDelegation(wrapper); failure != "" {
++		t.Fatalf("check-delegation: %s %s is not a load-bearing delegation: %s", pkg, wrapper.Name.Name, failure)
++	}
++	if bodyBuildsJSONDecoder(wrapper.Body) {
++		t.Fatalf("check-delegation: %s %s builds its own decoder", pkg, wrapper.Name.Name)
++	}
++	surrogateState := &packageShapes{funcDups: map[string]bool{}, funcShapes: map[string][]string{}, constBound: map[string]bool{}}
++	if bodyCarriesSurrogateSignal(wrapper.Body, surrogateState) {
++		t.Fatalf("check-delegation: %s %s carries its own surrogate gate", pkg, wrapper.Name.Name)
++	}
++	if bodyCountsRunes(wrapper.Body) {
++		t.Fatalf("check-delegation: %s %s counts runes itself", pkg, wrapper.Name.Name)
++	}
+ 	ast.Inspect(wrapper.Body, func(node ast.Node) bool {
+-		selector, ok := node.(*ast.SelectorExpr)
++		call, ok := node.(*ast.CallExpr)
+ 		if !ok {
+ 			return true
+ 		}
+-		identifier, ok := selector.X.(*ast.Ident)
++		selector, ok := call.Fun.(*ast.SelectorExpr)
+ 		if !ok {
+ 			return true
+ 		}
+-		if identifier.Name != "environ" {
++		if selector.Sel.Name == "MustCompile" {
++			t.Fatalf("check-delegation: %s %s compiles its own grammar", pkg, wrapper.Name.Name)
++		}
++		return true
++	})
++}
++
++// assertNoRevivedGrammarCopies requires the converged grammar
++// variables to stay deleted from the package decode.go file.
++func assertNoRevivedGrammarCopies(t *testing.T, pkg string, syntax *ast.File) {
++	t.Helper()
++	for _, decl := range syntax.Decls {
++		node, ok := decl.(*ast.GenDecl)
++		if !ok {
++			continue
++		}
++		for _, spec := range node.Specs {
++			value, ok := spec.(*ast.ValueSpec)
++			if !ok {
++				continue
++			}
++			for _, name := range value.Names {
++				for _, removed := range removedGrammarCopies {
++					if name.Name == removed {
++						t.Fatalf("check-delegation: removed grammar copy %q is back in %s/decode.go", removed, pkg)
++					}
++				}
++			}
++		}
++	}
++}
++
++// checkWrapperDelegation reports why the frame-decoder wrapper is
++// not a load-bearing delegation onto environ.DecodeStrictObject,
++// or "" when it is. The wrapper's verdict must depend on the
++// owner's answer: exactly one environ call, to DecodeStrictObject,
++// assigned to non-blank names that the body reuses, with no other
++// call in the body. A discarded call (`_, _ =
++// environ.DecodeStrictObject(data)`) preserves the token while
++// the wrapper's verdict no longer depends on the owner, and a
++// fault-ignoring wrapper (`members, _ := ...; return members,
++// nil`) admits every malformed frame while keeping the call —
++// so blanks, unused answers, and extra calls all fail here. This
++// check is pure over the declaration so the synthetic controls
++// in TestDelegationPinsAreLoadBearing drive this exact function.
++func checkWrapperDelegation(wrapper *ast.FuncDecl) string {
++	if wrapper.Body == nil {
++		return "has no body"
++	}
++	var owned []*ast.CallExpr
++	ast.Inspect(wrapper.Body, func(node ast.Node) bool {
++		call, ok := node.(*ast.CallExpr)
++		if !ok {
+ 			return true
+ 		}
+-		referencesEnviron = true
+-		return false
++		selector, ok := call.Fun.(*ast.SelectorExpr)
++		if !ok {
++			return true
++		}
++		identifier, ok := selector.X.(*ast.Ident)
++		if !ok || identifier.Name != "environ" {
++			return true
++		}
++		owned = append(owned, call)
++		return true
+ 	})
+-	if !referencesEnviron {
+-		t.Fatalf("delegation: %s decodeStrictObject no longer references environ", pkg)
++	if len(owned) != 1 {
++		return "holds an environ call count the delegation cannot attribute"
++	}
++	selector := owned[0].Fun.(*ast.SelectorExpr)
++	if selector.Sel.Name != "DecodeStrictObject" {
++		return "delegates to environ." + selector.Sel.Name + ", want the DecodeStrictObject verdict"
++	}
++	assigned := map[string]int{}
++	attributed := false
++	for _, stmt := range wrapper.Body.List {
++		assignment, ok := stmt.(*ast.AssignStmt)
++		if !ok {
++			continue
++		}
++		for _, rhs := range assignment.Rhs {
++			call, ok := rhs.(*ast.CallExpr)
++			if !ok || call != owned[0] {
++				continue
++			}
++			attributed = true
++			for _, lhs := range assignment.Lhs {
++				identifier, ok := lhs.(*ast.Ident)
++				if !ok {
++					return "assigns the owner verdict to a non-name"
++				}
++				if identifier.Name == "_" {
++					return "discards the owner verdict"
++				}
++				assigned[identifier.Name]++
++			}
++		}
++	}
++	if !attributed {
++		return "never attributes the owner verdict to a name"
++	}
++	uses := map[string]int{}
++	ast.Inspect(wrapper.Body, func(node ast.Node) bool {
++		identifier, ok := node.(*ast.Ident)
++		if !ok {
++			return true
++		}
++		uses[identifier.Name]++
++		return true
++	})
++	for name := range assigned {
++		if uses[name] < 2 {
++			return "ignores the owner answer " + name
++		}
++	}
++	calls := 0
++	ast.Inspect(wrapper.Body, func(node ast.Node) bool {
++		if _, ok := node.(*ast.CallExpr); ok {
++			calls++
++		}
++		return true
++	})
++	if calls != 1 {
++		return "holds a rule of its own beside the delegation"
++	}
++	return ""
++}
++
++// pinsDelegation requires the wrapper to reference environ and
++// to hold no decoder, gate, or measure of its own. The reference
++// alone is not enough — a discarded call satisfies it while the
++// verdict no longer depends on the owner — so the wrapper must
++// additionally be load-bearing per checkWrapperDelegation.
++func pinsDelegation(t *testing.T, pkg string, wrapper *ast.FuncDecl) {
++	t.Helper()
++	if failure := checkWrapperDelegation(wrapper); failure != "" {
++		t.Fatalf("delegation: %s decodeStrictObject is not a load-bearing delegation: %s", pkg, failure)
+ 	}
+ 	if bodyBuildsJSONDecoder(wrapper.Body) {
+ 		t.Fatalf("delegation: %s decodeStrictObject builds its own decoder", pkg)
+ 	}
++	if bodyHasDupSignal(wrapper.Body) {
++		t.Fatalf("delegation: %s decodeStrictObject carries its own duplicate rule", pkg)
++	}
+ 	if bodyCountsRunes(wrapper.Body) {
+ 		t.Fatalf("delegation: %s decodeStrictObject counts runes itself", pkg)
+ 	}
+@@ -1007,6 +1270,138 @@ func pinsDelegation(t *testing.T, pkg string, wrapper *ast.FuncDecl) {
+ 	}
+ }
+ 
++// delegationControl is one synthetic control for the load-bearing
++// delegation pins: a function source whose check verdict must
++// equal the want ("" for clean delegations, a failure fragment
++// otherwise). The controls drive checkHelperDelegation and
++// checkWrapperDelegation, the same pure functions the production
++// census runs on the real tree, so a decoy that passes here
++// passes the production gate by construction. Every reporting
++// control preserves the searched-for `environ` token: the proof
++// that mentioning the owner is not using it.
++type delegationControl struct {
++	name    string
++	source  string
++	helper  string
++	wrapper string
++	want    string
++}
++
++// delegationControls plants the decoy shapes against both pins:
++// the discarded direct call plus a regrown local copy, the
++// fault-ignoring wrapper, the wrong-twin delegation, and the
++// token-free local rule, with clean delegations that must stay
++// clean.
++func delegationControls() []delegationControl {
++	return []delegationControl{
++		{
++			name:   "clean helper delegation stays clean",
++			source: "package provider\nfunc checkDigest(raw json.RawMessage) (scalar.Digest, bool) {\n\treturn environ.CheckDigest(raw)\n}",
++			helper: "checkDigest",
++			want:   "",
++		},
++		{
++			name:   "helper decoy discards the owner answer",
++			source: "package provider\nfunc checkDigest(raw json.RawMessage) (scalar.Digest, bool) {\n\t_, _ = environ.CheckDigest(raw)\n\tvalue, ok := rawString(raw)\n\tif !ok {\n\t\treturn scalar.Digest{}, false\n\t}\n\tdigest, err := scalar.ParseDigest(value)\n\tif err != nil {\n\t\treturn scalar.Digest{}, false\n\t}\n\treturn digest, true\n}",
++			helper: "checkDigest",
++			want:   "single delegating return",
++		},
++		{
++			name:   "helper decoy without the drift still reports",
++			source: "package provider\nfunc checkDigest(raw json.RawMessage) (scalar.Digest, bool) {\n\t_, _ = environ.CheckDigest(raw)\n\treturn scalar.ParseDigest(value)\n}",
++			helper: "checkDigest",
++			want:   "single delegating return",
++		},
++		{
++			name:   "helper delegating to the wrong twin reports",
++			source: "package provider\nfunc checkDigest(raw json.RawMessage) (scalar.Digest, bool) {\n\treturn environ.CheckUUIDv7(raw)\n}",
++			helper: "checkDigest",
++			want:   "want the CheckDigest twin",
++		},
++		{
++			name:   "helper token-free local rule reports",
++			source: "package provider\nfunc checkDigest(raw json.RawMessage) (scalar.Digest, bool) {\n\treturn scalar.ParseDigest(value)\n}",
++			helper: "checkDigest",
++			want:   "environ call",
++		},
++		{
++			name:    "clean wrapper delegation stays clean",
++			source:  "package provider\nfunc decodeStrictObject(data []byte) (map[string]json.RawMessage, *frameFault) {\n\tmembers, fault := environ.DecodeStrictObject(data)\n\tif fault != nil {\n\t\treturn nil, &frameFault{detail: fault.Detail, member: fault.Member}\n\t}\n\treturn members, nil\n}",
++			wrapper: "decodeStrictObject",
++			want:    "",
++		},
++		{
++			name:    "wrapper decoy discards the owner verdict",
++			source:  "package provider\nfunc decodeStrictObject(data []byte) (map[string]json.RawMessage, *frameFault) {\n\t_, _ = environ.DecodeStrictObject(data)\n\tvar members map[string]json.RawMessage\n\tif err := json.Unmarshal(data, &members); err != nil {\n\t\treturn nil, &frameFault{detail: \"not a JSON object\"}\n\t}\n\treturn members, nil\n}",
++			wrapper: "decodeStrictObject",
++			want:    "discards the owner verdict",
++		},
++		{
++			name:    "wrapper ignoring the fault reports",
++			source:  "package provider\nfunc decodeStrictObject(data []byte) (map[string]json.RawMessage, *frameFault) {\n\tmembers, _ := environ.DecodeStrictObject(data)\n\treturn members, nil\n}",
++			wrapper: "decodeStrictObject",
++			want:    "discards the owner verdict",
++		},
++		{
++			name:    "wrapper delegating to the wrong member reports",
++			source:  "package provider\nfunc decodeStrictObject(data []byte) (map[string]json.RawMessage, *frameFault) {\n\tmembers, fault := environ.CheckExtensions(data)\n\tif fault != nil {\n\t\treturn nil, &frameFault{detail: \"bad\"}\n\t}\n\treturn members, nil\n}",
++			wrapper: "decodeStrictObject",
++			want:    "want the DecodeStrictObject verdict",
++		},
++	}
++}
++
++// parseControlFunc extracts one named function declaration from a
++// synthetic control source.
++func parseControlFunc(t *testing.T, source, name string) *ast.FuncDecl {
++	t.Helper()
++	syntax, err := parser.ParseFile(token.NewFileSet(), "control.go", []byte(source), 0)
++	if err != nil {
++		t.Fatalf("control does not parse: %v", err)
++	}
++	for _, decl := range syntax.Decls {
++		node, ok := decl.(*ast.FuncDecl)
++		if !ok || node.Name.Name != name {
++			continue
++		}
++		return node
++	}
++	t.Fatalf("control holds no function %q", name)
++	return nil
++}
++
++// TestDelegationPinsAreLoadBearing drives every delegation
++// control through the production pin functions and requires the
++// ledgered verdict: clean delegations stay clean, and every
++// token-preserving decoy reports. A decoy that stopped
++// reporting proves nothing and fails here by construction.
++func TestDelegationPinsAreLoadBearing(t *testing.T) {
++	for _, control := range delegationControls() {
++		t.Run(control.name, func(t *testing.T) {
++			target := control.helper
++			if target == "" {
++				target = control.wrapper
++			}
++			node := parseControlFunc(t, control.source, target)
++			var got string
++			if control.helper != "" {
++				got = checkHelperDelegation(node)
++			} else {
++				got = checkWrapperDelegation(node)
++			}
++			if control.want == "" {
++				if got != "" {
++					t.Fatalf("clean delegation reported: %q", got)
++				}
++				return
++			}
++			if !strings.Contains(got, control.want) {
++				t.Fatalf("decoy reported %q, want a failure containing %q", got, control.want)
++			}
++		})
++	}
++}
++
+ // assertNoSurrogateLiterals requires the whole file to carry no
+ // surrogate range literal: the gate lives in environ now.
+ func assertNoSurrogateLiterals(t *testing.T, pkg string, syntax *ast.File) {
+diff --git a/internal/environ/tuple_agreement_test.go b/internal/environ/tuple_agreement_test.go
+index 3ee4221..f38a801 100644
+--- a/internal/environ/tuple_agreement_test.go
++++ b/internal/environ/tuple_agreement_test.go
+@@ -150,6 +150,7 @@ func tupleCorpus(t *testing.T) []tupleRow {
+ 		{"x86 refused", set("architecture", `"x86"`), "architecture"},
+ 		{"arm64 admits", set("architecture", `"arm64"`), ""},
+ 		{"bad fingerprint", set("store_schema_fingerprint", `"sha256:zzzz"`), "digest"},
++		{"uppercase fingerprint refused", set("store_schema_fingerprint", jsonQuote("sha256:"+strings.ToUpper(strings.TrimPrefix(fixtureStorePrint, "sha256:")))), "digest"},
+ 		{"short version", set("adapter_version", `"1.2"`), "SemVer"},
+ 		{"prerelease admits", set("adapter_version", `"1.2.3-rc.1"`), ""},
+ 	}
+diff --git a/internal/provhost/opdecode.go b/internal/provhost/opdecode.go
+index 49e3c95..6c2aced 100644
+--- a/internal/provhost/opdecode.go
++++ b/internal/provhost/opdecode.go
+@@ -3,6 +3,7 @@ package provhost
+ import (
+ 	"bytes"
+ 	"encoding/json"
++	"io"
+ 	"sort"
+ 	"strconv"
+ 	"strings"
+@@ -71,6 +72,14 @@ func rawUint53(raw json.RawMessage) (uint64, bool) {
+ 	if err := decoder.Decode(&value); err != nil {
+ 		return 0, false
+ 	}
++	// Decode reads one value and stops: without the trailing
++	// check a hostile slice like `12a` would read as 12. Member
++	// slices arriving through decodeStrictObject can never carry
++	// trailing data, but this entry takes raw slices and must
++	// not trust them.
++	if _, err := decoder.Token(); err != io.EOF {
++		return 0, false
++	}
+ 	number, ok := value.(json.Number)
+ 	if !ok {
+ 		return 0, false
+diff --git a/internal/provhost/protocol_test.go b/internal/provhost/protocol_test.go
+index 9372e97..6c15635 100644
+--- a/internal/provhost/protocol_test.go
++++ b/internal/provhost/protocol_test.go
+@@ -4,6 +4,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"math"
++	"sort"
+ 	"strings"
+ 	"testing"
+ 	"time"
+@@ -440,6 +441,60 @@ func TestDecodeResponseRefusals(t *testing.T) {
+ 	}
+ }
+ 
++// TestDecodeResponseRefusesDuplicateOfEveryMember requires the
++// response envelope to refuse a duplicated member for every
++// member of its closed set, plus the foreign keys the frame-gate
++// sweep named. The first battery witnessed the duplicate arm at
++// request_id alone; a narrowing mutant admitting exactly a
++// duplicated body stayed green and took the second body
++// last-wins through this production entry. The member set
++// derives from responseMembers at runtime, so a seventh member
++// is automatically swept; the literal table below is the only
++// hand-written part, and a member without a literal fails closed
++// instead of passing silently.
++func TestDecodeResponseRefusesDuplicateOfEveryMember(t *testing.T) {
++	want := mustUUIDv7(t, testRequestID)
++	literals := map[string]string{
++		"protocol":         `"urn:ax:protocol:provider"`,
++		"protocol_version": `"2.0.0"`,
++		"request_id":       `"` + testRequestID + `"`,
++		"ok":               `true`,
++		"body":             `{"a":1}`,
++		"error":            `{"schema":"urn:ax:schema:error","schema_version":"1.0.0","code":"capability_unavailable","message":"m","exit_code":6,"retryable":false,"details":{}}`,
++	}
++	var members []string
++	for name := range responseMembers {
++		members = append(members, name)
++	}
++	sort.Strings(members)
++	if len(members) != len(literals) {
++		t.Fatalf("response member set has %d names for %d literals; the test cannot sweep what it cannot build", len(members), len(literals))
++	}
++	members = append(members, "v", "capabilities", "provider_id", "cursor")
++	for _, name := range members {
++		t.Run(name, func(t *testing.T) {
++			literal, ok := literals[name]
++			if !ok {
++				literal = `1`
++			}
++			frame := successFrame(t, testRequestID, `{"a":1}`)
++			// The success frame carries every member but
++			// error: a present member needs one more copy to
++			// double, an absent member needs two.
++			copies := 1
++			if !strings.Contains(string(frame), `"`+name+`":`) {
++				copies = 2
++			}
++			for index := 0; index < copies; index++ {
++				frame = frame[:len(frame)-1]
++				frame = append(frame, []byte(`,"`+name+`":`+literal+`}`)...)
++			}
++			_, err := DecodeResponse(frame, want)
++			requireFrameRefusal(t, err, name, "duplicate member")
++		})
++	}
++}
++
+ // TestDecodeResponseRefusesOversizeFrame proves the 8 MiB bound from the
+ // decoding side: a frame one byte over the limit fails without being
+ // parsed, and a frame exactly at the limit is accepted.
+diff --git a/internal/provhost/rawuint53_test.go b/internal/provhost/rawuint53_test.go
+new file mode 100644
+index 0000000..fbfbb14
+--- /dev/null
++++ b/internal/provhost/rawuint53_test.go
+@@ -0,0 +1,44 @@
++package provhost
++
++import (
++	"encoding/json"
++	"testing"
++)
++
++// This file pins the rawUint53 trailing-data texture this leaf
++// hardened onto the environ shape. Decode reads one value and
++// stops, so without the trailing check a hostile slice like `12a`
++// reads as 12 (and `12 13` reads as 12 with a silent second
++// value). Member slices arriving through decodeStrictObject can
++// never carry trailing data — the frame gate strips them first —
++// so these rows drive the helper directly. Both hostile shapes
++// are separate rows because they fail for different reasons:
++// `12a` errors at the trailing token while `12 13` yields one,
++// so a gate that refuses only error trailing (the narrowing
++// mutant) admits the second and fails exactly its row.
++func TestRawUint53RefusesTrailingData(t *testing.T) {
++	refuse := func(literal string) {
++		t.Helper()
++		if got, ok := rawUint53(json.RawMessage(literal)); ok {
++			t.Fatalf("rawUint53(%q) admitted %d, want refusal", literal, got)
++		}
++	}
++	accept := func(literal string, want uint64) {
++		t.Helper()
++		got, ok := rawUint53(json.RawMessage(literal))
++		if !ok {
++			t.Fatalf("rawUint53(%q) refused, want %d", literal, want)
++		}
++		if got != want {
++			t.Fatalf("rawUint53(%q) = %d, want %d", literal, got, want)
++		}
++	}
++	refuse("12a")
++	refuse("12 13")
++	refuse("0x10")
++	accept("12", 12)
++	accept("12 ", 12)
++	accept(" 12", 12)
++	accept("9007199254740991", 9007199254740991)
++	refuse("9007199254740992")
++}
+diff --git a/internal/sessadapter/bound_census_test.go b/internal/sessadapter/bound_census_test.go
+index 777aa25..f29cca7 100644
+--- a/internal/sessadapter/bound_census_test.go
++++ b/internal/sessadapter/bound_census_test.go
+@@ -70,7 +70,8 @@ package sessadapter
+ //      number with no length source in the function (`value <
+ //      minimum` over a rawUint53 result, a plain int parameter)
+ //      — STATED BOUND, not derived. Live instance:
+-//      checkUint53Bounds (decode.go:269); the bound is enforced
++//      checkUint53Bounds in decode.go (a delegating wrapper onto
++//      environ.CheckUint53Bounds); the bound is enforced
+ //      at every caller row, and every caller row carries a
+ //      driver or a pinned exemption.
+ //  10. A direct cap(...) or utf8.RuneCountInString(...)
+@@ -111,11 +112,12 @@ import (
+ 	"go/printer"
+ 	"go/token"
+ 	"os"
+-	"path/filepath"
+ 	"sort"
+ 	"strconv"
+ 	"strings"
+ 	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/invcore"
+ )
+ 
+ // boundRegistration is one production bound site with its proof:
+@@ -164,37 +166,22 @@ var boundHelpers = map[string]bool{
+ // TestBoundLenScanSeesLengthVariables prove the halves.
+ func scanBoundSiteIDs(t *testing.T, directory string) []string {
+ 	t.Helper()
+-	entries, err := os.ReadDir(directory)
+-	if err != nil {
+-		t.Fatalf("bound census: %v", err)
+-	}
++	// Production file selection and fail-closed parsing come
++	// from invcore: an unreadable or unparseable production file
++	// fails the suite instead of scanning as clean, and zero
++	// production files fail instead of passing vacuously. The
++	// bound-site extraction below is unchanged: the synthetic
++	// indirection plants drive boundSitesInSyntax directly, so
++	// both prove the same extractor.
++	files, _ := invcore.MustScanProduction(t, directory)
+ 	var ids []string
+-	scanned := 0
+-	for _, entry := range entries {
+-		name := entry.Name()
+-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+-			continue
+-		}
+-		scanned++
+-		path := filepath.Join(directory, name)
+-		source, err := os.ReadFile(path)
+-		if err != nil {
+-			t.Fatalf("bound census: %v", err)
+-		}
+-		fileSet := token.NewFileSet()
+-		syntax, err := parser.ParseFile(fileSet, path, source, 0)
+-		if err != nil {
+-			t.Fatalf("bound census: %v", err)
+-		}
+-		sites, violations := boundSitesInSyntax(syntax, name)
++	for _, production := range files {
++		sites, violations := boundSitesInSyntax(production.Syntax, production.Name)
+ 		for _, violation := range violations {
+-			t.Errorf("bound census: %s: %s", name, violation)
++			t.Errorf("bound census: %s: %s", production.Name, violation)
+ 		}
+ 		ids = append(ids, sites...)
+ 	}
+-	if scanned == 0 {
+-		t.Fatal("bound census scanned zero production files; the scanner is broken, not the package")
+-	}
+ 	return ids
+ }
+ 
+@@ -591,25 +578,18 @@ var boundRegistrations = []boundRegistration{
+ 	// findings guard behind the four cap instantiations.
+ 	{id: `context.go|DecodeReadAuthority|checkSortedUniqueStrings|"root_handle_names"|0`, driver: "TestSortedUniqueBoundEdges", reason: "handle names element 1..128 count 1..128"},
+ 	{id: `context.go|DecodeFindings|len|uint64(len(elements)) > maximum|0`, driver: "TestFindingsCapEdges", exempt: true, reason: "mechanism: generic guard; caps pinned at the four DecodeFindings instantiation rows below"},
+-	// decode.go: reverse-DNS key bounds and shared mechanisms.
+-	{id: `decode.go|checkExtensions|len|len(name) < N|0`, exempt: true, reason: "equivalent: no 2-character key satisfies the reverse-DNS grammar (minimum \"a.b\" is 3), so narrowing the floor changes no verdict; the ceiling and the refusal are pinned by TestExtensionKeyBoundEdges"},
+-	{id: `decode.go|checkExtensions|len|len(name) > N|0`, driver: "TestExtensionKeyBoundEdges", reason: "extension key maximum 253"},
+-	{id: `decode.go|checkSortedUniqueDigests|len|index < len(values)|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "plumbing: pairwise sortedness scan index, not a domain bound; element and count edges pinned at the caller rows"},
+-	// decode.go: the shared character-count enforcements behind
+-	// every string bound (review rev6 shape 4). Both compare a
+-	// length variable bound from stringLength, so the
+-	// length-variable derivation sees them; they are mechanism,
+-	// not sites — their values live at the caller rows, which
+-	// the named drivers pin at both refusal edges.
+-	{id: `decode.go|checkStringBounds|len|length < minimum|0`, driver: "TestStringBoundEdges", exempt: true, reason: "mechanism: shared minimum enforcement; values pinned at the caller rows"},
+-	{id: `decode.go|checkStringBounds|len|length > maximum|0`, driver: "TestStringBoundEdges", exempt: true, reason: "mechanism: shared maximum enforcement; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueStrings|len|length < minimumLength|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared element-minimum enforcement; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueStrings|len|length > maximumLength|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared element-maximum enforcement; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueDigests|len|uint64(len(elements)) < minimumCount|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared count floor; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueDigests|len|uint64(len(elements)) > maximumCount|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared count ceiling; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueStrings|len|index < len(values)|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "plumbing: pairwise sortedness scan index, not a domain bound; element and count edges pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueStrings|len|uint64(len(elements)) < minimumCount|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared count floor; values pinned at the caller rows"},
+-	{id: `decode.go|checkSortedUniqueStrings|len|uint64(len(elements)) > maximumCount|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared count ceiling; values pinned at the caller rows"},
++	// decode.go: the shared character-count, sorted-unique, and
++	// extensions enforcements converged onto environ this leaf
++	// (checkStringBounds, checkSortedUniqueStrings,
++	// checkSortedUniqueDigests, and checkExtensions delegate to
++	// the environ gates), so their len comparisons no longer
++	// derive here and their rows are GONE, not retained. The
++	// bounds still refuse at the same production entries through
++	// the same drivers (TestStringBoundEdges,
++	// TestSortedUniqueBoundEdges, TestExtensionKeyBoundEdges),
++	// and the delegation itself is pinned structurally by
++	// TestCheckHelpersDelegateToEnviron in internal/environ. A
++	// revived local comparison fails here as unrostered.
+ 	{id: `decode.go|parseUint53Literal|len|index < len(literal)|0`, exempt: true, reason: "plumbing: digit-scan index, not a domain bound; value edges pinned by TestUint53RepresentabilityCeiling"},
+ 	// manifest.go.
+ 	{id: `manifest.go|DecodeManifest|checkSortedUniqueStrings|"platforms"|0`, exempt: true, reason: "equivalent: element 16 and count 4 unreachable behind scalar.ParsePlatform and the four-name closed set"},
+@@ -713,10 +693,10 @@ var boundCensusCanaries = []string{
+ 	`operations.go|checkRequestScalars|requireStringBounds|"expected_target_native_session_id"`,
+ 	`operations.go|checkSuccessScalars|requireUint53Bounds|"candidate_count"`,
+ 	`probe.go|DecodeProbe|checkSortedUniqueStrings|"warnings"`,
+-	`decode.go|checkExtensions|len|len(name) > N`,
++	`tuple.go|DecodeTuple|checkStringBounds|"environment_version"`,
+ 	`tuple.go|decodeStrategies|len|index < len(strategies)`,
+ 	`decode.go|parseUint53Literal|len|index < len(literal)`,
+-	`decode.go|checkStringBounds|len|length < minimum`,
++	`operations.go|checkSuccessScalars|checkSortedUniqueStrings|"environment_names"`,
+ }
+ 
+ // TestBoundGuardsAreCensused is the bound census: the derived
+diff --git a/internal/sessadapter/decode.go b/internal/sessadapter/decode.go
+index 07e2ea9..f75919c 100644
+--- a/internal/sessadapter/decode.go
++++ b/internal/sessadapter/decode.go
+@@ -6,7 +6,6 @@ import (
+ 	"io"
+ 	"regexp"
+ 	"strings"
+-	"unicode/utf8"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/environ"
+ 	"github.com/relux-works/agent-session-manager/internal/scalar"
+@@ -106,6 +105,14 @@ func rawUint53(raw json.RawMessage) (uint64, bool) {
+ 	if err := decoder.Decode(&value); err != nil {
+ 		return 0, false
+ 	}
++	// Decode reads one value and stops: without the trailing
++	// check a hostile slice like `12a` would read as 12. Member
++	// slices arriving through decodeStrictObject can never carry
++	// trailing data, but this entry takes raw slices and must
++	// not trust them.
++	if _, err := decoder.Token(); err != io.EOF {
++		return 0, false
++	}
+ 	number, ok := value.(json.Number)
+ 	if !ok {
+ 		return 0, false
+@@ -121,6 +128,9 @@ func rawUint53(raw json.RawMessage) (uint64, bool) {
+ // float conversion: the magnitude bound is checked on the digit
+ // string, so 2^53 is refused even on platforms that could hold it.
+ func parseUint53Literal(literal string) (uint64, bool) {
++	if literal == "" {
++		return 0, false
++	}
+ 	var value uint64
+ 	for index := 0; index < len(literal); index++ {
+ 		digit := literal[index]
+@@ -137,77 +147,42 @@ func parseUint53Literal(literal string) (uint64, bool) {
+ 
+ // stringLength is the Section 1.6 string measure in characters, not
+ // bytes: a bound of string[1..128] admits 128 characters of any
+-// width.
++// width. It delegates to the single environ measure so the two can
++// never drift; the delegation battery pins both directions.
+ func stringLength(value string) int {
+-	return utf8.RuneCountInString(value)
++	return environ.StringLength(value)
+ }
+ 
+ // checkStringBounds reports whether the member is a JSON string whose
+-// character count falls in the inclusive bound.
++// character count falls in the inclusive bound. It delegates to the
++// environ gate.
+ func checkStringBounds(raw json.RawMessage, minimum, maximum int) (string, bool) {
+-	value, ok := rawString(raw)
+-	if !ok {
+-		return "", false
+-	}
+-	length := stringLength(value)
+-	if length < minimum || length > maximum {
+-		return "", false
+-	}
+-	return value, true
++	return environ.CheckStringBounds(raw, minimum, maximum)
+ }
+ 
+ // checkUint53Bounds reports whether the member is a uint53 in the
+ // inclusive bound. Both edges are checked: a one-sided check would
+-// admit the open side.
++// admit the open side. It delegates to the environ gate.
+ func checkUint53Bounds(raw json.RawMessage, minimum, maximum uint64) (uint64, bool) {
+-	value, ok := rawUint53(raw)
+-	if !ok {
+-		return 0, false
+-	}
+-	if value < minimum || value > maximum {
+-		return 0, false
+-	}
+-	return value, true
++	return environ.CheckUint53Bounds(raw, minimum, maximum)
+ }
+ 
+ // checkDigest reports whether the member is a digest of the pinned
+-// sha256 form.
++// sha256 form. It delegates to the environ gate.
+ func checkDigest(raw json.RawMessage) (scalar.Digest, bool) {
+-	value, ok := rawString(raw)
+-	if !ok {
+-		return scalar.Digest{}, false
+-	}
+-	digest, err := scalar.ParseDigest(value)
+-	if err != nil {
+-		return scalar.Digest{}, false
+-	}
+-	return digest, true
++	return environ.CheckDigest(raw)
+ }
+ 
+-// checkUUIDv7 reports whether the member is a lowercase UUIDv7.
++// checkUUIDv7 reports whether the member is a lowercase UUIDv7. It
++// delegates to the environ gate.
+ func checkUUIDv7(raw json.RawMessage) (scalar.UUIDv7, bool) {
+-	value, ok := rawString(raw)
+-	if !ok {
+-		return scalar.UUIDv7{}, false
+-	}
+-	identifier, err := scalar.ParseUUIDv7(value)
+-	if err != nil {
+-		return scalar.UUIDv7{}, false
+-	}
+-	return identifier, true
++	return environ.CheckUUIDv7(raw)
+ }
+ 
+ // checkTimestamp reports whether the member is a pinned timestamp.
++// It delegates to the environ gate.
+ func checkTimestamp(raw json.RawMessage) (scalar.Timestamp, bool) {
+-	value, ok := rawString(raw)
+-	if !ok {
+-		return scalar.Timestamp{}, false
+-	}
+-	instant, err := scalar.ParseTimestamp(value)
+-	if err != nil {
+-		return scalar.Timestamp{}, false
+-	}
+-	return instant, true
++	return environ.CheckTimestamp(raw)
+ }
+ 
+ // isNull reports whether the member is an explicit JSON null.
+@@ -250,95 +225,31 @@ func decodeArray(raw json.RawMessage) ([]json.RawMessage, bool) {
+ // strings in the item bound whose JCS encodings order strictly
+ // increasingly with no duplicates. Bytewise JCS order over strings
+ // is plain lexicographic order, so the check compares directly; the
+-// count bound is checked on both edges.
++// count bound is checked on both edges. It delegates to the environ
++// gate.
+ func checkSortedUniqueStrings(raw json.RawMessage, minimumLength, maximumLength int, minimumCount, maximumCount uint64) ([]string, bool) {
+-	elements, ok := decodeArray(raw)
+-	if !ok {
+-		return nil, false
+-	}
+-	if uint64(len(elements)) < minimumCount || uint64(len(elements)) > maximumCount {
+-		return nil, false
+-	}
+-	values := make([]string, 0, len(elements))
+-	for _, element := range elements {
+-		value, ok := rawString(element)
+-		if !ok {
+-			return nil, false
+-		}
+-		length := stringLength(value)
+-		if length < minimumLength || length > maximumLength {
+-			return nil, false
+-		}
+-		values = append(values, value)
+-	}
+-	for index := 1; index < len(values); index++ {
+-		if values[index-1] >= values[index] {
+-			return nil, false
+-		}
+-	}
+-	return values, true
++	return environ.CheckSortedUniqueStrings(raw, minimumLength, maximumLength, minimumCount, maximumCount)
+ }
+ 
+ // checkSortedUniqueDigests reports whether the member is a sorted
+-// unique digest array in the count bound.
++// unique digest array in the count bound. It delegates to the
++// environ gate.
+ func checkSortedUniqueDigests(raw json.RawMessage, minimumCount, maximumCount uint64) ([]scalar.Digest, bool) {
+-	elements, ok := decodeArray(raw)
+-	if !ok {
+-		return nil, false
+-	}
+-	if uint64(len(elements)) < minimumCount || uint64(len(elements)) > maximumCount {
+-		return nil, false
+-	}
+-	values := make([]scalar.Digest, 0, len(elements))
+-	for _, element := range elements {
+-		digest, ok := checkDigest(element)
+-		if !ok {
+-			return nil, false
+-		}
+-		values = append(values, digest)
+-	}
+-	for index := 1; index < len(values); index++ {
+-		if values[index-1].String() >= values[index].String() {
+-			return nil, false
+-		}
+-	}
+-	return values, true
++	return environ.CheckSortedUniqueDigests(raw, minimumCount, maximumCount)
+ }
+ 
+-// semverPattern is the SemVer grammar adapter and environment
+-// versions satisfy: three dot-separated non-negative integers with
+-// no leading zeros, an optional pre-release, and optional build
+-// metadata.
+-var semverPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
+-
+ // providerIDPattern is the Section 7.1 provider-id grammar the
+ // manifest, context, and binding layers read:
+-// [a-z][a-z0-9-]{0,31}.
++// [a-z][a-z0-9-]{0,31}. It is the one grammar copy this package
++// retains: scalar owns the provider-id rule and the one-language
++// battery pins every copy to its literal in both directions.
+ var providerIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+ 
+-// environmentIDPattern is the Section 7.8 environment-id grammar:
+-// [a-z][a-z0-9.-]{0,63}. One semantic native environment per
+-// adapter; dots separate the native hierarchy, never trust.
+-var environmentIDPattern = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
+-
+-// reverseDNSPattern is the Section 1.6 extension-key grammar:
+-// dot-separated lowercase labels, 3..253 characters.
+-var reverseDNSPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(\.[a-z][a-z0-9-]{0,62})+$`)
+-
+ // checkExtensions reports whether the member is an object whose keys
+ // are all reverse-DNS names. Values cross opaquely: extensions
+ // cannot add operations, capabilities, or trust facts, and no member
+ // of this package reads an extension value for any admission
+-// decision.
++// decision. It delegates to the environ gate.
+ func checkExtensions(raw json.RawMessage) bool {
+-	members, fault := decodeStrictObject(raw)
+-	if fault != nil {
+-		return false
+-	}
+-	for name := range members {
+-		if len(name) < 3 || len(name) > 253 || !reverseDNSPattern.MatchString(name) {
+-			return false
+-		}
+-	}
+-	return true
++	return environ.CheckExtensions(raw)
+ }
+diff --git a/internal/sessadapter/identity_census_test.go b/internal/sessadapter/identity_census_test.go
+index 868cbc5..43ac2e4 100644
+--- a/internal/sessadapter/identity_census_test.go
++++ b/internal/sessadapter/identity_census_test.go
+@@ -411,6 +411,7 @@ var identityRegistrations = []identityRegistration{
+ 	// the uint53 reader.
+ 	{id: `decode.go|isNull|string(bytes.TrimSpace(raw)) == "null"|0`, driver: "TestCheckValidateNullabilityDrivesEveryTarget", domain: "validate", reason: "null detector; both directions pinned by the archive/staged target matrix"},
+ 	{id: `decode.go|rawUint53|literal == ""|0`, exempt: true, reason: "defensive: unreachable — json.Number.String never yields an empty literal, and every non-number is refused at the decode arms above"},
++	{id: `decode.go|parseUint53Literal|literal == ""|0`, exempt: true, reason: "defensive: unreachable — the only caller refuses the empty literal at the rawUint53 arm above, and the shared ladder texture is pinned directly by TestParseUint53LiteralRefusesNonDigits in internal/environ"},
+ 	// discovery.go: the two live zero-fact refusals F1 names.
+ 	{id: `discovery.go|Discover|candidate.ExecutablePath == ""|0`, driver: "TestDiscoverRefusals", domain: "discover", reason: "empty executable path refuses at Discover"},
+ 	{id: `discovery.go|Discover|candidate.OwnerIdentity == ""|0`, driver: "TestDiscoverRefusals", domain: "discover", reason: "empty owner identity refuses at Discover"},
+diff --git a/internal/sessadapter/manifest.go b/internal/sessadapter/manifest.go
+index 5391f3f..502cbb8 100644
+--- a/internal/sessadapter/manifest.go
++++ b/internal/sessadapter/manifest.go
+@@ -4,6 +4,7 @@ import (
+ 	"encoding/json"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/environ"
+ 	"github.com/relux-works/agent-session-manager/internal/scalar"
+ )
+ 
+@@ -153,7 +154,7 @@ func DecodeManifest(body []byte) (Manifest, error) {
+ 		return Manifest{}, failure
+ 	}
+ 	environmentID, ok := rawString(members["environment_id"])
+-	if !ok || !environmentIDPattern.MatchString(environmentID) {
++	if !ok || !environ.CheckEnvironmentID(environmentID) {
+ 		failure, err := failProtocol("adapter manifest environment identifier is not an environment-id", "environment_id")
+ 		if err != nil {
+ 			return Manifest{}, err
+@@ -168,7 +169,7 @@ func DecodeManifest(body []byte) (Manifest, error) {
+ 		return Manifest{}, failure
+ 	}
+ 	adapterVersion, ok := rawString(members["adapter_version"])
+-	if !ok || !semverPattern.MatchString(adapterVersion) {
++	if !ok || !environ.CheckSemver(adapterVersion) {
+ 		failure, err := failProtocol("adapter manifest adapter version is not SemVer", "adapter_version")
+ 		if err != nil {
+ 			return Manifest{}, err
+diff --git a/internal/sessadapter/probe.go b/internal/sessadapter/probe.go
+index ae6db9b..62a834d 100644
+--- a/internal/sessadapter/probe.go
++++ b/internal/sessadapter/probe.go
+@@ -2,6 +2,8 @@ package sessadapter
+ 
+ import (
+ 	"encoding/json"
++
++	"github.com/relux-works/agent-session-manager/internal/environ"
+ )
+ 
+ // This file validates the Section 7.8 Session Adapter Probe 1.0.0,
+@@ -285,7 +287,7 @@ func DecodeProbe(body []byte) (Probe, error) {
+ 		return Probe{}, failure
+ 	}
+ 	adapterVersion, ok := rawString(members["adapter_version"])
+-	if !ok || !semverPattern.MatchString(adapterVersion) {
++	if !ok || !environ.CheckSemver(adapterVersion) {
+ 		failure, err := failProtocol("adapter probe adapter version is not SemVer", "adapter_version")
+ 		if err != nil {
+ 			return Probe{}, err
+diff --git a/internal/sessadapter/rawuint53_test.go b/internal/sessadapter/rawuint53_test.go
+new file mode 100644
+index 0000000..746cd2b
+--- /dev/null
++++ b/internal/sessadapter/rawuint53_test.go
+@@ -0,0 +1,49 @@
++package sessadapter
++
++import (
++	"encoding/json"
++	"testing"
++)
++
++// This file pins the rawUint53 trailing-data texture this leaf
++// hardened onto the environ shape. Decode reads one value and
++// stops, so without the trailing check a hostile slice like `12a`
++// reads as 12 (and `12 13` reads as 12 with a silent second
++// value). Member slices arriving through decodeStrictObject can
++// never carry trailing data — the frame gate strips them first —
++// so these rows drive the helper directly, the way
++// decode_unit_test.go drives the environ entries no facade
++// reaches. Both hostile shapes are separate rows because they
++// fail for different reasons: `12a` errors at the trailing token
++// while `12 13` yields one, so a gate that refuses only error
++// trailing (the narrowing mutant) admits the second and fails
++// exactly its row.
++func TestRawUint53RefusesTrailingData(t *testing.T) {
++	refuse := func(literal string) {
++		t.Helper()
++		if got, ok := rawUint53(json.RawMessage(literal)); ok {
++			t.Fatalf("rawUint53(%q) admitted %d, want refusal", literal, got)
++		}
++	}
++	accept := func(literal string, want uint64) {
++		t.Helper()
++		got, ok := rawUint53(json.RawMessage(literal))
++		if !ok {
++			t.Fatalf("rawUint53(%q) refused, want %d", literal, want)
++		}
++		if got != want {
++			t.Fatalf("rawUint53(%q) = %d, want %d", literal, got, want)
++		}
++	}
++	refuse("12a")
++	refuse("12 13")
++	refuse("0x10")
++	accept("12", 12)
++	accept("12 ", 12)
++	accept(" 12", 12)
++	accept("9007199254740991", 9007199254740991)
++	refuse("9007199254740992")
++	if _, ok := checkUint53Bounds(json.RawMessage("12a"), 0, 100); ok {
++		t.Fatal("checkUint53Bounds admitted `12a`, want refusal")
++	}
++}
+diff --git a/internal/sessadapter/tuple.go b/internal/sessadapter/tuple.go
+index 3ad7741..d4c9cae 100644
+--- a/internal/sessadapter/tuple.go
++++ b/internal/sessadapter/tuple.go
+@@ -4,6 +4,7 @@ import (
+ 	"encoding/json"
+ 	"time"
+ 
++	"github.com/relux-works/agent-session-manager/internal/environ"
+ 	"github.com/relux-works/agent-session-manager/internal/scalar"
+ )
+ 
+@@ -86,7 +87,7 @@ func DecodeTuple(raw json.RawMessage) (Tuple, error) {
+ 		return Tuple{}, failure
+ 	}
+ 	environmentID, ok := rawString(members["environment_id"])
+-	if !ok || !environmentIDPattern.MatchString(environmentID) {
++	if !ok || !environ.CheckEnvironmentID(environmentID) {
+ 		failure, err := failProtocol("environment tuple environment identifier is not an environment-id", "environment_id")
+ 		if err != nil {
+ 			return Tuple{}, err
+@@ -133,7 +134,7 @@ func DecodeTuple(raw json.RawMessage) (Tuple, error) {
+ 		return Tuple{}, failure
+ 	}
+ 	adapterVersion, ok := rawString(members["adapter_version"])
+-	if !ok || !semverPattern.MatchString(adapterVersion) {
++	if !ok || !environ.CheckSemver(adapterVersion) {
+ 		failure, err := failProtocol("environment tuple adapter version is not SemVer", "adapter_version")
+ 		if err != nil {
+ 			return Tuple{}, err
+@@ -1005,7 +1006,7 @@ func checkContractsShape(raw json.RawMessage) error {
+ 		previousVersion := ""
+ 		for _, versionRaw := range versions {
+ 			version, ok := rawString(versionRaw)
+-			if !ok || !semverPattern.MatchString(version) {
++			if !ok || !environ.CheckSemver(version) {
+ 				failure, err := failProtocol("tuple contract version is not SemVer", "versions")
+ 				if err != nil {
+ 					return err

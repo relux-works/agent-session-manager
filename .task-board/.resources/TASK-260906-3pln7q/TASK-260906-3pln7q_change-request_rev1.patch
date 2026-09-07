@@ -1,0 +1,2102 @@
+diff --git a/README.md b/README.md
+index 06b1e1a..ae4f117 100644
+--- a/README.md
++++ b/README.md
+@@ -2210,7 +2210,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
+ registry independently enumerates implementation owners for all 60 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 94
++contract rows, 36 pinned or catalog-referenced normative section keys, 98
+ executable acceptance cases, 53 exact section bindings with their declared
+ coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
+ Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
+diff --git a/internal/canonicaljson/canonical_test.go b/internal/canonicaljson/canonical_test.go
+index 30484a1..7eed9fd 100644
+--- a/internal/canonicaljson/canonical_test.go
++++ b/internal/canonicaljson/canonical_test.go
+@@ -162,9 +162,7 @@ func TestPublicIdentityRefusesRegisteredSchemasWithoutCompleteShapeValidators(t
+ 		schema    string
+ 		selfField SelfField
+ 	}{
+-		{"urn:ax:schema:terminal-backend-probe", SelfProbeID},
+ 		{"urn:ax:schema:terminal-instance-binding", SelfBindingID},
+-		{"urn:ax:schema:terminal-capability-evidence", SelfEvidenceID},
+ 		{"urn:ax:schema:clone-raw-object-manifest", SelfRawObjectManifestID},
+ 		{"urn:ax:schema:clone-capture-manifest", SelfCaptureManifestID},
+ 		{"urn:ax:schema:canonical-session", SelfCanonicalSessionID},
+diff --git a/internal/canonicaljson/closed_shapes.go b/internal/canonicaljson/closed_shapes.go
+index 5d9c900..4fa7c76 100644
+--- a/internal/canonicaljson/closed_shapes.go
++++ b/internal/canonicaljson/closed_shapes.go
+@@ -14,6 +14,7 @@ import (
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/catalog"
+ 	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
+ )
+ 
+ const (
+@@ -112,7 +113,12 @@ func mustBuildImmutableObjectShapeValidators() map[schemaIdentityKey]immutableOb
+ 	// selection but their schema-specific closed shapes are outside this task.
+ 	// Explicit refusal is safer and more honest than attesting an opaque object.
+ 	register("urn:ax:schema:canonical-event", rejectUnsupportedImmutableObjectShape, "1.0.0")
+-	register("urn:ax:schema:terminal-backend-manifest", rejectUnsupportedImmutableObjectShape, "1.0.0")
++	// The three terminal closed schemas are owned by internal/terminalbackend:
++	// this package reaches the owner through its production Parse entries
++	// rather than re-implementing the shape, so the two validators for one
++	// schema cannot drift. The owner's refusal is wrapped as an identity
++	// refusal to keep this package's entry-point contract.
++	register("urn:ax:schema:terminal-backend-manifest", validateTerminalBackendManifest, "1.0.0")
+ 	register("urn:ax:schema:session-clone-bundle", rejectUnsupportedImmutableObjectShape, "1.0.0")
+ 	register("urn:ax:schema:materialization-plan", rejectUnsupportedImmutableObjectShape, "1.0.0", "2.0.0")
+ 	register("urn:ax:schema:session-continuation-plan", rejectUnsupportedImmutableObjectShape, "1.0.0")
+@@ -127,9 +133,9 @@ func mustBuildImmutableObjectShapeValidators() map[schemaIdentityKey]immutableOb
+ 	register("urn:ax:schema:session-enrichment-job-request", rejectUnsupportedImmutableObjectShape, "1.0.0")
+ 	register("urn:ax:schema:session-enrichment-job-receipt", rejectUnsupportedImmutableObjectShape, "1.0.0")
+ 	register("urn:ax:schema:session-directory-operation-receipt", rejectUnsupportedImmutableObjectShape, "1.0.0")
+-	register("urn:ax:schema:terminal-backend-probe", rejectUnsupportedImmutableObjectShape, "1.0.0")
++	register("urn:ax:schema:terminal-backend-probe", validateTerminalBackendProbe, "1.0.0")
+ 	register("urn:ax:schema:terminal-instance-binding", rejectUnsupportedImmutableObjectShape, "1.0.0")
+-	register("urn:ax:schema:terminal-capability-evidence", rejectUnsupportedImmutableObjectShape, "1.0.0")
++	register("urn:ax:schema:terminal-capability-evidence", validateTerminalCapabilityEvidence, "1.0.0")
+ 	register("urn:ax:schema:clone-raw-object-manifest", rejectUnsupportedImmutableObjectShape, "1.0.0")
+ 	register("urn:ax:schema:clone-capture-manifest", rejectUnsupportedImmutableObjectShape, "1.0.0")
+ 	register("urn:ax:schema:canonical-session", rejectUnsupportedImmutableObjectShape, "1.0.0")
+@@ -825,6 +831,51 @@ func rejectUnsupportedImmutableObjectShape(object map[string]any) error {
+ 	return invalidIdentity("complete immutable-object shape validation is unavailable for %s@%s", schema, version)
+ }
+ 
++// validateTerminalBackendManifest validates the Terminal Backend Manifest
++// 1.0.0 closed shape through its owner: internal/terminalbackend owns the
++// three terminal schemas, and this validator re-encodes the already-decoded
++// object and drives the owner's production ParseManifest entry rather than
++// copying the rule. The re-encoding is logically identical (decoded maps
++// hold only strings, booleans, nulls, arrays, objects, and json.Number
++// literals, all of which round-trip), and the terminal agreement battery
++// fails when the two entries disagree on any document.
++func validateTerminalBackendManifest(object map[string]any) error {
++	raw, err := json.Marshal(object)
++	if err != nil {
++		return invalidIdentity("terminal backend manifest 1.0.0: encode identity object: %v", err)
++	}
++	if _, err := terminalbackend.ParseManifest(raw); err != nil {
++		return invalidIdentity("terminal backend manifest 1.0.0: %v", err)
++	}
++	return nil
++}
++
++// validateTerminalBackendProbe validates the Terminal Backend Probe 1.0.0
++// closed shape through its owner, as validateTerminalBackendManifest does.
++func validateTerminalBackendProbe(object map[string]any) error {
++	raw, err := json.Marshal(object)
++	if err != nil {
++		return invalidIdentity("terminal backend probe 1.0.0: encode identity object: %v", err)
++	}
++	if _, err := terminalbackend.ParseProbe(raw); err != nil {
++		return invalidIdentity("terminal backend probe 1.0.0: %v", err)
++	}
++	return nil
++}
++
++// validateTerminalCapabilityEvidence validates the Capability Evidence 1.0.0
++// closed shape through its owner, as validateTerminalBackendManifest does.
++func validateTerminalCapabilityEvidence(object map[string]any) error {
++	raw, err := json.Marshal(object)
++	if err != nil {
++		return invalidIdentity("terminal capability evidence 1.0.0: encode identity object: %v", err)
++	}
++	if _, err := terminalbackend.ParseEvidence(raw); err != nil {
++		return invalidIdentity("terminal capability evidence 1.0.0: %v", err)
++	}
++	return nil
++}
++
+ func requirePrintableByteBoundedString(object map[string]any, name string, minimum, maximum int) (string, error) {
+ 	text, err := requireUTF8String(object, name)
+ 	if err != nil {
+diff --git a/internal/canonicaljson/grammar_inventory_test.go b/internal/canonicaljson/grammar_inventory_test.go
+index 1dfde44..ac84c72 100644
+--- a/internal/canonicaljson/grammar_inventory_test.go
++++ b/internal/canonicaljson/grammar_inventory_test.go
+@@ -700,7 +700,7 @@ func locateGrammarPositions(t *testing.T, patterns map[string]grammarPattern) ma
+ 		}
+ 	}
+ 
+-	for _, fixture := range everyValidIdentityFixture() {
++	for _, fixture := range everyValidIdentityFixture(t) {
+ 		for probe, names := range byProbe {
+ 			for _, path := range everyCandidateValuePath(fixture.object) {
+ 				if _, ok := jsonValueAtPath(t, fixture.object, path).(string); !ok {
+diff --git a/internal/canonicaljson/identity_fixtures_test.go b/internal/canonicaljson/identity_fixtures_test.go
+index 5b80427..af09210 100644
+--- a/internal/canonicaljson/identity_fixtures_test.go
++++ b/internal/canonicaljson/identity_fixtures_test.go
+@@ -33,7 +33,8 @@ type identityFixture struct {
+ // function to cover it, so registering a new complete validator without a
+ // fixture reddens the suite instead of silently leaving the new shape outside
+ // every derived sweep that walks these fixtures.
+-func everyValidIdentityFixture() []identityFixture {
++func everyValidIdentityFixture(t *testing.T) []identityFixture {
++	t.Helper()
+ 	fixtures := []identityFixture{
+ 		{"session record v1", SelfRecordID, validSessionRecordV1Object()},
+ 		{"session record v1 primary owner", SelfRecordID, primaryOwnerSessionRecord("GOAL-260830-primary")},
+@@ -57,6 +58,15 @@ func everyValidIdentityFixture() []identityFixture {
+ 		{"provider identity", SelfRecordID, validProviderIdentityRecordObject()},
+ 		{"workspace group", SelfRecordID, validWorkspaceGroupRecordObject()},
+ 		{"observation event", "", validObservationEventObject()},
++		// The three terminal fixtures below are validated through their
++		// owner (internal/terminalbackend): unlike every other fixture
++		// here, their self field must carry the correct omit-self digest
++		// up front, because the delegated shape check verifies the
++		// identity binding as part of CalculateObjectIdentity rather
++		// than only at VerifyObjectIdentity.
++		{"terminal backend manifest", SelfManifestID, validTerminalBackendManifestObject(t)},
++		{"terminal backend probe", SelfProbeID, validTerminalBackendProbeObject(t)},
++		{"terminal capability evidence", SelfEvidenceID, validTerminalCapabilityEvidenceObject(t)},
+ 	}
+ 	for _, event := range catalog.Current().Events {
+ 		if event.Family != "session_event" {
+@@ -91,7 +101,7 @@ func taskBoardTransferManifestObject() map[string]any {
+ // fixture and asserts refusal proves nothing if the unmutated fixture is
+ // already refused for an unrelated reason.
+ func TestEveryValidIdentityFixtureIsAcceptedAtItsProductionEntry(t *testing.T) {
+-	for _, fixture := range everyValidIdentityFixture() {
++	for _, fixture := range everyValidIdentityFixture(t) {
+ 		t.Run(fixture.name, func(t *testing.T) {
+ 			candidate := mustJSON(t, fixture.object)
+ 			if fixture.selfField == "" {
+@@ -136,7 +146,7 @@ func TestEveryCompletelyValidatedSchemaVersionHasAValidFixture(t *testing.T) {
+ 	}
+ 
+ 	covered := make(map[schemaIdentityKey]struct{})
+-	for _, fixture := range everyValidIdentityFixture() {
++	for _, fixture := range everyValidIdentityFixture(t) {
+ 		schema, _ := fixture.object["schema"].(string)
+ 		version, _ := fixture.object["schema_version"].(string)
+ 		covered[schemaIdentityKey{schema: schema, version: version}] = struct{}{}
+@@ -229,6 +239,94 @@ func stringArgumentValue(expression ast.Expr, constants map[string]string) strin
+ 	return ""
+ }
+ 
++// validTerminalBackendManifestObject builds a minimal valid Terminal
++// Backend Manifest 1.0.0: builtin backend, one protocol version, one
++// platform, no claims. The manifest_id carries the correct omit-self
++// digest, which the delegated owner check verifies during calculation.
++func validTerminalBackendManifestObject(t *testing.T) map[string]any {
++	t.Helper()
++	object := map[string]any{
++		"schema":                   "urn:ax:schema:terminal-backend-manifest",
++		"schema_version":           "1.0.0",
++		"manifest_id":              zeroDigest,
++		"terminal_backend_id":      "ax.tmux",
++		"implementation_version":   "2.1.0",
++		"protocol_versions":        []any{"1.0.0"},
++		"platforms":                []any{"linux"},
++		"implementation_kind":      "builtin_go",
++		"executable_digest":        nil,
++		"static_capability_claims": []any{},
++		"conformance_fixture_id":   digestWithDigit('1'),
++		"extensions":               map[string]any{},
++	}
++	object["manifest_id"] = omitSelfDigestForTest(t, mustJSON(t, object), SelfManifestID).String()
++	return object
++}
++
++// validTerminalBackendProbeObject builds a minimal valid Terminal Backend
++// Probe 1.0.0 bound to the manifest fixture above: same backend, version,
++// kind, and digest, with an empty claim and evidence list.
++func validTerminalBackendProbeObject(t *testing.T) map[string]any {
++	t.Helper()
++	object := map[string]any{
++		"schema":                    "urn:ax:schema:terminal-backend-probe",
++		"schema_version":            "1.0.0",
++		"probe_id":                  zeroDigest,
++		"terminal_backend_id":       "ax.tmux",
++		"implementation_version":    "2.1.0",
++		"protocol_version":          "1.0.0",
++		"implementation_kind":       "builtin_go",
++		"executable_digest":         nil,
++		"platform":                  "linux",
++		"os_version":                "14.5",
++		"availability":              "available",
++		"backend_generation_digest": digestWithDigit('2'),
++		"capability_claims":         []any{},
++		"evidence_ids":              []any{},
++		"probed_at":                 "2026-01-15T12:00:00.000Z",
++		"extensions":                map[string]any{},
++	}
++	object["probe_id"] = omitSelfDigestForTest(t, mustJSON(t, object), SelfProbeID).String()
++	return object
++}
++
++// validTerminalCapabilityEvidenceObject builds a minimal valid Capability
++// Evidence 1.0.0 for a non-realm capability, so the realm members stay
++// null. The attestation signature is structural only (signature validity
++// is proven in reconciliation, not at parse): 32 zero bytes in the
++// rsa-sha256: scheme. The evidence_id carries the correct omit-self digest.
++func validTerminalCapabilityEvidenceObject(t *testing.T) map[string]any {
++	t.Helper()
++	object := map[string]any{
++		"schema":                     "urn:ax:schema:terminal-capability-evidence",
++		"schema_version":             "1.0.0",
++		"evidence_id":                zeroDigest,
++		"terminal_backend_id":        "ax.tmux",
++		"implementation_version":     "2.1.0",
++		"protocol_version":           "1.0.0",
++		"backend_generation_digest":  digestWithDigit('2'),
++		"capability":                 "durable_disconnect",
++		"value":                      true,
++		"platform":                   "linux",
++		"os_version":                 "14.5",
++		"conformance_fixture_id":     digestWithDigit('1'),
++		"observed_at":                "2025-06-01T00:00:00.000Z",
++		"expires_at":                 "2027-06-01T00:00:00.000Z",
++		"issuer":                     "ax_release",
++		"issuer_id":                  digestWithDigit('3'),
++		"attestation_signature":      "rsa-sha256:" + strings.Repeat("A", 43) + "=",
++		"facts":                      []any{"fixture_passed", "runtime_probe_passed"},
++		"terminal_binding_id":        nil,
++		"provider_id":                nil,
++		"provider_build":             nil,
++		"sentinel_result":            nil,
++		"provider_auth_smoke_result": nil,
++		"extensions":                 map[string]any{},
++	}
++	object["evidence_id"] = omitSelfDigestForTest(t, mustJSON(t, object), SelfEvidenceID).String()
++	return object
++}
++
+ // derivePackageStringConstants resolves package-level untyped string constants
+ // so a schema or version spelled as a named constant still reads as a literal.
+ func derivePackageStringConstants(files []*ast.File) map[string]string {
+diff --git a/internal/canonicaljson/member_shape_refusal_test.go b/internal/canonicaljson/member_shape_refusal_test.go
+index 6d3ecfc..a241d02 100644
+--- a/internal/canonicaljson/member_shape_refusal_test.go
++++ b/internal/canonicaljson/member_shape_refusal_test.go
+@@ -77,7 +77,7 @@ func wrongJSONTypeFor(value any) (any, string) {
+ // valid fixture passes, and nothing ever proves the declared type is checked.
+ func TestEveryFixtureMemberRefusesAWrongJSONTypeAtItsProductionEntry(t *testing.T) {
+ 	accepted := make(map[string][]string)
+-	for _, fixture := range everyValidIdentityFixture() {
++	for _, fixture := range everyValidIdentityFixture(t) {
+ 		for _, path := range everyCandidateValuePath(fixture.object) {
+ 			path := path
+ 			member := path[len(path)-1]
+@@ -323,7 +323,7 @@ func TestEveryStructuredFixtureValueRefusesAMalformedFormAtItsProductionEntry(t
+ 
+ 	accepted := make(map[string][]string)
+ 	swept := 0
+-	for _, fixture := range everyValidIdentityFixture() {
++	for _, fixture := range everyValidIdentityFixture(t) {
+ 		for _, path := range everyCandidateValuePath(fixture.object) {
+ 			path := path
+ 			text, isString := jsonValueAtPath(t, fixture.object, path).(string)
+diff --git a/internal/canonicaljson/record_conformance_test.go b/internal/canonicaljson/record_conformance_test.go
+index ceadc4c..6d90cd3 100644
+--- a/internal/canonicaljson/record_conformance_test.go
++++ b/internal/canonicaljson/record_conformance_test.go
+@@ -77,9 +77,9 @@ var section101EnvelopeMembers = []string{"subject_id", "created_by_host_id", "cr
+ // identityAddressedFixtures returns the fixtures that address themselves by
+ // digest. The Section 18.1 Observation Event fixture is not identity-addressed
+ // and is excluded by its empty self field, not by name.
+-func identityAddressedFixtures() []identityFixture {
++func identityAddressedFixtures(t *testing.T) []identityFixture {
+ 	fixtures := make([]identityFixture, 0, 32)
+-	for _, fixture := range everyValidIdentityFixture() {
++	for _, fixture := range everyValidIdentityFixture(t) {
+ 		if fixture.selfField == "" {
+ 			continue
+ 		}
+@@ -107,7 +107,7 @@ func fixtureSchemaVersion(fixture identityFixture) (string, string) {
+ func TestEveryIdentityFixtureSurvivesACanonicalRoundTripAtProductionEntries(t *testing.T) {
+ 	t.Parallel()
+ 
+-	fixtures := identityAddressedFixtures()
++	fixtures := identityAddressedFixtures(t)
+ 	if len(fixtures) == 0 {
+ 		t.Fatal("derived zero identity-addressed fixtures; the derivation is broken, not the package")
+ 	}
+@@ -166,7 +166,7 @@ func TestEveryIdentityFixtureSurvivesACanonicalRoundTripAtProductionEntries(t *t
+ func TestCanonicalRoundTripDoesNotLaunderAMalformedMember(t *testing.T) {
+ 	t.Parallel()
+ 
+-	for _, fixture := range identityAddressedFixtures() {
++	for _, fixture := range identityAddressedFixtures(t) {
+ 		t.Run(fixture.name, func(t *testing.T) {
+ 			mutated := cloneJSONObject(t, fixture.object)
+ 			// created_at is a Section 10.1 envelope member on the record
+@@ -209,7 +209,7 @@ func TestDistinctIdentityFixturesDoNotShareAnOmitSelfDigest(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	seen := make(map[scalar.Digest]string)
+-	for _, fixture := range identityAddressedFixtures() {
++	for _, fixture := range identityAddressedFixtures(t) {
+ 		digest, _, err := CalculateObjectIdentity(mustJSON(t, fixture.object))
+ 		if err != nil {
+ 			t.Fatalf("CalculateObjectIdentity(%s) error = %v", fixture.name, err)
+@@ -244,10 +244,13 @@ func TestUnknownTopLevelMemberIsRefusedWhileTheSameKeyIsAdmittedUnderExtensions(
+ 	extensionValue := "retained"
+ 
+ 	swept := 0
+-	for _, fixture := range identityAddressedFixtures() {
++	closedExtensions := terminalDelegatedSchemas(t)
++	for _, fixture := range identityAddressedFixtures(t) {
+ 		if _, extensible := fixture.object["extensions"]; !extensible {
+ 			continue
+ 		}
++		schema, version := fixtureSchemaVersion(fixture)
++		_, closed := closedExtensions[schemaIdentityKey{schema: schema, version: version}]
+ 		swept++
+ 		t.Run(fixture.name, func(t *testing.T) {
+ 			refused := cloneJSONObject(t, fixture.object)
+@@ -262,7 +265,20 @@ func TestUnknownTopLevelMemberIsRefusedWhileTheSameKeyIsAdmittedUnderExtensions(
+ 				t.Fatalf("fixture %s extensions member is %T, want object", fixture.name, admitted["extensions"])
+ 			}
+ 			extensions[extensionKey] = extensionValue
+-			assertIdentityEntriesAcceptShape(t, mustJSON(t, admitted), fixture.selfField)
++			if closed {
++				// The pinned Section 4.B member tables declare extensions
++				// as "exact empty object {}" for every terminal schema, so
++				// the owner refuses a non-empty extensions object with its
++				// closed-extensions arm rather than admitting it. The
++				// admission half of Section 1.5 applies only to schemas
++				// whose contract opens extensions; the closed rule itself
++				// is proven at the owner by its checkExtensions arms and
++				// by the terminal agreement battery, which drives
++				// extensions-content mutants through both entries.
++				assertIdentityEntriesRefuseShape(t, mustJSON(t, admitted), fixture.selfField)
++			} else {
++				assertIdentityEntriesAcceptShape(t, mustJSON(t, admitted), fixture.selfField)
++			}
+ 		})
+ 	}
+ 	if swept == 0 {
+@@ -270,6 +286,35 @@ func TestUnknownTopLevelMemberIsRefusedWhileTheSameKeyIsAdmittedUnderExtensions(
+ 	}
+ }
+ 
++// terminalDelegatedValidators are the production shape validators that reach
++// the terminal schema owner (internal/terminalbackend) instead of checking
++// the shape locally. They are named so the derivation below fails loudly on
++// a rename rather than silently rescoping the sweep.
++var terminalDelegatedValidators = map[string]bool{
++	"validateTerminalBackendManifest":    true,
++	"validateTerminalBackendProbe":       true,
++	"validateTerminalCapabilityEvidence": true,
++}
++
++// terminalDelegatedSchemas derives the schema/version set whose closed shape
++// is validated through the terminal owner from the production validator
++// registry, never from a hand-written schema list: a schema that gains or
++// loses a delegating validator joins or leaves the closed-extensions scope
++// with it instead of passing silently under the wrong half of Section 1.5.
++func terminalDelegatedSchemas(t *testing.T) map[schemaIdentityKey]struct{} {
++	t.Helper()
++	delegated := make(map[schemaIdentityKey]struct{})
++	for key, validator := range deriveRegisteredShapeValidators(t) {
++		if terminalDelegatedValidators[validator] {
++			delegated[key] = struct{}{}
++		}
++	}
++	if len(delegated) == 0 {
++		t.Fatal("derived zero terminal-delegated schemas; the derivation is broken, not the package")
++	}
++	return delegated
++}
++
+ // contractVersionsByID projects one release's Section 1.5 contract registry
+ // into contract ID -> declared versions.
+ func contractVersionsByID(t *testing.T, release catalog.Release) map[string][]string {
+@@ -478,7 +523,7 @@ func TestEveryHistoricalMajorFixtureIsAcceptedUnderItsOwnRegisteredVersion(t *te
+ 	}
+ 
+ 	historical := make(map[schemaIdentityKey]struct{})
+-	for _, fixture := range identityAddressedFixtures() {
++	for _, fixture := range identityAddressedFixtures(t) {
+ 		schema, version := fixtureSchemaVersion(fixture)
+ 		if version == "" || majorVersion(t, version) == highest[schema] {
+ 			continue
+@@ -551,7 +596,7 @@ func TestSection101EnvelopeProvenanceIsRequiredByEveryRecordFamilyFixture(t *tes
+ 	}
+ 
+ 	covered := make(map[string]struct{})
+-	for _, fixture := range identityAddressedFixtures() {
++	for _, fixture := range identityAddressedFixtures(t) {
+ 		schema, _ := fixtureSchemaVersion(fixture)
+ 		if _, member := section101RecordFamilies[schema]; !member {
+ 			continue
+@@ -829,7 +874,7 @@ func TestNoRecordEnumPositionAdmitsAValueFromAnotherPinnedVocabulary(t *testing.
+ 	positions := 0
+ 	foreign := 0
+ 	resolved := make(map[string]struct{})
+-	for _, fixture := range identityAddressedFixtures() {
++	for _, fixture := range identityAddressedFixtures(t) {
+ 		for _, position := range enumValuedPositions(fixture.object, nil, union) {
+ 			declared, closed := declaredVocabularyAtPosition(t, fixture, position, rows)
+ 			if !closed {
+diff --git a/internal/canonicaljson/refusal_guards_test.go b/internal/canonicaljson/refusal_guards_test.go
+index 6d09c65..9beac18 100644
+--- a/internal/canonicaljson/refusal_guards_test.go
++++ b/internal/canonicaljson/refusal_guards_test.go
+@@ -179,6 +179,12 @@ var unreachableRefusalSites = map[string]unreachableRefusal{
+ 	// VerifyObjectIdentity propagates only the two calculatePreparedObjectIdentity
+ 	// refusals above; its own prepare-error propagation is proven.
+ 	"canonical.go|VerifyObjectIdentity|return scalar.Digest{}, \"\", err|#1": decodedValueRefusal,
++	// The terminal delegating validators re-encode the already-decoded object
++	// before driving the owner's Parse entry: the value holds only decoded
++	// types, so encoding/json accepts it for the same reason as above.
++	"closed_shapes.go|validateTerminalBackendManifest|return invalidIdentity(\"terminal backend manifest 1.0.0: encode identity object: %v\", err)|#0":       decodedValueRefusal,
++	"closed_shapes.go|validateTerminalBackendProbe|return invalidIdentity(\"terminal backend probe 1.0.0: encode identity object: %v\", err)|#0":             decodedValueRefusal,
++	"closed_shapes.go|validateTerminalCapabilityEvidence|return invalidIdentity(\"terminal capability evidence 1.0.0: encode identity object: %v\", err)|#0": decodedValueRefusal,
+ 
+ 	// GROUP 7 - the decoder cannot produce the value the guard rejects.
+ 	"canonical.go|decodeValue|return nil, invalidJSON(\"object name is not a string\")|#0": {
+diff --git a/internal/canonicaljson/string_admission_test.go b/internal/canonicaljson/string_admission_test.go
+index c323803..aff2e09 100644
+--- a/internal/canonicaljson/string_admission_test.go
++++ b/internal/canonicaljson/string_admission_test.go
+@@ -245,7 +245,7 @@ func bindAdmissionSites(t *testing.T, sites []stringAdmissionSite) []siteBinding
+ 
+ 	governed := governedAdmittedValues(sites)
+ 	var bindings []siteBinding
+-	for _, fixture := range everyValidIdentityFixture() {
++	for _, fixture := range everyValidIdentityFixture(t) {
+ 		for _, path := range everyCandidateValuePath(fixture.object) {
+ 			member := governedMemberName(path)
+ 			if member == "" {
+diff --git a/internal/environ/identity_agreement_test.go b/internal/environ/identity_agreement_test.go
+index 1ec3a1d..fca0571 100644
+--- a/internal/environ/identity_agreement_test.go
++++ b/internal/environ/identity_agreement_test.go
+@@ -85,9 +85,55 @@ func identityCorpus(t *testing.T) []identityRow {
+ 		{"extensions array refused", set("extensions", `[]`), "identity extensions is not an object", "extensions"},
+ 		{"lone escape refused", set("opaque_identity", `{"k":"A`+rawLoneHigh+`B"}`), "lone surrogate escape", "surrogate"},
+ 		{"escaped text admits", set("opaque_identity", `{"k":"A`+rawEscapedHigh+`B"}`), "", ""},
++		// The rows below pin the deliberate copy against its owner
++		// (canonicaljson) on the classes where the dialect is blind:
++		// extensions content, numbers, and nesting the dialect never
++		// reads. The provhost phrase on each is the conjoined owner
++		// gate, not a member arm: deleting the owner call admits the
++		// body and fails the row on the provhost side.
++		{"extensions open key refused", set("extensions", `{"x": "y"}`), "identity is not a valid provider identity", "extensions key"},
++		{"extensions unsafe integer refused", set("extensions", `{"works.relux.ax.x": 9007199254740993}`), "identity is not a valid provider identity", "outside the AX safe-integer interval"},
++		{"extensions float refused", set("extensions", `{"works.relux.ax.x": 1.5}`), "identity is not a valid provider identity", "forbidden by the AX common model"},
++		{"extensions 65 keys refused", set("extensions", extensionKeysJSON(65)), "identity is not a valid provider identity", "maximum is 64"},
++		{"extensions deep nesting refused", set("extensions", `{"works.relux.ax.a": {"b": {"c": {"d": {"e": {"f": 1}}}}}}`), "identity is not a valid provider identity", "maximum nesting depth 4"},
++		// Bound edges in both directions: the admit rows prove the gate
++		// is not refusing everything, the refuse rows prove the bound.
++		{"opaque 64-char key admits", set("opaque_identity", `{"k`+strings.Repeat("e", 63)+`": "v"}`), "", ""},
++		{"version 128 admits", set("provider_version", jsonQuote(strings.Repeat("v", 128))), "", ""},
++		{"version 128 wide admits", set("provider_version", jsonQuote(strings.Repeat("é", 128))), "", ""},
++		{"version 129 wide refused", set("provider_version", jsonQuote(strings.Repeat("é", 129))), "identity provider_version is not 1..128 characters", "provider_version"},
++		// A number where the dialect already reads the type is refused
++		// by the dialect arm first: the owner gate never fires, and the
++		// member attribution survives the conjunction.
++		{"opaque unsafe integer refused", set("opaque_identity", `{"k": 9007199254740993}`), "identity opaque value is not 1..1024 characters", "outside the AX safe-integer interval"},
++		// Decoder vectors both entries must refuse with their own arm.
++		{"duplicate member refused", duplicateMemberJSON(t, valid), "duplicate member", "duplicate object member"},
++		{"trailing data refused", append(append([]byte{}, valid...), ' ', '{', '}'), "trailing data", "trailing JSON"},
+ 	}
+ }
+ 
++// extensionKeysJSON builds an extensions object with count reverse-DNS
++// keys, so the count bound (not the key grammar) is what refuses it.
++func extensionKeysJSON(count int) string {
++	parts := make([]string, 0, count)
++	for index := 0; index < count; index++ {
++		parts = append(parts, `"works.relux.ax.k`+twoDigits(index)+`":"v"`)
++	}
++	return "{" + strings.Join(parts, ",") + "}"
++}
++
++// duplicateMemberJSON returns the fixture with one member doubled: a
++// repeated member has no single value, so both decoders refuse it before
++// any shape rule runs.
++func duplicateMemberJSON(t *testing.T, valid []byte) []byte {
++	t.Helper()
++	body := string(valid)
++	if body == "" || body[len(body)-1] != '}' {
++		t.Fatalf("duplicate member fixture is not an object")
++	}
++	return []byte(body[:len(body)-1] + `, "score": 1, "score": 2}`)
++}
++
+ // Raw escape fragments. rawLoneHigh is a real lone high escape
+ // in JSON source; rawEscapedHigh is an escaped backslash
+ // followed by text, which carries no escape at all. Both are
+diff --git a/internal/provhost/identity.go b/internal/provhost/identity.go
+index a904cb8..12ae1cb 100644
+--- a/internal/provhost/identity.go
++++ b/internal/provhost/identity.go
+@@ -4,6 +4,8 @@ import (
+ 	"encoding/json"
+ 	"regexp"
+ 	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
+ )
+ 
+ // This file validates the Provider Identity Record (Section 5.5,
+@@ -17,17 +19,17 @@ import (
+ // sentence: a value beginning with an absolute path is refused, and
+ // an embedded path the prefix cannot see is a stated bound.
+ //
+-// CheckIdentity deliberately re-validates the record shape instead of
+-// delegating to canonicaljson.validateProviderIdentityRecord: this
+-// package must mint Section 15.1 provider-stdio refusals
+-// (provider_protocol_error with member attribution), not identity
+-// errors, and the shared package offers no such entry point. The two
+-// validators must agree on the Section 5.5 shape rule for rule; the
+-// decoder half of that agreement is pinned by the derived
+-// TestSurrogateGateDerivedSweepAgreesWithCanonicalJSON sweep, which
+-// judges escape and raw-UTF-8 vectors through the shared
+-// decodeStrictObject every entry here reads through, and any
+-// shape-rule change must land in both validators in the same change.
++// CheckIdentity validates the record shape in this package's provider-stdio
++// dialect (provider_protocol_error with member attribution, which the
++// shared package cannot mint) and conjoins the verdict with the owner's
++// production identity entry canonicaljson.CalculateObjectIdentity: the two
++// validators must agree on the Section 5.5 shape rule for rule, and a
++// document the dialect admits but the owner refuses is refused at the
++// owner gate below. The decoder half of that agreement is pinned by the
++// derived TestSurrogateGateDerivedSweepAgreesWithCanonicalJSON sweep,
++// which judges escape and raw-UTF-8 vectors through the shared
++// decodeStrictObject every entry here reads through, and any shape-rule
++// change must land in both validators in the same change.
+ 
+ // identitySchema is the exact schema identifier the record carries.
+ const identitySchema = "urn:ax:schema:provider-identity"
+@@ -244,6 +246,24 @@ func CheckIdentity(body []byte, wantProviderID string) error {
+ 		}
+ 		return failure
+ 	}
++	// The member arms above are this package's provider-stdio dialect of
++	// the Section 5.5 rule; the owner of that rule is canonicaljson
++	// (validateProviderIdentityRecord, registered for section:5.5 in the
++	// traceability registry), and the dialect keeps its member attribution
++	// deliberately. The verdict is therefore conjoined with the owner's
++	// production identity entry: a document this dialect admits but the
++	// owner refuses — open extensions content, a number the dialect never
++	// reads, nesting beyond the dialect's view — is refused here rather
++	// than admitted through a drifted copy. The provider-equality
++	// correlation above stays host-side: it is a caller rule, not a
++	// content rule, and the owner never sees it.
++	if _, _, err := canonicaljson.CalculateObjectIdentity(body); err != nil {
++		failure, ferr := failProtocol("identity is not a valid provider identity", "")
++		if ferr != nil {
++			return ferr
++		}
++		return failure
++	}
+ 	return nil
+ }
+ 
+diff --git a/internal/provhost/refusal_arm_operations_c_test.go b/internal/provhost/refusal_arm_operations_c_test.go
+index e23fd92..a43f575 100644
+--- a/internal/provhost/refusal_arm_operations_c_test.go
++++ b/internal/provhost/refusal_arm_operations_c_test.go
+@@ -111,6 +111,14 @@ func declaredOperationWitnessesIdentity() []armWitness {
+ 			body := identityVariant(t, `"logical_workspace_id": "0198f4c8-6c30-7d44-8d5e-1234567890ab"`, `"logical_workspace_id": "0198f4c8-6c30-7d44-8d5e-1234567890aX"`)
+ 			requireFrameRefusal(t, CheckIdentity(body, "antigravity"), "logical_workspace_id", "not a UUIDv7")
+ 		}},
++		{arm: `ctor|failProtocol|identity is not a valid provider identity`, name: "identity owner-gate extensions content", prove: func(t *testing.T) {
++			// Every dialect arm admits this body: extensions is an object,
++			// so only the conjoined owner verdict refuses it (the key is
++			// not a reverse-DNS name, which the owner requires). Deleting
++			// the owner gate admits the body and fails here.
++			body := identityVariant(t, `"extensions": {}`, `"extensions": {"x": "y"}`)
++			requireFrameRefusal(t, CheckIdentity(body, "antigravity"), "", "is not a valid provider identity")
++		}},
+ 		// Identify-result arms, through DecodeIdentifyResult.
+ 		{arm: `ctor|failProtocol|identify confidence is not exact strong or weak`, name: "identify certain confidence", prove: func(t *testing.T) {
+ 			body := []byte(strings.Replace(string(specIdentifyCallBody()), `"confidence": "exact"`, `"confidence": "certain"`, 1))
+diff --git a/internal/terminalbackend/identity_ownership_test.go b/internal/terminalbackend/identity_ownership_test.go
+new file mode 100644
+index 0000000..002a9be
+--- /dev/null
++++ b/internal/terminalbackend/identity_ownership_test.go
+@@ -0,0 +1,942 @@
++// Bidirectional identity-ownership battery for the three terminal closed
++// schemas (advisories A1/A2 leaf: establish-single-object-identity-owner).
++//
++// internal/terminalbackend owns the Terminal Backend Manifest, Terminal
++// Backend Probe, and Capability Evidence 1.0.0 closed schemas and their
++// omit-self identity rule; internal/canonicaljson reaches the owner through
++// the production Parse entries rather than re-implementing the shape. This
++// battery is what fails when the two entries disagree in either direction:
++// every row drives one shared document through both production entries and
++// requires the same verdict, the full rendering on each side, and — for
++// every valid document — byte-identical digests.
++//
++// The verdict mapping is exact, not approximate:
++//   - terminalbackend.ParseManifest/ParseProbe/ParseEvidence verify the
++//     identity binding as part of admission. canonicaljson reaches them
++//     inside CalculateObjectIdentity (through the shape gate), so unlike
++//     every other schema, a terminal document with a tampered claim is
++//     refused by CalculateObjectIdentity as well as by VerifyObjectIdentity.
++//     The tampered-claim rows pin that uniform refusal on all three entries.
++//   - documents canonicaljson refuses before delegation (oversize,
++//     unsafe numbers, undecodable bytes, unknown schema) are refused by
++//     the owner through its own arms; each such row names both arms, so a
++//     content-rule divergence cannot hide behind a shared refusal.
++package terminalbackend_test
++
++import (
++	"encoding/json"
++	"errors"
++	"go/ast"
++	"go/parser"
++	"go/token"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
++)
++
++// deriveTerminalMembers derives the closed member list behind a
++// package-level []string variable in manifest.go. The drop-each-member and
++// wrong-type-each-member sweeps below iterate exactly this set: a member
++// added to production without corpus coverage fails here, not silently.
++func deriveTerminalMembers(t *testing.T, symbol string) []string {
++	t.Helper()
++	path := filepath.Join(mustTerminalRoot(t), "manifest.go")
++	source, err := os.ReadFile(path)
++	if err != nil {
++		t.Fatalf("terminal members: %v", err)
++	}
++	syntax, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
++	if err != nil {
++		t.Fatalf("terminal members: %v", err)
++	}
++	for _, decl := range syntax.Decls {
++		node, ok := decl.(*ast.GenDecl)
++		if !ok {
++			continue
++		}
++		for _, spec := range node.Specs {
++			value, ok := spec.(*ast.ValueSpec)
++			if !ok || len(value.Names) != 1 || value.Names[0].Name != symbol {
++				continue
++			}
++			if len(value.Values) != 1 {
++				t.Fatalf("terminal members: %s is not a single literal; the extractor cannot see through indirection", symbol)
++			}
++			composite, ok := value.Values[0].(*ast.CompositeLit)
++			if !ok {
++				t.Fatalf("terminal members: %s is not a composite literal; the extractor cannot see through indirection", symbol)
++			}
++			var members []string
++			for _, element := range composite.Elts {
++				literal, ok := element.(*ast.BasicLit)
++				if !ok {
++					t.Fatalf("terminal members: %s holds a non-literal; the extractor cannot see through indirection", symbol)
++				}
++				members = append(members, strings.Trim(literal.Value, `"`))
++			}
++			return members
++		}
++	}
++	t.Fatalf("terminal members: %s not found; the extractor is blind, not the table absent", symbol)
++	return nil
++}
++
++// mustTerminalRoot returns the terminalbackend package directory: this file
++// lives in it, so the derivation reads production source, never a copy.
++func mustTerminalRoot(t *testing.T) string {
++	t.Helper()
++	directory, err := os.Getwd()
++	if err != nil {
++		t.Fatalf("terminal members: %v", err)
++	}
++	return directory
++}
++
++// TestTerminalMemberListsAreDerivedAndPinned requires the three closed
++// member tables to derive from production and pins their sizes: a member
++// added to any table joins the drop/wrong-type sweeps below through the
++// derivation, and the size tripwire fails closed on a silently truncated
++// read.
++func TestTerminalMemberListsAreDerivedAndPinned(t *testing.T) {
++	t.Parallel()
++
++	for symbol, want := range map[string]int{
++		"manifestMembers": 12,
++		"probeMembers":    16,
++		"evidenceMembers": 24,
++	} {
++		members := deriveTerminalMembers(t, symbol)
++		if len(members) != want {
++			t.Errorf("%s holds %d members, want exactly %d; a new member joins the sweeps or not at all", symbol, len(members), want)
++		}
++		seen := make(map[string]bool, len(members))
++		for _, member := range members {
++			if seen[member] {
++				t.Errorf("%s lists %q twice", symbol, member)
++			}
++			seen[member] = true
++		}
++	}
++}
++
++// decodeOwnershipMap decodes one document preserving number literals, so
++// map surgery round-trips the exact wire form the owner gates on.
++func decodeOwnershipMap(t *testing.T, doc []byte) map[string]any {
++	t.Helper()
++	decoder := json.NewDecoder(strings.NewReader(string(doc)))
++	decoder.UseNumber()
++	var object map[string]any
++	if err := decoder.Decode(&object); err != nil {
++		t.Fatalf("decode ownership document: %v", err)
++	}
++	return object
++}
++
++// mustEncodeOwnershipMap encodes one document map back to wire bytes.
++func mustEncodeOwnershipMap(t *testing.T, object map[string]any) []byte {
++	t.Helper()
++	raw, err := json.Marshal(object)
++	if err != nil {
++		t.Fatalf("encode ownership document: %v", err)
++	}
++	return raw
++}
++
++// dropOwnershipMember returns the document without one top-level member.
++func dropOwnershipMember(t *testing.T, doc []byte, member string) []byte {
++	t.Helper()
++	object := decodeOwnershipMap(t, doc)
++	delete(object, member)
++	return mustEncodeOwnershipMap(t, object)
++}
++
++// setOwnershipMember returns the document with one top-level member
++// replaced by the given value.
++func setOwnershipMember(t *testing.T, doc []byte, member string, value any) []byte {
++	t.Helper()
++	object := decodeOwnershipMap(t, doc)
++	object[member] = value
++	return mustEncodeOwnershipMap(t, object)
++}
++
++// terminalRefusalDetail reports the owner's refusal detail for a refused
++// document: every agreement row below ties the canonical entry's refusal
++// to this exact arm rather than to a shared code.
++func terminalRefusalDetail(t *testing.T, err error) string {
++	t.Helper()
++	var refusal *terminalbackend.Error
++	if !errors.As(err, &refusal) {
++		t.Fatalf("owner error = %v, want a terminal backend refusal", err)
++	}
++	if refusal.Code != codeMismatch {
++		t.Fatalf("owner code = %q, want %q", refusal.Code, codeMismatch)
++	}
++	return refusal.Detail
++}
++
++// requireCanonicalRefusalThroughOwner requires canonicaljson to refuse
++// through the delegated owner gate: an identity refusal whose rendering
++// carries the owner's exact detail. A deleted delegation refuses with the
++// unsupported-shape text instead and fails here.
++func requireCanonicalRefusalThroughOwner(t *testing.T, doc []byte, ownerDetail string) {
++	t.Helper()
++	_, _, err := canonicaljson.CalculateObjectIdentity(doc)
++	if err == nil || !errors.Is(err, canonicaljson.ErrInvalidIdentity) {
++		t.Fatalf("canonicaljson error = %v, want an identity refusal", err)
++	}
++	if !strings.Contains(err.Error(), ownerDetail) {
++		t.Fatalf("canonicaljson error = %v, want the owner arm %q", err, ownerDetail)
++	}
++	if _, _, err := canonicaljson.VerifyObjectIdentity(doc); err == nil || !errors.Is(err, canonicaljson.ErrInvalidIdentity) {
++		t.Fatalf("canonicaljson verify error = %v, want an identity refusal", err)
++	}
++}
++
++// TestTerminalManifestIdentityAgreement drives one valid manifest and every
++// systematic mutant through both identity entries: the owner verdict and
++// detail, the delegated verdict carrying that detail, and digest equality
++// on the valid document.
++func TestTerminalManifestIdentityAgreement(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	valid := mustMarshal(t, universe.manifest)
++
++	t.Run("valid manifest agrees with equal digests", func(t *testing.T) {
++		t.Parallel()
++		admitted, err := terminalbackend.ParseManifest(valid)
++		if err != nil {
++			t.Fatalf("ParseManifest(valid) error = %v", err)
++		}
++		if admitted.ManifestID != testIdentity(t, decodeOwnershipMap(t, valid), "manifest_id") {
++			t.Fatalf("ParseManifest ID = %q, want the omit-self recipe digest", admitted.ManifestID)
++		}
++		digest, field, err := canonicaljson.CalculateObjectIdentity(valid)
++		if err != nil {
++			t.Fatalf("CalculateObjectIdentity(valid) error = %v", err)
++		}
++		if field != canonicaljson.SelfManifestID {
++			t.Fatalf("CalculateObjectIdentity field = %q, want %q", field, canonicaljson.SelfManifestID)
++		}
++		if digest.String() != admitted.ManifestID {
++			t.Fatalf("CalculateObjectIdentity digest = %q, owner digest = %q", digest, admitted.ManifestID)
++		}
++		verified, _, err := canonicaljson.VerifyObjectIdentity(valid)
++		if err != nil {
++			t.Fatalf("VerifyObjectIdentity(valid) error = %v", err)
++		}
++		if verified != digest {
++			t.Fatalf("VerifyObjectIdentity digest = %q, want %q", verified, digest)
++		}
++	})
++
++	t.Run("tampered claim refused on all three entries", func(t *testing.T) {
++		t.Parallel()
++		doc := setOwnershipMember(t, valid, "manifest_id", testSeedDigest(0x00))
++		_, err := terminalbackend.ParseManifest(doc)
++		if err == nil {
++			t.Fatalf("ParseManifest(tampered claim) admitted the document")
++		}
++		requireRefusal(t, err, codeMismatch, "document identity binding")
++		requireCanonicalRefusalThroughOwner(t, doc, "document identity binding")
++	})
++
++	// Drop-each-member over the production-derived table: every drop breaks
++	// the closed member set before identity runs, so the owner reports the
++	// members arm and the delegate carries it. The dispatch members are the
++	// splits: canonicaljson resolves schema, version, and the self field
++	// before reaching the owner, so a drop there names the dispatch arm
++	// rather than the owner arm. Same verdict, different arm by
++	// construction; the dispatch contract is resolveSelfField, and a change
++	// to it reddens the phrases below rather than passing silently.
++	for _, member := range deriveTerminalMembers(t, "manifestMembers") {
++		member := member
++		t.Run("drop "+member, func(t *testing.T) {
++			t.Parallel()
++			doc := dropOwnershipMember(t, valid, member)
++			_, err := terminalbackend.ParseManifest(doc)
++			if err == nil {
++				t.Fatalf("ParseManifest without %q admitted the document", member)
++			}
++			requireRefusal(t, err, codeMismatch, "document members")
++			switch member {
++			case "manifest_id":
++				requireCanonicalDispatchRefusal(t, doc, "requires self field")
++			case "schema", "schema_version":
++				requireCanonicalDispatchRefusal(t, doc, "requires string member")
++			default:
++				requireCanonicalRefusalThroughOwner(t, doc, "document members")
++			}
++		})
++	}
++
++	// Wrong-type-each-member with a safe number: the number passes the
++	// canonical safe-integer gate, so delegation is always reached and the
++	// delegate must carry the owner's exact arm. The member-type detail
++	// varies per member; capturing it from the owner ties the two entries
++	// to the same gate without a hand-written detail table (the arm to
++	// detail mapping itself is pinned per arm in TestManifestDocumentRefusals).
++	// The dispatch members are the splits, as above.
++	for _, member := range deriveTerminalMembers(t, "manifestMembers") {
++		member := member
++		t.Run("number for "+member, func(t *testing.T) {
++			t.Parallel()
++			doc := setOwnershipMember(t, valid, member, json.Number("1"))
++			_, err := terminalbackend.ParseManifest(doc)
++			if err == nil {
++				t.Fatalf("ParseManifest with a number for %q admitted the document", member)
++			}
++			switch member {
++			case "manifest_id":
++				requireRefusal(t, err, codeMismatch, "document member type")
++				requireCanonicalDispatchRefusal(t, doc, "self field")
++			case "schema", "schema_version":
++				requireCanonicalDispatchRefusal(t, doc, "non-empty string")
++			default:
++				detail := terminalRefusalDetail(t, err)
++				requireCanonicalRefusalThroughOwner(t, doc, detail)
++			}
++		})
++	}
++}
++
++// requireCanonicalDispatchRefusal requires canonicaljson to refuse at its
++// dispatch contract (before delegation) with the named arm phrase.
++func requireCanonicalDispatchRefusal(t *testing.T, doc []byte, phrase string) {
++	t.Helper()
++	_, _, err := canonicaljson.CalculateObjectIdentity(doc)
++	if err == nil || !errors.Is(err, canonicaljson.ErrInvalidIdentity) {
++		t.Fatalf("canonicaljson error = %v, want an identity refusal", err)
++	}
++	if !strings.Contains(err.Error(), phrase) {
++		t.Fatalf("canonicaljson error = %v, want the dispatch arm %q", err, phrase)
++	}
++}
++
++// TestTerminalProbeIdentityAgreement is the probe half of the ownership
++// battery: valid probe, tampered claim, and the derived drop/wrong-type
++// sweeps through both entries.
++func TestTerminalProbeIdentityAgreement(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	valid := mustMarshal(t, universe.probe)
++
++	t.Run("valid probe agrees with equal digests", func(t *testing.T) {
++		t.Parallel()
++		admitted, err := terminalbackend.ParseProbe(valid)
++		if err != nil {
++			t.Fatalf("ParseProbe(valid) error = %v", err)
++		}
++		if admitted.ProbeID != testIdentity(t, decodeOwnershipMap(t, valid), "probe_id") {
++			t.Fatalf("ParseProbe ID = %q, want the omit-self recipe digest", admitted.ProbeID)
++		}
++		digest, field, err := canonicaljson.CalculateObjectIdentity(valid)
++		if err != nil {
++			t.Fatalf("CalculateObjectIdentity(valid) error = %v", err)
++		}
++		if field != canonicaljson.SelfProbeID {
++			t.Fatalf("CalculateObjectIdentity field = %q, want %q", field, canonicaljson.SelfProbeID)
++		}
++		if digest.String() != admitted.ProbeID {
++			t.Fatalf("CalculateObjectIdentity digest = %q, owner digest = %q", digest, admitted.ProbeID)
++		}
++		verified, _, err := canonicaljson.VerifyObjectIdentity(valid)
++		if err != nil {
++			t.Fatalf("VerifyObjectIdentity(valid) error = %v", err)
++		}
++		if verified != digest {
++			t.Fatalf("VerifyObjectIdentity digest = %q, want %q", verified, digest)
++		}
++	})
++
++	t.Run("tampered claim refused on all three entries", func(t *testing.T) {
++		t.Parallel()
++		doc := setOwnershipMember(t, valid, "probe_id", testSeedDigest(0x00))
++		_, err := terminalbackend.ParseProbe(doc)
++		if err == nil {
++			t.Fatalf("ParseProbe(tampered claim) admitted the document")
++		}
++		requireRefusal(t, err, codeMismatch, "document identity binding")
++		requireCanonicalRefusalThroughOwner(t, doc, "document identity binding")
++	})
++
++	for _, member := range deriveTerminalMembers(t, "probeMembers") {
++		member := member
++		t.Run("drop "+member, func(t *testing.T) {
++			t.Parallel()
++			doc := dropOwnershipMember(t, valid, member)
++			_, err := terminalbackend.ParseProbe(doc)
++			if err == nil {
++				t.Fatalf("ParseProbe without %q admitted the document", member)
++			}
++			requireRefusal(t, err, codeMismatch, "document members")
++			switch member {
++			case "probe_id":
++				requireCanonicalDispatchRefusal(t, doc, "requires self field")
++			case "schema", "schema_version":
++				requireCanonicalDispatchRefusal(t, doc, "requires string member")
++			default:
++				requireCanonicalRefusalThroughOwner(t, doc, "document members")
++			}
++		})
++	}
++
++	for _, member := range deriveTerminalMembers(t, "probeMembers") {
++		member := member
++		t.Run("number for "+member, func(t *testing.T) {
++			t.Parallel()
++			doc := setOwnershipMember(t, valid, member, json.Number("1"))
++			_, err := terminalbackend.ParseProbe(doc)
++			if err == nil {
++				t.Fatalf("ParseProbe with a number for %q admitted the document", member)
++			}
++			switch member {
++			case "probe_id":
++				requireRefusal(t, err, codeMismatch, "document member type")
++				requireCanonicalDispatchRefusal(t, doc, "self field")
++			case "schema", "schema_version":
++				requireCanonicalDispatchRefusal(t, doc, "non-empty string")
++			default:
++				detail := terminalRefusalDetail(t, err)
++				requireCanonicalRefusalThroughOwner(t, doc, detail)
++			}
++		})
++	}
++}
++
++// TestTerminalEvidenceIdentityAgreement is the evidence half of the
++// ownership battery, over one signed non-realm evidence document.
++func TestTerminalEvidenceIdentityAgreement(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	valid := mustMarshal(t, universe.evidenceByCap["durable_disconnect"])
++
++	t.Run("valid evidence agrees with equal digests", func(t *testing.T) {
++		t.Parallel()
++		admitted, err := terminalbackend.ParseEvidence(valid)
++		if err != nil {
++			t.Fatalf("ParseEvidence(valid) error = %v", err)
++		}
++		if admitted.EvidenceID != testIdentity(t, decodeOwnershipMap(t, valid), "evidence_id") {
++			t.Fatalf("ParseEvidence ID = %q, want the omit-self recipe digest", admitted.EvidenceID)
++		}
++		digest, field, err := canonicaljson.CalculateObjectIdentity(valid)
++		if err != nil {
++			t.Fatalf("CalculateObjectIdentity(valid) error = %v", err)
++		}
++		if field != canonicaljson.SelfEvidenceID {
++			t.Fatalf("CalculateObjectIdentity field = %q, want %q", field, canonicaljson.SelfEvidenceID)
++		}
++		if digest.String() != admitted.EvidenceID {
++			t.Fatalf("CalculateObjectIdentity digest = %q, owner digest = %q", digest, admitted.EvidenceID)
++		}
++		verified, _, err := canonicaljson.VerifyObjectIdentity(valid)
++		if err != nil {
++			t.Fatalf("VerifyObjectIdentity(valid) error = %v", err)
++		}
++		if verified != digest {
++			t.Fatalf("VerifyObjectIdentity digest = %q, want %q", verified, digest)
++		}
++	})
++
++	t.Run("tampered claim refused on all three entries", func(t *testing.T) {
++		t.Parallel()
++		doc := setOwnershipMember(t, valid, "evidence_id", testSeedDigest(0x00))
++		_, err := terminalbackend.ParseEvidence(doc)
++		if err == nil {
++			t.Fatalf("ParseEvidence(tampered claim) admitted the document")
++		}
++		requireRefusal(t, err, codeMismatch, "document identity binding")
++		requireCanonicalRefusalThroughOwner(t, doc, "document identity binding")
++	})
++
++	for _, member := range deriveTerminalMembers(t, "evidenceMembers") {
++		member := member
++		t.Run("drop "+member, func(t *testing.T) {
++			t.Parallel()
++			doc := dropOwnershipMember(t, valid, member)
++			_, err := terminalbackend.ParseEvidence(doc)
++			if err == nil {
++				t.Fatalf("ParseEvidence without %q admitted the document", member)
++			}
++			requireRefusal(t, err, codeMismatch, "document members")
++			switch member {
++			case "evidence_id":
++				requireCanonicalDispatchRefusal(t, doc, "requires self field")
++			case "schema", "schema_version":
++				requireCanonicalDispatchRefusal(t, doc, "requires string member")
++			default:
++				requireCanonicalRefusalThroughOwner(t, doc, "document members")
++			}
++		})
++	}
++
++	for _, member := range deriveTerminalMembers(t, "evidenceMembers") {
++		member := member
++		t.Run("number for "+member, func(t *testing.T) {
++			t.Parallel()
++			doc := setOwnershipMember(t, valid, member, json.Number("1"))
++			_, err := terminalbackend.ParseEvidence(doc)
++			if err == nil {
++				t.Fatalf("ParseEvidence with a number for %q admitted the document", member)
++			}
++			switch member {
++			case "evidence_id":
++				requireRefusal(t, err, codeMismatch, "document member type")
++				requireCanonicalDispatchRefusal(t, doc, "self field")
++			case "schema", "schema_version":
++				requireCanonicalDispatchRefusal(t, doc, "non-empty string")
++			default:
++				detail := terminalRefusalDetail(t, err)
++				requireCanonicalRefusalThroughOwner(t, doc, detail)
++			}
++		})
++	}
++}
++
++// TestTerminalRealmEvidenceIdentityAgreement drives one signed realm evidence
++// document through both entries: the credential-realm conditional members
++// are the largest shape rule the sweeps above never touch (they stay null
++// there), so the realm half of parseRealmMembers needs its own agreement
++// row, plus the realm-less-attachment refusal in both directions.
++func TestTerminalRealmEvidenceIdentityAgreement(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	realm := universe.evidenceMap(
++		"credential_capable_execution_realm",
++		[]any{"fixture_passed", "provider_auth_passed", "runtime_probe_passed", "sentinel_passed"},
++	)
++	realm["terminal_binding_id"] = testSeedDigest(0xB1)
++	realm["provider_id"] = "codex"
++	realm["provider_build"] = "1.2.3"
++	realm["sentinel_result"] = "passed"
++	realm["provider_auth_smoke_result"] = "passed"
++	finalizeEvidence(t, universe.key, realm)
++	valid := mustMarshal(t, realm)
++
++	t.Run("valid realm evidence agrees with equal digests", func(t *testing.T) {
++		t.Parallel()
++		admitted, err := terminalbackend.ParseEvidence(valid)
++		if err != nil {
++			t.Fatalf("ParseEvidence(realm) error = %v", err)
++		}
++		digest, field, err := canonicaljson.CalculateObjectIdentity(valid)
++		if err != nil {
++			t.Fatalf("CalculateObjectIdentity(realm) error = %v", err)
++		}
++		if field != canonicaljson.SelfEvidenceID || digest.String() != admitted.EvidenceID {
++			t.Fatalf("CalculateObjectIdentity(realm) = %q/%q, owner = %q", digest, field, admitted.EvidenceID)
++		}
++		if verified, _, err := canonicaljson.VerifyObjectIdentity(valid); err != nil || verified != digest {
++			t.Fatalf("VerifyObjectIdentity(realm) = %q, %v; want %q", verified, err, digest)
++		}
++	})
++
++	t.Run("realm members on a non-realm claim refused by both", func(t *testing.T) {
++		t.Parallel()
++		base := decodeOwnershipMap(t, mustMarshal(t, universe.evidenceByCap["durable_disconnect"]))
++		base["terminal_binding_id"] = testSeedDigest(0xB1)
++		// No re-sign and no re-finalize: member-type validation refuses
++		// before the identity binding is checked, so the stale claim and
++		// the untouched signature never matter to this row.
++		doc := mustEncodeOwnershipMap(t, base)
++		_, err := terminalbackend.ParseEvidence(doc)
++		if err == nil {
++			t.Fatalf("ParseEvidence(realm members, non-realm claim) admitted the document")
++		}
++		requireRefusal(t, err, codeMismatch, "evidence realm binding")
++		requireCanonicalRefusalThroughOwner(t, doc, "evidence realm binding")
++	})
++}
++
++// TestTerminalIdentityOrderingRefusesMemberTypeBeforeBinding proves the
++// NUM-UNSAFE ordering fix: a document carrying both a numeric member and a
++// mismatched identity claim is refused at the member-type arm, never at the
++// identity-binding arm. Under the old order (identity first) every row
++// below reported "document identity binding" instead.
++func TestTerminalIdentityOrderingRefusesMemberTypeBeforeBinding(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	manifest := mustMarshal(t, universe.manifest)
++	probe := mustMarshal(t, universe.probe)
++	evidence := mustMarshal(t, universe.evidenceByCap["durable_disconnect"])
++
++	rows := []struct {
++		name  string
++		doc   []byte
++		parse func([]byte) error
++	}{
++		{
++			"manifest unsafe integer",
++			setOwnershipMember(t,
++				setOwnershipMember(t, manifest, "manifest_id", testSeedDigest(0x00)),
++				"protocol_versions", []any{json.Number("9007199254740993")}),
++			func(raw []byte) error { _, err := terminalbackend.ParseManifest(raw); return err },
++		},
++		{
++			"probe float",
++			setOwnershipMember(t,
++				setOwnershipMember(t, probe, "probe_id", testSeedDigest(0x00)),
++				"os_version", json.Number("1.5")),
++			func(raw []byte) error { _, err := terminalbackend.ParseProbe(raw); return err },
++		},
++		{
++			"evidence nested unsafe integer",
++			setOwnershipMember(t,
++				setOwnershipMember(t, evidence, "evidence_id", testSeedDigest(0x00)),
++				"facts", []any{"fixture_passed", json.Number("9007199254740993")}),
++			func(raw []byte) error { _, err := terminalbackend.ParseEvidence(raw); return err },
++		},
++	}
++	for _, row := range rows {
++		row := row
++		t.Run(row.name, func(t *testing.T) {
++			t.Parallel()
++			err := row.parse(row.doc)
++			if err == nil {
++				t.Fatalf("owner admitted a numeric document with a stale claim")
++			}
++			requireRefusal(t, err, codeMismatch, "document member type")
++		})
++	}
++}
++
++// TestTerminalDocumentsRefuseOversizeInput proves the shared 5 MiB identity
++// bound at both entries: an otherwise-valid document padded past the bound
++// is refused before decoding on either side.
++func TestTerminalDocumentsRefuseOversizeInput(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	rows := []struct {
++		name  string
++		doc   []byte
++		parse func([]byte) error
++	}{
++		{"manifest", mustMarshal(t, universe.manifest),
++			func(raw []byte) error { _, err := terminalbackend.ParseManifest(raw); return err }},
++		{"probe", mustMarshal(t, universe.probe),
++			func(raw []byte) error { _, err := terminalbackend.ParseProbe(raw); return err }},
++		{"evidence", mustMarshal(t, universe.evidenceByCap["durable_disconnect"]),
++			func(raw []byte) error { _, err := terminalbackend.ParseEvidence(raw); return err }},
++	}
++	for _, row := range rows {
++		row := row
++		t.Run(row.name, func(t *testing.T) {
++			t.Parallel()
++			padded := padOwnershipDocument(t, row.doc, 5_242_881)
++			err := row.parse(padded)
++			if err == nil {
++				t.Fatalf("owner admitted a %d-byte document", len(padded))
++			}
++			requireRefusal(t, err, codeMismatch, "document size")
++			_, _, calcErr := canonicaljson.CalculateObjectIdentity(padded)
++			if calcErr == nil || !errors.Is(calcErr, canonicaljson.ErrInvalidIdentity) ||
++				!strings.Contains(calcErr.Error(), "maximum is 5242880") {
++				t.Fatalf("canonicaljson error = %v, want the 5 MiB identity bound", calcErr)
++			}
++		})
++	}
++}
++
++// padOwnershipDocument returns the document padded with JSON insignificant
++// whitespace to exactly size bytes. Whitespace carries no member, so the
++// padded document is otherwise valid and only the size arm can refuse it.
++func padOwnershipDocument(t *testing.T, doc []byte, size int) []byte {
++	t.Helper()
++	if len(doc) >= size || doc[len(doc)-1] != '}' {
++		t.Fatalf("padOwnershipDocument: %d-byte document is not a padded object", len(doc))
++	}
++	padded := make([]byte, 0, size)
++	padded = append(padded, doc[:len(doc)-1]...)
++	for len(padded) < size-1 {
++		padded = append(padded, ' ')
++	}
++	return append(padded, '}')
++}
++
++// TestTerminalManifestPreDelegationGatesAgree drives the documents
++// canonicaljson refuses before reaching the owner: each row names the
++// canonical arm and the owner's own arm for the same document, so a
++// content-rule divergence cannot hide behind a shared refusal.
++func TestTerminalManifestPreDelegationGatesAgree(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	valid := mustMarshal(t, universe.manifest)
++
++	rows := []struct {
++		name         string
++		doc          []byte
++		terminalCode string
++		terminalArm  string
++		canonArm     string
++	}{
++		{
++			"unsafe integer member",
++			setOwnershipMember(t, valid, "protocol_versions", []any{json.Number("9007199254740993")}),
++			codeMismatch, "document member type", "outside the AX safe-integer interval",
++		},
++		{
++			"floating-point member",
++			setOwnershipMember(t, valid, "protocol_versions", []any{json.Number("1.5")}),
++			codeMismatch, "document member type", "forbidden by the AX common model",
++		},
++		{
++			"wrong schema",
++			setOwnershipMember(t, valid, "schema", "urn:ax:schema:provider-identity"),
++			codeMismatch, "manifest schema", "requires self field",
++		},
++		{
++			"malformed self digest",
++			setOwnershipMember(t, valid, "manifest_id", "sha256:zzzz"),
++			codeMismatch, "document digest", "self field",
++		},
++		{
++			"unknown member",
++			setOwnershipMember(t, valid, "zzz", "x"),
++			codeMismatch, "document members", "document members",
++		},
++		{
++			"non-empty extensions",
++			setOwnershipMember(t, valid, "extensions", map[string]any{"works.relux.ax.x": "y"}),
++			codeMismatch, "document extensions", "document extensions",
++		},
++		{
++			// A second schema member at the top level (index 0 is the
++			// opening brace whatever the map order), so the duplicate
++			// arm fires before any member rule reads a value.
++			"duplicate member",
++			append([]byte(`{"schema": "urn:ax:schema:terminal-backend-manifest",`), valid[1:]...),
++			codeMismatch, "document duplicate member", "duplicate object member",
++		},
++		{
++			"trailing data",
++			append(append([]byte{}, valid...), ' ', '{', '}'),
++			codeMismatch, "document trailing data", "trailing JSON",
++		},
++		{
++			"deep nesting",
++			setOwnershipMember(t, valid, "protocol_versions", deepOwnershipArrays(40)),
++			codeMismatch, "document nesting", "document nesting",
++		},
++	}
++	for _, row := range rows {
++		row := row
++		t.Run(row.name, func(t *testing.T) {
++			t.Parallel()
++			_, err := terminalbackend.ParseManifest(row.doc)
++			if err == nil {
++				t.Fatalf("ParseManifest(%s) admitted the document", row.name)
++			}
++			requireRefusal(t, err, row.terminalCode, row.terminalArm)
++			_, _, calcErr := canonicaljson.CalculateObjectIdentity(row.doc)
++			if calcErr == nil {
++				t.Fatalf("CalculateObjectIdentity(%s) admitted the document", row.name)
++			}
++			if !errors.Is(calcErr, canonicaljson.ErrInvalidIdentity) && !errors.Is(calcErr, canonicaljson.ErrInvalidJSON) {
++				t.Fatalf("CalculateObjectIdentity(%s) error = %v, want an identity or JSON refusal", row.name, calcErr)
++			}
++			if !strings.Contains(calcErr.Error(), row.canonArm) {
++				t.Fatalf("CalculateObjectIdentity(%s) error = %v, want the arm %q", row.name, calcErr, row.canonArm)
++			}
++		})
++	}
++
++	t.Run("non-UTF-8 bytes", func(t *testing.T) {
++		t.Parallel()
++		broken := make([]byte, 0, len(valid))
++		anchor := []byte(`"linux"`)
++		if strings.Count(string(valid), string(anchor)) != 1 {
++			t.Fatalf("surgery anchor is not unique")
++		}
++		at := strings.Index(string(valid), string(anchor))
++		broken = append(broken, valid[:at+4]...)
++		broken = append(broken, 0xff)
++		broken = append(broken, valid[at+5:]...)
++		_, err := terminalbackend.ParseManifest(broken)
++		if err == nil {
++			t.Fatal("ParseManifest(non-UTF-8) admitted the document")
++		}
++		requireRefusal(t, err, codeMismatch, "document encoding")
++		_, _, calcErr := canonicaljson.CalculateObjectIdentity(broken)
++		if calcErr == nil || !strings.Contains(calcErr.Error(), "not valid UTF-8") {
++			t.Fatalf("CalculateObjectIdentity(non-UTF-8) error = %v, want the encoding arm", calcErr)
++		}
++	})
++}
++
++// deepOwnershipArrays builds depth nested single-element arrays holding a
++// string leaf: depth 40 passes the canonical 256-deep decoder and fails
++// the owner 32-deep decoder, proving both bounds agree on refusal.
++func deepOwnershipArrays(depth int) any {
++	var value any = "leaf"
++	for index := 0; index < depth; index++ {
++		value = []any{value}
++	}
++	return value
++}
++
++// TestSurrogateGateAgreesWithCanonicalJSON pins the local surrogate scan
++// against the canonical owner: the owner's surrogate verdict and
++// canonicaljson.Canonicalize agree accept/reject on every shared vector,
++// so the two copies cannot drift without reddening here.
++//
++// The sweep moved to this external battery when canonicaljson began
++// importing terminalbackend in production (terminal shape delegation): an
++// internal test file can no longer import canonicaljson without an import
++// cycle. The vectors embed in the terminal_backend_id member of a valid
++// manifest, which isolates the surrogate question by construction: a lone
++// escape is refused by the surrogate scan before any member rule reads the
++// value, while an admitted escape reaches the member rules and is refused
++// there instead. The branch-level pins (including the raw WTF-8 road, which
++// never reaches the gate through a document because the UTF-8 arm fires
++// first) stay in the white-box TestSurrogateGateVerdicts, which needs no
++// cross-package import.
++//
++// A delete-only mutant proves the gate exists; the full-range enumeration
++// proves the class it covers: narrowing the low-surrogate upper bound to
++// <= 0xDC00 survived a 10-vector corpus while admitting 1023 lone low
++// surrogates, and every loop below kills that mutant the same way.
++func TestSurrogateGateAgreesWithCanonicalJSON(t *testing.T) {
++	t.Parallel()
++
++	universe := testUniverse(t)
++	valid := mustMarshal(t, universe.manifest)
++	if strings.Count(string(valid), `"ax.tmux"`) != 1 {
++		t.Fatalf("surgery anchor is not unique")
++	}
++	embed := func(vector string) []byte {
++		return []byte(strings.Replace(string(valid), `"ax.tmux"`, vector, 1))
++	}
++
++	slash := string([]byte{92})
++	escape := func(unit uint16) string {
++		const digits = "0123456789abcdef"
++		return slash + "u" + string([]byte{
++			digits[unit>>12&0xf], digits[unit>>8&0xf], digits[unit>>4&0xf], digits[unit&0xf],
++		})
++	}
++	var failures []string
++	// rejectVector requires both sides to refuse the surrogate question:
++	// the owner at its surrogate arm, the canonical entry at its own.
++	rejectVector := func(doc, vector string) {
++		t.Helper()
++		_, err := terminalbackend.ParseManifest(embed(doc))
++		if err == nil {
++			failures = append(failures, "ParseManifest admitted lone escape "+vector)
++			return
++		}
++		var refusal *terminalbackend.Error
++		if !errors.As(err, &refusal) || refusal.Detail != "document surrogate escape" {
++			failures = append(failures, "ParseManifest("+vector+") = "+err.Error()+", want the surrogate arm")
++		}
++		if _, err := canonicaljson.Canonicalize([]byte(doc)); err == nil {
++			failures = append(failures, "Canonicalize admitted lone escape "+vector)
++		} else if !strings.Contains(err.Error(), "surrogate") {
++			failures = append(failures, "Canonicalize("+vector+") = "+err.Error()+", want the surrogate arm")
++		}
++	}
++	// admitVector requires both sides to pass the surrogate question: the
++	// owner refuses at a member arm instead, and the canonical entry
++	// carries that same arm through delegation.
++	admitVector := func(doc, vector string) {
++		t.Helper()
++		_, err := terminalbackend.ParseManifest(embed(doc))
++		if err == nil {
++			failures = append(failures, "ParseManifest admitted "+vector+" at every arm")
++			return
++		}
++		var refusal *terminalbackend.Error
++		if !errors.As(err, &refusal) {
++			failures = append(failures, "ParseManifest("+vector+") = "+err.Error()+", want a terminal refusal")
++			return
++		}
++		if refusal.Detail == "document surrogate escape" {
++			failures = append(failures, "ParseManifest refused "+vector+" at the surrogate arm, want a member arm")
++		}
++		if _, _, calcErr := canonicaljson.CalculateObjectIdentity(embed(doc)); calcErr == nil {
++			failures = append(failures, "CalculateObjectIdentity admitted "+vector+" at every arm")
++		} else if !strings.Contains(calcErr.Error(), refusal.Detail) {
++			failures = append(failures, "CalculateObjectIdentity("+vector+") = "+calcErr.Error()+", want the owner arm "+refusal.Detail)
++		}
++	}
++
++	for unit := uint32(0xd800); unit <= 0xdfff; unit++ {
++		vector := `"` + escape(uint16(unit)) + `"`
++		rejectVector(vector, vector)
++	}
++	for second := uint32(0xd800); second <= 0xdfff; second++ {
++		vector := `"` + escape(0xd800) + escape(uint16(second)) + `"`
++		if second < 0xdc00 {
++			rejectVector(vector, vector)
++		} else {
++			admitVector(vector, vector)
++		}
++	}
++	admitVector(`"`+escape(0xdbff)+escape(0xdfff)+`"`, "dbff+dfff pair")
++	for _, unit := range []uint16{0x0000, 0x0041, 0x00e9, 0xd7ff, 0xe000, 0xffff} {
++		admitVector(`"`+escape(unit)+`"`, "non-surrogate escape")
++		rejectVector(`"`+escape(0xd800)+escape(unit)+`"`, "high plus non-low")
++	}
++	rejectVector(`"`+slash+`uDC00"`, "uppercase lone low")
++	admitVector(`"`+slash+`uD800`+slash+`uDC00"`, "uppercase valid pair")
++	admitVector(`"`+slash+slash+`ud800"`, "escaped backslash text")
++	admitVector(`"abc"`, "plain string")
++	admitVector(`"aé"`, "multibyte string")
++
++	for _, bytes := range [][]byte{
++		{0xed, 0xa0, 0x80},
++		{0xed, 0xb0, 0x80},
++		{0xed, 0xbf, 0xbf},
++		{0xed, 0xaf, 0x93},
++	} {
++		vector := `"` + string(bytes) + `"`
++		_, err := terminalbackend.ParseManifest(embed(vector))
++		if err == nil {
++			failures = append(failures, "ParseManifest admitted raw WTF-8 at every arm")
++		} else {
++			var refusal *terminalbackend.Error
++			if !errors.As(err, &refusal) || refusal.Detail != "document encoding" {
++				failures = append(failures, "ParseManifest(raw WTF-8) = "+err.Error()+", want the encoding arm")
++			}
++		}
++		if _, err := canonicaljson.Canonicalize([]byte(vector)); err == nil {
++			failures = append(failures, "Canonicalize admitted raw WTF-8")
++		}
++	}
++	admitVector("\""+string([]byte{0xed, 0x9f, 0xbf})+"\"", "U+D7FF raw")
++	for _, vector := range []string{
++		`"` + slash + `n` + string([]byte{0xed, 0xa0, 0x80}) + `"`,
++		`"` + slash + slash + string([]byte{0xed, 0xbf, 0xbf}) + `"`,
++	} {
++		_, err := terminalbackend.ParseManifest(embed(vector))
++		if err == nil {
++			failures = append(failures, "ParseManifest admitted "+vector+" at every arm")
++		} else {
++			var refusal *terminalbackend.Error
++			if !errors.As(err, &refusal) || refusal.Detail != "document encoding" {
++				failures = append(failures, "ParseManifest("+vector+") = "+err.Error()+", want the encoding arm")
++			}
++		}
++		if _, err := canonicaljson.Canonicalize([]byte(vector)); err == nil {
++			failures = append(failures, "Canonicalize admitted "+vector)
++		}
++	}
++
++	if len(failures) > 0 {
++		shown := failures
++		if len(shown) > 10 {
++			shown = shown[:10]
++		}
++		t.Fatalf("%d agreement failures (showing %d):\n%s", len(failures), len(shown), strings.Join(shown, "\n"))
++	}
++}
+diff --git a/internal/terminalbackend/internal_pin_test.go b/internal/terminalbackend/internal_pin_test.go
+index 283f6b4..ff89b6e 100644
+--- a/internal/terminalbackend/internal_pin_test.go
++++ b/internal/terminalbackend/internal_pin_test.go
+@@ -8,13 +8,16 @@
+ // prose; the reachability bound is stated, not inferred.
+ package terminalbackend
+ 
++// The surrogate-gate agreement sweep lived here while canonicaljson was an
++// importable test dependency. canonicaljson now imports this package in
++// production (terminal shape delegation), so the sweep moved to the external
++// identity_ownership_test.go battery, which may still import both sides.
+ import (
++	"encoding/json"
+ 	"errors"
+-	"fmt"
+ 	"strings"
+ 	"testing"
+ 
+-	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
+ 	"github.com/relux-works/agent-session-manager/internal/scalar"
+ )
+ 
+@@ -270,31 +273,21 @@ func TestBuiltinsHoldIndependentProtocolArrays(t *testing.T) {
+ 	}
+ }
+ 
+-// TestSurrogateGateAgreesWithCanonicalJSON pins the local surrogate scan
+-// against the canonical owner: hasLoneSurrogateEscape and
+-// canonicaljson.Canonicalize agree accept/reject on every shared vector, so
+-// the two copies cannot drift without reddening here.
++// TestSurrogateGateVerdicts pins the local lone-surrogate gate directly:
++// every escaped code point in U+D800..U+DFFF in escape position rejects,
++// a high surrogate admits only before a low surrogate, and representative
++// escapes outside the range admit. The cross-package agreement half of this
++// gate (ParseManifest detail versus canonicaljson.Canonicalize) moved to
++// the external identity_ownership_test.go battery when canonicaljson began
++// importing this package in production; this half keeps the branch-level
++// pins (including the raw WTF-8 road, which never reaches the gate through
++// a document because the UTF-8 arm fires first) without that import.
+ //
+-// The corpus is derived, not hand-written: it enumerates every escaped code
+-// point in the surrogate range U+D800..U+DFFF in both escape positions,
+-// plus a representative set outside the range and the raw WTF-8 road. A
+-// hand-written vector set cannot tell a right gate from a bound-narrowed
+-// one: narrowing the low-surrogate upper bound to <= 0xDC00 survived a
+-// 10-vector corpus 6 of 6 while admitting 1023 lone low surrogates. Every
+-// loop below kills that mutant (lone lows 0xDC01..0xDFFF must reject, and a
+-// high followed by 0xDC01..0xDFFF must reject), and the mirrored loops kill
+-// a high-surrogate bound narrowing the same way. A delete-only mutant proves
+-// the gate exists; these sweeps prove the class it covers.
+-//
+-// Vectors are bare JSON strings where the surrogate rule is the only
+-// distinguishing rule; the escape introducer is assembled from its byte
+-// value because no source literal spells it next to hex. Stated bound:
+-// malformed escapes (a bad hex digit, an uppercase U introducer, a
+-// truncated tail), truncated WTF-8 tails, WTF-8 outside string literals,
+-// other invalid UTF-8 (overlongs, 0xFF), and unescaped control characters
+-// are refused by both sides' syntax or encoding arms, not by the surrogate
+-// question, and are outside this pin.
+-func TestSurrogateGateAgreesWithCanonicalJSON(t *testing.T) {
++// A bound-narrowed gate survives a small corpus while admitting hundreds of
++// lone surrogates, so the sweep enumerates the whole range: narrowing the
++// low-surrogate upper bound admits 0xDC01..0xDFFF here, and narrowing the
++// high bound the same way on the pair-second dimension.
++func TestSurrogateGateVerdicts(t *testing.T) {
+ 	t.Parallel()
+ 
+ 	slash := string([]byte{92})
+@@ -304,65 +297,94 @@ func TestSurrogateGateAgreesWithCanonicalJSON(t *testing.T) {
+ 			digits[unit>>12&0xf], digits[unit>>8&0xf], digits[unit>>4&0xf], digits[unit&0xf],
+ 		})
+ 	}
+-	var failures []string
+ 	check := func(doc string, reject bool) {
+-		raw := []byte(doc)
+-		if local := hasLoneSurrogateEscape(raw); local != reject {
+-			failures = append(failures, fmt.Sprintf("hasLoneSurrogateEscape(%q) = %v, want rejection %v",
+-				doc, local, reject))
+-		}
+-		_, err := canonicaljson.Canonicalize(raw)
+-		if rejected := err != nil; rejected != reject {
+-			failures = append(failures, fmt.Sprintf("Canonicalize(%q) error = %v, want rejection %v",
+-				doc, err, reject))
++		t.Helper()
++		if got := hasLoneSurrogateEscape([]byte(doc)); got != reject {
++			t.Errorf("hasLoneSurrogateEscape(%q) = %v, want rejection %v", doc, got, reject)
+ 		}
+ 	}
+ 
+-	// Every code point in the surrogate range as a lone escape rejects.
+ 	for unit := uint32(0xd800); unit <= 0xdfff; unit++ {
+ 		check(`"`+escape(uint16(unit))+`"`, true)
+ 	}
+-	// A fixed high surrogate followed by every code point in the surrogate
+-	// range admits exactly the low surrogates.
+ 	for second := uint32(0xd800); second <= 0xdfff; second++ {
+ 		check(`"`+escape(0xd800)+escape(uint16(second))+`"`, second < 0xdc00)
+ 	}
+-	// Valid pairs at the opposite corner admit.
+ 	check(`"`+escape(0xdbff)+escape(0xdfff)+`"`, false)
+-	// Representative escapes outside the surrogate range admit alone and
+-	// reject after a high surrogate.
+ 	for _, unit := range []uint16{0x0000, 0x0041, 0x00e9, 0xd7ff, 0xe000, 0xffff} {
+ 		check(`"`+escape(unit)+`"`, false)
+ 		check(`"`+escape(0xd800)+escape(unit)+`"`, true)
+ 	}
+-	// Uppercase hex is the same code point, not a different question.
+ 	check(`"`+slash+`uDC00"`, true)
+ 	check(`"`+slash+`uD800`+slash+`uDC00"`, false)
+-	// An escaped backslash is not an escape introducer.
+ 	check(`"`+slash+slash+`ud800"`, false)
+-	// Plain and multibyte strings admit.
+ 	check(`"abc"`, false)
+ 	check(`"aé"`, false)
+ 
+-	// Raw WTF-8 (CESU-8) surrogate encodings reject on both sides; the
+-	// neighboring valid code point U+D7FF (ED 9F BF) admits on both.
+ 	for _, bytes := range [][]byte{
+-		{0xed, 0xa0, 0x80}, // U+D800
+-		{0xed, 0xb0, 0x80}, // U+DC00
+-		{0xed, 0xbf, 0xbf}, // U+DFFF
++		{0xed, 0xa0, 0x80},
++		{0xed, 0xb0, 0x80},
++		{0xed, 0xbf, 0xbf},
+ 		{0xed, 0xaf, 0x93},
+ 	} {
+ 		doc := append(append([]byte{'"'}, bytes...), '"')
+ 		check(string(doc), true)
+ 	}
+ 	check("\""+string([]byte{0xed, 0x9f, 0xbf})+"\"", false)
+-	// A WTF-8 head immediately after a backslash escape is still raw bytes
+-	// on the wire: the backslash skip must not hide it.
+ 	check(`"`+slash+`n`+string([]byte{0xed, 0xa0, 0x80})+`"`, true)
+ 	check(`"`+slash+slash+string([]byte{0xed, 0xbf, 0xbf})+`"`, true)
++}
++
++// TestObjectIdentityRefusesNumbersBeforeCanonicalization pins the structural
++// number walk inside objectIdentity: a JSON number at any depth is refused
++// with the member-type arm before any JCS transform runs. No document
++// reaches the walk through the Parse entries (member validation refuses
++// numbers first), so the walk is proven here, at the guard, through the
++// same white-box pin this file exists for.
++func TestObjectIdentityRefusesNumbersBeforeCanonicalization(t *testing.T) {
++	t.Parallel()
++
++	withNumber := map[string]any{
++		"manifest_id":            "sha256:" + strings.Repeat("0", 64),
++		"terminal_backend_id":    "ax.tmux",
++		"implementation_version": "2.1.0",
++	}
++	for name, mutate := range map[string]func(map[string]any){
++		"top-level number": func(object map[string]any) {
++			object["protocol_versions"] = json.Number("9007199254740993")
++		},
++		"nested object number": func(object map[string]any) {
++			object["extensions"] = map[string]any{"n": json.Number("1.5")}
++		},
++		"nested array number": func(object map[string]any) {
++			object["platforms"] = []any{"linux", json.Number("1")}
++		},
++		"decoded float": func(object map[string]any) {
++			object["platforms"] = []any{float64(1)}
++		},
++	} {
++		object := make(map[string]any, len(withNumber)+1)
++		for key, value := range withNumber {
++			object[key] = value
++		}
++		mutate(object)
++		if _, err := objectIdentity(object, "manifest_id"); err == nil {
++			t.Errorf("objectIdentity(%s) admitted a number into the JCS transform", name)
++		} else if !IsMismatch(err) {
++			t.Errorf("objectIdentity(%s) error = %v, want CodeMismatch", name, err)
++		} else {
++			var refusal *Error
++			if errors.As(err, &refusal) && refusal.Detail != "document member type" {
++				t.Errorf("objectIdentity(%s) detail = %q, want document member type", name, refusal.Detail)
++			}
++		}
++	}
+ 
+-	if len(failures) > 0 {
+-		t.Fatalf("%d agreement failures (showing %d):\n%s",
+-			len(failures), min(len(failures), 10), strings.Join(failures[:min(len(failures), 10)], "\n"))
++	control := make(map[string]any, len(withNumber))
++	for key, value := range withNumber {
++		control[key] = value
++	}
++	if _, err := objectIdentity(control, "manifest_id"); err != nil {
++		t.Errorf("objectIdentity(number-free object) error = %v, want admission", err)
+ 	}
+ }
+diff --git a/internal/terminalbackend/manifest.go b/internal/terminalbackend/manifest.go
+index d19dd0e..f6d86f6 100644
+--- a/internal/terminalbackend/manifest.go
++++ b/internal/terminalbackend/manifest.go
+@@ -257,6 +257,13 @@ const (
+ 	maxOpaqueString    = 256
+ 	maxJSONDepth       = 32
+ 	maxNativeReference = 512
++	// maxIdentityDocumentBytes is the AX omit-self identity bound the
++	// canonical owner enforces before any identity calculation: an
++	// encoded identity object over 5 MiB is refused before decoding,
++	// so this package refuses it at the same gate rather than
++	// admitting through the direct parse entries what the shared
++	// identity entry refuses.
++	maxIdentityDocumentBytes = 5_242_880
+ )
+ 
+ // mismatchf refuses with CodeMismatch and a static detail clause. The clause
+@@ -372,6 +379,9 @@ func readUTF16EscapeUnit(raw []byte, start int) (uint16, int, bool) {
+ // decode as json.Number so member validators can refuse them explicitly:
+ // none of the three closed schemas has a numeric member.
+ func decodeStrictObject(raw []byte) (map[string]any, error) {
++	if len(raw) > maxIdentityDocumentBytes {
++		return nil, mismatchf("document size")
++	}
+ 	if !utf8.Valid(raw) {
+ 		return nil, mismatchf("document encoding")
+ 	}
+@@ -613,11 +623,20 @@ func checkClosedList(values []string, vocabulary map[string]bool, max int, requi
+ }
+ 
+ // objectIdentity computes the lowercase sha256: digest of the RFC 8785 JCS
+-// bytes of object with exactly selfField omitted (§4.B identity rule). It
+-// mirrors the repository's canonical pipeline (logical value, JSON
+-// re-encode, JCS transform, SHA-256) without routing through the schema
+-// validators owned by another task.
++// bytes of object with exactly selfField omitted (§4.B identity rule). This
++// package owns the three terminal closed schemas and their identity rule:
++// the canonical identity entry reaches these documents through the Parse
++// entries below, and the agreement battery pins that verdict and digest
++// equality. The JCS transform implements the SPEC.md:302 NUM-UNSAFE-ROUND
++// rounding, so no number may reach it: none of the three closed schemas
++// has a numeric member, every member validator refuses a non-string,
++// non-bool, non-null leaf before identity runs, and the walk below refuses
++// a number structurally, so a reordered caller still cannot round and
++// continue.
+ func objectIdentity(object map[string]any, selfField string) (string, error) {
++	if err := refuseIdentityNumbers(object); err != nil {
++		return "", err
++	}
+ 	omitted := make(map[string]any, len(object))
+ 	for name, member := range object {
+ 		if name != selfField {
+@@ -636,9 +655,36 @@ func objectIdentity(object map[string]any, selfField string) (string, error) {
+ 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+ }
+ 
++// refuseIdentityNumbers walks a decoded document and refuses any JSON
++// number at any depth. It runs inside objectIdentity before the JCS
++// transform, so member-type validation refuses a numeric document before
++// any identity bytes exist, as SPEC.md:301 NUM-UNSAFE-NUMBER requires.
++func refuseIdentityNumbers(value any) error {
++	switch typed := value.(type) {
++	case json.Number, float64:
++		return mismatchf("document member type")
++	case map[string]any:
++		for _, member := range typed {
++			if err := refuseIdentityNumbers(member); err != nil {
++				return err
++			}
++		}
++	case []any:
++		for _, member := range typed {
++			if err := refuseIdentityNumbers(member); err != nil {
++				return err
++			}
++		}
++	}
++	return nil
++}
++
+ // checkIdentity recomputes the omit-self digest and refuses a mismatch. A
+ // reader must recompute the ID before use; trusting the claimed member is a
+-// substitution vector.
++// substitution vector. Every parse entry runs its full member-type
++// validation before this call, so a malformed document is refused before
++// any JCS bytes exist; the number walk in objectIdentity holds that order
++// even for a caller that skips the member checks.
+ func checkIdentity(object map[string]any, selfField, claimed string) error {
+ 	if _, err := scalar.ParseDigest(claimed); err != nil {
+ 		return mismatchf("document digest")
+@@ -945,9 +991,6 @@ func parseManifestObject(object map[string]any) (Manifest, error) {
+ 	if err != nil {
+ 		return Manifest{}, err
+ 	}
+-	if err := checkIdentity(object, "manifest_id", manifestID); err != nil {
+-		return Manifest{}, err
+-	}
+ 	backendID, err := stringMember(object, "terminal_backend_id")
+ 	if err != nil {
+ 		return Manifest{}, err
+@@ -1000,6 +1043,12 @@ func parseManifestObject(object map[string]any) (Manifest, error) {
+ 	if err := checkExtensions(object); err != nil {
+ 		return Manifest{}, err
+ 	}
++	// The identity binding is verified after every member-type rule, so a
++	// malformed document is refused before any JCS transform runs
++	// (SPEC.md:301 NUM-UNSAFE-NUMBER: reject before identity calculation).
++	if err := checkIdentity(object, "manifest_id", manifestID); err != nil {
++		return Manifest{}, err
++	}
+ 	return Manifest{
+ 		ManifestID:             manifestID,
+ 		TerminalBackendID:      backendID,
+@@ -1088,9 +1137,6 @@ func ParseProbe(raw []byte) (Probe, error) {
+ 	if err != nil {
+ 		return Probe{}, err
+ 	}
+-	if err := checkIdentity(object, "probe_id", probeID); err != nil {
+-		return Probe{}, err
+-	}
+ 	backendID, err := stringMember(object, "terminal_backend_id")
+ 	if err != nil {
+ 		return Probe{}, err
+@@ -1179,6 +1225,12 @@ func ParseProbe(raw []byte) (Probe, error) {
+ 	if err := checkExtensions(object); err != nil {
+ 		return Probe{}, err
+ 	}
++	// The identity binding is verified after every member-type rule, so a
++	// malformed document is refused before any JCS transform runs
++	// (SPEC.md:301 NUM-UNSAFE-NUMBER: reject before identity calculation).
++	if err := checkIdentity(object, "probe_id", probeID); err != nil {
++		return Probe{}, err
++	}
+ 	return Probe{
+ 		ProbeID:                 probeID,
+ 		TerminalBackendID:       backendID,
+@@ -1231,9 +1283,6 @@ func ParseEvidence(raw []byte) (Evidence, error) {
+ 	if err != nil {
+ 		return Evidence{}, err
+ 	}
+-	if err := checkIdentity(object, "evidence_id", evidenceID); err != nil {
+-		return Evidence{}, err
+-	}
+ 	backendID, err := stringMember(object, "terminal_backend_id")
+ 	if err != nil {
+ 		return Evidence{}, err
+@@ -1332,6 +1381,12 @@ func ParseEvidence(raw []byte) (Evidence, error) {
+ 	if err := checkExtensions(object); err != nil {
+ 		return Evidence{}, err
+ 	}
++	// The identity binding is verified after every member-type rule, so a
++	// malformed document is refused before any JCS transform runs
++	// (SPEC.md:301 NUM-UNSAFE-NUMBER: reject before identity calculation).
++	if err := checkIdentity(object, "evidence_id", evidenceID); err != nil {
++		return Evidence{}, err
++	}
+ 	return Evidence{
+ 		EvidenceID:              evidenceID,
+ 		TerminalBackendID:       backendID,
+diff --git a/internal/terminalbackend/refusal_arm_inventory_test.go b/internal/terminalbackend/refusal_arm_inventory_test.go
+index 1795b99..5fb0690 100644
+--- a/internal/terminalbackend/refusal_arm_inventory_test.go
++++ b/internal/terminalbackend/refusal_arm_inventory_test.go
+@@ -649,6 +649,7 @@ var declaredRefusalArms = []declaredRefusalArm{
+ 	{"manifest.go", "decodeCappedValue", "CodeMismatch", "document syntax", 5, "ParseManifest", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestManifestEncodingRefusals"}}},
+ 	{"manifest.go", "decodeCappedValue", "CodeMismatch", "document syntax", 6, "ParseManifest", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestManifestEncodingRefusals"}}},
+ 	{"manifest.go", "decodeStrictObject", "CodeMismatch", "document encoding", 1, "ParseManifest", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestManifestEncodingRefusals"}}},
++	{"manifest.go", "decodeStrictObject", "CodeMismatch", "document size", 1, "ParseManifest", "", nil, []refusalTestRef{{file: "identity_ownership_test.go", test: "TestTerminalDocumentsRefuseOversizeInput"}}},
+ 	{"manifest.go", "decodeStrictObject", "CodeMismatch", "document shape", 1, "ParseManifest", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestManifestEncodingRefusals"}}},
+ 	{"manifest.go", "decodeStrictObject", "CodeMismatch", "document surrogate escape", 1, "ParseManifest", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestDocumentSurrogateEscapeRefused"}}},
+ 	{"manifest.go", "decodeStrictObject", "CodeMismatch", "document trailing data", 1, "ParseManifest", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestManifestEncodingRefusals"}}},
+@@ -683,6 +684,7 @@ var declaredRefusalArms = []declaredRefusalArm{
+ 	{"manifest.go", "parseRealmMembers", "CodeMismatch", "evidence realm binding", 1, "ParseEvidence", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestEvidenceDocumentRefusals"}}},
+ 	{"manifest.go", "parseRealmMembers", "CodeMismatch", "evidence realm binding", 2, "ParseEvidence", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestEvidenceDocumentRefusals"}}},
+ 	{"manifest.go", "parseRealmProvider", "CodeMismatch", "document member type", 1, "ParseManifest", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestManifestDocumentRefusals"}}},
++	{"manifest.go", "refuseIdentityNumbers", "CodeMismatch", "document member type", 1, "ParseManifest", "", nil, []refusalTestRef{{file: "internal_pin_test.go", test: "TestObjectIdentityRefusesNumbersBeforeCanonicalization"}}},
+ 	{"manifest.go", "parseRealmProvider", "CodeMismatch", "document member type", 2, "ParseManifest", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestManifestDocumentRefusals"}}},
+ 	{"manifest.go", "parseRealmProvider", "CodeMismatch", "document members", 1, "ParseManifest", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestManifestDocumentRefusals"}}},
+ 	{"manifest.go", "parseRealmProvider", "CodeMismatch", "document members", 2, "ParseManifest", "", nil, []refusalTestRef{{file: "manifest_test.go", test: "TestManifestDocumentRefusals"}}},
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index 8ffceba..b492687 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=94 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
++	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=98 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
+ 		"section coverage: bindings=53 full=1 partial=3 sliver=1 unevidenced=45 unmeasured=3 unowned=2 clauses_discharged=17/428\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+@@ -55,7 +55,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=94 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
++	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=98 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
+ 		"section coverage: bindings=53 full=1 partial=3 sliver=1 unevidenced=45 unmeasured=3 unowned=2 clauses_discharged=17/428\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index b94137c..492c379 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -2308,6 +2308,114 @@
+         }
+       ]
+     },
++    {
++      "id": "terminal-manifest-identity-ownership",
++      "production": {
++        "path": "internal/terminalbackend/manifest.go",
++        "declaration": "ParseManifest"
++      },
++      "tests": [
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestTerminalManifestIdentityAgreement"
++        },
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestTerminalManifestPreDelegationGatesAgree"
++        },
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestTerminalIdentityOrderingRefusesMemberTypeBeforeBinding"
++        },
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestTerminalDocumentsRefuseOversizeInput"
++        },
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestSurrogateGateAgreesWithCanonicalJSON"
++        }
++      ]
++    },
++    {
++      "id": "terminal-probe-identity-ownership",
++      "production": {
++        "path": "internal/terminalbackend/manifest.go",
++        "declaration": "ParseProbe"
++      },
++      "tests": [
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestTerminalProbeIdentityAgreement"
++        },
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestTerminalIdentityOrderingRefusesMemberTypeBeforeBinding"
++        },
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestTerminalDocumentsRefuseOversizeInput"
++        }
++      ]
++    },
++    {
++      "id": "terminal-evidence-identity-ownership",
++      "production": {
++        "path": "internal/terminalbackend/manifest.go",
++        "declaration": "ParseEvidence"
++      },
++      "tests": [
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestTerminalEvidenceIdentityAgreement"
++        },
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestTerminalRealmEvidenceIdentityAgreement"
++        },
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestTerminalIdentityOrderingRefusesMemberTypeBeforeBinding"
++        },
++        {
++          "path": "internal/terminalbackend/identity_ownership_test.go",
++          "declaration": "TestTerminalDocumentsRefuseOversizeInput"
++        }
++      ]
++    },
++    {
++      "id": "provider-identity-ownership",
++      "production": {
++        "path": "internal/canonicaljson/canonical.go",
++        "declaration": "CalculateObjectIdentity"
++      },
++      "tests": [
++        {
++          "path": "internal/environ/identity_agreement_test.go",
++          "declaration": "TestIdentityAgreementAcrossValidators"
++        },
++        {
++          "path": "internal/environ/identity_agreement_test.go",
++          "declaration": "TestIdentityProviderEqualityIsCallerRule"
++        },
++        {
++          "path": "internal/environ/identity_agreement_test.go",
++          "declaration": "TestIdentityMemberTablesAreOneTable"
++        },
++        {
++          "path": "internal/provhost/identity_test.go",
++          "declaration": "TestCheckIdentityRefusals"
++        },
++        {
++          "path": "internal/provhost/identity_test.go",
++          "declaration": "TestSpecIdentityExampleDecodes"
++        },
++        {
++          "path": "internal/provhost/refusal_arm_inventory_test.go",
++          "declaration": "TestEveryArmWitnessRefusesAtTheProductionEntry"
++        }
++      ]
++    },
+     {
+       "id": "terminal-provider-descriptor-7a",
+       "production": {
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 37b9b88..089ef34 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "fbdbb5b62e5dc4cf2f509e4424448ce8cac7f3c04c5a1a4d3ac88103b9754299"
++	reviewedOwnershipCanonicalSHA256 = "5581f5eb95bfc5762bb4af0d72b6895c5f4da9bcd63d14709124bd264de1b489"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 8fddefa..66bbeae 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -29,7 +29,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              60,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        94,
++		AcceptanceCases:        98,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 		SectionBindings:        53,
