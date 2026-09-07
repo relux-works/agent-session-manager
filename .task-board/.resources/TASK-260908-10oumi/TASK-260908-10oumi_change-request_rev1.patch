@@ -1,0 +1,294 @@
+diff --git a/README.md b/README.md
+index 6f9d673..3629512 100644
+--- a/README.md
++++ b/README.md
+@@ -2474,6 +2474,24 @@ Project management is intentionally global. The repository does not declare or
+ install `project-management`; development uses the globally installed skill
+ and `task-board` CLI.
+ 
++Repository development routing in `task-board.config.json` admits only Codex
++`gpt-6-astra` with `medium` or `high` reasoning for all new spawns, including
++producers and reviewers. Mechanical, documentation, and operations workloads
++recommend medium first; all other workloads, including review, recommend high
++then medium. Every recommendation uses Astra. Existing runs and their work are
++preserved. Retained Claude and Muse ceiling definitions are inactive under
++exclusive Codex admission; Claude, Muse, and Fable are not active spawn routes.
++
++Inspect effective admission and recommendations before spawning:
++
++```bash
++task-board q 'project_config(view=spawn-preflight, role=developer, agent=codex, workload_class=mechanical)'
++task-board q 'project_config(view=spawn-preflight, role=reviewer, agent=codex, workload_class=review)'
++```
++
++Preflight prints JSON to stdout; save task validation evidence under
++`.temp/<TASK-ID>/` and attach it to the owning board item.
++
+ Curator owns `.agents/`, `.claude/skills/`, and `.codex/skills/`. Do not edit
+ their generated contents directly; change `Skillfile.json` and rerun Curator.
+ 
+diff --git a/task-board.config.json b/task-board.config.json
+index 4e32dce..1a2b314 100644
+--- a/task-board.config.json
++++ b/task-board.config.json
+@@ -16,11 +16,16 @@
+         "entries": [
+           {
+             "criterion": "equal",
+-            "model": "gpt-5.6-sol",
++            "model": "gpt-6-astra",
++            "reasoning_effort": "medium"
++          },
++          {
++            "criterion": "equal",
++            "model": "gpt-6-astra",
+             "reasoning_effort": "high"
+           }
+         ],
+-        "resolution_model": "gpt-5.6-sol",
++        "resolution_model": "gpt-6-astra",
+         "adjustment_confirmation": "none",
+         "fast_mode": true
+       },
+@@ -48,196 +53,138 @@
+       }
+     },
+     "preferred_agentic_system": {
+-      "mixed": [
+-        "muse",
+-        "claude"
+-      ]
++      "exclusive": "codex"
+     },
+     "workload_classes": {
+       "unified": [
+         {
+-          "runtime": "muse",
+-          "model": "muse-spark",
+-          "reasoning_effort": "high"
+-        },
+-        {
+-          "runtime": "claude",
+-          "model": "claude-opus-5",
++          "runtime": "codex",
++          "model": "gpt-6-astra",
+           "reasoning_effort": "high"
+         },
+         {
+           "runtime": "codex",
+-          "model": "gpt-5.6-sol",
+-          "reasoning_effort": "high"
++          "model": "gpt-6-astra",
++          "reasoning_effort": "medium"
+         }
+       ],
+       "architecture": [
+         {
+-          "runtime": "muse",
+-          "model": "muse-spark",
+-          "reasoning_effort": "high"
+-        },
+-        {
+-          "runtime": "claude",
+-          "model": "claude-opus-5",
++          "runtime": "codex",
++          "model": "gpt-6-astra",
+           "reasoning_effort": "high"
+         },
+         {
+           "runtime": "codex",
+-          "model": "gpt-5.6-sol",
+-          "reasoning_effort": "high"
++          "model": "gpt-6-astra",
++          "reasoning_effort": "medium"
+         }
+       ],
+       "implementation": [
+         {
+-          "runtime": "muse",
+-          "model": "muse-spark",
+-          "reasoning_effort": "high"
+-        },
+-        {
+-          "runtime": "claude",
+-          "model": "claude-opus-5",
++          "runtime": "codex",
++          "model": "gpt-6-astra",
+           "reasoning_effort": "high"
+         },
+         {
+           "runtime": "codex",
+-          "model": "gpt-5.6-sol",
+-          "reasoning_effort": "high"
++          "model": "gpt-6-astra",
++          "reasoning_effort": "medium"
+         }
+       ],
+       "mechanical": [
+         {
+-          "runtime": "muse",
+-          "model": "muse-spark",
+-          "reasoning_effort": "high"
+-        },
+-        {
+-          "runtime": "claude",
+-          "model": "claude-opus-5",
+-          "reasoning_effort": "high"
++          "runtime": "codex",
++          "model": "gpt-6-astra",
++          "reasoning_effort": "medium"
+         },
+         {
+           "runtime": "codex",
+-          "model": "gpt-5.6-sol",
++          "model": "gpt-6-astra",
+           "reasoning_effort": "high"
+         }
+       ],
+       "debugging": [
+         {
+-          "runtime": "muse",
+-          "model": "muse-spark",
+-          "reasoning_effort": "high"
+-        },
+-        {
+-          "runtime": "claude",
+-          "model": "claude-opus-5",
++          "runtime": "codex",
++          "model": "gpt-6-astra",
+           "reasoning_effort": "high"
+         },
+         {
+           "runtime": "codex",
+-          "model": "gpt-5.6-sol",
+-          "reasoning_effort": "high"
++          "model": "gpt-6-astra",
++          "reasoning_effort": "medium"
+         }
+       ],
+       "testing": [
+         {
+-          "runtime": "muse",
+-          "model": "muse-spark",
+-          "reasoning_effort": "high"
+-        },
+-        {
+-          "runtime": "claude",
+-          "model": "claude-opus-5",
++          "runtime": "codex",
++          "model": "gpt-6-astra",
+           "reasoning_effort": "high"
+         },
+         {
+           "runtime": "codex",
+-          "model": "gpt-5.6-sol",
+-          "reasoning_effort": "high"
++          "model": "gpt-6-astra",
++          "reasoning_effort": "medium"
+         }
+       ],
+       "review": [
+-        {
+-          "runtime": "claude",
+-          "model": "claude-opus-5",
+-          "reasoning_effort": "high"
+-        },
+         {
+           "runtime": "codex",
+-          "model": "gpt-5.6-sol",
++          "model": "gpt-6-astra",
+           "reasoning_effort": "high"
+         },
+         {
+-          "runtime": "muse",
+-          "model": "muse-spark",
+-          "reasoning_effort": "high"
++          "runtime": "codex",
++          "model": "gpt-6-astra",
++          "reasoning_effort": "medium"
+         }
+       ],
+       "research": [
+-        {
+-          "runtime": "claude",
+-          "model": "claude-opus-5",
+-          "reasoning_effort": "high"
+-        },
+         {
+           "runtime": "codex",
+-          "model": "gpt-5.6-sol",
++          "model": "gpt-6-astra",
+           "reasoning_effort": "high"
+         },
+         {
+-          "runtime": "muse",
+-          "model": "muse-spark",
+-          "reasoning_effort": "high"
++          "runtime": "codex",
++          "model": "gpt-6-astra",
++          "reasoning_effort": "medium"
+         }
+       ],
+       "documentation": [
+         {
+-          "runtime": "muse",
+-          "model": "muse-spark",
+-          "reasoning_effort": "high"
+-        },
+-        {
+-          "runtime": "claude",
+-          "model": "claude-opus-5",
+-          "reasoning_effort": "high"
++          "runtime": "codex",
++          "model": "gpt-6-astra",
++          "reasoning_effort": "medium"
+         },
+         {
+           "runtime": "codex",
+-          "model": "gpt-5.6-sol",
++          "model": "gpt-6-astra",
+           "reasoning_effort": "high"
+         }
+       ],
+       "migration": [
+         {
+-          "runtime": "muse",
+-          "model": "muse-spark",
+-          "reasoning_effort": "high"
+-        },
+-        {
+-          "runtime": "claude",
+-          "model": "claude-opus-5",
++          "runtime": "codex",
++          "model": "gpt-6-astra",
+           "reasoning_effort": "high"
+         },
+         {
+           "runtime": "codex",
+-          "model": "gpt-5.6-sol",
+-          "reasoning_effort": "high"
++          "model": "gpt-6-astra",
++          "reasoning_effort": "medium"
+         }
+       ],
+       "operations": [
+         {
+-          "runtime": "muse",
+-          "model": "muse-spark",
+-          "reasoning_effort": "high"
+-        },
+-        {
+-          "runtime": "claude",
+-          "model": "claude-opus-5",
+-          "reasoning_effort": "high"
++          "runtime": "codex",
++          "model": "gpt-6-astra",
++          "reasoning_effort": "medium"
+         },
+         {
+           "runtime": "codex",
+-          "model": "gpt-5.6-sol",
++          "model": "gpt-6-astra",
+           "reasoning_effort": "high"
+         }
+       ]
