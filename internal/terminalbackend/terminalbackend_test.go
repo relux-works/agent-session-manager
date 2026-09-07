@@ -1032,3 +1032,144 @@ func TestErrorPredicatesAreExclusive(t *testing.T) {
 		})
 	}
 }
+
+// TestParseIDGrammarRefusalEchoesNothing proves the grammar arm never
+// echoes refused input: a grammar-refused value is arbitrary UTF-8 up
+// to 128 bytes (control bytes, path traversal, multibyte runes), and
+// the package posture is that Detail never echoes local data. The
+// bound arm already omits BackendID; the grammar arm must do the same,
+// so neither the BackendID field nor the rendered Error() may contain
+// the refused value. The reserved-namespace arm keeps echoing: its
+// input already passed the grammar, so it names a validated identity
+// like every other arm in the package.
+func TestParseIDGrammarRefusalEchoesNothing(t *testing.T) {
+	t.Parallel()
+
+	grammarRefused := []string{
+		"AX.TMUX",
+		"ax tmux",
+		"../../etc/passwd",
+		"ax.tmux界",
+		"ax\x00tmux",
+		strings.Repeat("A", 128),
+		strings.Repeat("ë", 64),
+	}
+	for _, value := range grammarRefused {
+		_, err := terminalbackend.ParseID(value)
+		if !terminalbackend.IsNotFound(err) {
+			t.Errorf("ParseID(%q) error = %v, want terminal_backend_not_found", value, err)
+			continue
+		}
+		var refusal *terminalbackend.Error
+		if !errors.As(err, &refusal) {
+			t.Errorf("ParseID(%q) error = %T, want *terminalbackend.Error", value, err)
+			continue
+		}
+		if refusal.BackendID != "" {
+			t.Errorf("ParseID(%q) BackendID = %q, want empty: the grammar arm must not echo refused input", value, refusal.BackendID)
+		}
+		if strings.Contains(refusal.Error(), value) {
+			t.Errorf("ParseID(%q) Error() = %q, want no echo of the refused value", value, refusal.Error())
+		}
+	}
+
+	// Control: the bound arm already omits, and the reserved arm still
+	// names its grammar-valid identity.
+	if _, err := terminalbackend.ParseID(strings.Repeat("a", 129)); !terminalbackend.IsNotFound(err) {
+		t.Errorf("ParseID(bound) error = %v, want terminal_backend_not_found", err)
+	} else {
+		var refusal *terminalbackend.Error
+		if errors.As(err, &refusal) && refusal.BackendID != "" {
+			t.Errorf("ParseID(bound) BackendID = %q, want empty", refusal.BackendID)
+		}
+	}
+	if _, err := terminalbackend.ParseID("ax.evil"); !terminalbackend.IsNotFound(err) {
+		t.Errorf("ParseID(ax.evil) error = %v, want terminal_backend_not_found", err)
+	} else {
+		var refusal *terminalbackend.Error
+		if !errors.As(err, &refusal) {
+			t.Fatalf("ParseID(ax.evil) error = %T, want *terminalbackend.Error", err)
+		}
+		if refusal.BackendID != "ax.evil" {
+			t.Errorf("ParseID(ax.evil) BackendID = %q, want the validated identity", refusal.BackendID)
+		}
+	}
+}
+
+// TestCheckVersionTupleRefusesHostileBackendIDWithoutEcho proves the three
+// CheckVersionTuple refusal arms never echo a grammar-refused backend ID:
+// the backendID parameter is validated through ParseID at the entry, so a
+// hostile value (terminal escapes, traversal content, over-long input) is
+// refused by the ParseID bound/grammar arms — which carry no BackendID —
+// before any version arm can name it. The production entry point is
+// CheckVersionTuple itself; each row below would otherwise render a
+// refusal containing the whole hostile string (F1: 200 As + ESC[31m +
+// ../../etc/passwd rendered a 322-byte refusal naming the input).
+//
+// The reserved-namespace control pins the other half of the contract: a
+// grammar-valid ax.-prefixed ID is refused by ParseID's reserved arm and
+// still names the validated identity, so the entry validation does not
+// swallow attribution for well-formed IDs.
+func TestCheckVersionTupleRefusesHostileBackendIDWithoutEcho(t *testing.T) {
+	t.Parallel()
+
+	// Two hostile shapes: one over the 128-byte bound (ParseID bound arm)
+	// and one short but grammar-refused (ParseID grammar arm). Both arms
+	// omit BackendID, so neither may surface the input.
+	hostiles := []string{
+		strings.Repeat("A", 200) + "\x1b[31m" + "../../etc/passwd",
+		"BAD ID\x1b[31m../../etc/passwd",
+	}
+	arms := []struct {
+		name  string
+		impl  string
+		proto string
+		list  []string
+	}{
+		{"implementation_version semver", "v1", "1.0.0", []string{"1.0.0"}},
+		{"protocol_version major 1", "1.2.3", "2.0.0", []string{"2.0.0"}},
+		{"protocol_version membership", "1.2.3", "1.1.0", []string{"1.0.0"}},
+	}
+	for _, arm := range arms {
+		for _, hostile := range hostiles {
+			t.Run(arm.name+"/len"+strconv.Itoa(len(hostile)), func(t *testing.T) {
+				t.Parallel()
+				err := terminalbackend.CheckVersionTuple(hostile, arm.impl, arm.proto, arm.list)
+				if err == nil {
+					t.Fatalf("CheckVersionTuple(hostile ID, %s) = nil, want refusal", arm.name)
+				}
+				var refusal *terminalbackend.Error
+				if !errors.As(err, &refusal) {
+					t.Fatalf("CheckVersionTuple(hostile ID, %s) error = %T, want *terminalbackend.Error", arm.name, err)
+				}
+				if refusal.BackendID != "" {
+					t.Errorf("CheckVersionTuple(hostile ID, %s) BackendID = %q, want empty: the entry must refuse the ID before any version arm names it", arm.name, refusal.BackendID)
+				}
+				if strings.Contains(refusal.Error(), hostile) {
+					t.Errorf("CheckVersionTuple(hostile ID, %s) Error() renders the refused input", arm.name)
+				}
+			})
+		}
+	}
+
+	// Control: a well-formed ID still reaches the version arms with
+	// attribution intact.
+	err := terminalbackend.CheckVersionTuple("com.example.term", "v1", "1.0.0", []string{"1.0.0"})
+	var refusal *terminalbackend.Error
+	if !errors.As(err, &refusal) {
+		t.Fatalf("CheckVersionTuple(valid ID, bad impl) error = %T, want *terminalbackend.Error", err)
+	}
+	if refusal.BackendID != "com.example.term" {
+		t.Errorf("CheckVersionTuple(valid ID, bad impl) BackendID = %q, want the validated identity", refusal.BackendID)
+	}
+
+	// Control: a grammar-valid reserved ID names its validated identity
+	// through the ParseID reserved arm at this entry.
+	err = terminalbackend.CheckVersionTuple("ax.evil", "v1", "1.0.0", []string{"1.0.0"})
+	if !errors.As(err, &refusal) {
+		t.Fatalf("CheckVersionTuple(ax.evil, bad impl) error = %T, want *terminalbackend.Error", err)
+	}
+	if refusal.BackendID != "ax.evil" {
+		t.Errorf("CheckVersionTuple(ax.evil, bad impl) BackendID = %q, want the validated identity", refusal.BackendID)
+	}
+}

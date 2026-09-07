@@ -13,9 +13,11 @@
 //     version either side cannot account for;
 //   - platform capability availability stays in internal/secconftest probes.
 //     CheckAdvertisements takes probe outcomes as input and never defines a
-//     capability of its own. CI scans with every probe forced unavailable,
-//     which is stronger than live scanning and host-independent; live probe
-//     outcomes are read by no call site;
+//     capability of its own: it reads ProbeState.Available from the states
+//     it is given. CI scans with every probe forced unavailable, which is
+//     stronger than live scanning and host-independent; the live probe
+//     outcomes reach no availability reader — ProbeStates feeds only
+//     CapabilityIDs, which keeps the IDs and drops availability;
 //   - the secconftest fuzz targets stay mapped in FuzzTargetEntry.
 //     FuzzTargets derives the committed target list from that map rather
 //     than retyping it, and TestListedTargetsMatchDerivation holds CI's

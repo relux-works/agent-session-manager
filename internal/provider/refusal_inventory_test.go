@@ -1,31 +1,29 @@
 package provider
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/relux-works/agent-session-manager/internal/invcore"
 )
 
-// exercisedRefusalSites records the production file:line that constructed a
-// refusal, for every instrumented refusal constructor call made during the
-// test run. observedCodes records every stable code those refusals carried.
-var exercisedRefusalSites sync.Map
-var observedCodes sync.Map
+// refusalRecorder is the shared core's runtime direction: the production
+// file:line behind every instrumented refusal constructor call made
+// during the test run, plus the stable codes those refusals carried.
+// Constructor vars are swapped in TestMain, so an aliased constructor
+// still executes the swapped var and records its real production site:
+// the runtime direction of the alias-bypass union.
+var refusalRecorder = invcore.NewSiteRecorder()
 
 func recordRefusalSite(code string) {
-	observedCodes.Store(code, struct{}{})
-	if _, file, line, ok := runtime.Caller(2); ok {
-		exercisedRefusalSites.Store(fmt.Sprintf("%s:%d", filepath.Base(file), line), struct{}{})
-	}
+	refusalRecorder.Record(code, 2)
 }
 
 func TestMain(main *testing.M) {
@@ -97,19 +95,15 @@ func auditRefusalInventory() []string {
 	// hand-listed, so a truncated derivation (1 of N sites, provider.go
 	// skipped, or an empty-but-successful read of the wrong directory)
 	// reddens here even though the forward check passes vacuously.
-	derived := map[string]bool{}
+	derived := map[string]struct{}{}
 	for _, site := range inventory.Sites {
-		derived[site] = true
+		derived[site] = struct{}{}
 	}
-	var outside []string
-	exercisedRefusalSites.Range(func(key, _ any) bool {
-		site := key.(string)
-		if !derived[site] {
-			outside = append(outside, site)
-		}
-		return true
-	})
-	sort.Strings(outside)
+	// Both directions run through the shared harness: derived sites
+	// without an exercised path (forward) and exercised sites outside
+	// the derivation (reverse) fail together.
+	missing, outside, scanFailures := invcore.DiffSets(derived, refusalRecorder.Sites())
+	failures = append(failures, scanFailures...)
 	if len(outside) != 0 {
 		failures = append(failures, "exercised refusal sites outside the derived inventory; the derivation is short: "+strings.Join(outside, ", "))
 	}
@@ -121,22 +115,10 @@ func auditRefusalInventory() []string {
 		sort.Strings(inventory.RawConstructors)
 		failures = append(failures, "provider raw error construction outside documented cause sites: "+strings.Join(inventory.RawConstructors, ", "))
 	}
-	var missing []string
-	for _, site := range inventory.Sites {
-		if _, ok := exercisedRefusalSites.Load(site); !ok {
-			missing = append(missing, site)
-		}
-	}
-	sort.Strings(missing)
 	if len(missing) != 0 {
 		failures = append(failures, "provider refusal call sites without an exercised negative path: "+strings.Join(missing, ", "))
 	}
-	var codes []string
-	observedCodes.Range(func(key, _ any) bool {
-		codes = append(codes, key.(string))
-		return true
-	})
-	sort.Strings(codes)
+	codes := refusalRecorder.Codes()
 	want := []string{codeIntegrityFailure, codeInvalidConfig, codeLocalPrecondition}
 	if fmt.Sprintf("%v", codes) != fmt.Sprintf("%v", want) {
 		failures = append(failures, fmt.Sprintf("observed refusal codes = %v, want closed set %v", codes, want))
@@ -175,27 +157,14 @@ var causeSiteFiles = map[string]bool{
 }
 
 func deriveRefusalInventory(directory string) (refusalInventory, error) {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return refusalInventory{}, err
+	scannedFiles, fileSet, failures := invcore.ScanProduction(directory)
+	if len(failures) != 0 {
+		return refusalInventory{}, errors.New(strings.Join(failures, "; "))
 	}
 	var inventory refusalInventory
-	fileSet := token.NewFileSet()
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
+	for _, production := range scannedFiles {
+		name, syntax := production.Name, production.Syntax
 		inventory.ScannedFiles = append(inventory.ScannedFiles, name)
-		path := filepath.Join(directory, name)
-		source, err := os.ReadFile(path)
-		if err != nil {
-			return refusalInventory{}, err
-		}
-		syntax, err := parser.ParseFile(fileSet, path, source, parser.ParseComments)
-		if err != nil {
-			return refusalInventory{}, err
-		}
 		// Map each constructor's own body span so literals inside it are
 		// not mistaken for strays.
 		constructorBodies := map[*ast.FuncLit]bool{}

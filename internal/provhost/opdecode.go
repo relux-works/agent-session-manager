@@ -3,6 +3,7 @@ package provhost
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -69,6 +70,14 @@ func rawUint53(raw json.RawMessage) (uint64, bool) {
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
+		return 0, false
+	}
+	// Decode reads one value and stops: without the trailing
+	// check a hostile slice like `12a` would read as 12. Member
+	// slices arriving through decodeStrictObject can never carry
+	// trailing data, but this entry takes raw slices and must
+	// not trust them.
+	if _, err := decoder.Token(); err != io.EOF {
 		return 0, false
 	}
 	number, ok := value.(json.Number)

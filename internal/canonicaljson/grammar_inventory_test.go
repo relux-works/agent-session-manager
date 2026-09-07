@@ -700,7 +700,7 @@ func locateGrammarPositions(t *testing.T, patterns map[string]grammarPattern) ma
 		}
 	}
 
-	for _, fixture := range everyValidIdentityFixture() {
+	for _, fixture := range everyValidIdentityFixture(t) {
 		for probe, names := range byProbe {
 			for _, path := range everyCandidateValuePath(fixture.object) {
 				if _, ok := jsonValueAtPath(t, fixture.object, path).(string); !ok {

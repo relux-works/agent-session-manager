@@ -56,11 +56,26 @@
 // cell value. Section 8.2 store-exclusion roots and the remaining
 // Section 7.5 request vocabularies have no host production yet.
 //
-// Provider Protocol 3.0.0, which the v0.5.0 catalog pins alongside
-// 2.0.0, has no implementation owner in this package: this host
-// speaks major 2 only, classifies any recognizable 3.x envelope as
-// incompatible_protocol without trusting its payload, and carries no
-// Structured Error 1.3.0 binding or launch/resume descriptor carriage.
-// A v3 plugin is therefore refused loudly rather than misread as v2;
-// naming the v3 envelope owner is open work, not a silent scope.
+// Provider Protocol 3.0.0 (§7.A), which the v0.5.0 catalog pins
+// alongside 2.0.0, is owned by internal/terminalbackend, not by this
+// package: the v3-specific production rule — parsing the closed v3
+// TerminalDescriptor and matching it against the AX-validated
+// host-local binding before a provider process is launched or observed
+// — is terminalbackend.AdmitProviderDescriptor, and the traceability
+// registry records section 7.A against terminalbackend for it. This
+// host speaks major 2 only: it classifies any recognizable 3.x
+// envelope as incompatible_protocol without trusting its payload,
+// which is the Section 7.A v2/v3 major-mismatch outcome (a v2/v3
+// mismatch follows the Section 15.1 close/termination rule; the caller
+// never trusts a different major's error), and any other unusable
+// frame as provider_protocol_error. A v3 plugin is therefore refused
+// loudly rather than misread as v2. The failure-error version is still
+// selected by the observed major, never the document: major 2 decodes
+// under Structured Error 1.0.0 and major 3 would decode under 1.3.0
+// (axerror.BindingFor), but no 3.x envelope reaches the decoder while
+// this host writes v2 requests. Sending v3 requests, carrying v3
+// descriptors in launch/resume bodies, and decoding v3 failures under
+// Error 1.3.0 is the dual-stack host follow-up described in this
+// task's outcome; until it exists, the 1.3.0 binding is named here
+// and implemented in axerror, not silently defaulted to 1.0.0.
 package provhost

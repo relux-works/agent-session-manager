@@ -35,8 +35,17 @@ jobs:
       - name: Verify specification-to-code ownership
         run: go run ./internal/traceability/cmd/tracecheck
 
+      # The diff proves the committed catalog matches generator output, but
+      # `go generate` runs nothing when its directive is disarmed: rewriting
+      # `//go:generate` as `// go:generate` preserves the token while turning
+      # the directive into a plain comment, so generation is skipped and the
+      # diff stays clean. The anchored check refuses that token-preserving
+      # rewrite; only the exact directive form counts. A new directive
+      # without a pin update reddens here (and in
+      # TestGenerateDirectiveStaysRecognizedForm) instead of going unchecked.
       - name: Verify generated catalog is current
         run: |
+          test "$(grep -c '^//go:generate' internal/catalog/catalog.go)" -eq 1
           go generate ./internal/catalog
           git diff --exit-code -- internal/catalog/catalog_gen.go
 
@@ -237,9 +246,12 @@ jobs:
 
       # Targets are derived per package from the compiled test binaries,
       # never retyped: only names starting with Fuzz are fuzz targets. An
-      # empty derivation fails the grep and the explicit size check alike,
-      # and the total count is pinned: a new fuzz target without a CI
-      # update reddens here instead of going unsmoked.
+      # empty leg fails the total-count pin below: the grep sits in a
+      # pipeline whose exit status the shell discards, so it refuses
+      # nothing, and the non-empty-file check refuses only the
+      # every-package-empty case — a single silently empty package dies
+      # only at the pinned total. A new fuzz target without a CI update
+      # reddens here instead of going unsmoked.
       - name: Derive fuzz targets
         run: |
           rm -f fuzz-targets.clean
@@ -270,6 +282,11 @@ jobs:
       # A -fuzz selector that matches nothing exits 0 with "no fuzz tests
       # to fuzz", so exit status alone cannot prove execution. The
       # '^fuzz: elapsed' line proves the engine ran; its absence fails.
+      # It does not prove the mutation phase: at -fuzztime=100x the
+      # large-corpus targets (secconftest/FuzzRedactCorpus, all four
+      # canonicaljson targets) spend the budget on baseline coverage and
+      # never print 'now fuzzing'. Lengthening the budget or shrinking a
+      # corpus changes that without reddening here.
       - name: Smoke each target
         run: |
           while read -r pkg target; do
@@ -294,9 +311,14 @@ jobs:
       # with every probe forced unavailable — the strongest posture, and
       # host-independent: a backticked capability mention that reads as a
       # positive availability claim is refused no matter what this host's
-      # probes would report. Live probe outcomes are never read here;
-      # ProbeState.Available is consumed by no call site. README prose is
-      # never capability evidence either way.
+      # probes would report. CheckAdvertisements reads ProbeState.Available
+      # from the states it is given, and both postures are driven
+      # (TestRealREADMECarriesNoPositiveClaim forces all unavailable,
+      # TestRealREADMEAdmitsWhenAllAvailable forces all available). What
+      # reaches no availability reader is the live probe outcome:
+      # ProbeStates feeds only CapabilityIDs, which keeps the IDs and
+      # drops availability. README prose is never capability evidence
+      # either way.
       - name: Check README with all probes forced unavailable
         run: |
           set +e

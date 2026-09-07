@@ -33,7 +33,8 @@ type identityFixture struct {
 // function to cover it, so registering a new complete validator without a
 // fixture reddens the suite instead of silently leaving the new shape outside
 // every derived sweep that walks these fixtures.
-func everyValidIdentityFixture() []identityFixture {
+func everyValidIdentityFixture(t *testing.T) []identityFixture {
+	t.Helper()
 	fixtures := []identityFixture{
 		{"session record v1", SelfRecordID, validSessionRecordV1Object()},
 		{"session record v1 primary owner", SelfRecordID, primaryOwnerSessionRecord("GOAL-260830-primary")},
@@ -57,6 +58,15 @@ func everyValidIdentityFixture() []identityFixture {
 		{"provider identity", SelfRecordID, validProviderIdentityRecordObject()},
 		{"workspace group", SelfRecordID, validWorkspaceGroupRecordObject()},
 		{"observation event", "", validObservationEventObject()},
+		// The three terminal fixtures below are validated through their
+		// owner (internal/terminalbackend): unlike every other fixture
+		// here, their self field must carry the correct omit-self digest
+		// up front, because the delegated shape check verifies the
+		// identity binding as part of CalculateObjectIdentity rather
+		// than only at VerifyObjectIdentity.
+		{"terminal backend manifest", SelfManifestID, validTerminalBackendManifestObject(t)},
+		{"terminal backend probe", SelfProbeID, validTerminalBackendProbeObject(t)},
+		{"terminal capability evidence", SelfEvidenceID, validTerminalCapabilityEvidenceObject(t)},
 	}
 	for _, event := range catalog.Current().Events {
 		if event.Family != "session_event" {
@@ -91,7 +101,7 @@ func taskBoardTransferManifestObject() map[string]any {
 // fixture and asserts refusal proves nothing if the unmutated fixture is
 // already refused for an unrelated reason.
 func TestEveryValidIdentityFixtureIsAcceptedAtItsProductionEntry(t *testing.T) {
-	for _, fixture := range everyValidIdentityFixture() {
+	for _, fixture := range everyValidIdentityFixture(t) {
 		t.Run(fixture.name, func(t *testing.T) {
 			candidate := mustJSON(t, fixture.object)
 			if fixture.selfField == "" {
@@ -136,7 +146,7 @@ func TestEveryCompletelyValidatedSchemaVersionHasAValidFixture(t *testing.T) {
 	}
 
 	covered := make(map[schemaIdentityKey]struct{})
-	for _, fixture := range everyValidIdentityFixture() {
+	for _, fixture := range everyValidIdentityFixture(t) {
 		schema, _ := fixture.object["schema"].(string)
 		version, _ := fixture.object["schema_version"].(string)
 		covered[schemaIdentityKey{schema: schema, version: version}] = struct{}{}
@@ -227,6 +237,94 @@ func stringArgumentValue(expression ast.Expr, constants map[string]string) strin
 		return constants[typed.Name]
 	}
 	return ""
+}
+
+// validTerminalBackendManifestObject builds a minimal valid Terminal
+// Backend Manifest 1.0.0: builtin backend, one protocol version, one
+// platform, no claims. The manifest_id carries the correct omit-self
+// digest, which the delegated owner check verifies during calculation.
+func validTerminalBackendManifestObject(t *testing.T) map[string]any {
+	t.Helper()
+	object := map[string]any{
+		"schema":                   "urn:ax:schema:terminal-backend-manifest",
+		"schema_version":           "1.0.0",
+		"manifest_id":              zeroDigest,
+		"terminal_backend_id":      "ax.tmux",
+		"implementation_version":   "2.1.0",
+		"protocol_versions":        []any{"1.0.0"},
+		"platforms":                []any{"linux"},
+		"implementation_kind":      "builtin_go",
+		"executable_digest":        nil,
+		"static_capability_claims": []any{},
+		"conformance_fixture_id":   digestWithDigit('1'),
+		"extensions":               map[string]any{},
+	}
+	object["manifest_id"] = omitSelfDigestForTest(t, mustJSON(t, object), SelfManifestID).String()
+	return object
+}
+
+// validTerminalBackendProbeObject builds a minimal valid Terminal Backend
+// Probe 1.0.0 bound to the manifest fixture above: same backend, version,
+// kind, and digest, with an empty claim and evidence list.
+func validTerminalBackendProbeObject(t *testing.T) map[string]any {
+	t.Helper()
+	object := map[string]any{
+		"schema":                    "urn:ax:schema:terminal-backend-probe",
+		"schema_version":            "1.0.0",
+		"probe_id":                  zeroDigest,
+		"terminal_backend_id":       "ax.tmux",
+		"implementation_version":    "2.1.0",
+		"protocol_version":          "1.0.0",
+		"implementation_kind":       "builtin_go",
+		"executable_digest":         nil,
+		"platform":                  "linux",
+		"os_version":                "14.5",
+		"availability":              "available",
+		"backend_generation_digest": digestWithDigit('2'),
+		"capability_claims":         []any{},
+		"evidence_ids":              []any{},
+		"probed_at":                 "2026-01-15T12:00:00.000Z",
+		"extensions":                map[string]any{},
+	}
+	object["probe_id"] = omitSelfDigestForTest(t, mustJSON(t, object), SelfProbeID).String()
+	return object
+}
+
+// validTerminalCapabilityEvidenceObject builds a minimal valid Capability
+// Evidence 1.0.0 for a non-realm capability, so the realm members stay
+// null. The attestation signature is structural only (signature validity
+// is proven in reconciliation, not at parse): 32 zero bytes in the
+// rsa-sha256: scheme. The evidence_id carries the correct omit-self digest.
+func validTerminalCapabilityEvidenceObject(t *testing.T) map[string]any {
+	t.Helper()
+	object := map[string]any{
+		"schema":                     "urn:ax:schema:terminal-capability-evidence",
+		"schema_version":             "1.0.0",
+		"evidence_id":                zeroDigest,
+		"terminal_backend_id":        "ax.tmux",
+		"implementation_version":     "2.1.0",
+		"protocol_version":           "1.0.0",
+		"backend_generation_digest":  digestWithDigit('2'),
+		"capability":                 "durable_disconnect",
+		"value":                      true,
+		"platform":                   "linux",
+		"os_version":                 "14.5",
+		"conformance_fixture_id":     digestWithDigit('1'),
+		"observed_at":                "2025-06-01T00:00:00.000Z",
+		"expires_at":                 "2027-06-01T00:00:00.000Z",
+		"issuer":                     "ax_release",
+		"issuer_id":                  digestWithDigit('3'),
+		"attestation_signature":      "rsa-sha256:" + strings.Repeat("A", 43) + "=",
+		"facts":                      []any{"fixture_passed", "runtime_probe_passed"},
+		"terminal_binding_id":        nil,
+		"provider_id":                nil,
+		"provider_build":             nil,
+		"sentinel_result":            nil,
+		"provider_auth_smoke_result": nil,
+		"extensions":                 map[string]any{},
+	}
+	object["evidence_id"] = omitSelfDigestForTest(t, mustJSON(t, object), SelfEvidenceID).String()
+	return object
 }
 
 // derivePackageStringConstants resolves package-level untyped string constants

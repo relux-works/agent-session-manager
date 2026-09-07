@@ -2,9 +2,8 @@ package provider
 
 import (
 	"fmt"
+	"github.com/relux-works/agent-session-manager/internal/invcore"
 	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"sort"
@@ -42,10 +41,9 @@ func deriveDiscoverSourceSites(t *testing.T) discoverSourceSites {
 	if err != nil {
 		t.Fatalf("read provider.go: %v", err)
 	}
-	fileSet := token.NewFileSet()
-	syntax, err := parser.ParseFile(fileSet, path, source, 0)
-	if err != nil {
-		t.Fatalf("parse provider.go: %v", err)
+	syntax, _, failure := invcore.ParseBytes(path, source, 0)
+	if failure != "" {
+		t.Fatalf("parse provider.go: %s", failure)
 	}
 	var body *ast.BlockStmt
 	for _, decl := range syntax.Decls {

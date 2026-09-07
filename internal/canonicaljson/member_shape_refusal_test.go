@@ -77,7 +77,7 @@ func wrongJSONTypeFor(value any) (any, string) {
 // valid fixture passes, and nothing ever proves the declared type is checked.
 func TestEveryFixtureMemberRefusesAWrongJSONTypeAtItsProductionEntry(t *testing.T) {
 	accepted := make(map[string][]string)
-	for _, fixture := range everyValidIdentityFixture() {
+	for _, fixture := range everyValidIdentityFixture(t) {
 		for _, path := range everyCandidateValuePath(fixture.object) {
 			path := path
 			member := path[len(path)-1]
@@ -323,7 +323,7 @@ func TestEveryStructuredFixtureValueRefusesAMalformedFormAtItsProductionEntry(t 
 
 	accepted := make(map[string][]string)
 	swept := 0
-	for _, fixture := range everyValidIdentityFixture() {
+	for _, fixture := range everyValidIdentityFixture(t) {
 		for _, path := range everyCandidateValuePath(fixture.object) {
 			path := path
 			text, isString := jsonValueAtPath(t, fixture.object, path).(string)

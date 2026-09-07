@@ -2,6 +2,7 @@ package catalog_test
 
 import (
 	"errors"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -693,6 +694,35 @@ func TestCapabilityDefinitionsCannotAdvertiseRuntimeSupport(t *testing.T) {
 		if _, ok := typeOfCapability.FieldByName(forbidden); ok {
 			t.Errorf("Capability exposes forbidden runtime-claim field %q", forbidden)
 		}
+	}
+}
+
+// TestGenerateDirectiveStaysRecognizedForm pins the precondition the CI
+// catalog-freshness step guards: the generator directive must keep the
+// exact `//go:generate` form the go tool recognizes. Rewriting it as
+// `// go:generate` preserves the token while turning the directive into
+// a plain comment, so `go generate` runs nothing and the freshness diff
+// stays clean on a disarmed generator. That token-preserving rewrite
+// reddens here; a deliberate new directive reddens here and in the CI
+// pin until both are updated together.
+func TestGenerateDirectiveStaysRecognizedForm(t *testing.T) {
+	t.Parallel()
+
+	source, err := os.ReadFile("catalog.go")
+	if err != nil {
+		t.Fatalf("read catalog.go: %v", err)
+	}
+	directives := 0
+	for _, line := range strings.Split(string(source), "\n") {
+		if strings.HasPrefix(line, "//go:generate") {
+			directives++
+		}
+		if strings.HasPrefix(line, "// go:generate") {
+			t.Errorf("disarmed generate directive (space after //): %q; the go tool no longer runs it", line)
+		}
+	}
+	if directives != 1 {
+		t.Errorf("recognized //go:generate directives = %d, want exactly 1; update the CI freshness pin with any deliberate change", directives)
 	}
 }
 

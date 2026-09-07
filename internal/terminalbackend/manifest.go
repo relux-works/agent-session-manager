@@ -257,13 +257,26 @@ const (
 	maxOpaqueString    = 256
 	maxJSONDepth       = 32
 	maxNativeReference = 512
+	// maxIdentityDocumentBytes is the AX omit-self identity bound the
+	// canonical owner enforces before any identity calculation: an
+	// encoded identity object over 5 MiB is refused before decoding,
+	// so this package refuses it at the same gate rather than
+	// admitting through the direct parse entries what the shared
+	// identity entry refuses.
+	maxIdentityDocumentBytes = 5_242_880
 )
 
 // mismatchf refuses with CodeMismatch and a static detail clause. The clause
 // must never interpolate local data: paths, digests, generations, and
 // document bytes stay out of errors.
+//
+//go:noinline
 func mismatchf(format string, arguments ...any) *Error {
-	return &Error{Code: CodeMismatch, Detail: fmt.Sprintf(format, arguments...)}
+	err := &Error{Code: CodeMismatch, Detail: fmt.Sprintf(format, arguments...)}
+	if recordRefusal != nil {
+		recordRefusal(err.Code, err.Detail)
+	}
+	return err
 }
 
 // hasLoneSurrogateEscape reports whether raw JSON carries a lone surrogate
@@ -372,6 +385,9 @@ func readUTF16EscapeUnit(raw []byte, start int) (uint16, int, bool) {
 // decode as json.Number so member validators can refuse them explicitly:
 // none of the three closed schemas has a numeric member.
 func decodeStrictObject(raw []byte) (map[string]any, error) {
+	if len(raw) > maxIdentityDocumentBytes {
+		return nil, mismatchf("document size")
+	}
 	if !utf8.Valid(raw) {
 		return nil, mismatchf("document encoding")
 	}
@@ -613,11 +629,20 @@ func checkClosedList(values []string, vocabulary map[string]bool, max int, requi
 }
 
 // objectIdentity computes the lowercase sha256: digest of the RFC 8785 JCS
-// bytes of object with exactly selfField omitted (§4.B identity rule). It
-// mirrors the repository's canonical pipeline (logical value, JSON
-// re-encode, JCS transform, SHA-256) without routing through the schema
-// validators owned by another task.
+// bytes of object with exactly selfField omitted (§4.B identity rule). This
+// package owns the three terminal closed schemas and their identity rule:
+// the canonical identity entry reaches these documents through the Parse
+// entries below, and the agreement battery pins that verdict and digest
+// equality. The JCS transform implements the SPEC.md:302 NUM-UNSAFE-ROUND
+// rounding, so no number may reach it: none of the three closed schemas
+// has a numeric member, every member validator refuses a non-string,
+// non-bool, non-null leaf before identity runs, and the walk below refuses
+// a number structurally, so a reordered caller still cannot round and
+// continue.
 func objectIdentity(object map[string]any, selfField string) (string, error) {
+	if err := refuseIdentityNumbers(object); err != nil {
+		return "", err
+	}
 	omitted := make(map[string]any, len(object))
 	for name, member := range object {
 		if name != selfField {
@@ -636,9 +661,36 @@ func objectIdentity(object map[string]any, selfField string) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
+// refuseIdentityNumbers walks a decoded document and refuses any JSON
+// number at any depth. It runs inside objectIdentity before the JCS
+// transform, so member-type validation refuses a numeric document before
+// any identity bytes exist, as SPEC.md:301 NUM-UNSAFE-NUMBER requires.
+func refuseIdentityNumbers(value any) error {
+	switch typed := value.(type) {
+	case json.Number, float64:
+		return mismatchf("document member type")
+	case map[string]any:
+		for _, member := range typed {
+			if err := refuseIdentityNumbers(member); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, member := range typed {
+			if err := refuseIdentityNumbers(member); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // checkIdentity recomputes the omit-self digest and refuses a mismatch. A
 // reader must recompute the ID before use; trusting the claimed member is a
-// substitution vector.
+// substitution vector. Every parse entry runs its full member-type
+// validation before this call, so a malformed document is refused before
+// any JCS bytes exist; the number walk in objectIdentity holds that order
+// even for a caller that skips the member checks.
 func checkIdentity(object map[string]any, selfField, claimed string) error {
 	if _, err := scalar.ParseDigest(claimed); err != nil {
 		return mismatchf("document digest")
@@ -945,9 +997,6 @@ func parseManifestObject(object map[string]any) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, err
 	}
-	if err := checkIdentity(object, "manifest_id", manifestID); err != nil {
-		return Manifest{}, err
-	}
 	backendID, err := stringMember(object, "terminal_backend_id")
 	if err != nil {
 		return Manifest{}, err
@@ -998,6 +1047,12 @@ func parseManifestObject(object map[string]any) (Manifest, error) {
 		return Manifest{}, err
 	}
 	if err := checkExtensions(object); err != nil {
+		return Manifest{}, err
+	}
+	// The identity binding is verified after every member-type rule, so a
+	// malformed document is refused before any JCS transform runs
+	// (SPEC.md:301 NUM-UNSAFE-NUMBER: reject before identity calculation).
+	if err := checkIdentity(object, "manifest_id", manifestID); err != nil {
 		return Manifest{}, err
 	}
 	return Manifest{
@@ -1088,9 +1143,6 @@ func ParseProbe(raw []byte) (Probe, error) {
 	if err != nil {
 		return Probe{}, err
 	}
-	if err := checkIdentity(object, "probe_id", probeID); err != nil {
-		return Probe{}, err
-	}
 	backendID, err := stringMember(object, "terminal_backend_id")
 	if err != nil {
 		return Probe{}, err
@@ -1179,6 +1231,12 @@ func ParseProbe(raw []byte) (Probe, error) {
 	if err := checkExtensions(object); err != nil {
 		return Probe{}, err
 	}
+	// The identity binding is verified after every member-type rule, so a
+	// malformed document is refused before any JCS transform runs
+	// (SPEC.md:301 NUM-UNSAFE-NUMBER: reject before identity calculation).
+	if err := checkIdentity(object, "probe_id", probeID); err != nil {
+		return Probe{}, err
+	}
 	return Probe{
 		ProbeID:                 probeID,
 		TerminalBackendID:       backendID,
@@ -1229,9 +1287,6 @@ func ParseEvidence(raw []byte) (Evidence, error) {
 	}
 	evidenceID, err := stringMember(object, "evidence_id")
 	if err != nil {
-		return Evidence{}, err
-	}
-	if err := checkIdentity(object, "evidence_id", evidenceID); err != nil {
 		return Evidence{}, err
 	}
 	backendID, err := stringMember(object, "terminal_backend_id")
@@ -1330,6 +1385,12 @@ func ParseEvidence(raw []byte) (Evidence, error) {
 		return Evidence{}, err
 	}
 	if err := checkExtensions(object); err != nil {
+		return Evidence{}, err
+	}
+	// The identity binding is verified after every member-type rule, so a
+	// malformed document is refused before any JCS transform runs
+	// (SPEC.md:301 NUM-UNSAFE-NUMBER: reject before identity calculation).
+	if err := checkIdentity(object, "evidence_id", evidenceID); err != nil {
 		return Evidence{}, err
 	}
 	return Evidence{
@@ -1432,7 +1493,7 @@ func parseRealmMembers(object map[string]any, capability string) (realmMembers, 
 // CodeStaleGeneration, never a derived value.
 func GenerationDigest(rawGeneration string) (string, error) {
 	if !utf8.ValidString(rawGeneration) || utf8.RuneCountInString(rawGeneration) < 1 || utf8.RuneCountInString(rawGeneration) > maxGenerationRunes {
-		return "", &Error{Code: CodeStaleGeneration, Detail: "backend_generation bound"}
+		return "", refuse(&Error{Code: CodeStaleGeneration, Detail: "backend_generation bound"})
 	}
 	material := append([]byte(generationDigestDomain), rawGeneration...)
 	sum := sha256.Sum256(material)
@@ -1448,8 +1509,14 @@ func GenerationDigest(rawGeneration string) (string, error) {
 type SignatureVerifier func(issuerID string, message, signature []byte) error
 
 // integrityFailure refuses with CodeIntegrityFailure and a static detail.
+//
+//go:noinline
 func integrityFailure(detail string) *Error {
-	return &Error{Code: CodeIntegrityFailure, Detail: detail}
+	err := &Error{Code: CodeIntegrityFailure, Detail: detail}
+	if recordRefusal != nil {
+		recordRefusal(err.Code, err.Detail)
+	}
+	return err
 }
 
 // UnsignedEvidenceBytes rebuilds the exact bytes an attestation signs: ASCII
@@ -1594,7 +1661,7 @@ func CheckOperation(operation string, admitted Admitted) error {
 		return nil
 	}
 	if !admitted.HasOperation(operation) {
-		return &Error{Code: CodeCapabilityUnproven, Detail: "operation capability dependency"}
+		return refuse(&Error{Code: CodeCapabilityUnproven, Detail: "operation capability dependency"})
 	}
 	return nil
 }
@@ -1616,6 +1683,21 @@ func CheckOperation(operation string, admitted Admitted) error {
 func Reconcile(manifest Manifest, probe Probe, evidence []Evidence, rawGeneration string, now time.Time, verify SignatureVerifier) (Admitted, error) {
 	if verify == nil {
 		return Admitted{}, integrityFailure("evidence signature verifier")
+	}
+	// Both identities pass ParseID before any check runs, like
+	// CheckVersionTuple and CheckProviderDescriptor already do: Manifest
+	// and Probe are plain structs any caller can build by hand, so the
+	// document admission in ParseManifest/ParseProbe cannot be the only
+	// validation. Without this gate a grammar-refused identity reaches
+	// checkProbeIdentity/checkProbeGeneration and renders verbatim into
+	// the refusal. A refused ID returns the ParseID refusal — whose
+	// bound and grammar arms carry no BackendID — and never reaches the
+	// naming arms.
+	if _, err := ParseID(manifest.TerminalBackendID); err != nil {
+		return Admitted{}, err
+	}
+	if _, err := ParseID(probe.TerminalBackendID); err != nil {
+		return Admitted{}, err
 	}
 	if err := checkProbeIdentity(manifest, probe); err != nil {
 		return Admitted{}, err
@@ -1656,7 +1738,7 @@ func checkProbeIdentity(manifest Manifest, probe Probe) error {
 	// difference is always a substitution of the admitted executable: it
 	// is untrusted, never a plain mismatch.
 	if probe.ExecutableDigest != manifest.ExecutableDigest {
-		return &Error{Code: CodeUntrusted, BackendID: probe.TerminalBackendID, Detail: "executable substitution"}
+		return refuse(&Error{Code: CodeUntrusted, BackendID: probe.TerminalBackendID, Detail: "executable substitution"})
 	}
 	return nil
 }
@@ -1692,7 +1774,7 @@ func checkProbeGeneration(probe Probe, rawGeneration string) error {
 		return err
 	}
 	if digest != probe.BackendGenerationDigest {
-		return &Error{Code: CodeStaleGeneration, BackendID: probe.TerminalBackendID, Detail: "probe generation binding"}
+		return refuse(&Error{Code: CodeStaleGeneration, BackendID: probe.TerminalBackendID, Detail: "probe generation binding"})
 	}
 	return nil
 }
@@ -1976,7 +2058,7 @@ func admitCapabilities(probeClaims map[string]Claim, used []Evidence) Admitted {
 // trusted key registry and must be non-nil.
 func (registry *Registry) AdmitProbe(manifestRaw, probeRaw []byte, evidenceRaws [][]byte, rawGeneration string, now time.Time, verify SignatureVerifier) (Admitted, error) {
 	if registry == nil {
-		return Admitted{}, &Error{Code: CodeNotFound, Detail: "registry unavailable"}
+		return Admitted{}, refuse(&Error{Code: CodeNotFound, Detail: "registry unavailable"})
 	}
 	manifest, err := ParseManifest(manifestRaw)
 	if err != nil {
@@ -2014,10 +2096,10 @@ func checkManifestRecordBinding(manifest Manifest, record Registration) error {
 		manifest.ImplementationKind != record.Kind ||
 		!equalStrings(manifest.ProtocolVersions, record.ProtocolVersions) ||
 		!equalPlatforms(manifest.Platforms, record.Platforms) {
-		return &Error{Code: CodeDrift, BackendID: manifest.TerminalBackendID, Detail: "manifest implementation drift"}
+		return refuse(&Error{Code: CodeDrift, BackendID: manifest.TerminalBackendID, Detail: "manifest implementation drift"})
 	}
 	if manifest.ExecutableDigest != record.ExecutableDigest {
-		return &Error{Code: CodeUntrusted, BackendID: manifest.TerminalBackendID, Detail: "executable substitution"}
+		return refuse(&Error{Code: CodeUntrusted, BackendID: manifest.TerminalBackendID, Detail: "executable substitution"})
 	}
 	return nil
 }

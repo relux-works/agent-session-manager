@@ -100,77 +100,91 @@ var probeCapabilityRequired = []string{"status", "enabled", "evidence", "detail"
 // refused here, not at use time: an advertised-but-unusable surface
 // must never reach the caller as a probe result.
 func DecodeProbe(body []byte) error {
+	_, err := decodeValidatedProbe(body)
+	return err
+}
+
+// decodeValidatedProbe is the single site that decodes a probe body
+// into members: every check DecodeProbe performs lives here, and the
+// validated members are returned for use sites to consume. Validation
+// and use couple here on purpose — RequireCapability must consume
+// these members rather than re-decoding the body after a separate
+// DecodeProbe call, so a future reorder cannot silently drop faults
+// between the validation and the use. Keep the validation first at
+// every caller: the sub-object replays below prove nothing on their
+// own.
+func decodeValidatedProbe(body []byte) (map[string]json.RawMessage, error) {
 	members, fault := decodeStrictObject(body)
 	if fault != nil {
 		failure, err := failProtocol(fault.detail, fault.member)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if name, unknown := unknownMember(members, probeMembers); unknown {
 		failure, err := failProtocol("probe carries unknown member", name)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if name, missing := missingMember(members, probeRequired); missing {
 		failure, err := failProtocol("probe misses a required member", name)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if schema, ok := rawString(members["schema"]); !ok || schema != probeSchema {
 		failure, err := failProtocol("probe schema is not the provider probe", "schema")
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if version, ok := rawString(members["schema_version"]); !ok || version != probeSchemaVersion {
 		failure, err := failProtocol("probe schema_version is not 1.0.0", "schema_version")
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if provider, ok := rawString(members["provider_id"]); !ok || !validProviderID(provider) {
 		failure, err := failProtocol("probe provider_id is not a provider id", "provider_id")
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if version, ok := rawString(members["provider_version"]); !ok || runeLength(version) < 1 || runeLength(version) > 128 {
 		failure, err := failProtocol("probe provider_version is not 1..128 characters", "provider_version")
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if platform, ok := rawString(members["platform"]); !ok || !isProbePlatform(platform) {
 		failure, err := failProtocol("probe platform is not a registry member", "platform")
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if architecture, ok := rawString(members["architecture"]); !ok || !isProbeArchitecture(architecture) {
 		failure, err := failProtocol("probe architecture is not amd64 or arm64", "architecture")
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if err := checkProbeCapabilities(members["capabilities"]); err != nil {
-		return err
+		return nil, err
 	}
 	if err := checkProbeWarnings(members["warnings"]); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return members, nil
 }
 
 func isProbePlatform(value string) bool {
@@ -369,15 +383,18 @@ func CapabilityUsable(status string, enabled bool) bool {
 // probe plane never proved. Either way no plugin process starts for
 // the gated operation.
 func RequireCapability(probeBody []byte, name string) error {
-	if err := DecodeProbe(probeBody); err != nil {
+	// The probe body is decoded exactly once, here: the members below
+	// are the validated output of decodeValidatedProbe, not a second
+	// decode of the body after a separate DecodeProbe call. The
+	// sub-object replays over members["capabilities"] and
+	// capabilities[name] stay explicit replays — decodeValidatedProbe
+	// just proved them well-formed, so their faults are nil by
+	// construction — but they replay validated members, never the
+	// body, so no validation can drift after the use.
+	members, err := decodeValidatedProbe(probeBody)
+	if err != nil {
 		return err
 	}
-	// The re-decodes below are exact replays over bytes DecodeProbe
-	// just validated, in this order: their faults are nil by
-	// construction, so discarding them is a coupling to the call
-	// above, not to untrusted input. Moving DecodeProbe after them
-	// would silently drop faults; keep the validation first.
-	members, _ := decodeStrictObject(probeBody)
 	capabilities, _ := decodeStrictObject(members["capabilities"])
 	known := false
 	for _, registry := range capabilityOrder {

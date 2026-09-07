@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"regexp"
 	"strings"
+
+	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
 )
 
 // This file validates the Provider Identity Record (Section 5.5,
@@ -17,17 +19,45 @@ import (
 // sentence: a value beginning with an absolute path is refused, and
 // an embedded path the prefix cannot see is a stated bound.
 //
-// CheckIdentity deliberately re-validates the record shape instead of
-// delegating to canonicaljson.validateProviderIdentityRecord: this
-// package must mint Section 15.1 provider-stdio refusals
-// (provider_protocol_error with member attribution), not identity
-// errors, and the shared package offers no such entry point. The two
-// validators must agree on the Section 5.5 shape rule for rule; the
-// decoder half of that agreement is pinned by the derived
-// TestSurrogateGateDerivedSweepAgreesWithCanonicalJSON sweep, which
-// judges escape and raw-UTF-8 vectors through the shared
-// decodeStrictObject every entry here reads through, and any
-// shape-rule change must land in both validators in the same change.
+// CheckIdentity validates the record shape in this package's provider-stdio
+// dialect (provider_protocol_error with member attribution, which the
+// shared package cannot mint) and conjoins the verdict with the owner's
+// production identity entry canonicaljson.CalculateObjectIdentity: the two
+// validators must agree on the Section 5.5 shape rule for rule, and a
+// document the dialect admits but the owner refuses is refused at the
+// owner gate below. The decoder half of that agreement is pinned by the
+// derived TestSurrogateGateDerivedSweepAgreesWithCanonicalJSON sweep,
+// which judges escape and raw-UTF-8 vectors through the shared
+// decodeStrictObject every entry here reads through, and any shape-rule
+// change must land in both validators in the same change.
+//
+// Binding verification split, stated plainly: the three terminal
+// schemas verify their identity binding — terminalbackend's Parse
+// entries recompute the omit-self digest and refuse a mismatched claim
+// — while provider-identity records admitted here do not. CheckIdentity
+// requires record_id to be a well-formed digest but never recomputes
+// it, and the conjoined CalculateObjectIdentity entry validates shape
+// only (its digest return is discarded below); the entry that would
+// attest the binding, canonicaljson.VerifyObjectIdentity, has no
+// production call site anywhere in the repository, so no transport gate
+// and no persistence path recomputes a provider-identity digest today.
+//
+// This is deferred, not decided. Conjoining Verify here would refuse
+// records this gate documents as admitted: every boundary admission in
+// identity_test.go mutates content while keeping the example record_id,
+// so its claim no longer matches recomputation. Changing that admission
+// contract needs the identity owner's ruling on what a mismatched live
+// binding must do (refuse? re-resolve? at which layer?), which this leaf
+// cannot give for another owner's entry point. Until that ruling lands
+// — wired as a board element after this story's final leaf closes —
+// this gate admits any well-formed digest, and says so.
+//
+// The earlier justification for the deferral is withdrawn as false: it
+// claimed the gate must admit the pinned Section 5.5 example whose
+// record_id is merely illustrative. Measured in
+// TestSpecIdentityExampleVerifiesAgainstItsClaimedDigest, Verify returns
+// the example's own record_id with nil error, so the example IS the true
+// omit-self digest and cannot justify skipping attestation.
 
 // identitySchema is the exact schema identifier the record carries.
 const identitySchema = "urn:ax:schema:provider-identity"
@@ -241,6 +271,24 @@ func CheckIdentity(body []byte, wantProviderID string) error {
 		failure, err := failProtocol("identity extensions is not an object", "extensions")
 		if err != nil {
 			return err
+		}
+		return failure
+	}
+	// The member arms above are this package's provider-stdio dialect of
+	// the Section 5.5 rule; the owner of that rule is canonicaljson
+	// (validateProviderIdentityRecord, registered for section:5.5 in the
+	// traceability registry), and the dialect keeps its member attribution
+	// deliberately. The verdict is therefore conjoined with the owner's
+	// production identity entry: a document this dialect admits but the
+	// owner refuses — open extensions content, a number the dialect never
+	// reads, nesting beyond the dialect's view — is refused here rather
+	// than admitted through a drifted copy. The provider-equality
+	// correlation above stays host-side: it is a caller rule, not a
+	// content rule, and the owner never sees it.
+	if _, _, err := canonicaljson.CalculateObjectIdentity(body); err != nil {
+		failure, ferr := failProtocol("identity is not a valid provider identity", "")
+		if ferr != nil {
+			return ferr
 		}
 		return failure
 	}

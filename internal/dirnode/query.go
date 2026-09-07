@@ -735,7 +735,7 @@ func checkEnvironmentsParameters(members map[string]json.RawMessage) bool {
 		return false
 	}
 	for _, environment := range environments {
-		if !environmentIDPattern.MatchString(environment) {
+		if !checkEnvironmentID(environment) {
 			return false
 		}
 	}

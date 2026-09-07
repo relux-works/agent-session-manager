@@ -1,11 +1,9 @@
 package provider
 
 import (
+	"github.com/relux-works/agent-session-manager/internal/invcore"
 	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -188,30 +186,19 @@ func TestCandidatesAdvertiseNoCapability(t *testing.T) {
 // facility, so Discover cannot probe or execute a candidate. The import
 // list is derived from package source.
 func TestDiscoveryReachesNoProcess(t *testing.T) {
-	fileset := token.NewFileSet()
+	// Selection and fail-closed parsing are the shared core's; the
+	// imports-only check reads the same import list off the full parse,
+	// so a file with an unparseable body fails here instead of passing
+	// the import check silently.
 	directory, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
 	}
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatalf("ReadDir: %v", err)
-	}
+	productions, _ := invcore.MustScanProduction(t, directory)
 	found := false
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
+	for _, production := range productions {
+		name, syntax := production.Name, production.Syntax
 		found = true
-		source, err := os.ReadFile(filepath.Join(directory, name))
-		if err != nil {
-			t.Fatalf("ReadFile(%s): %v", name, err)
-		}
-		syntax, err := parser.ParseFile(fileset, name, source, parser.ImportsOnly)
-		if err != nil {
-			t.Fatalf("ParseFile(%s): %v", name, err)
-		}
 		for _, clause := range syntax.Imports {
 			path := strings.Trim(clause.Path.Value, `"`)
 			if path == "os/exec" || strings.HasPrefix(path, "os/exec/") {
@@ -335,26 +322,10 @@ func parseProductionSources(t *testing.T) map[string]*ast.File {
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
 	}
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatalf("ReadDir: %v", err)
-	}
-	fileset := token.NewFileSet()
+	productions, _ := invcore.MustScanProduction(t, directory)
 	out := map[string]*ast.File{}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		source, err := os.ReadFile(filepath.Join(directory, name))
-		if err != nil {
-			t.Fatalf("ReadFile(%s): %v", name, err)
-		}
-		syntax, err := parser.ParseFile(fileset, name, source, parser.ParseComments)
-		if err != nil {
-			t.Fatalf("ParseFile(%s): %v", name, err)
-		}
-		out[name] = syntax
+	for _, production := range productions {
+		out[production.Name] = production.Syntax
 	}
 	return out
 }

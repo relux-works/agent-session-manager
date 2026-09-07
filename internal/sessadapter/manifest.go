@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
+	"github.com/relux-works/agent-session-manager/internal/environ"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
 )
 
@@ -153,7 +154,7 @@ func DecodeManifest(body []byte) (Manifest, error) {
 		return Manifest{}, failure
 	}
 	environmentID, ok := rawString(members["environment_id"])
-	if !ok || !environmentIDPattern.MatchString(environmentID) {
+	if !ok || !environ.CheckEnvironmentID(environmentID) {
 		failure, err := failProtocol("adapter manifest environment identifier is not an environment-id", "environment_id")
 		if err != nil {
 			return Manifest{}, err
@@ -168,7 +169,7 @@ func DecodeManifest(body []byte) (Manifest, error) {
 		return Manifest{}, failure
 	}
 	adapterVersion, ok := rawString(members["adapter_version"])
-	if !ok || !semverPattern.MatchString(adapterVersion) {
+	if !ok || !environ.CheckSemver(adapterVersion) {
 		failure, err := failProtocol("adapter manifest adapter version is not SemVer", "adapter_version")
 		if err != nil {
 			return Manifest{}, err

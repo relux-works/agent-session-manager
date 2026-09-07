@@ -1,8 +1,16 @@
 package provhost
 
 import (
+	"fmt"
+	"github.com/relux-works/agent-session-manager/internal/invcore"
+	"go/ast"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
 )
 
 // specIdentityExample is the Section 5.5 Provider Identity Record
@@ -33,6 +41,118 @@ func TestSpecIdentityExampleDecodes(t *testing.T) {
 	if err := CheckIdentity([]byte(specIdentityExample), "antigravity"); err != nil {
 		t.Fatalf("CheckIdentity(spec example): %v", err)
 	}
+}
+
+// TestSpecIdentityExampleVerifiesAgainstItsClaimedDigest pins the true
+// fact the identity stated bound rests on: VerifyObjectIdentity over the
+// pinned Section 5.5 example returns the example's own record_id with nil
+// error, so the example IS the true omit-self digest. A bound claiming
+// the example is merely illustrative — and justifying skipped attestation
+// by it — fails here instead of shipping as a considered decision. The
+// assertion is exact (field and digest), never a nil-error-only check
+// that would also pass on a vacuous verifier.
+func TestSpecIdentityExampleVerifiesAgainstItsClaimedDigest(t *testing.T) {
+	verified, field, err := canonicaljson.VerifyObjectIdentity([]byte(specIdentityExample))
+	if err != nil {
+		t.Fatalf("VerifyObjectIdentity(spec example): %v", err)
+	}
+	if field != canonicaljson.SelfRecordID {
+		t.Fatalf("VerifyObjectIdentity(spec example) field = %q, want record_id", field)
+	}
+	const want = "sha256:c879d766da67a8cfb3a3f6eae2234faa5d52d8df987496eae2218f40e5e220c2"
+	if verified.String() != want {
+		t.Fatalf("VerifyObjectIdentity(spec example) = %q, want the claimed %q", verified, want)
+	}
+}
+
+// TestNoProductionPathAttestsProviderIdentityBinding pins the second
+// half of the stated bound: no non-test Go file anywhere in the module
+// calls VerifyObjectIdentity, so provider-identity binding attestation
+// happens nowhere in production — not at this gate and not at the
+// persistence layer the old bound named. The day the deferred ruling
+// lands a production call site, this test reddens and forces the bound
+// to be rewritten around the new truth. The scan is AST-based (comments
+// and test files never count) and fails closed when it sees nothing.
+// Stated bound on this test: only *ast.CallExpr nodes are inspected, so a
+// `f := pkg.VerifyObjectIdentity; f(x)` binding would not be seen; no such
+// shape exists today.
+func TestNoProductionPathAttestsProviderIdentityBinding(t *testing.T) {
+	_, self, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller cannot locate the test file")
+	}
+	root := filepath.Dir(self)
+	for {
+		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+			break
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			t.Fatal("no module root above the test file; the scan is blind")
+		}
+		root = parent
+	}
+	var scanned, parsed int
+	var callers []string
+	for _, tree := range []string{"internal", "cmd"} {
+		base := filepath.Join(root, tree)
+		if _, err := os.Stat(base); err != nil {
+			continue
+		}
+		// Recursion stays local: the core selects single-package
+		// production files, while this attestation spans trees.
+		// Fail-closed parsing is the core's.
+		if err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			scanned++
+			source, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
+			}
+			if !strings.Contains(string(source), "VerifyObjectIdentity") {
+				return nil
+			}
+			parsed++
+			syntax, fileSet, failure := invcore.ParseBytes(path, source, 0)
+			if failure != "" {
+				t.Fatalf("parse %s: %s", path, failure)
+			}
+			ast.Inspect(syntax, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				switch fun := call.Fun.(type) {
+				case *ast.SelectorExpr:
+					if fun.Sel.Name == "VerifyObjectIdentity" {
+						position := fileSet.Position(call.Pos())
+						callers = append(callers, fmt.Sprintf("%s:%d", position.Filename, position.Line))
+					}
+				case *ast.Ident:
+					if fun.Name == "VerifyObjectIdentity" {
+						// The canonicaljson definition itself is a
+						// FuncDecl, never a call; a bare-identifier call
+						// anywhere is a production call site.
+						position := fileSet.Position(call.Pos())
+						callers = append(callers, fmt.Sprintf("%s:%d", position.Filename, position.Line))
+					}
+				}
+				return true
+			})
+			return nil
+		}); err != nil {
+			t.Fatalf("walk %s: %v", base, err)
+		}
+	}
+	if scanned == 0 {
+		t.Fatal("scanned no production sources; the check is blind")
+	}
+	if len(callers) != 0 {
+		t.Fatalf("production call sites attest the identity binding, contradicting the stated bound:\n  %s", strings.Join(callers, "\n  "))
+	}
+	t.Logf("attestation scan: %d production files, %d parsed, 0 production call sites", scanned, parsed)
 }
 
 // identityVariant rewrites one unique substring of the example.

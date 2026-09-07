@@ -57,9 +57,12 @@ var negations = []string{
 
 // nonClaimMarkers are descriptive words showing a sentence documents the
 // instrument (probes, skips, gates, tests) rather than advertising a
-// capability. Every marker must occur in at least one scanned corpus sentence
-// (see TestEveryNonClaimMarkerOccursInCorpus): a marker that fires nowhere is
-// either dead weight or an admission hole waiting for future text.
+// capability. Every marker must classify at least one scanned corpus
+// sentence on its own (see
+// TestEveryNonClaimMarkerClassifiesCorpusSentence): a marker no sentence
+// needs is either dead weight or an admission hole waiting for future
+// text. Occurrence alone proves nothing — a sentence the negations
+// already admit fires every marker it names without needing any of them.
 var nonClaimMarkers = []string{
 	"probes",
 	"capability",

@@ -8,13 +8,16 @@
 // prose; the reachability bound is stated, not inferred.
 package terminalbackend
 
+// The surrogate-gate agreement sweep lived here while canonicaljson was an
+// importable test dependency. canonicaljson now imports this package in
+// production (terminal shape delegation), so the sweep moved to the external
+// identity_ownership_test.go battery, which may still import both sides.
 import (
+	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
 )
 
@@ -270,31 +273,21 @@ func TestBuiltinsHoldIndependentProtocolArrays(t *testing.T) {
 	}
 }
 
-// TestSurrogateGateAgreesWithCanonicalJSON pins the local surrogate scan
-// against the canonical owner: hasLoneSurrogateEscape and
-// canonicaljson.Canonicalize agree accept/reject on every shared vector, so
-// the two copies cannot drift without reddening here.
+// TestSurrogateGateVerdicts pins the local lone-surrogate gate directly:
+// every escaped code point in U+D800..U+DFFF in escape position rejects,
+// a high surrogate admits only before a low surrogate, and representative
+// escapes outside the range admit. The cross-package agreement half of this
+// gate (ParseManifest detail versus canonicaljson.Canonicalize) moved to
+// the external identity_ownership_test.go battery when canonicaljson began
+// importing this package in production; this half keeps the branch-level
+// pins (including the raw WTF-8 road, which never reaches the gate through
+// a document because the UTF-8 arm fires first) without that import.
 //
-// The corpus is derived, not hand-written: it enumerates every escaped code
-// point in the surrogate range U+D800..U+DFFF in both escape positions,
-// plus a representative set outside the range and the raw WTF-8 road. A
-// hand-written vector set cannot tell a right gate from a bound-narrowed
-// one: narrowing the low-surrogate upper bound to <= 0xDC00 survived a
-// 10-vector corpus 6 of 6 while admitting 1023 lone low surrogates. Every
-// loop below kills that mutant (lone lows 0xDC01..0xDFFF must reject, and a
-// high followed by 0xDC01..0xDFFF must reject), and the mirrored loops kill
-// a high-surrogate bound narrowing the same way. A delete-only mutant proves
-// the gate exists; these sweeps prove the class it covers.
-//
-// Vectors are bare JSON strings where the surrogate rule is the only
-// distinguishing rule; the escape introducer is assembled from its byte
-// value because no source literal spells it next to hex. Stated bound:
-// malformed escapes (a bad hex digit, an uppercase U introducer, a
-// truncated tail), truncated WTF-8 tails, WTF-8 outside string literals,
-// other invalid UTF-8 (overlongs, 0xFF), and unescaped control characters
-// are refused by both sides' syntax or encoding arms, not by the surrogate
-// question, and are outside this pin.
-func TestSurrogateGateAgreesWithCanonicalJSON(t *testing.T) {
+// A bound-narrowed gate survives a small corpus while admitting hundreds of
+// lone surrogates, so the sweep enumerates the whole range: narrowing the
+// low-surrogate upper bound admits 0xDC01..0xDFFF here, and narrowing the
+// high bound the same way on the pair-second dimension.
+func TestSurrogateGateVerdicts(t *testing.T) {
 	t.Parallel()
 
 	slash := string([]byte{92})
@@ -304,65 +297,94 @@ func TestSurrogateGateAgreesWithCanonicalJSON(t *testing.T) {
 			digits[unit>>12&0xf], digits[unit>>8&0xf], digits[unit>>4&0xf], digits[unit&0xf],
 		})
 	}
-	var failures []string
 	check := func(doc string, reject bool) {
-		raw := []byte(doc)
-		if local := hasLoneSurrogateEscape(raw); local != reject {
-			failures = append(failures, fmt.Sprintf("hasLoneSurrogateEscape(%q) = %v, want rejection %v",
-				doc, local, reject))
-		}
-		_, err := canonicaljson.Canonicalize(raw)
-		if rejected := err != nil; rejected != reject {
-			failures = append(failures, fmt.Sprintf("Canonicalize(%q) error = %v, want rejection %v",
-				doc, err, reject))
+		t.Helper()
+		if got := hasLoneSurrogateEscape([]byte(doc)); got != reject {
+			t.Errorf("hasLoneSurrogateEscape(%q) = %v, want rejection %v", doc, got, reject)
 		}
 	}
 
-	// Every code point in the surrogate range as a lone escape rejects.
 	for unit := uint32(0xd800); unit <= 0xdfff; unit++ {
 		check(`"`+escape(uint16(unit))+`"`, true)
 	}
-	// A fixed high surrogate followed by every code point in the surrogate
-	// range admits exactly the low surrogates.
 	for second := uint32(0xd800); second <= 0xdfff; second++ {
 		check(`"`+escape(0xd800)+escape(uint16(second))+`"`, second < 0xdc00)
 	}
-	// Valid pairs at the opposite corner admit.
 	check(`"`+escape(0xdbff)+escape(0xdfff)+`"`, false)
-	// Representative escapes outside the surrogate range admit alone and
-	// reject after a high surrogate.
 	for _, unit := range []uint16{0x0000, 0x0041, 0x00e9, 0xd7ff, 0xe000, 0xffff} {
 		check(`"`+escape(unit)+`"`, false)
 		check(`"`+escape(0xd800)+escape(unit)+`"`, true)
 	}
-	// Uppercase hex is the same code point, not a different question.
 	check(`"`+slash+`uDC00"`, true)
 	check(`"`+slash+`uD800`+slash+`uDC00"`, false)
-	// An escaped backslash is not an escape introducer.
 	check(`"`+slash+slash+`ud800"`, false)
-	// Plain and multibyte strings admit.
 	check(`"abc"`, false)
 	check(`"aé"`, false)
 
-	// Raw WTF-8 (CESU-8) surrogate encodings reject on both sides; the
-	// neighboring valid code point U+D7FF (ED 9F BF) admits on both.
 	for _, bytes := range [][]byte{
-		{0xed, 0xa0, 0x80}, // U+D800
-		{0xed, 0xb0, 0x80}, // U+DC00
-		{0xed, 0xbf, 0xbf}, // U+DFFF
+		{0xed, 0xa0, 0x80},
+		{0xed, 0xb0, 0x80},
+		{0xed, 0xbf, 0xbf},
 		{0xed, 0xaf, 0x93},
 	} {
 		doc := append(append([]byte{'"'}, bytes...), '"')
 		check(string(doc), true)
 	}
 	check("\""+string([]byte{0xed, 0x9f, 0xbf})+"\"", false)
-	// A WTF-8 head immediately after a backslash escape is still raw bytes
-	// on the wire: the backslash skip must not hide it.
 	check(`"`+slash+`n`+string([]byte{0xed, 0xa0, 0x80})+`"`, true)
 	check(`"`+slash+slash+string([]byte{0xed, 0xbf, 0xbf})+`"`, true)
+}
 
-	if len(failures) > 0 {
-		t.Fatalf("%d agreement failures (showing %d):\n%s",
-			len(failures), min(len(failures), 10), strings.Join(failures[:min(len(failures), 10)], "\n"))
+// TestObjectIdentityRefusesNumbersBeforeCanonicalization pins the structural
+// number walk inside objectIdentity: a JSON number at any depth is refused
+// with the member-type arm before any JCS transform runs. No document
+// reaches the walk through the Parse entries (member validation refuses
+// numbers first), so the walk is proven here, at the guard, through the
+// same white-box pin this file exists for.
+func TestObjectIdentityRefusesNumbersBeforeCanonicalization(t *testing.T) {
+	t.Parallel()
+
+	withNumber := map[string]any{
+		"manifest_id":            "sha256:" + strings.Repeat("0", 64),
+		"terminal_backend_id":    "ax.tmux",
+		"implementation_version": "2.1.0",
+	}
+	for name, mutate := range map[string]func(map[string]any){
+		"top-level number": func(object map[string]any) {
+			object["protocol_versions"] = json.Number("9007199254740993")
+		},
+		"nested object number": func(object map[string]any) {
+			object["extensions"] = map[string]any{"n": json.Number("1.5")}
+		},
+		"nested array number": func(object map[string]any) {
+			object["platforms"] = []any{"linux", json.Number("1")}
+		},
+		"decoded float": func(object map[string]any) {
+			object["platforms"] = []any{float64(1)}
+		},
+	} {
+		object := make(map[string]any, len(withNumber)+1)
+		for key, value := range withNumber {
+			object[key] = value
+		}
+		mutate(object)
+		if _, err := objectIdentity(object, "manifest_id"); err == nil {
+			t.Errorf("objectIdentity(%s) admitted a number into the JCS transform", name)
+		} else if !IsMismatch(err) {
+			t.Errorf("objectIdentity(%s) error = %v, want CodeMismatch", name, err)
+		} else {
+			var refusal *Error
+			if errors.As(err, &refusal) && refusal.Detail != "document member type" {
+				t.Errorf("objectIdentity(%s) detail = %q, want document member type", name, refusal.Detail)
+			}
+		}
+	}
+
+	control := make(map[string]any, len(withNumber))
+	for key, value := range withNumber {
+		control[key] = value
+	}
+	if _, err := objectIdentity(control, "manifest_id"); err != nil {
+		t.Errorf("objectIdentity(number-free object) error = %v, want admission", err)
 	}
 }

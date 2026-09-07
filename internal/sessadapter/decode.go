@@ -6,7 +6,6 @@ import (
 	"io"
 	"regexp"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/relux-works/agent-session-manager/internal/environ"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
@@ -106,6 +105,14 @@ func rawUint53(raw json.RawMessage) (uint64, bool) {
 	if err := decoder.Decode(&value); err != nil {
 		return 0, false
 	}
+	// Decode reads one value and stops: without the trailing
+	// check a hostile slice like `12a` would read as 12. Member
+	// slices arriving through decodeStrictObject can never carry
+	// trailing data, but this entry takes raw slices and must
+	// not trust them.
+	if _, err := decoder.Token(); err != io.EOF {
+		return 0, false
+	}
 	number, ok := value.(json.Number)
 	if !ok {
 		return 0, false
@@ -121,6 +128,9 @@ func rawUint53(raw json.RawMessage) (uint64, bool) {
 // float conversion: the magnitude bound is checked on the digit
 // string, so 2^53 is refused even on platforms that could hold it.
 func parseUint53Literal(literal string) (uint64, bool) {
+	if literal == "" {
+		return 0, false
+	}
 	var value uint64
 	for index := 0; index < len(literal); index++ {
 		digit := literal[index]
@@ -137,77 +147,42 @@ func parseUint53Literal(literal string) (uint64, bool) {
 
 // stringLength is the Section 1.6 string measure in characters, not
 // bytes: a bound of string[1..128] admits 128 characters of any
-// width.
+// width. It delegates to the single environ measure so the two can
+// never drift; the delegation battery pins both directions.
 func stringLength(value string) int {
-	return utf8.RuneCountInString(value)
+	return environ.StringLength(value)
 }
 
 // checkStringBounds reports whether the member is a JSON string whose
-// character count falls in the inclusive bound.
+// character count falls in the inclusive bound. It delegates to the
+// environ gate.
 func checkStringBounds(raw json.RawMessage, minimum, maximum int) (string, bool) {
-	value, ok := rawString(raw)
-	if !ok {
-		return "", false
-	}
-	length := stringLength(value)
-	if length < minimum || length > maximum {
-		return "", false
-	}
-	return value, true
+	return environ.CheckStringBounds(raw, minimum, maximum)
 }
 
 // checkUint53Bounds reports whether the member is a uint53 in the
 // inclusive bound. Both edges are checked: a one-sided check would
-// admit the open side.
+// admit the open side. It delegates to the environ gate.
 func checkUint53Bounds(raw json.RawMessage, minimum, maximum uint64) (uint64, bool) {
-	value, ok := rawUint53(raw)
-	if !ok {
-		return 0, false
-	}
-	if value < minimum || value > maximum {
-		return 0, false
-	}
-	return value, true
+	return environ.CheckUint53Bounds(raw, minimum, maximum)
 }
 
 // checkDigest reports whether the member is a digest of the pinned
-// sha256 form.
+// sha256 form. It delegates to the environ gate.
 func checkDigest(raw json.RawMessage) (scalar.Digest, bool) {
-	value, ok := rawString(raw)
-	if !ok {
-		return scalar.Digest{}, false
-	}
-	digest, err := scalar.ParseDigest(value)
-	if err != nil {
-		return scalar.Digest{}, false
-	}
-	return digest, true
+	return environ.CheckDigest(raw)
 }
 
-// checkUUIDv7 reports whether the member is a lowercase UUIDv7.
+// checkUUIDv7 reports whether the member is a lowercase UUIDv7. It
+// delegates to the environ gate.
 func checkUUIDv7(raw json.RawMessage) (scalar.UUIDv7, bool) {
-	value, ok := rawString(raw)
-	if !ok {
-		return scalar.UUIDv7{}, false
-	}
-	identifier, err := scalar.ParseUUIDv7(value)
-	if err != nil {
-		return scalar.UUIDv7{}, false
-	}
-	return identifier, true
+	return environ.CheckUUIDv7(raw)
 }
 
 // checkTimestamp reports whether the member is a pinned timestamp.
+// It delegates to the environ gate.
 func checkTimestamp(raw json.RawMessage) (scalar.Timestamp, bool) {
-	value, ok := rawString(raw)
-	if !ok {
-		return scalar.Timestamp{}, false
-	}
-	instant, err := scalar.ParseTimestamp(value)
-	if err != nil {
-		return scalar.Timestamp{}, false
-	}
-	return instant, true
+	return environ.CheckTimestamp(raw)
 }
 
 // isNull reports whether the member is an explicit JSON null.
@@ -250,95 +225,31 @@ func decodeArray(raw json.RawMessage) ([]json.RawMessage, bool) {
 // strings in the item bound whose JCS encodings order strictly
 // increasingly with no duplicates. Bytewise JCS order over strings
 // is plain lexicographic order, so the check compares directly; the
-// count bound is checked on both edges.
+// count bound is checked on both edges. It delegates to the environ
+// gate.
 func checkSortedUniqueStrings(raw json.RawMessage, minimumLength, maximumLength int, minimumCount, maximumCount uint64) ([]string, bool) {
-	elements, ok := decodeArray(raw)
-	if !ok {
-		return nil, false
-	}
-	if uint64(len(elements)) < minimumCount || uint64(len(elements)) > maximumCount {
-		return nil, false
-	}
-	values := make([]string, 0, len(elements))
-	for _, element := range elements {
-		value, ok := rawString(element)
-		if !ok {
-			return nil, false
-		}
-		length := stringLength(value)
-		if length < minimumLength || length > maximumLength {
-			return nil, false
-		}
-		values = append(values, value)
-	}
-	for index := 1; index < len(values); index++ {
-		if values[index-1] >= values[index] {
-			return nil, false
-		}
-	}
-	return values, true
+	return environ.CheckSortedUniqueStrings(raw, minimumLength, maximumLength, minimumCount, maximumCount)
 }
 
 // checkSortedUniqueDigests reports whether the member is a sorted
-// unique digest array in the count bound.
+// unique digest array in the count bound. It delegates to the
+// environ gate.
 func checkSortedUniqueDigests(raw json.RawMessage, minimumCount, maximumCount uint64) ([]scalar.Digest, bool) {
-	elements, ok := decodeArray(raw)
-	if !ok {
-		return nil, false
-	}
-	if uint64(len(elements)) < minimumCount || uint64(len(elements)) > maximumCount {
-		return nil, false
-	}
-	values := make([]scalar.Digest, 0, len(elements))
-	for _, element := range elements {
-		digest, ok := checkDigest(element)
-		if !ok {
-			return nil, false
-		}
-		values = append(values, digest)
-	}
-	for index := 1; index < len(values); index++ {
-		if values[index-1].String() >= values[index].String() {
-			return nil, false
-		}
-	}
-	return values, true
+	return environ.CheckSortedUniqueDigests(raw, minimumCount, maximumCount)
 }
-
-// semverPattern is the SemVer grammar adapter and environment
-// versions satisfy: three dot-separated non-negative integers with
-// no leading zeros, an optional pre-release, and optional build
-// metadata.
-var semverPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
 
 // providerIDPattern is the Section 7.1 provider-id grammar the
 // manifest, context, and binding layers read:
-// [a-z][a-z0-9-]{0,31}.
+// [a-z][a-z0-9-]{0,31}. It is the one grammar copy this package
+// retains: scalar owns the provider-id rule and the one-language
+// battery pins every copy to its literal in both directions.
 var providerIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
-
-// environmentIDPattern is the Section 7.8 environment-id grammar:
-// [a-z][a-z0-9.-]{0,63}. One semantic native environment per
-// adapter; dots separate the native hierarchy, never trust.
-var environmentIDPattern = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
-
-// reverseDNSPattern is the Section 1.6 extension-key grammar:
-// dot-separated lowercase labels, 3..253 characters.
-var reverseDNSPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(\.[a-z][a-z0-9-]{0,62})+$`)
 
 // checkExtensions reports whether the member is an object whose keys
 // are all reverse-DNS names. Values cross opaquely: extensions
 // cannot add operations, capabilities, or trust facts, and no member
 // of this package reads an extension value for any admission
-// decision.
+// decision. It delegates to the environ gate.
 func checkExtensions(raw json.RawMessage) bool {
-	members, fault := decodeStrictObject(raw)
-	if fault != nil {
-		return false
-	}
-	for name := range members {
-		if len(name) < 3 || len(name) > 253 || !reverseDNSPattern.MatchString(name) {
-			return false
-		}
-	}
-	return true
+	return environ.CheckExtensions(raw)
 }

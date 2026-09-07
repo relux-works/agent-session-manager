@@ -70,7 +70,8 @@ package sessadapter
 //      number with no length source in the function (`value <
 //      minimum` over a rawUint53 result, a plain int parameter)
 //      — STATED BOUND, not derived. Live instance:
-//      checkUint53Bounds (decode.go:269); the bound is enforced
+//      checkUint53Bounds in decode.go (a delegating wrapper onto
+//      environ.CheckUint53Bounds); the bound is enforced
 //      at every caller row, and every caller row carries a
 //      driver or a pinned exemption.
 //  10. A direct cap(...) or utf8.RuneCountInString(...)
@@ -111,11 +112,12 @@ import (
 	"go/printer"
 	"go/token"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/relux-works/agent-session-manager/internal/invcore"
 )
 
 // boundRegistration is one production bound site with its proof:
@@ -164,36 +166,21 @@ var boundHelpers = map[string]bool{
 // TestBoundLenScanSeesLengthVariables prove the halves.
 func scanBoundSiteIDs(t *testing.T, directory string) []string {
 	t.Helper()
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatalf("bound census: %v", err)
-	}
+	// Production file selection and fail-closed parsing come
+	// from invcore: an unreadable or unparseable production file
+	// fails the suite instead of scanning as clean, and zero
+	// production files fail instead of passing vacuously. The
+	// bound-site extraction below is unchanged: the synthetic
+	// indirection plants drive boundSitesInSyntax directly, so
+	// both prove the same extractor.
+	files, _ := invcore.MustScanProduction(t, directory)
 	var ids []string
-	scanned := 0
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		scanned++
-		path := filepath.Join(directory, name)
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("bound census: %v", err)
-		}
-		fileSet := token.NewFileSet()
-		syntax, err := parser.ParseFile(fileSet, path, source, 0)
-		if err != nil {
-			t.Fatalf("bound census: %v", err)
-		}
-		sites, violations := boundSitesInSyntax(syntax, name)
+	for _, production := range files {
+		sites, violations := boundSitesInSyntax(production.Syntax, production.Name)
 		for _, violation := range violations {
-			t.Errorf("bound census: %s: %s", name, violation)
+			t.Errorf("bound census: %s: %s", production.Name, violation)
 		}
 		ids = append(ids, sites...)
-	}
-	if scanned == 0 {
-		t.Fatal("bound census scanned zero production files; the scanner is broken, not the package")
 	}
 	return ids
 }
@@ -591,25 +578,18 @@ var boundRegistrations = []boundRegistration{
 	// findings guard behind the four cap instantiations.
 	{id: `context.go|DecodeReadAuthority|checkSortedUniqueStrings|"root_handle_names"|0`, driver: "TestSortedUniqueBoundEdges", reason: "handle names element 1..128 count 1..128"},
 	{id: `context.go|DecodeFindings|len|uint64(len(elements)) > maximum|0`, driver: "TestFindingsCapEdges", exempt: true, reason: "mechanism: generic guard; caps pinned at the four DecodeFindings instantiation rows below"},
-	// decode.go: reverse-DNS key bounds and shared mechanisms.
-	{id: `decode.go|checkExtensions|len|len(name) < N|0`, exempt: true, reason: "equivalent: no 2-character key satisfies the reverse-DNS grammar (minimum \"a.b\" is 3), so narrowing the floor changes no verdict; the ceiling and the refusal are pinned by TestExtensionKeyBoundEdges"},
-	{id: `decode.go|checkExtensions|len|len(name) > N|0`, driver: "TestExtensionKeyBoundEdges", reason: "extension key maximum 253"},
-	{id: `decode.go|checkSortedUniqueDigests|len|index < len(values)|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "plumbing: pairwise sortedness scan index, not a domain bound; element and count edges pinned at the caller rows"},
-	// decode.go: the shared character-count enforcements behind
-	// every string bound (review rev6 shape 4). Both compare a
-	// length variable bound from stringLength, so the
-	// length-variable derivation sees them; they are mechanism,
-	// not sites — their values live at the caller rows, which
-	// the named drivers pin at both refusal edges.
-	{id: `decode.go|checkStringBounds|len|length < minimum|0`, driver: "TestStringBoundEdges", exempt: true, reason: "mechanism: shared minimum enforcement; values pinned at the caller rows"},
-	{id: `decode.go|checkStringBounds|len|length > maximum|0`, driver: "TestStringBoundEdges", exempt: true, reason: "mechanism: shared maximum enforcement; values pinned at the caller rows"},
-	{id: `decode.go|checkSortedUniqueStrings|len|length < minimumLength|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared element-minimum enforcement; values pinned at the caller rows"},
-	{id: `decode.go|checkSortedUniqueStrings|len|length > maximumLength|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared element-maximum enforcement; values pinned at the caller rows"},
-	{id: `decode.go|checkSortedUniqueDigests|len|uint64(len(elements)) < minimumCount|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared count floor; values pinned at the caller rows"},
-	{id: `decode.go|checkSortedUniqueDigests|len|uint64(len(elements)) > maximumCount|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared count ceiling; values pinned at the caller rows"},
-	{id: `decode.go|checkSortedUniqueStrings|len|index < len(values)|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "plumbing: pairwise sortedness scan index, not a domain bound; element and count edges pinned at the caller rows"},
-	{id: `decode.go|checkSortedUniqueStrings|len|uint64(len(elements)) < minimumCount|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared count floor; values pinned at the caller rows"},
-	{id: `decode.go|checkSortedUniqueStrings|len|uint64(len(elements)) > maximumCount|0`, driver: "TestSortedUniqueBoundEdges", exempt: true, reason: "mechanism: shared count ceiling; values pinned at the caller rows"},
+	// decode.go: the shared character-count, sorted-unique, and
+	// extensions enforcements converged onto environ this leaf
+	// (checkStringBounds, checkSortedUniqueStrings,
+	// checkSortedUniqueDigests, and checkExtensions delegate to
+	// the environ gates), so their len comparisons no longer
+	// derive here and their rows are GONE, not retained. The
+	// bounds still refuse at the same production entries through
+	// the same drivers (TestStringBoundEdges,
+	// TestSortedUniqueBoundEdges, TestExtensionKeyBoundEdges),
+	// and the delegation itself is pinned structurally by
+	// TestCheckHelpersDelegateToEnviron in internal/environ. A
+	// revived local comparison fails here as unrostered.
 	{id: `decode.go|parseUint53Literal|len|index < len(literal)|0`, exempt: true, reason: "plumbing: digit-scan index, not a domain bound; value edges pinned by TestUint53RepresentabilityCeiling"},
 	// manifest.go.
 	{id: `manifest.go|DecodeManifest|checkSortedUniqueStrings|"platforms"|0`, exempt: true, reason: "equivalent: element 16 and count 4 unreachable behind scalar.ParsePlatform and the four-name closed set"},
@@ -713,10 +693,10 @@ var boundCensusCanaries = []string{
 	`operations.go|checkRequestScalars|requireStringBounds|"expected_target_native_session_id"`,
 	`operations.go|checkSuccessScalars|requireUint53Bounds|"candidate_count"`,
 	`probe.go|DecodeProbe|checkSortedUniqueStrings|"warnings"`,
-	`decode.go|checkExtensions|len|len(name) > N`,
+	`tuple.go|DecodeTuple|checkStringBounds|"environment_version"`,
 	`tuple.go|decodeStrategies|len|index < len(strategies)`,
 	`decode.go|parseUint53Literal|len|index < len(literal)`,
-	`decode.go|checkStringBounds|len|length < minimum`,
+	`operations.go|checkSuccessScalars|checkSortedUniqueStrings|"environment_names"`,
 }
 
 // TestBoundGuardsAreCensused is the bound census: the derived

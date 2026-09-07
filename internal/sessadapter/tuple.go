@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/relux-works/agent-session-manager/internal/environ"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
 )
 
@@ -86,7 +87,7 @@ func DecodeTuple(raw json.RawMessage) (Tuple, error) {
 		return Tuple{}, failure
 	}
 	environmentID, ok := rawString(members["environment_id"])
-	if !ok || !environmentIDPattern.MatchString(environmentID) {
+	if !ok || !environ.CheckEnvironmentID(environmentID) {
 		failure, err := failProtocol("environment tuple environment identifier is not an environment-id", "environment_id")
 		if err != nil {
 			return Tuple{}, err
@@ -133,7 +134,7 @@ func DecodeTuple(raw json.RawMessage) (Tuple, error) {
 		return Tuple{}, failure
 	}
 	adapterVersion, ok := rawString(members["adapter_version"])
-	if !ok || !semverPattern.MatchString(adapterVersion) {
+	if !ok || !environ.CheckSemver(adapterVersion) {
 		failure, err := failProtocol("environment tuple adapter version is not SemVer", "adapter_version")
 		if err != nil {
 			return Tuple{}, err
@@ -1005,7 +1006,7 @@ func checkContractsShape(raw json.RawMessage) error {
 		previousVersion := ""
 		for _, versionRaw := range versions {
 			version, ok := rawString(versionRaw)
-			if !ok || !semverPattern.MatchString(version) {
+			if !ok || !environ.CheckSemver(version) {
 				failure, err := failProtocol("tuple contract version is not SemVer", "versions")
 				if err != nil {
 					return err

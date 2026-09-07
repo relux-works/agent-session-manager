@@ -1,14 +1,17 @@
 package environ
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/relux-works/agent-session-manager/internal/invcore"
 )
 
 // This file is the name layer of the shared-implementation
@@ -29,15 +32,24 @@ import (
 // Removing or renaming a ledgered implementation orphans its row
 // and fails too. An empty scan fails closed. The ledger records
 // the single canonical owner per rule (this package, or scalar
-// where the grammar already has one) plus the copies this leaf
-// does not unify; each copy names the battery file that pins it
-// to the canonical semantics. The sessadapter and dirnode frame
+// where the grammar already has one) plus the retained copies;
+// each copy names the battery file that pins it to the canonical
+// semantics in both directions. The sessadapter and dirnode frame
 // decoders are delegating wrappers onto environ.DecodeStrictObject
 // (their raw-scan divergence, once ledgered here, was closed by
 // delegation and is proven in both directions by the
-// frame-agreement battery); the remaining provhost, canonicaljson,
-// and scalar copies are unification residue tracked in the
-// cross-story follow-up, not harmless divergence.
+// frame-agreement battery), and their per-helper Check*,
+// stringLength, and grammar copies converged the same way. The
+// provhost decoder and surrogate gate stay independent because
+// their owning assembly is frozen by the accepted story leaves
+// (protocol.go); the canonicaljson gates stay independent
+// because the canonicalizer validates any JSON value with its
+// own depth, number, and control rules rather than closed
+// objects; the scalar gate stays independent because it
+// validates a single JSON string scalar rather than a frame.
+// Each retained copy carries a bidirectional battery row that
+// fails when the two diverge in either direction, and the
+// outcome names the freeze or role split behind every one.
 //
 // Scope. The scan covers the story packages (environ, provider,
 // provhost, sessadapter, dirnode) plus the grammar owners
@@ -95,8 +107,8 @@ var sharedLedger = map[string]string{
 	// String measures.
 	"string-measure|environ|decode.go|StringLength":     "canonical owner: runes per Section 1.6",
 	"string-measure|provhost|opdecode.go|runeLength":    "runes, pinned by measure_agreement_test.go",
-	"string-measure|sessadapter|decode.go|stringLength": "byte-frozen leaf 1: runes, pinned by measure_agreement_test.go",
-	"string-measure|dirnode|decode.go|stringLength":     "byte-frozen leaf 2: runes, pinned by measure_agreement_test.go",
+	"string-measure|sessadapter|decode.go|stringLength": "delegating wrapper onto environ.StringLength, pinned by TestCheckHelpersDelegateToEnviron + measure_agreement_test.go",
+	"string-measure|dirnode|decode.go|stringLength":     "delegating wrapper onto environ.StringLength, pinned by TestCheckHelpersDelegateToEnviron + measure_agreement_test.go",
 	// Identity validators: two refusal dialects over one rule.
 	"identity-validator|provhost|identity.go|CheckIdentity":                           "provider-stdio refusal dialect, pinned by identity_agreement_test.go",
 	"identity-validator|canonicaljson|core_records.go|validateProviderIdentityRecord": "identity refusal dialect, pinned by identity_agreement_test.go",
@@ -151,74 +163,54 @@ func deriveSharedSites(t *testing.T) map[string]bool {
 
 // scanSharedSymbols scans the census packages for function or
 // package-level variable definitions whose names appear in the
-// symbol map, and returns ledger keys for each hit.
+// symbol map, and returns ledger keys for each hit. Production
+// file selection and fail-closed parsing come from invcore: an
+// unreadable or unparseable production file fails the suite
+// instead of scanning as clean, and a package with zero
+// production files fails instead of passing vacuously.
 func scanSharedSymbols(t *testing.T, symbols map[string]string, functions bool) []string {
 	t.Helper()
 	root, err := internalRoot(t)
 	if err != nil {
 		t.Fatalf("census: %v", err)
 	}
+	packages := make([]string, 0, len(censusPackages))
+	for pkg := range censusPackages {
+		packages = append(packages, pkg)
+	}
+	sort.Strings(packages)
 	var keys []string
-	count := 0
-	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		parts := strings.Split(rel, string(filepath.Separator))
-		pkg := parts[0]
-		if !censusPackages[pkg] {
-			return nil
-		}
-		count++
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("census: read %s: %v", path, err)
-		}
-		syntax, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
-		if err != nil {
-			t.Fatalf("census: parse %s: %v", path, err)
-		}
-		file := parts[len(parts)-1]
-		for _, decl := range syntax.Decls {
-			switch node := decl.(type) {
-			case *ast.FuncDecl:
-				if !functions || node.Name == nil {
-					continue
-				}
-				if class, ok := symbols[node.Name.Name]; ok {
-					keys = append(keys, sharedSite{class, pkg, file, node.Name.Name}.sharedSiteKey())
-				}
-			case *ast.GenDecl:
-				if functions {
-					continue
-				}
-				for _, spec := range node.Specs {
-					value, ok := spec.(*ast.ValueSpec)
-					if !ok {
+	for _, pkg := range packages {
+		files, _ := invcore.MustScanProduction(t, filepath.Join(root, pkg))
+		for _, production := range files {
+			syntax, file := production.Syntax, production.Name
+			for _, decl := range syntax.Decls {
+				switch node := decl.(type) {
+				case *ast.FuncDecl:
+					if !functions || node.Name == nil {
 						continue
 					}
-					for _, name := range value.Names {
-						if class, ok := symbols[name.Name]; ok {
-							keys = append(keys, sharedSite{class, pkg, file, name.Name}.sharedSiteKey())
+					if class, ok := symbols[node.Name.Name]; ok {
+						keys = append(keys, sharedSite{class, pkg, file, node.Name.Name}.sharedSiteKey())
+					}
+				case *ast.GenDecl:
+					if functions {
+						continue
+					}
+					for _, spec := range node.Specs {
+						value, ok := spec.(*ast.ValueSpec)
+						if !ok {
+							continue
+						}
+						for _, name := range value.Names {
+							if class, ok := symbols[name.Name]; ok {
+								keys = append(keys, sharedSite{class, pkg, file, name.Name}.sharedSiteKey())
+							}
 						}
 					}
 				}
 			}
 		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("census: walk: %v", err)
-	}
-	if count == 0 {
-		t.Fatal("census scanned zero files; the scanner is broken, not the tree")
 	}
 	return keys
 }
@@ -238,37 +230,42 @@ func internalRoot(t *testing.T) (string, error) {
 // implementation set to equal the ledger exactly: an unregistered
 // copy fails as a unification violation, and a row naming an
 // implementation production no longer derives fails as orphaned.
+// Both directions run through the invcore harness, so a truncated
+// derivation fails instead of passing vacuously.
 func TestSharedImplementationsAreCensused(t *testing.T) {
 	derived := deriveSharedSites(t)
+	rows := make(map[string]struct{}, len(sharedLedger))
+	for key := range sharedLedger {
+		rows[key] = struct{}{}
+	}
+	derivedSet := make(map[string]struct{}, len(derived))
 	for key := range derived {
-		if _, ok := sharedLedger[key]; !ok {
-			t.Errorf("unregistered shared-rule copy %q: add one canonical implementation in internal/environ instead, or ledger the divergence with its agreement battery", key)
-		}
+		derivedSet[key] = struct{}{}
 	}
-	for key, rationale := range sharedLedger {
-		if !derived[key] {
-			t.Errorf("orphaned ledger row %q (%s): production no longer derives it", key, rationale)
-		}
-	}
+	invcore.MustCheckBothDirections(t, "shared-rule copy", derivedSet, rows)
 }
 
 // grammarSiteLedger names every grammar definition site in the
 // census scope. A new grammar definition fails here even when it
 // carries an identical literal: a second copy is a second copy,
 // and the next edit drifts exactly one of them.
+// grammarSiteLedger names every grammar definition site in the
+// census scope. The sessadapter and dirnode env-id, semver, and
+// extensions copies converged onto the environ grammars (their
+// check sites call environ.CheckEnvironmentID, environ.CheckSemver,
+// and environ.CheckExtensions directly), so their rows are GONE,
+// not retained: a revived copy fails here as unregistered. The
+// retained copies each name their owner: provider-id is scalar's
+// rule everywhere, while the provhost and canonicaljson copies of
+// the environ-owned grammars are pinned by the one-language
+// battery in both directions.
 var grammarSiteLedger = map[string]bool{
 	"env-id-grammar|environ|tuple.go|environmentIDPattern":                true,
-	"env-id-grammar|sessadapter|decode.go|environmentIDPattern":           true,
-	"env-id-grammar|dirnode|decode.go|environmentIDPattern":               true,
 	"env-id-grammar|canonicaljson|closed_shapes.go|environmentIDPattern":  true,
 	"semver-grammar|environ|tuple.go|semverPattern":                       true,
-	"semver-grammar|sessadapter|decode.go|semverPattern":                  true,
-	"semver-grammar|dirnode|decode.go|semverPattern":                      true,
 	"semver-grammar|canonicaljson|closed_shapes.go|semverPattern":         true,
 	"semver-grammar|provhost|manifest.go|semverPattern":                   true,
 	"extensions-grammar|environ|decode.go|reverseDNSPattern":              true,
-	"extensions-grammar|sessadapter|decode.go|reverseDNSPattern":          true,
-	"extensions-grammar|dirnode|decode.go|reverseDNSPattern":              true,
 	"extensions-grammar|canonicaljson|closed_shapes.go|reverseDNSPattern": true,
 	"provider-id-grammar|scalar|names.go|providerIDPattern":               true,
 	"provider-id-grammar|provhost|manifest.go|providerIDPattern":          true,
@@ -286,12 +283,23 @@ type grammarCandidate struct {
 // grammarCandidatesInFile extracts every package-level single
 // MustCompile definition from one source file. It is pure over
 // its inputs, so the synthetic controls drive this exact
-// function on planted sources.
+// function on planted sources. Parsing is fail-closed through
+// invcore: an unparseable file fails instead of scanning as
+// clean.
 func grammarCandidatesInFile(path string, source []byte) ([]grammarCandidate, error) {
-	syntax, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
-	if err != nil {
-		return nil, err
+	syntax, _, failure := invcore.ParseBytes(path, source, parser.ParseComments)
+	if failure != "" {
+		return nil, errors.New(failure)
 	}
+	return grammarCandidatesInSyntax(syntax), nil
+}
+
+// grammarCandidatesInSyntax extracts every package-level single
+// MustCompile definition from one parsed file. Production
+// derivation drives this over invcore-scanned files; the
+// synthetic controls reach it through grammarCandidatesInFile,
+// so both prove the same extractor.
+func grammarCandidatesInSyntax(syntax *ast.File) []grammarCandidate {
 	var candidates []grammarCandidate
 	for _, decl := range syntax.Decls {
 		node, ok := decl.(*ast.GenDecl)
@@ -322,7 +330,7 @@ func grammarCandidatesInFile(path string, source []byte) ([]grammarCandidate, er
 			candidates = append(candidates, grammarCandidate{symbol: value.Names[0].Name, literal: text})
 		}
 	}
-	return candidates, nil
+	return candidates
 }
 
 // deriveGrammarLiterals derives the regex literal behind every
@@ -347,37 +355,18 @@ func deriveGrammarLiterals(t *testing.T) (map[string]map[string]bool, map[string
 		candidate grammarCandidate
 	}
 	var collected []collectedCandidate
-	err = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	packages := make([]string, 0, len(censusPackages))
+	for pkg := range censusPackages {
+		packages = append(packages, pkg)
+	}
+	sort.Strings(packages)
+	for _, pkg := range packages {
+		files, _ := invcore.MustScanProduction(t, filepath.Join(root, pkg))
+		for _, production := range files {
+			for _, candidate := range grammarCandidatesInSyntax(production.Syntax) {
+				collected = append(collected, collectedCandidate{pkg: pkg, file: production.Name, candidate: candidate})
+			}
 		}
-		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		parts := strings.Split(rel, string(filepath.Separator))
-		pkg := parts[0]
-		if !censusPackages[pkg] {
-			return nil
-		}
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("grammar: read %s: %v", path, err)
-		}
-		candidates, err := grammarCandidatesInFile(path, source)
-		if err != nil {
-			t.Fatalf("grammar: parse %s: %v", path, err)
-		}
-		for _, candidate := range candidates {
-			collected = append(collected, collectedCandidate{pkg: pkg, file: parts[len(parts)-1], candidate: candidate})
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("grammar: walk: %v", err)
 	}
 	for _, entry := range collected {
 		class, known := grammarSymbols[entry.candidate.symbol]
@@ -435,18 +424,17 @@ func classifyGrammarCandidate(candidate grammarCandidate, known map[string]strin
 // and a mutant rewriting one copy's literal reddens here.
 func TestSharedGrammarsAreOneLanguage(t *testing.T) {
 	literals, sites, fresh := deriveGrammarLiterals(t)
+	derived := make(map[string]struct{}, len(sites))
 	for key := range sites {
-		if !grammarSiteLedger[key] {
-			t.Errorf("unregistered grammar copy %q: one language means one definition site per package at most", key)
-		}
+		derived[key] = struct{}{}
 	}
+	rows := make(map[string]struct{}, len(grammarSiteLedger))
+	for key := range grammarSiteLedger {
+		rows[key] = struct{}{}
+	}
+	invcore.MustCheckBothDirections(t, "grammar copy", derived, rows)
 	for key := range fresh {
 		t.Errorf("unregistered grammar copy under a fresh name %q: a second copy is a second copy even when the symbol is new", key)
-	}
-	for key := range grammarSiteLedger {
-		if !sites[key] {
-			t.Errorf("orphaned grammar row %q: production no longer derives it", key)
-		}
 	}
 	for class, texts := range literals {
 		if len(texts) != 1 {

@@ -150,6 +150,7 @@ func tupleCorpus(t *testing.T) []tupleRow {
 		{"x86 refused", set("architecture", `"x86"`), "architecture"},
 		{"arm64 admits", set("architecture", `"arm64"`), ""},
 		{"bad fingerprint", set("store_schema_fingerprint", `"sha256:zzzz"`), "digest"},
+		{"uppercase fingerprint refused", set("store_schema_fingerprint", jsonQuote("sha256:"+strings.ToUpper(strings.TrimPrefix(fixtureStorePrint, "sha256:")))), "digest"},
 		{"short version", set("adapter_version", `"1.2"`), "SemVer"},
 		{"prerelease admits", set("adapter_version", `"1.2.3-rc.1"`), ""},
 	}

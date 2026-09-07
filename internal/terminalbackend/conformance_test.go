@@ -2,9 +2,10 @@ package terminalbackend_test
 
 import (
 	"errors"
+	"github.com/relux-works/agent-session-manager/internal/invcore"
 	"go/ast"
-	"go/parser"
 	"go/token"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1649,10 +1650,15 @@ func TestParseSideEffectAdmitsOnlyTheTenClosedEffects(t *testing.T) {
 func derivedParserVocabulary(t *testing.T, file, function string) []string {
 	t.Helper()
 
-	fileSet := token.NewFileSet()
-	parsed, err := parser.ParseFile(fileSet, file, nil, 0)
+	// Selection and fail-closed parsing are the shared core's; the
+	// caller-supplied path resolves as before.
+	source, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatalf("parse %s: %v; an unparseable derivation proves nothing", file, err)
+	}
+	parsed, _, failure := invcore.ParseBytes(file, source, 0)
+	if failure != "" {
+		t.Fatalf("parse %s: %s; an unparseable derivation proves nothing", file, failure)
 	}
 	constValues := map[string]string{}
 	for _, declaration := range parsed.Decls {

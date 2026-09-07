@@ -14,6 +14,7 @@ import (
 
 	"github.com/relux-works/agent-session-manager/internal/catalog"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
+	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
 )
 
 const (
@@ -112,7 +113,12 @@ func mustBuildImmutableObjectShapeValidators() map[schemaIdentityKey]immutableOb
 	// selection but their schema-specific closed shapes are outside this task.
 	// Explicit refusal is safer and more honest than attesting an opaque object.
 	register("urn:ax:schema:canonical-event", rejectUnsupportedImmutableObjectShape, "1.0.0")
-	register("urn:ax:schema:terminal-backend-manifest", rejectUnsupportedImmutableObjectShape, "1.0.0")
+	// The three terminal closed schemas are owned by internal/terminalbackend:
+	// this package reaches the owner through its production Parse entries
+	// rather than re-implementing the shape, so the two validators for one
+	// schema cannot drift. The owner's refusal is wrapped as an identity
+	// refusal to keep this package's entry-point contract.
+	register("urn:ax:schema:terminal-backend-manifest", validateTerminalBackendManifest, "1.0.0")
 	register("urn:ax:schema:session-clone-bundle", rejectUnsupportedImmutableObjectShape, "1.0.0")
 	register("urn:ax:schema:materialization-plan", rejectUnsupportedImmutableObjectShape, "1.0.0", "2.0.0")
 	register("urn:ax:schema:session-continuation-plan", rejectUnsupportedImmutableObjectShape, "1.0.0")
@@ -127,9 +133,9 @@ func mustBuildImmutableObjectShapeValidators() map[schemaIdentityKey]immutableOb
 	register("urn:ax:schema:session-enrichment-job-request", rejectUnsupportedImmutableObjectShape, "1.0.0")
 	register("urn:ax:schema:session-enrichment-job-receipt", rejectUnsupportedImmutableObjectShape, "1.0.0")
 	register("urn:ax:schema:session-directory-operation-receipt", rejectUnsupportedImmutableObjectShape, "1.0.0")
-	register("urn:ax:schema:terminal-backend-probe", rejectUnsupportedImmutableObjectShape, "1.0.0")
+	register("urn:ax:schema:terminal-backend-probe", validateTerminalBackendProbe, "1.0.0")
 	register("urn:ax:schema:terminal-instance-binding", rejectUnsupportedImmutableObjectShape, "1.0.0")
-	register("urn:ax:schema:terminal-capability-evidence", rejectUnsupportedImmutableObjectShape, "1.0.0")
+	register("urn:ax:schema:terminal-capability-evidence", validateTerminalCapabilityEvidence, "1.0.0")
 	register("urn:ax:schema:clone-raw-object-manifest", rejectUnsupportedImmutableObjectShape, "1.0.0")
 	register("urn:ax:schema:clone-capture-manifest", rejectUnsupportedImmutableObjectShape, "1.0.0")
 	register("urn:ax:schema:canonical-session", rejectUnsupportedImmutableObjectShape, "1.0.0")
@@ -823,6 +829,51 @@ func rejectUnsupportedImmutableObjectShape(object map[string]any) error {
 	schema, _ := object["schema"].(string)
 	version, _ := object["schema_version"].(string)
 	return invalidIdentity("complete immutable-object shape validation is unavailable for %s@%s", schema, version)
+}
+
+// validateTerminalBackendManifest validates the Terminal Backend Manifest
+// 1.0.0 closed shape through its owner: internal/terminalbackend owns the
+// three terminal schemas, and this validator re-encodes the already-decoded
+// object and drives the owner's production ParseManifest entry rather than
+// copying the rule. The re-encoding is logically identical (decoded maps
+// hold only strings, booleans, nulls, arrays, objects, and json.Number
+// literals, all of which round-trip), and the terminal agreement battery
+// fails when the two entries disagree on any document.
+func validateTerminalBackendManifest(object map[string]any) error {
+	raw, err := json.Marshal(object)
+	if err != nil {
+		return invalidIdentity("terminal backend manifest 1.0.0: encode identity object: %v", err)
+	}
+	if _, err := terminalbackend.ParseManifest(raw); err != nil {
+		return invalidIdentity("terminal backend manifest 1.0.0: %v", err)
+	}
+	return nil
+}
+
+// validateTerminalBackendProbe validates the Terminal Backend Probe 1.0.0
+// closed shape through its owner, as validateTerminalBackendManifest does.
+func validateTerminalBackendProbe(object map[string]any) error {
+	raw, err := json.Marshal(object)
+	if err != nil {
+		return invalidIdentity("terminal backend probe 1.0.0: encode identity object: %v", err)
+	}
+	if _, err := terminalbackend.ParseProbe(raw); err != nil {
+		return invalidIdentity("terminal backend probe 1.0.0: %v", err)
+	}
+	return nil
+}
+
+// validateTerminalCapabilityEvidence validates the Capability Evidence 1.0.0
+// closed shape through its owner, as validateTerminalBackendManifest does.
+func validateTerminalCapabilityEvidence(object map[string]any) error {
+	raw, err := json.Marshal(object)
+	if err != nil {
+		return invalidIdentity("terminal capability evidence 1.0.0: encode identity object: %v", err)
+	}
+	if _, err := terminalbackend.ParseEvidence(raw); err != nil {
+		return invalidIdentity("terminal capability evidence 1.0.0: %v", err)
+	}
+	return nil
 }
 
 func requirePrintableByteBoundedString(object map[string]any, name string, minimum, maximum int) (string, error) {

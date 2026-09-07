@@ -539,6 +539,59 @@ func TestDocumentSurrogateEscapeRefused(t *testing.T) {
 	requireRefusal(t, err, codeMismatch, "document surrogate escape")
 }
 
+// TestDocumentHexEscapeDigitBoundaryRefused pins the hex digit case of
+// readUTF16EscapeUnit at its exact upper edge: ':' (0x3A, one above
+// '9') inside a \uXXXX escape never decodes as a nibble. Each witness
+// completes a surrogate unit under a widened case (`\ud80:` reads
+// 0xD80A, a high surrogate; `\udc0:` reads 0xDC0A, a low one) while
+// staying malformed on real code, so a mutant admitting exactly ':'
+// — by editing the bound to `digit <= ':'` or by inserting
+// `case digit == ':'` above the unchanged case — slides the refusal
+// from the syntax arm to the surrogate arm and reddens here rather
+// than only in the census bijection. The sweep agreement tests never
+// probe ':' inside an escape, so without these rows that mutant
+// survives the whole suite. The valid-pair control proves the entries
+// stay reachable: it decodes past both escape arms to member
+// validation. '/' needs no row: it converts to 0xFFFF, which no
+// surrogate prefix survives, so a widened lower bound is
+// verdict-equivalent on every input (measured by R6-D32).
+func TestDocumentHexEscapeDigitBoundaryRefused(t *testing.T) {
+	t.Parallel()
+
+	// The boundary escapes are assembled from byte values: no literal
+	// in this file spells the escape directly.
+	slash := string([]byte{92})
+	inject := func(raw []byte, anchor, value, digits string) []byte {
+		old := []byte(`"` + anchor + `":` + `"` + value + `"`)
+		escaped := append([]byte(`"`+anchor+`":`+`"`), slash...)
+		escaped = append(escaped, ("u" + digits)...)
+		escaped = append(escaped, '"')
+		return bytes.Replace(raw, old, escaped, 1)
+	}
+
+	universe := testUniverse(t)
+	for _, digits := range []string{"d80:", "dc0:"} {
+		_, err := terminalbackend.ParseProbe(inject(mustMarshal(t, universe.probe), "os_version", "14.5", digits))
+		requireRefusal(t, err, codeMismatch, "document syntax")
+
+		_, err = terminalbackend.ParseManifest(inject(mustMarshal(t, universe.manifest), "implementation_kind", "builtin_go", digits))
+		requireRefusal(t, err, codeMismatch, "document syntax")
+	}
+
+	// Control: a well-formed surrogate pair decodes past both escape
+	// arms, so the rows above cannot pass by refusing everything. The
+	// inner backslash is a byte value like the outer one: the payload
+	// spells two escapes, not one long one.
+	pair := inject(mustMarshal(t, universe.probe), "os_version", "14.5", "d800"+slash+"udc00")
+	_, err := terminalbackend.ParseProbe(pair)
+	if err == nil {
+		t.Fatal("ParseProbe(surrogate pair) admitted, want member validation to refuse")
+	}
+	if strings.Contains(err.Error(), "document syntax") || strings.Contains(err.Error(), "document surrogate escape") {
+		t.Fatalf("ParseProbe(surrogate pair) error = %v, want past both escape arms", err)
+	}
+}
+
 // TestDocumentWTF8SurrogateRefused proves the raw road to the same
 // substitution is closed at every production document entry: a lone
 // surrogate arriving as raw WTF-8 (CESU-8) bytes ED A0 80 rather than as an

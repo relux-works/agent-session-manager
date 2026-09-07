@@ -111,6 +111,14 @@ func declaredOperationWitnessesIdentity() []armWitness {
 			body := identityVariant(t, `"logical_workspace_id": "0198f4c8-6c30-7d44-8d5e-1234567890ab"`, `"logical_workspace_id": "0198f4c8-6c30-7d44-8d5e-1234567890aX"`)
 			requireFrameRefusal(t, CheckIdentity(body, "antigravity"), "logical_workspace_id", "not a UUIDv7")
 		}},
+		{arm: `ctor|failProtocol|identity is not a valid provider identity`, name: "identity owner-gate extensions content", prove: func(t *testing.T) {
+			// Every dialect arm admits this body: extensions is an object,
+			// so only the conjoined owner verdict refuses it (the key is
+			// not a reverse-DNS name, which the owner requires). Deleting
+			// the owner gate admits the body and fails here.
+			body := identityVariant(t, `"extensions": {}`, `"extensions": {"x": "y"}`)
+			requireFrameRefusal(t, CheckIdentity(body, "antigravity"), "", "is not a valid provider identity")
+		}},
 		// Identify-result arms, through DecodeIdentifyResult.
 		{arm: `ctor|failProtocol|identify confidence is not exact strong or weak`, name: "identify certain confidence", prove: func(t *testing.T) {
 			body := []byte(strings.Replace(string(specIdentifyCallBody()), `"confidence": "exact"`, `"confidence": "certain"`, 1))

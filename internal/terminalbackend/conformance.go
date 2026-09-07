@@ -99,7 +99,7 @@ func ParseInstanceState(value string) (InstanceState, error) {
 		StateQuiescing, StateStopped, StateStaleFenced, StateUnavailable:
 		return InstanceState(value), nil
 	default:
-		return "", &Error{Code: CodeProtocolError, Detail: "lifecycle state vocabulary"}
+		return "", refuse(&Error{Code: CodeProtocolError, Detail: "lifecycle state vocabulary"})
 	}
 }
 
@@ -128,7 +128,7 @@ func ParseOperation(value string) (Operation, error) {
 		OperationRequestStop, OperationTerminateStale, OperationRestore:
 		return Operation(value), nil
 	default:
-		return "", &Error{Code: CodeProtocolError, Detail: "operation vocabulary"}
+		return "", refuse(&Error{Code: CodeProtocolError, Detail: "operation vocabulary"})
 	}
 }
 
@@ -171,7 +171,7 @@ func parseTransport(value string) (PresentationTransport, error) {
 	case TransportLocalOnly, TransportTrustedPrivateMesh, TransportThirdPartyRelay:
 		return PresentationTransport(value), nil
 	default:
-		return "", &Error{Code: CodeProtocolError, Detail: "presentation transport vocabulary"}
+		return "", refuse(&Error{Code: CodeProtocolError, Detail: "presentation transport vocabulary"})
 	}
 }
 
@@ -309,11 +309,11 @@ func CheckTransition(operation, source string, interactive bool) (InstanceState,
 	}
 	row, known := lookupTransition(parsedOperation)
 	if !known {
-		return "", nil, &Error{Code: CodeProtocolError, Detail: "operation vocabulary"}
+		return "", nil, refuse(&Error{Code: CodeProtocolError, Detail: "operation vocabulary"})
 	}
 	if !row.InstanceScoped {
 		if source != "" {
-			return "", nil, &Error{Code: CodePreconditionFailed, Detail: "lifecycle instance scope"}
+			return "", nil, refuse(&Error{Code: CodePreconditionFailed, Detail: "lifecycle instance scope"})
 		}
 		return "", nil, nil
 	}
@@ -329,7 +329,7 @@ func CheckTransition(operation, source string, interactive bool) (InstanceState,
 		}
 	}
 	if !allowed {
-		return "", nil, &Error{Code: CodePreconditionFailed, Detail: "lifecycle transition"}
+		return "", nil, refuse(&Error{Code: CodePreconditionFailed, Detail: "lifecycle transition"})
 	}
 	if row.SameState {
 		return parsedSource, nil, nil
@@ -415,7 +415,7 @@ func CheckErrorAllowed(operation, code string) error {
 			return nil
 		}
 	}
-	return &Error{Code: CodeProtocolError, Detail: "operation error vocabulary"}
+	return refuse(&Error{Code: CodeProtocolError, Detail: "operation error vocabulary"})
 }
 
 // IdempotencyKey derives the canonical UTF-8 idempotency key for one
@@ -441,16 +441,16 @@ func IdempotencyKey(operation string, segments ...string) (string, error) {
 	}
 	for _, segment := range segments {
 		if segment == "" {
-			return "", &Error{Code: CodeProtocolError, Detail: "idempotency key shape"}
+			return "", refuse(&Error{Code: CodeProtocolError, Detail: "idempotency key shape"})
 		}
 	}
 	want := idempotencyKeySegments[parsedOperation]
 	if want < 0 {
 		if len(segments) < 1 {
-			return "", &Error{Code: CodeProtocolError, Detail: "idempotency key shape"}
+			return "", refuse(&Error{Code: CodeProtocolError, Detail: "idempotency key shape"})
 		}
 	} else if len(segments) != want {
-		return "", &Error{Code: CodeProtocolError, Detail: "idempotency key shape"}
+		return "", refuse(&Error{Code: CodeProtocolError, Detail: "idempotency key shape"})
 	}
 	return strings.Join(segments, "/"), nil
 }
@@ -503,10 +503,10 @@ func NewLedger() *Ledger {
 // absence, never a second binding.
 func (ledger *Ledger) Bind(key string, operation Operation, resultID string) (Receipt, error) {
 	if ledger == nil {
-		return Receipt{}, &Error{Code: CodeProtocolError, Detail: "idempotency ledger unavailable"}
+		return Receipt{}, refuse(&Error{Code: CodeProtocolError, Detail: "idempotency ledger unavailable"})
 	}
 	if key == "" || resultID == "" {
-		return Receipt{}, &Error{Code: CodeProtocolError, Detail: "idempotency key shape"}
+		return Receipt{}, refuse(&Error{Code: CodeProtocolError, Detail: "idempotency key shape"})
 	}
 	if _, err := ParseOperation(string(operation)); err != nil {
 		return Receipt{}, err
@@ -515,7 +515,7 @@ func (ledger *Ledger) Bind(key string, operation Operation, resultID string) (Re
 	defer ledger.mutex.Unlock()
 	if stored, known := ledger.receipts[key]; known {
 		if stored.Operation != operation || stored.ResultID != resultID {
-			return Receipt{}, &Error{Code: CodeIdempotencyMismatch, Detail: "idempotency key conflict"}
+			return Receipt{}, refuse(&Error{Code: CodeIdempotencyMismatch, Detail: "idempotency key conflict"})
 		}
 		return stored, nil
 	}
@@ -643,7 +643,7 @@ func ParseAttachAuthorization(raw []byte) (AttachAuthorization, error) {
 		return AttachAuthorization{}, mismatchf("document timestamp")
 	}
 	if !expires.After(issued) {
-		return AttachAuthorization{}, &Error{Code: CodeUnauthorized, Detail: "attach authorization expiry"}
+		return AttachAuthorization{}, refuse(&Error{Code: CodeUnauthorized, Detail: "attach authorization expiry"})
 	}
 	return AttachAuthorization{
 		PolicyEvidenceID:  policyEvidenceID,
@@ -668,17 +668,17 @@ func CheckAttachRequest(auth AttachAuthorization, transport string, inputAuthori
 		return err
 	}
 	if requested != auth.Transport || inputAuthorized != auth.InputAuthorized {
-		return &Error{Code: CodeUnauthorized, Detail: "attach authorization binding"}
+		return refuse(&Error{Code: CodeUnauthorized, Detail: "attach authorization binding"})
 	}
 	if requested == TransportThirdPartyRelay {
-		return &Error{Code: CodeUnauthorized, Detail: "attach relay transport"}
+		return refuse(&Error{Code: CodeUnauthorized, Detail: "attach relay transport"})
 	}
 	expires, err := auth.ExpiresAt.Time()
 	if err != nil {
 		return mismatchf("document timestamp")
 	}
 	if !now.Before(expires) {
-		return &Error{Code: CodeUnauthorized, Detail: "attach authorization expiry"}
+		return refuse(&Error{Code: CodeUnauthorized, Detail: "attach authorization expiry"})
 	}
 	return nil
 }
@@ -689,7 +689,7 @@ func CheckAttachRequest(auth AttachAuthorization, transport string, inputAuthori
 // when the request itself was authorized.
 func CheckAttachResult(requestInputAuthorized, resultInputAuthorized bool, auth AttachAuthorization) error {
 	if resultInputAuthorized != requestInputAuthorized || resultInputAuthorized != auth.InputAuthorized {
-		return &Error{Code: CodeUnauthorized, Detail: "attach input binding"}
+		return refuse(&Error{Code: CodeUnauthorized, Detail: "attach input binding"})
 	}
 	return nil
 }
@@ -702,18 +702,18 @@ func CheckAttachResult(requestInputAuthorized, resultInputAuthorized bool, auth 
 // session must equal the session under creation.
 func CheckEntrypoint(argv []string, sessionID string) error {
 	if len(argv) != 3 || argv[0] != "ax" || argv[1] != "pane" {
-		return &Error{Code: CodePreconditionFailed, Detail: "entrypoint argv"}
+		return refuse(&Error{Code: CodePreconditionFailed, Detail: "entrypoint argv"})
 	}
 	session, err := scalar.ParseUUIDv7(sessionID)
 	if err != nil {
-		return &Error{Code: CodePreconditionFailed, Detail: "entrypoint session binding"}
+		return refuse(&Error{Code: CodePreconditionFailed, Detail: "entrypoint session binding"})
 	}
 	carried, err := scalar.ParseUUIDv7(argv[2])
 	if err != nil {
-		return &Error{Code: CodePreconditionFailed, Detail: "entrypoint session binding"}
+		return refuse(&Error{Code: CodePreconditionFailed, Detail: "entrypoint session binding"})
 	}
 	if carried.String() != session.String() {
-		return &Error{Code: CodePreconditionFailed, Detail: "entrypoint session binding"}
+		return refuse(&Error{Code: CodePreconditionFailed, Detail: "entrypoint session binding"})
 	}
 	return nil
 }
@@ -755,20 +755,20 @@ func CheckStatusResult(identityMatch bool, result StatusResult) error {
 	}
 	if !identityMatch || !result.IdentityMatch {
 		if result.IdentityMatch {
-			return &Error{Code: CodeProtocolError, Detail: "status identity binding"}
+			return refuse(&Error{Code: CodeProtocolError, Detail: "status identity binding"})
 		}
 		if result.State != StateAbsent || result.WrapperPresent ||
 			result.ProviderPresent != nil || result.Attachable ||
 			result.LastOperationID != nil || result.LastEffect != nil {
-			return &Error{Code: CodeProtocolError, Detail: "status identity binding"}
+			return refuse(&Error{Code: CodeProtocolError, Detail: "status identity binding"})
 		}
 		return nil
 	}
 	if result.ProviderPresent != nil && !(result.ProviderRequested && result.ProviderEvidenced) {
-		return &Error{Code: CodeProtocolError, Detail: "status provider observation"}
+		return refuse(&Error{Code: CodeProtocolError, Detail: "status provider observation"})
 	}
 	if result.Attachable && !((result.State == StateParked || result.State == StateActive) && result.AttachEvidenced) {
-		return &Error{Code: CodePreconditionFailed, Detail: "status attachability"}
+		return refuse(&Error{Code: CodePreconditionFailed, Detail: "status attachability"})
 	}
 	return nil
 }
@@ -782,7 +782,7 @@ func ParseSideEffect(value string) (SideEffect, error) {
 		EffectStaleIncarnationTerminated, EffectWrapperRestored:
 		return SideEffect(value), nil
 	default:
-		return "", &Error{Code: CodeProtocolError, Detail: "side effect vocabulary"}
+		return "", refuse(&Error{Code: CodeProtocolError, Detail: "side effect vocabulary"})
 	}
 }
 
@@ -884,20 +884,20 @@ func ImportLedger(image []byte) (*Ledger, error) {
 		lines = lines[:len(lines)-1]
 	}
 	if len(lines)%3 != 0 {
-		return nil, &Error{Code: CodeProtocolError, Detail: "idempotency ledger image"}
+		return nil, refuse(&Error{Code: CodeProtocolError, Detail: "idempotency ledger image"})
 	}
 	ledger := NewLedger()
 	for index := 0; index < len(lines); index += 3 {
 		key, operation, resultID := lines[index], lines[index+1], lines[index+2]
 		if key == "" || resultID == "" {
-			return nil, &Error{Code: CodeProtocolError, Detail: "idempotency ledger image"}
+			return nil, refuse(&Error{Code: CodeProtocolError, Detail: "idempotency ledger image"})
 		}
 		parsed, err := ParseOperation(operation)
 		if err != nil {
-			return nil, &Error{Code: CodeProtocolError, Detail: "idempotency ledger image"}
+			return nil, refuse(&Error{Code: CodeProtocolError, Detail: "idempotency ledger image"})
 		}
 		if _, duplicate := ledger.receipts[key]; duplicate {
-			return nil, &Error{Code: CodeIdempotencyMismatch, Detail: "idempotency ledger image"}
+			return nil, refuse(&Error{Code: CodeIdempotencyMismatch, Detail: "idempotency ledger image"})
 		}
 		ledger.receipts[key] = Receipt{Key: key, Operation: parsed, ResultID: resultID}
 	}
@@ -923,7 +923,7 @@ func ClassifyReplication(member string) (ReplicationClass, bool) {
 func CheckReplicable(members []string) error {
 	for _, member := range members {
 		if class, known := replicationMembers[member]; !known || class != ReplicationSafeEvidence {
-			return &Error{Code: CodeProtocolError, Detail: "replication exclusion"}
+			return refuse(&Error{Code: CodeProtocolError, Detail: "replication exclusion"})
 		}
 	}
 	return nil
@@ -962,7 +962,7 @@ var legacyForward = map[string]string{
 func TranslateLegacyBackend(legacy string) (LegacyBinding, error) {
 	canonical, known := legacyForward[legacy]
 	if !known {
-		return LegacyBinding{}, &Error{Code: CodeIncompatibleSchema, Detail: "legacy backend identity"}
+		return LegacyBinding{}, refuse(&Error{Code: CodeIncompatibleSchema, Detail: "legacy backend identity"})
 	}
 	return LegacyBinding{
 		BackendID:             canonical,
@@ -985,5 +985,5 @@ func ProjectToLegacy(backendID string) (string, error) {
 			return legacy, nil
 		}
 	}
-	return "", &Error{Code: CodeIncompatibleSchema, Detail: "legacy reverse projection"}
+	return "", refuse(&Error{Code: CodeIncompatibleSchema, Detail: "legacy reverse projection"})
 }

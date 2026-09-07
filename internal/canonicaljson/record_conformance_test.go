@@ -77,9 +77,9 @@ var section101EnvelopeMembers = []string{"subject_id", "created_by_host_id", "cr
 // identityAddressedFixtures returns the fixtures that address themselves by
 // digest. The Section 18.1 Observation Event fixture is not identity-addressed
 // and is excluded by its empty self field, not by name.
-func identityAddressedFixtures() []identityFixture {
+func identityAddressedFixtures(t *testing.T) []identityFixture {
 	fixtures := make([]identityFixture, 0, 32)
-	for _, fixture := range everyValidIdentityFixture() {
+	for _, fixture := range everyValidIdentityFixture(t) {
 		if fixture.selfField == "" {
 			continue
 		}
@@ -107,7 +107,7 @@ func fixtureSchemaVersion(fixture identityFixture) (string, string) {
 func TestEveryIdentityFixtureSurvivesACanonicalRoundTripAtProductionEntries(t *testing.T) {
 	t.Parallel()
 
-	fixtures := identityAddressedFixtures()
+	fixtures := identityAddressedFixtures(t)
 	if len(fixtures) == 0 {
 		t.Fatal("derived zero identity-addressed fixtures; the derivation is broken, not the package")
 	}
@@ -166,7 +166,7 @@ func TestEveryIdentityFixtureSurvivesACanonicalRoundTripAtProductionEntries(t *t
 func TestCanonicalRoundTripDoesNotLaunderAMalformedMember(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range identityAddressedFixtures() {
+	for _, fixture := range identityAddressedFixtures(t) {
 		t.Run(fixture.name, func(t *testing.T) {
 			mutated := cloneJSONObject(t, fixture.object)
 			// created_at is a Section 10.1 envelope member on the record
@@ -209,7 +209,7 @@ func TestDistinctIdentityFixturesDoNotShareAnOmitSelfDigest(t *testing.T) {
 	t.Parallel()
 
 	seen := make(map[scalar.Digest]string)
-	for _, fixture := range identityAddressedFixtures() {
+	for _, fixture := range identityAddressedFixtures(t) {
 		digest, _, err := CalculateObjectIdentity(mustJSON(t, fixture.object))
 		if err != nil {
 			t.Fatalf("CalculateObjectIdentity(%s) error = %v", fixture.name, err)
@@ -244,10 +244,13 @@ func TestUnknownTopLevelMemberIsRefusedWhileTheSameKeyIsAdmittedUnderExtensions(
 	extensionValue := "retained"
 
 	swept := 0
-	for _, fixture := range identityAddressedFixtures() {
+	closedExtensions := terminalDelegatedSchemas(t)
+	for _, fixture := range identityAddressedFixtures(t) {
 		if _, extensible := fixture.object["extensions"]; !extensible {
 			continue
 		}
+		schema, version := fixtureSchemaVersion(fixture)
+		_, closed := closedExtensions[schemaIdentityKey{schema: schema, version: version}]
 		swept++
 		t.Run(fixture.name, func(t *testing.T) {
 			refused := cloneJSONObject(t, fixture.object)
@@ -262,12 +265,54 @@ func TestUnknownTopLevelMemberIsRefusedWhileTheSameKeyIsAdmittedUnderExtensions(
 				t.Fatalf("fixture %s extensions member is %T, want object", fixture.name, admitted["extensions"])
 			}
 			extensions[extensionKey] = extensionValue
-			assertIdentityEntriesAcceptShape(t, mustJSON(t, admitted), fixture.selfField)
+			if closed {
+				// The pinned Section 4.B member tables declare extensions
+				// as "exact empty object {}" for every terminal schema, so
+				// the owner refuses a non-empty extensions object with its
+				// closed-extensions arm rather than admitting it. The
+				// admission half of Section 1.5 applies only to schemas
+				// whose contract opens extensions; the closed rule itself
+				// is proven at the owner by its checkExtensions arms and
+				// by the terminal agreement battery, which drives
+				// extensions-content mutants through both entries.
+				assertIdentityEntriesRefuseShape(t, mustJSON(t, admitted), fixture.selfField)
+			} else {
+				assertIdentityEntriesAcceptShape(t, mustJSON(t, admitted), fixture.selfField)
+			}
 		})
 	}
 	if swept == 0 {
 		t.Fatal("swept zero extensible fixtures; the sweep is broken, not the package")
 	}
+}
+
+// terminalDelegatedValidators are the production shape validators that reach
+// the terminal schema owner (internal/terminalbackend) instead of checking
+// the shape locally. They are named so the derivation below fails loudly on
+// a rename rather than silently rescoping the sweep.
+var terminalDelegatedValidators = map[string]bool{
+	"validateTerminalBackendManifest":    true,
+	"validateTerminalBackendProbe":       true,
+	"validateTerminalCapabilityEvidence": true,
+}
+
+// terminalDelegatedSchemas derives the schema/version set whose closed shape
+// is validated through the terminal owner from the production validator
+// registry, never from a hand-written schema list: a schema that gains or
+// loses a delegating validator joins or leaves the closed-extensions scope
+// with it instead of passing silently under the wrong half of Section 1.5.
+func terminalDelegatedSchemas(t *testing.T) map[schemaIdentityKey]struct{} {
+	t.Helper()
+	delegated := make(map[schemaIdentityKey]struct{})
+	for key, validator := range deriveRegisteredShapeValidators(t) {
+		if terminalDelegatedValidators[validator] {
+			delegated[key] = struct{}{}
+		}
+	}
+	if len(delegated) == 0 {
+		t.Fatal("derived zero terminal-delegated schemas; the derivation is broken, not the package")
+	}
+	return delegated
 }
 
 // contractVersionsByID projects one release's Section 1.5 contract registry
@@ -478,7 +523,7 @@ func TestEveryHistoricalMajorFixtureIsAcceptedUnderItsOwnRegisteredVersion(t *te
 	}
 
 	historical := make(map[schemaIdentityKey]struct{})
-	for _, fixture := range identityAddressedFixtures() {
+	for _, fixture := range identityAddressedFixtures(t) {
 		schema, version := fixtureSchemaVersion(fixture)
 		if version == "" || majorVersion(t, version) == highest[schema] {
 			continue
@@ -551,7 +596,7 @@ func TestSection101EnvelopeProvenanceIsRequiredByEveryRecordFamilyFixture(t *tes
 	}
 
 	covered := make(map[string]struct{})
-	for _, fixture := range identityAddressedFixtures() {
+	for _, fixture := range identityAddressedFixtures(t) {
 		schema, _ := fixtureSchemaVersion(fixture)
 		if _, member := section101RecordFamilies[schema]; !member {
 			continue
@@ -829,7 +874,7 @@ func TestNoRecordEnumPositionAdmitsAValueFromAnotherPinnedVocabulary(t *testing.
 	positions := 0
 	foreign := 0
 	resolved := make(map[string]struct{})
-	for _, fixture := range identityAddressedFixtures() {
+	for _, fixture := range identityAddressedFixtures(t) {
 		for _, position := range enumValuedPositions(fixture.object, nil, union) {
 			declared, closed := declaredVocabularyAtPosition(t, fixture, position, rows)
 			if !closed {

@@ -85,7 +85,53 @@ func identityCorpus(t *testing.T) []identityRow {
 		{"extensions array refused", set("extensions", `[]`), "identity extensions is not an object", "extensions"},
 		{"lone escape refused", set("opaque_identity", `{"k":"A`+rawLoneHigh+`B"}`), "lone surrogate escape", "surrogate"},
 		{"escaped text admits", set("opaque_identity", `{"k":"A`+rawEscapedHigh+`B"}`), "", ""},
+		// The rows below pin the deliberate copy against its owner
+		// (canonicaljson) on the classes where the dialect is blind:
+		// extensions content, numbers, and nesting the dialect never
+		// reads. The provhost phrase on each is the conjoined owner
+		// gate, not a member arm: deleting the owner call admits the
+		// body and fails the row on the provhost side.
+		{"extensions open key refused", set("extensions", `{"x": "y"}`), "identity is not a valid provider identity", "extensions key"},
+		{"extensions unsafe integer refused", set("extensions", `{"works.relux.ax.x": 9007199254740993}`), "identity is not a valid provider identity", "outside the AX safe-integer interval"},
+		{"extensions float refused", set("extensions", `{"works.relux.ax.x": 1.5}`), "identity is not a valid provider identity", "forbidden by the AX common model"},
+		{"extensions 65 keys refused", set("extensions", extensionKeysJSON(65)), "identity is not a valid provider identity", "maximum is 64"},
+		{"extensions deep nesting refused", set("extensions", `{"works.relux.ax.a": {"b": {"c": {"d": {"e": {"f": 1}}}}}}`), "identity is not a valid provider identity", "maximum nesting depth 4"},
+		// Bound edges in both directions: the admit rows prove the gate
+		// is not refusing everything, the refuse rows prove the bound.
+		{"opaque 64-char key admits", set("opaque_identity", `{"k`+strings.Repeat("e", 63)+`": "v"}`), "", ""},
+		{"version 128 admits", set("provider_version", jsonQuote(strings.Repeat("v", 128))), "", ""},
+		{"version 128 wide admits", set("provider_version", jsonQuote(strings.Repeat("é", 128))), "", ""},
+		{"version 129 wide refused", set("provider_version", jsonQuote(strings.Repeat("é", 129))), "identity provider_version is not 1..128 characters", "provider_version"},
+		// A number where the dialect already reads the type is refused
+		// by the dialect arm first: the owner gate never fires, and the
+		// member attribution survives the conjunction.
+		{"opaque unsafe integer refused", set("opaque_identity", `{"k": 9007199254740993}`), "identity opaque value is not 1..1024 characters", "outside the AX safe-integer interval"},
+		// Decoder vectors both entries must refuse with their own arm.
+		{"duplicate member refused", duplicateMemberJSON(t, valid), "duplicate member", "duplicate object member"},
+		{"trailing data refused", append(append([]byte{}, valid...), ' ', '{', '}'), "trailing data", "trailing JSON"},
 	}
+}
+
+// extensionKeysJSON builds an extensions object with count reverse-DNS
+// keys, so the count bound (not the key grammar) is what refuses it.
+func extensionKeysJSON(count int) string {
+	parts := make([]string, 0, count)
+	for index := 0; index < count; index++ {
+		parts = append(parts, `"works.relux.ax.k`+twoDigits(index)+`":"v"`)
+	}
+	return "{" + strings.Join(parts, ",") + "}"
+}
+
+// duplicateMemberJSON returns the fixture with one member doubled: a
+// repeated member has no single value, so both decoders refuse it before
+// any shape rule runs.
+func duplicateMemberJSON(t *testing.T, valid []byte) []byte {
+	t.Helper()
+	body := string(valid)
+	if body == "" || body[len(body)-1] != '}' {
+		t.Fatalf("duplicate member fixture is not an object")
+	}
+	return []byte(body[:len(body)-1] + `, "score": 1, "score": 2}`)
 }
 
 // Raw escape fragments. rawLoneHigh is a real lone high escape

@@ -37,9 +37,11 @@
 // the filesystem cause verbatim for errors.Is and errors.As. That
 // rendering must never become a wire message as-is:
 // axerror.refuseCausalLeak refuses any message reproducing a local
-// cause, so the future cmd/ax lift of a discovery failure into a
-// Structured Error must rebuild the message (dynamic facts into the
-// Details map, cause stripped) rather than quoting Error(). No such
-// call site exists yet; this paragraph names the rule that lift must
-// follow.
+// cause, so the lift of a discovery failure into a Structured Error
+// rebuilds the message from the stable code alone (no dynamic fact
+// reaches the message or the details map) and carries the cause as the
+// local Go cause only, rather than quoting Error(). Lift in lift.go is
+// the single production call site that rule names: the future cmd/ax
+// caller lifts through Lift, and the local Error value stays the
+// host-log record, never the wire message.
 package provider

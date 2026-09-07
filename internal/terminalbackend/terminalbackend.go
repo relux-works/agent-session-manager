@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -96,6 +97,31 @@ func (err *Error) Error() string {
 	return "terminal backend refused: " + err.Code + " for " + err.BackendID + " at " + err.Detail
 }
 
+// recordRefusal arms runtime attribution of constructed refusals to their
+// production call site. It is nil in production: construction is then a
+// pure allocation with zero behavior change. The refusal-arm inventory
+// audit (internal test) sets it for the test-binary run so the exercised
+// file:line set behind every refusal can be audited against the derived
+// arm set in both directions. The hook carries only code and detail; the
+// audit attributes the site itself through the call stack, exactly like
+// the provider/provhost swapped-constructor recorders.
+var recordRefusal func(code, detail string)
+
+// refuse builds the refusal for one derived arm. Every production
+// &Error literal routes through refuse so the exercised-site audit can
+// attribute each refusal to its file:line; an &Error literal built
+// outside refuse is an unregistered construction the derivation rejects.
+// The returned value is identical to the wrapped literal: recording never
+// alters the refusal.
+//
+//go:noinline
+func refuse(err *Error) *Error {
+	if recordRefusal != nil {
+		recordRefusal(err.Code, err.Detail)
+	}
+	return err
+}
+
 // errorCode reports whether err carries the given wire code.
 func errorCode(err error, code string) bool {
 	var refusal *Error
@@ -127,15 +153,34 @@ func IsStaleGeneration(err error) bool { return errorCode(err, CodeStaleGenerati
 // matching [a-z][a-z0-9]*(?:[.-][a-z0-9]+)*. It admits the reserved ax.
 // namespace only for the two canonical built-ins; every other ax.-prefixed ID
 // is refused so a third party cannot mint a trusted-looking identity.
+//
+// The bound and grammar arms omit BackendID on purpose: a value refused
+// there is arbitrary input the grammar never admitted, and the package
+// posture is that refusals never echo unvalidated data. Only the
+// reserved-namespace arm names the identity, because its input already
+// passed the grammar.
+//
+// Every other site that names a BackendID is covered by the entry census
+// in backend_id_entry_census_test.go, keyed by (site, reaching exported
+// entry): Registration.validate and TrustEntry.validate via mustParseID;
+// Resolve, RequireRestoreBinding, CheckVersionTuple,
+// CheckProviderDescriptor and Reconcile via ParseID at the entry;
+// ParseManifest, ParseProbe and ParseEvidence via ParseID at document
+// admission with entry re-validation where a second entry reaches the
+// same arm; New via the built-in constants. That test — not this comment
+// — is the enforcement: it derives every BackendID site and every
+// exported entry from production source, refuses hostile input through
+// each entry without echo, fires each pair with a validated identity,
+// and reports the validated/total ratio it measured.
 func ParseID(value string) (string, error) {
 	if !utf8.ValidString(value) || len(value) < 1 || len(value) > maxIDBytes {
-		return "", &Error{Code: CodeNotFound, Detail: "terminal_backend_id bound"}
+		return "", refuse(&Error{Code: CodeNotFound, Detail: "terminal_backend_id bound"})
 	}
 	if !idPattern.MatchString(value) {
-		return "", &Error{Code: CodeNotFound, BackendID: value, Detail: "terminal_backend_id grammar"}
+		return "", refuse(&Error{Code: CodeNotFound, Detail: "terminal_backend_id grammar"})
 	}
 	if strings.HasPrefix(value, reservedNamespace) && value != BuiltinTmux && value != BuiltinConpty {
-		return "", &Error{Code: CodeNotFound, BackendID: value, Detail: "terminal_backend_id reserved namespace"}
+		return "", refuse(&Error{Code: CodeNotFound, BackendID: value, Detail: "terminal_backend_id reserved namespace"})
 	}
 	return value, nil
 }
@@ -166,7 +211,7 @@ func parseKind(value string) (Kind, error) {
 	case KindBuiltinGo, KindLocalProgram, KindTrustedExecutable, KindNativeRuntime:
 		return Kind(value), nil
 	default:
-		return "", &Error{Code: CodeNotFound, Detail: "implementation_kind vocabulary"}
+		return "", refuse(&Error{Code: CodeNotFound, Detail: "implementation_kind vocabulary"})
 	}
 }
 
@@ -206,20 +251,20 @@ func (record Registration) validate() error {
 		return err
 	}
 	if !semverPattern.MatchString(record.ImplementationVersion) {
-		return &Error{Code: CodeDrift, BackendID: record.ID, Detail: "implementation_version semver"}
+		return refuse(&Error{Code: CodeDrift, BackendID: record.ID, Detail: "implementation_version semver"})
 	}
 	if err := validateProtocolVersions(record.ID, record.ProtocolVersions); err != nil {
 		return err
 	}
 	if err := validatePlatforms(record.Platforms); err != nil {
-		return &Error{Code: CodeNotFound, BackendID: record.ID, Detail: err.Error()}
+		return refuse(&Error{Code: CodeNotFound, BackendID: record.ID, Detail: err.Error()})
 	}
 	if needsDigest(record.Kind) {
 		if _, err := scalar.ParseDigest(record.ExecutableDigest); err != nil {
-			return &Error{Code: CodeUntrusted, BackendID: record.ID, Detail: "executable_digest"}
+			return refuse(&Error{Code: CodeUntrusted, BackendID: record.ID, Detail: "executable_digest"})
 		}
 	} else if record.ExecutableDigest != "" {
-		return &Error{Code: CodeDrift, BackendID: record.ID, Detail: "executable_digest must be null"}
+		return refuse(&Error{Code: CodeDrift, BackendID: record.ID, Detail: "executable_digest must be null"})
 	}
 	return nil
 }
@@ -228,27 +273,36 @@ func (record Registration) validate() error {
 // Terminal Backend Protocol major 1.
 func validateProtocolVersions(backendID string, versions []string) error {
 	if len(versions) < 1 || len(versions) > maxProtocolVersions {
-		return &Error{Code: CodeDrift, BackendID: backendID, Detail: "protocol_versions bound"}
+		return refuse(&Error{Code: CodeDrift, BackendID: backendID, Detail: "protocol_versions bound"})
 	}
 	for index, version := range versions {
 		if !semverPattern.MatchString(version) || semverMajor(version) != 1 {
-			return &Error{Code: CodeDrift, BackendID: backendID, Detail: "protocol_versions major 1"}
+			return refuse(&Error{Code: CodeDrift, BackendID: backendID, Detail: "protocol_versions major 1"})
 		}
 		if index > 0 && versions[index-1] >= version {
-			return &Error{Code: CodeDrift, BackendID: backendID, Detail: "protocol_versions sorted unique"}
+			return refuse(&Error{Code: CodeDrift, BackendID: backendID, Detail: "protocol_versions sorted unique"})
 		}
 	}
 	return nil
 }
 
 // semverMajor returns the major number of a validated semver string.
+// A major that does not fit an int saturates instead of wrapping, so a
+// huge foreign major compares foreign at every != 1 call site rather
+// than aliasing a small native one (18446744073709551617 must not read
+// as 1). Saturation preserves every comparison against the small
+// constants the call sites use, in the correct direction.
 func semverMajor(version string) int {
 	major := 0
 	for i := 0; i < len(version); i++ {
 		if version[i] == '.' {
 			break
 		}
-		major = major*10 + int(version[i]-'0')
+		digit := int(version[i] - '0')
+		if major > (math.MaxInt-digit)/10 {
+			return math.MaxInt
+		}
+		major = major*10 + digit
 	}
 	return major
 }
@@ -348,13 +402,13 @@ func (entry TrustEntry) validate(platform scalar.Platform) error {
 		return err
 	}
 	if strings.HasPrefix(entry.BackendID, reservedNamespace) {
-		return &Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: "external_trust reserved namespace"}
+		return refuse(&Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: "external_trust reserved namespace"})
 	}
 	if _, err := scalar.ParseAbsolutePath(platform, entry.ExecutablePath); err != nil {
-		return &Error{Code: CodeUntrusted, BackendID: entry.BackendID, Detail: "external_trust executable_path"}
+		return refuse(&Error{Code: CodeUntrusted, BackendID: entry.BackendID, Detail: "external_trust executable_path"})
 	}
 	if _, err := scalar.ParseDigest(entry.ExecutableDigest); err != nil {
-		return &Error{Code: CodeUntrusted, BackendID: entry.BackendID, Detail: "external_trust executable_digest"}
+		return refuse(&Error{Code: CodeUntrusted, BackendID: entry.BackendID, Detail: "external_trust executable_digest"})
 	}
 	return nil
 }
@@ -375,7 +429,7 @@ type Registry struct {
 // before either built-in is admitted.
 func New(implementationVersion string, protocolVersions []string) (*Registry, error) {
 	if !semverPattern.MatchString(implementationVersion) {
-		return nil, &Error{Code: CodeDrift, Detail: "implementation_version semver"}
+		return nil, refuse(&Error{Code: CodeDrift, Detail: "implementation_version semver"})
 	}
 	protocols := append([]string(nil), protocolVersions...)
 	sort.Strings(protocols)
@@ -423,25 +477,25 @@ func New(implementationVersion string, protocolVersions []string) (*Registry, er
 // (registration is not idempotent) and any difference is CodeDrift.
 func (registry *Registry) RegisterExternal(platform scalar.Platform, entry TrustEntry, observed Registration) error {
 	if registry == nil {
-		return &Error{Code: CodeNotFound, Detail: "registry unavailable"}
+		return refuse(&Error{Code: CodeNotFound, Detail: "registry unavailable"})
 	}
 	if err := entry.validate(platform); err != nil {
 		return err
 	}
 	if !entry.Enabled {
-		return &Error{Code: CodeUntrusted, BackendID: entry.BackendID, Detail: "external_trust disabled"}
+		return refuse(&Error{Code: CodeUntrusted, BackendID: entry.BackendID, Detail: "external_trust disabled"})
 	}
 	if observed.ID != entry.BackendID {
-		return &Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: "external_trust identity binding"}
+		return refuse(&Error{Code: CodeAmbiguous, BackendID: entry.BackendID, Detail: "external_trust identity binding"})
 	}
 	if observed.Kind != KindLocalProgram && observed.Kind != KindTrustedExecutable {
-		return &Error{Code: CodeUntrusted, BackendID: entry.BackendID, Detail: "external implementation_kind"}
+		return refuse(&Error{Code: CodeUntrusted, BackendID: entry.BackendID, Detail: "external implementation_kind"})
 	}
 	if err := observed.validate(); err != nil {
 		return err
 	}
 	if observed.ExecutableDigest != entry.ExecutableDigest {
-		return &Error{Code: CodeUntrusted, BackendID: entry.BackendID, Detail: "executable substitution"}
+		return refuse(&Error{Code: CodeUntrusted, BackendID: entry.BackendID, Detail: "executable substitution"})
 	}
 	registry.mutex.Lock()
 	defer registry.mutex.Unlock()
@@ -454,9 +508,9 @@ func (registry *Registry) RegisterExternal(platform scalar.Platform, entry Trust
 		return nil
 	}
 	if equalRecord(existing, observed) {
-		return &Error{Code: CodeAmbiguous, BackendID: observed.ID, Detail: "duplicate backend_id"}
+		return refuse(&Error{Code: CodeAmbiguous, BackendID: observed.ID, Detail: "duplicate backend_id"})
 	}
-	return &Error{Code: CodeDrift, BackendID: observed.ID, Detail: "implementation drift"}
+	return refuse(&Error{Code: CodeDrift, BackendID: observed.ID, Detail: "implementation drift"})
 }
 
 // Resolve returns the admitted record for a canonical ID. An unknown,
@@ -464,7 +518,7 @@ func (registry *Registry) RegisterExternal(platform scalar.Platform, entry Trust
 // never absence, and callers must not fall back to a default.
 func (registry *Registry) Resolve(backendID string) (Registration, error) {
 	if registry == nil {
-		return Registration{}, &Error{Code: CodeNotFound, Detail: "registry unavailable"}
+		return Registration{}, refuse(&Error{Code: CodeNotFound, Detail: "registry unavailable"})
 	}
 	id, err := ParseID(backendID)
 	if err != nil {
@@ -474,7 +528,7 @@ func (registry *Registry) Resolve(backendID string) (Registration, error) {
 	defer registry.mutex.RUnlock()
 	record, known := registry.records[id]
 	if !known {
-		return Registration{}, &Error{Code: CodeNotFound, BackendID: id, Detail: "unregistered terminal_backend_id"}
+		return Registration{}, refuse(&Error{Code: CodeNotFound, BackendID: id, Detail: "unregistered terminal_backend_id"})
 	}
 	// Hand back a copy: the struct header copy shares the backing arrays,
 	// so returning the stored record would hand out live interior state.
@@ -507,7 +561,7 @@ func DefaultForPlatform(platform scalar.Platform) (string, error) {
 	case scalar.PlatformWindows:
 		return BuiltinConpty, nil
 	default:
-		return "", &Error{Code: CodeNotFound, Detail: "platform vocabulary"}
+		return "", refuse(&Error{Code: CodeNotFound, Detail: "platform vocabulary"})
 	}
 }
 
@@ -518,7 +572,7 @@ func DefaultForPlatform(platform scalar.Platform) (string, error) {
 // activate.
 func (registry *Registry) RequireRestoreBinding(boundBackendID, candidateBackendID string) (Registration, error) {
 	if registry == nil {
-		return Registration{}, &Error{Code: CodeNotFound, Detail: "registry unavailable"}
+		return Registration{}, refuse(&Error{Code: CodeNotFound, Detail: "registry unavailable"})
 	}
 	bound, err := ParseID(boundBackendID)
 	if err != nil {
@@ -529,7 +583,7 @@ func (registry *Registry) RequireRestoreBinding(boundBackendID, candidateBackend
 		return Registration{}, err
 	}
 	if candidate != bound {
-		return Registration{}, &Error{Code: CodeRestoreMismatch, BackendID: candidate, Detail: "restore requires the prior binding"}
+		return Registration{}, refuse(&Error{Code: CodeRestoreMismatch, BackendID: candidate, Detail: "restore requires the prior binding"})
 	}
 	return registry.Resolve(bound)
 }
@@ -539,19 +593,30 @@ func (registry *Registry) RequireRestoreBinding(boundBackendID, candidateBackend
 // semver, the protocol must be semver in Terminal Backend Protocol major 1
 // and exactly one member of the list. Array-to-scalar selection is
 // membership, not aggregate equality (§4.B).
+//
+// The backend ID is validated through ParseID before any version arm runs,
+// like RequireRestoreBinding and CheckProviderDescriptor already do: the
+// three version arms below name the ID, so an unvalidated parameter would
+// echo grammar-refused input (terminal escapes, traversal content,
+// over-long bytes) into the refusal. A refused ID returns the ParseID
+// refusal — whose bound and grammar arms carry no BackendID — and never
+// reaches the version arms.
 func CheckVersionTuple(backendID, implementationVersion, protocolVersion string, protocolVersions []string) error {
+	if _, err := ParseID(backendID); err != nil {
+		return err
+	}
 	if !semverPattern.MatchString(implementationVersion) {
-		return &Error{Code: CodeDrift, BackendID: backendID, Detail: "implementation_version semver"}
+		return refuse(&Error{Code: CodeDrift, BackendID: backendID, Detail: "implementation_version semver"})
 	}
 	if !semverPattern.MatchString(protocolVersion) || semverMajor(protocolVersion) != 1 {
-		return &Error{Code: CodeDrift, BackendID: backendID, Detail: "protocol_version major 1"}
+		return refuse(&Error{Code: CodeDrift, BackendID: backendID, Detail: "protocol_version major 1"})
 	}
 	for _, member := range protocolVersions {
 		if protocolVersion == member {
 			return nil
 		}
 	}
-	return &Error{Code: CodeDrift, BackendID: backendID, Detail: "protocol_version membership"}
+	return refuse(&Error{Code: CodeDrift, BackendID: backendID, Detail: "protocol_version membership"})
 }
 
 // InstanceBinding is the validated host-local binding subset a §7.A provider
@@ -582,20 +647,20 @@ func CheckProviderDescriptor(descriptor, binding InstanceBinding) error {
 		return err
 	}
 	if descriptor.BackendID != binding.BackendID {
-		return &Error{Code: CodeNotFound, BackendID: descriptor.BackendID, Detail: "descriptor backend binding"}
+		return refuse(&Error{Code: CodeNotFound, BackendID: descriptor.BackendID, Detail: "descriptor backend binding"})
 	}
 	if _, err := scalar.ParseDigest(descriptor.TerminalBindingID); err != nil {
-		return &Error{Code: CodeNotFound, BackendID: descriptor.BackendID, Detail: "descriptor binding digest"}
+		return refuse(&Error{Code: CodeNotFound, BackendID: descriptor.BackendID, Detail: "descriptor binding digest"})
 	}
 	if descriptor.TerminalBindingID != binding.TerminalBindingID {
-		return &Error{Code: CodeNotFound, BackendID: descriptor.BackendID, Detail: "descriptor binding digest"}
+		return refuse(&Error{Code: CodeNotFound, BackendID: descriptor.BackendID, Detail: "descriptor binding digest"})
 	}
 	if descriptor.ImplementationVersion != binding.ImplementationVersion ||
 		descriptor.ProtocolVersion != binding.ProtocolVersion {
-		return &Error{Code: CodeDrift, BackendID: descriptor.BackendID, Detail: "descriptor version binding"}
+		return refuse(&Error{Code: CodeDrift, BackendID: descriptor.BackendID, Detail: "descriptor version binding"})
 	}
 	if descriptor.Generation != binding.Generation {
-		return &Error{Code: CodeStaleGeneration, BackendID: descriptor.BackendID, Detail: "descriptor generation binding"}
+		return refuse(&Error{Code: CodeStaleGeneration, BackendID: descriptor.BackendID, Detail: "descriptor generation binding"})
 	}
 	return nil
 }
@@ -604,7 +669,7 @@ func CheckProviderDescriptor(descriptor, binding InstanceBinding) error {
 // valid UTF-8 (SPEC.md:321).
 func checkGeneration(generation string) error {
 	if !utf8.ValidString(generation) || utf8.RuneCountInString(generation) < 1 || utf8.RuneCountInString(generation) > maxGenerationRunes {
-		return &Error{Code: CodeStaleGeneration, Detail: "backend_generation bound"}
+		return refuse(&Error{Code: CodeStaleGeneration, Detail: "backend_generation bound"})
 	}
 	return nil
 }
@@ -613,6 +678,18 @@ func checkGeneration(generation string) error {
 // resolving symlinks. The target must be a regular file; anything else (or a
 // read failure) is an error, never a digest. It distinguishes a failed read
 // from an absent trust entry: callers must not fall back to PATH discovery.
+//
+// Trust here is Section 6.5 external_trust: the closed entry carries
+// exactly backend ID, absolute executable path, executable digest, and
+// enabled — there is no owner member, so no owner check applies. That
+// differs deliberately from provider trust under Section 7.1, which
+// requires the target be owned by the operator or an
+// administrator-approved identity (see provider.trustCandidate). The
+// symlink-resolution and regular-file steps mirror Section 7.1's
+// mechanics; the missing owner dimension is contractual — the closed
+// entry leaves no member to record an owner in — not drift. Do not add
+// an owner check here without a spec change, and do not read this
+// function as the provider trust path.
 func DigestFile(path string) (string, error) {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {

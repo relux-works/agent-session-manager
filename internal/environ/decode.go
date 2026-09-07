@@ -244,6 +244,9 @@ func rawUint53(raw json.RawMessage) (uint64, bool) {
 // string, so 2^53 is refused even on platforms that could hold
 // it.
 func parseUint53Literal(literal string) (uint64, bool) {
+	if literal == "" {
+		return 0, false
+	}
 	var value uint64
 	for index := 0; index < len(literal); index++ {
 		digit := literal[index]
@@ -465,7 +468,13 @@ func CheckSortedUniqueDigests(raw json.RawMessage, minimumCount, maximumCount ui
 // rule in human text automation must never branch on, naming the
 // member. Tests assert the full text, so a reworded rule fails
 // its row instead of passing against a stale copy.
-func refuse(rule, member string) error {
+//
+// refuse is a variable, not a function, so the refusal-site audit
+// (refusal_site_audit_test.go) can swap it in TestMain and record
+// the production file:line behind every exercised refusal. Every
+// call site invokes it directly; an aliased call records its real
+// use site and fails the reverse direction of the audit.
+var refuse = func(rule, member string) error {
 	if member == "" {
 		return fmt.Errorf("environment %s", rule)
 	}

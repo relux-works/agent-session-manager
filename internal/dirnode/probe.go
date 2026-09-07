@@ -170,7 +170,7 @@ func CheckProbeRequest(major int, body []byte) (ProbeRequest, error) {
 		return ProbeRequest{}, failure
 	}
 	for _, environment := range environments {
-		if !environmentIDPattern.MatchString(environment) {
+		if !checkEnvironmentID(environment) {
 			failure, err := failViolation("probe request environment identifier is not an environment-id", "requested_environment_ids")
 			if err != nil {
 				return ProbeRequest{}, err

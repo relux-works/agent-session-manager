@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -434,6 +435,125 @@ func orBody(shared, override []byte) []byte {
 		return override
 	}
 	return shared
+}
+
+// deriveMapKeys derives the key set behind a package-level
+// map[string]bool variable in one production file. The
+// comparison travels with the derivation: an added, removed, or
+// renamed key fails the sweeper below, not silently.
+func deriveMapKeys(t *testing.T, pkg, file, symbol string) []string {
+	t.Helper()
+	path := filepath.Join(mustInternalRoot(t), pkg, file)
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("members: %v", err)
+	}
+	syntax, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
+	if err != nil {
+		t.Fatalf("members: %v", err)
+	}
+	for _, decl := range syntax.Decls {
+		node, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range node.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok || len(value.Names) != 1 || value.Names[0].Name != symbol {
+				continue
+			}
+			if len(value.Values) != 1 {
+				t.Fatalf("members: %s %s is not a single literal; the extractor cannot see through indirection", path, symbol)
+			}
+			composite, ok := value.Values[0].(*ast.CompositeLit)
+			if !ok {
+				t.Fatalf("members: %s %s is not a composite literal; the extractor cannot see through indirection", path, symbol)
+			}
+			var keys []string
+			for _, element := range composite.Elts {
+				pair, ok := element.(*ast.KeyValueExpr)
+				if !ok {
+					t.Fatalf("members: %s %s holds a non-pair; the extractor cannot see through indirection", path, symbol)
+				}
+				literal, ok := pair.Key.(*ast.BasicLit)
+				if !ok {
+					t.Fatalf("members: %s %s holds a non-literal key; the extractor cannot see through indirection", path, symbol)
+				}
+				keys = append(keys, strings.Trim(literal.Value, `"`))
+			}
+			return keys
+		}
+	}
+	t.Fatalf("members: %s %s not found; the extractor is blind, not the table absent", path, symbol)
+	return nil
+}
+
+// duplicateMemberNames derives the swept duplicate-member set
+// from production: the tuple required list, the observation
+// required list, the provhost response member set, and the
+// dirnode scan-request required list, plus the battery's generic
+// frame key. The duplicate rule is key-agnostic, so this test
+// proves the class over every in-scope member rather than the
+// single key the first battery happened to witness. A new member
+// in any derived set is automatically swept: the set travels
+// with the derivation, so an added member cannot pass silently.
+func duplicateMemberNames(t *testing.T) []string {
+	t.Helper()
+	seen := map[string]bool{}
+	var names []string
+	add := func(keys []string) {
+		for _, key := range keys {
+			if !seen[key] {
+				seen[key] = true
+				names = append(names, key)
+			}
+		}
+	}
+	add(deriveRequiredList(t, "environ", "tuple.go", "tupleRequired"))
+	add(deriveRequiredList(t, "environ", "observation.go", "observationRequired"))
+	add(deriveMapKeys(t, "provhost", "protocol.go", "responseMembers"))
+	add(deriveRequiredList(t, "dirnode", "scan.go", "scanRequestRequired"))
+	add([]string{"v"})
+	sort.Strings(names)
+	if len(names) == 0 {
+		t.Fatal("derived zero duplicate keys; the scanner is blind, not the class empty")
+	}
+	return names
+}
+
+// TestFrameAgreementRefusesDuplicateOfEveryDerivedMember requires
+// every derived member to be refused as a duplicate on all five
+// judges when doubled. The environ verdict is exact (detail and
+// member); the facade rows assert the frame-duplicate phrase,
+// which the minimal bodies can reach only through the frame
+// gate: no member arm runs before it. A narrowing mutant
+// admitting exactly one duplicated member fails its own row
+// while every other row stays green, so the suite measures the
+// class, not the witness.
+func TestFrameAgreementRefusesDuplicateOfEveryDerivedMember(t *testing.T) {
+	for _, key := range duplicateMemberNames(t) {
+		t.Run(key, func(t *testing.T) {
+			body := []byte(`{` + strconv.Quote(key) + `:1,` + strconv.Quote(key) + `:2}`)
+			_, fault := environ.DecodeStrictObject(body)
+			if fault == nil {
+				t.Fatalf("environ admitted duplicated %q", key)
+			}
+			if fault.Detail != environ.FaultDuplicate || fault.Member != key {
+				t.Fatalf("environ fault = (%q, %q), want (%q, %q)", fault.Detail, fault.Member, environ.FaultDuplicate, key)
+			}
+			assertFacadeVerdict(t, "sessadapter", body, false, environ.FaultDuplicate, "", func(body []byte) error {
+				_, err := sessadapter.DecodeTuple(body)
+				return err
+			})
+			assertFacadeVerdict(t, "dirnode", body, false, environ.FaultDuplicate, "", func(body []byte) error {
+				_, err := dirnode.CheckScanRequest(body)
+				return err
+			})
+			assertFacadeVerdict(t, "provhost", body, false, environ.FaultDuplicate, "", func(body []byte) error {
+				return provhost.DecodeManifest(body)
+			})
+		})
+	}
 }
 
 // assertFacadeVerdict requires the ledgered verdict at one

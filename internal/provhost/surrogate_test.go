@@ -45,6 +45,42 @@ func TestProductionEntriesRefuseLoneSurrogateEscapes(t *testing.T) {
 	})
 }
 
+// TestProductionEntriesRefuseHexDigitBoundaryEscapes pins the hex digit
+// branch of readHexUnit at its exact upper edge: ':' (0x3A, one above
+// '9') inside a \uXXXX escape never decodes as a nibble. Each witness
+// completes a surrogate unit under a widened branch (`\ud80:` reads
+// 0xD80A, a high surrogate; `\udc0:` reads 0xDC0A, a low one) while
+// staying malformed on real code, so a mutant admitting exactly ':'
+// — by editing the bound to `b <= ':'` or by inserting
+// `if b == ':'` above the unchanged branch — slides the refusal from
+// the JSON-syntax arm to the lone-surrogate arm and reddens here
+// rather than only in the census bijection. The derived sweep never
+// probes ':' inside an escape, so without these rows that mutant
+// survives the whole suite. The valid-pair control proves the entries
+// stay reachable: it decodes past both escape arms to member
+// validation. '/' needs no row: it converts to a garbage nibble no
+// surrogate prefix survives, so a widened lower bound is
+// verdict-equivalent on every input (measured by R6-D33).
+func TestProductionEntriesRefuseHexDigitBoundaryEscapes(t *testing.T) {
+	for _, digits := range []string{"d80:", "dc0:"} {
+		body := []byte(`{"note":"ab\u` + digits + `cd"}`)
+		requireFrameRefusal(t, DecodeManifest(body), "note", "not a JSON object")
+		requireFrameRefusal(t, DecodeProbe(body), "note", "not a JSON object")
+	}
+
+	// Control: a well-formed surrogate pair decodes past both escape
+	// arms, so the rows above cannot pass by refusing everything.
+	pair := []byte(`{"note":"ab\ud800\udc00cd"}`)
+	for name, err := range map[string]error{"DecodeManifest": DecodeManifest(pair), "DecodeProbe": DecodeProbe(pair)} {
+		if err == nil {
+			t.Fatalf("%s(surrogate pair) admitted, want member validation to refuse", name)
+		}
+		if strings.Contains(err.Error(), "not a JSON object") || strings.Contains(err.Error(), "lone surrogate escape") {
+			t.Fatalf("%s(surrogate pair) error = %v, want past both escape arms", name, err)
+		}
+	}
+}
+
 // TestSurrogateGateDerivedSweepAgreesWithCanonicalJSON derives the
 // surrogate verdict space from the code-point space and requires the
 // local gate (through decodeStrictObject) and canonicaljson to agree

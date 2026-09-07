@@ -1,37 +1,34 @@
 package provhost
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/relux-works/agent-session-manager/internal/axerror"
 	"github.com/relux-works/agent-session-manager/internal/catalog"
+	"github.com/relux-works/agent-session-manager/internal/invcore"
 	"github.com/relux-works/agent-session-manager/internal/specdoc"
 )
 
-// exercisedRefusalSites records the production file:line that constructed
-// a refusal, for every instrumented refusal constructor call made during
-// the test run. observedCodes records every stable code those refusals
-// carried.
-var exercisedRefusalSites sync.Map
-var observedCodes sync.Map
+// refusalRecorder is the shared core's runtime direction: the production
+// file:line behind every instrumented refusal constructor call made
+// during the test run, plus the stable codes those refusals carried.
+// Constructor vars are swapped in TestMain, so an aliased constructor
+// still executes the swapped var and records its real production site:
+// the runtime direction of the alias-bypass union.
+var refusalRecorder = invcore.NewSiteRecorder()
 
 func recordRefusalSite(code string) {
-	observedCodes.Store(code, struct{}{})
-	if _, file, line, ok := runtime.Caller(2); ok {
-		exercisedRefusalSites.Store(fmt.Sprintf("%s:%d", filepath.Base(file), line), struct{}{})
-	}
+	refusalRecorder.Record(code, 2)
 }
 
 func TestMain(main *testing.M) {
@@ -132,19 +129,15 @@ func auditRefusalInventory() []string {
 	// derived site. The exercised set comes from the test run, not from
 	// a hand list, so a truncated derivation reddens here even though
 	// the forward check passes vacuously.
-	derived := map[string]bool{}
+	derived := map[string]struct{}{}
 	for _, site := range inventory.Sites {
-		derived[site] = true
+		derived[site] = struct{}{}
 	}
-	var outside []string
-	exercisedRefusalSites.Range(func(key, _ any) bool {
-		site := key.(string)
-		if !derived[site] {
-			outside = append(outside, site)
-		}
-		return true
-	})
-	sort.Strings(outside)
+	// Both directions run through the shared harness: derived sites
+	// without an exercised path (forward) and exercised sites outside
+	// the derivation (reverse) fail together.
+	missing, outside, scanFailures := invcore.DiffSets(derived, refusalRecorder.Sites())
+	failures = append(failures, scanFailures...)
 	if len(outside) != 0 {
 		failures = append(failures, "exercised refusal sites outside the derived inventory; the derivation is short: "+strings.Join(outside, ", "))
 	}
@@ -156,22 +149,10 @@ func auditRefusalInventory() []string {
 		sort.Strings(inventory.RawConstructors)
 		failures = append(failures, "provhost raw error construction: "+strings.Join(inventory.RawConstructors, ", "))
 	}
-	var missing []string
-	for _, site := range inventory.Sites {
-		if _, ok := exercisedRefusalSites.Load(site); !ok {
-			missing = append(missing, site)
-		}
-	}
-	sort.Strings(missing)
 	if len(missing) != 0 {
 		failures = append(failures, "provhost refusal call sites without an exercised negative path: "+strings.Join(missing, ", "))
 	}
-	var codes []string
-	observedCodes.Range(func(key, _ any) bool {
-		codes = append(codes, key.(string))
-		return true
-	})
-	sort.Strings(codes)
+	codes := refusalRecorder.Codes()
 	want := []string{"incompatible_protocol", "integrity_failure", "invalid_config", "provider_process_failed", "provider_protocol_error", "provider_timeout"}
 	if fmt.Sprintf("%v", codes) != fmt.Sprintf("%v", want) {
 		failures = append(failures, fmt.Sprintf("observed refusal codes = %v, want closed set %v", codes, want))
@@ -207,27 +188,14 @@ var refusalConstructors = map[string]bool{
 }
 
 func deriveRefusalInventory(directory string) (refusalInventory, error) {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return refusalInventory{}, err
+	scannedFiles, fileSet, failures := invcore.ScanProduction(directory)
+	if len(failures) != 0 {
+		return refusalInventory{}, errors.New(strings.Join(failures, "; "))
 	}
 	var inventory refusalInventory
-	fileSet := token.NewFileSet()
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
+	for _, production := range scannedFiles {
+		name, syntax := production.Name, production.Syntax
 		inventory.ScannedFiles = append(inventory.ScannedFiles, name)
-		path := filepath.Join(directory, name)
-		source, err := os.ReadFile(path)
-		if err != nil {
-			return refusalInventory{}, err
-		}
-		syntax, err := parser.ParseFile(fileSet, path, source, parser.ParseComments)
-		if err != nil {
-			return refusalInventory{}, err
-		}
 		// Map each constructor's own body span so builder calls inside
 		// it are not mistaken for strays.
 		constructorBodies := map[*ast.FuncLit]bool{}
@@ -482,6 +450,35 @@ func TestStableCodesAreRegistered(t *testing.T) {
 	t.Logf("refusal code coverage: 6/6 package codes registered with pinned exits")
 }
 
+// TestRuntimeAuditRejectsAliasedExercise plants the alias-bypass shape
+// against the runtime direction: a refusal exercised from a site the
+// derivation never named (what an aliased constructor call records —
+// the alias call site, not a derived production site) must fail the
+// audit's reverse direction. Dropping the runtime direction readmits it.
+func TestRuntimeAuditRejectsAliasedExercise(t *testing.T) {
+	beforeSites, beforeCodes := refusalRecorder.Snapshot()
+	t.Cleanup(func() {
+		refusalRecorder.Restore(beforeSites, beforeCodes)
+	})
+
+	aliased, err := failInvalid("planted through an aliased constructor var")
+	if err != nil {
+		t.Fatalf("failInvalid() error = %v", err)
+	}
+	_ = aliased
+	refusalRecorder.Record("invalid_config", 0)
+
+	planted := false
+	for _, failure := range auditRefusalInventory() {
+		if strings.Contains(failure, "outside the derived inventory") {
+			planted = true
+		}
+	}
+	if !planted {
+		t.Fatal("auditRefusalInventory() admitted an exercised site outside the derivation; the runtime direction is blind to aliased exercise")
+	}
+}
+
 // TestRefusalConstructorsAreTotal proves the fallible-constructor error
 // path never fires in practice: every constructor returns a failure and
 // a nil error across representative dynamic causes. The sites recorded
@@ -489,30 +486,9 @@ func TestStableCodesAreRegistered(t *testing.T) {
 // to the exercised set is removed before it returns, keeping the
 // reverse-direction audit exact.
 func TestRefusalConstructorsAreTotal(t *testing.T) {
-	var beforeSites, beforeCodes []any
-	exercisedRefusalSites.Range(func(key, _ any) bool { beforeSites = append(beforeSites, key); return true })
-	observedCodes.Range(func(key, _ any) bool { beforeCodes = append(beforeCodes, key); return true })
+	beforeSites, beforeCodes := refusalRecorder.Snapshot()
 	t.Cleanup(func() {
-		keepSites := map[any]bool{}
-		for _, key := range beforeSites {
-			keepSites[key] = true
-		}
-		exercisedRefusalSites.Range(func(key, _ any) bool {
-			if !keepSites[key] {
-				exercisedRefusalSites.Delete(key)
-			}
-			return true
-		})
-		keepCodes := map[any]bool{}
-		for _, key := range beforeCodes {
-			keepCodes[key] = true
-		}
-		observedCodes.Range(func(key, _ any) bool {
-			if !keepCodes[key] {
-				observedCodes.Delete(key)
-			}
-			return true
-		})
+		refusalRecorder.Restore(beforeSites, beforeCodes)
 	})
 	cause := fmt.Errorf("fake: dynamic cause")
 	longCause := fmt.Errorf("fake: %s", strings.Repeat("x", 300))

@@ -390,7 +390,15 @@ func collectDirectory(owner OwnerPolicy, system System, dir, source string, add 
 
 // trustCandidate establishes the trust-time facts for one external
 // executable: symlink resolution before comparison, regular-file target,
-// approved owner, and digest over the target bytes.
+// approved owner, and digest over the target bytes. The approved-owner
+// fact implements the Section 7.1 rule that the target be owned by the
+// operator or an administrator-approved identity (OwnerPolicy names the
+// approver in OwnerIdentity form). That dimension is provider-specific:
+// the Section 6.5 external-trust entry for terminal executables is
+// closed over backend ID, absolute path, digest, and enabled with no
+// owner member, so terminalbackend.DigestFile deliberately performs no
+// owner check. The asymmetry is contractual, not drift; see the note on
+// DigestFile before unifying the two paths.
 func trustCandidate(owner OwnerPolicy, system System, id, path, source string) (Candidate, error) {
 	canon, err := system.Canonicalize(path)
 	if err != nil {

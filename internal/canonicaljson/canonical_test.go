@@ -162,9 +162,7 @@ func TestPublicIdentityRefusesRegisteredSchemasWithoutCompleteShapeValidators(t 
 		schema    string
 		selfField SelfField
 	}{
-		{"urn:ax:schema:terminal-backend-probe", SelfProbeID},
 		{"urn:ax:schema:terminal-instance-binding", SelfBindingID},
-		{"urn:ax:schema:terminal-capability-evidence", SelfEvidenceID},
 		{"urn:ax:schema:clone-raw-object-manifest", SelfRawObjectManifestID},
 		{"urn:ax:schema:clone-capture-manifest", SelfCaptureManifestID},
 		{"urn:ax:schema:canonical-session", SelfCanonicalSessionID},

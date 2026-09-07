@@ -245,7 +245,7 @@ func bindAdmissionSites(t *testing.T, sites []stringAdmissionSite) []siteBinding
 
 	governed := governedAdmittedValues(sites)
 	var bindings []siteBinding
-	for _, fixture := range everyValidIdentityFixture() {
+	for _, fixture := range everyValidIdentityFixture(t) {
 		for _, path := range everyCandidateValuePath(fixture.object) {
 			member := governedMemberName(path)
 			if member == "" {

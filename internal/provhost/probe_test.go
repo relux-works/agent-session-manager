@@ -318,3 +318,46 @@ func TestRequireCapabilityRefusesUnprovenSurfaces(t *testing.T) {
 	requireFrameRefusal(t, RequireCapability([]byte(`{"schema":"x"}`), "native_resume"), "schema_version", "misses a required member")
 	t.Logf("capability gate coverage: 1 usable, %d refused of %d registry keys", refused, len(Capabilities()))
 }
+
+// TestDecodeValidatedProbeHandsUsableMembersToRequireCapability pins the
+// single-decode structure behind RequireCapability: decodeValidatedProbe
+// is the one site that turns a probe body into members, DecodeProbe is
+// its boolean form, and RequireCapability consumes those members instead
+// of re-decoding the body after a separate validation. The test names
+// the helper directly, so it fails to compile against the pre-fix shape
+// (two body decodes with the second discarding faults); the ordering
+// rows below pin validation-first behaviorally, so dropping the
+// validation slides malformed bodies from provider_protocol_error to
+// invalid_config and reddens here rather than only in the inventory.
+func TestDecodeValidatedProbeHandsUsableMembersToRequireCapability(t *testing.T) {
+	t.Parallel()
+
+	members, err := decodeValidatedProbe([]byte(specProbeExample))
+	if err != nil {
+		t.Fatalf("decodeValidatedProbe(valid probe): %v", err)
+	}
+	if _, ok := members["capabilities"]; !ok {
+		t.Fatal("decodeValidatedProbe(valid probe) members miss capabilities: RequireCapability cannot consume them")
+	}
+	if err := DecodeProbe([]byte(specProbeExample)); err != nil {
+		t.Fatalf("DecodeProbe(valid probe): %v", err)
+	}
+
+	// A malformed body is a provider_protocol_error at validation, and
+	// RequireCapability agrees even when the capability name is unknown:
+	// validation runs before the registry-membership check, so the
+	// unknown name never masks the malformed body as invalid_config.
+	malformed := []byte(`{"schema":"x"}`)
+	if _, err := decodeValidatedProbe(malformed); err == nil {
+		t.Fatal("decodeValidatedProbe(malformed) = nil, want provider_protocol_error")
+	}
+	if err := DecodeProbe(malformed); failureCode(t, err) != "provider_protocol_error" {
+		t.Fatalf("DecodeProbe(malformed) code = %v, want provider_protocol_error", err)
+	}
+	for _, name := range []string{"native_resume", "remote_exec"} {
+		err := RequireCapability(malformed, name)
+		if failureCode(t, err) != "provider_protocol_error" {
+			t.Fatalf("RequireCapability(malformed, %q) code = %v, want provider_protocol_error: validation must precede use", name, err)
+		}
+	}
+}

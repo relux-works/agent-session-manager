@@ -179,6 +179,12 @@ var unreachableRefusalSites = map[string]unreachableRefusal{
 	// VerifyObjectIdentity propagates only the two calculatePreparedObjectIdentity
 	// refusals above; its own prepare-error propagation is proven.
 	"canonical.go|VerifyObjectIdentity|return scalar.Digest{}, \"\", err|#1": decodedValueRefusal,
+	// The terminal delegating validators re-encode the already-decoded object
+	// before driving the owner's Parse entry: the value holds only decoded
+	// types, so encoding/json accepts it for the same reason as above.
+	"closed_shapes.go|validateTerminalBackendManifest|return invalidIdentity(\"terminal backend manifest 1.0.0: encode identity object: %v\", err)|#0":       decodedValueRefusal,
+	"closed_shapes.go|validateTerminalBackendProbe|return invalidIdentity(\"terminal backend probe 1.0.0: encode identity object: %v\", err)|#0":             decodedValueRefusal,
+	"closed_shapes.go|validateTerminalCapabilityEvidence|return invalidIdentity(\"terminal capability evidence 1.0.0: encode identity object: %v\", err)|#0": decodedValueRefusal,
 
 	// GROUP 7 - the decoder cannot produce the value the guard rejects.
 	"canonical.go|decodeValue|return nil, invalidJSON(\"object name is not a string\")|#0": {

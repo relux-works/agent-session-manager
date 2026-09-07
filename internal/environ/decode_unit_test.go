@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/relux-works/agent-session-manager/internal/scalar"
 )
 
 // This file drives the environ entries no facade reaches
@@ -103,6 +105,60 @@ func TestCheckSortedUniqueStringsHalves(t *testing.T) {
 			t.Fatal("admitted a vector above the count ceiling")
 		}
 	})
+}
+
+// TestParseUint53LiteralRefusesNonDigits drives the digit
+// ladder directly: it is unreachable with hostile input through
+// CheckUint53Bounds (the trailing-data arm refuses first), so
+// these rows call it with hostile literals itself. A ladder
+// that admitted one digit class would pass the bound battery
+// and fail exactly here.
+func TestParseUint53LiteralRefusesNonDigits(t *testing.T) {
+	for _, literal := range []string{"1a2", "a", "12 ", " 12", "+12", "0x10", ""} {
+		if value, ok := parseUint53Literal(literal); ok {
+			t.Fatalf("parseUint53Literal(%q) admitted %d, want refusal", literal, value)
+		}
+	}
+	if value, ok := parseUint53Literal("1024"); !ok || value != 1024 {
+		t.Fatalf("parseUint53Literal(1024) = (%d, %v), want (1024, true)", value, ok)
+	}
+}
+
+// TestDecodeArrayRefusesTrailingData drives the array reader
+// directly: member slices arriving through DecodeStrictObject
+// can never carry trailing data, so no facade entry reaches
+// this arm with hostile input. A reader that admitted trailing
+// data would pass every entry battery and fail exactly here.
+func TestDecodeArrayRefusesTrailingData(t *testing.T) {
+	if _, ok := decodeArray(json.RawMessage(`["a"] trailing`)); ok {
+		t.Fatal("decodeArray admitted trailing data after the array")
+	}
+	if _, ok := decodeArray(json.RawMessage(`["a"] ["b"]`)); ok {
+		t.Fatal("decodeArray admitted a second value after the array")
+	}
+	elements, ok := decodeArray(json.RawMessage(`["a", "b"]`))
+	if !ok || len(elements) != 2 {
+		t.Fatalf("decodeArray refused a clean array: (%v, %v)", elements, ok)
+	}
+}
+
+// TestDigestBridgeRefusesEmptyDownstream pins the property the
+// R_digestnonstr survivor bound rests on: scalar.ParseDigest
+// refuses the empty string, so removing CheckDigest's type arm
+// changes no entry verdict because the zero value the arm would
+// have admitted is refused downstream. If ParseDigest("") ever
+// started admitting, both the removed arm and the live gate
+// would open silently — this test reddens first.
+func TestDigestBridgeRefusesEmptyDownstream(t *testing.T) {
+	if _, err := scalar.ParseDigest(""); err == nil {
+		t.Fatal(`scalar.ParseDigest("") admitted, want refusal: the R_digestnonstr bound no longer holds`)
+	}
+	if _, ok := CheckDigest(json.RawMessage(`""`)); ok {
+		t.Fatal(`CheckDigest("") admitted, want refusal at the live gate`)
+	}
+	if _, ok := CheckDigest(json.RawMessage(`null`)); ok {
+		t.Fatal(`CheckDigest(null) admitted, want refusal at the type arm`)
+	}
 }
 
 // TestFaultErrorRendersMember drives Fault.Error through the

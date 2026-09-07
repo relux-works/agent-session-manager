@@ -714,8 +714,8 @@ refuses any skipped, failed, or cancelled dependency.
 | Race detector | Full suite under `-race` | No data race fired anywhere in the suite |
 | Coverage numbers | Full suite with `-cover`, percentages in the run summary | Per-package coverage was measured and reported; there is no floor, so coverage is a number, not a gate |
 | Conformance fixtures | Story suites on Ubuntu and macOS | Exact fixtures and negative/refusal cases pass per platform, with skip lines as the skip datum; crash/idempotency evidence comes from the Transactor battery in this matrix |
-| Fuzz smoke | Targets derived per package from the compiled test binaries (`secconftest`, `canonicaljson`, `scalar`), each smoked briefly; the `secconftest` leg is diffed against the `cigate.FuzzTargets` derivation | Every derived target executed its engine, proven by its elapsed line rather than by exit status alone |
-| Unsupported-capability claim check | README scanned with every probe forced unavailable | No unsupported capability is advertised: every backticked capability mention resolves to probe, skip, gate, or test context, never to a positive availability claim about an unavailable capability. Only backticked IDs are scanned — prose without backticks is outside the gate |
+| Fuzz smoke | Targets derived per package from the compiled test binaries (`secconftest`, `canonicaljson`, `scalar`), each smoked briefly; the `secconftest` leg is diffed against the `cigate.FuzzTargets` derivation | Every derived target executed its engine, proven by its elapsed line rather than by exit status alone. At `-fuzztime=100x` the large-corpus targets (`secconftest/FuzzRedactCorpus`, all four `canonicaljson` targets) spend the budget on baseline coverage and never reach the mutation phase: green proves engine execution, not mutation |
+| Unsupported-capability claim check | README scanned with every probe forced unavailable | No unsupported capability is advertised: every backticked capability mention resolves to a negated or marker-classified non-claim context, never to a positive availability claim about an unavailable capability. Only backticked IDs are scanned — prose without backticks is outside the gate |
 | Windows compile-only | `GOOS=windows` build and vet, test files included | The tree compiles for Windows; green here never implies behaviour was executed there |
 | Gates verdict | Dependency-result check | Every gate above succeeded and none skipped |
 
@@ -730,6 +730,31 @@ library reaches the embedded specification document through the
 instrument, which the `specdoc` guard reserves to the existing repository
 gates, so CI drives these gates through focused name-guarded test
 selections whose guards prove the selection matched.
+
+Probe vocabulary notes: each note below documents one probe mechanic, and
+each is admitted through exactly the marker it names — a marker with no
+note here classifies nothing, which the marker census refuses.
+
+- The `fifo` probes exchange bytes through a real kernel pipe.
+- The `fifo` lane takes the skip path where the kernel withholds pipes.
+- The `fifo` byte exchange ends with a commit witness.
+- The `fifo` probe builds its channel with mkfifo.
+- That `fifo` exchange is the byte-exchange fixture.
+- Each `symlink` capability entry names one escape probe.
+- Every `symlink` attempt runs against a guarded directory.
+- The `symlink` gates admit creation inside the root.
+- The `symlink` test commits through the escape lane.
+- Both `symlink` lanes stay strict on linux and darwin.
+- The `mode-bits` verdict differs per platform.
+- The `mode-bits` lane drives chmod 000.
+- The `mode-bits` lane records the acting uid.
+- The `mode-bits` expectation is pinned exactly.
+- An unexpected `mode-bits` layout is rejected.
+- The `nonroot` refusal cites lstat output.
+- The `nonroot` denial names the member.
+- A `nonroot` violation ends in fail.
+- The `nonroot` check compares identities in memory.
+- The `nonroot` scan walks the live counters.
 
 ## Canonical JSON and Immutable Object Identities
 
@@ -2210,7 +2235,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
 repository gate used by CI. Its reviewed
 [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
 registry independently enumerates implementation owners for all 60 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 94
+contract rows, 36 pinned or catalog-referenced normative section keys, 98
 executable acceptance cases, 53 exact section bindings with their declared
 coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.

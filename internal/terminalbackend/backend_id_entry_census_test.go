@@ -1,0 +1,1465 @@
+// BackendID entry census: every BackendID-carrying refusal reaches its
+// refusal with an identity that passed ParseID or mustParseID.
+//
+// The failure this file exists to prevent: a package-wide comment asserting
+// that every BackendID named in a refusal is a validated identity, while a
+// hostile identity driven through a second exported entry renders verbatim
+// into a refusal. It happened twice in a row: first CheckVersionTuple named
+// an unvalidated parameter at three arms, then Reconcile named unvalidated
+// struct members at two arms (manifest.go checkProbeIdentity executable
+// substitution and checkProbeGeneration probe generation binding), while the
+// site-keyed census read 31/31 validated. The census unit was the site; the
+// property is per entry path: those two arms are validated via AdmitProbe
+// (which parses both documents) and unvalidated via Reconcile (which takes
+// both structs directly). A site-keyed table records the safe path and
+// drops the unsafe one, so no corrected row count can make it true.
+//
+// This census is keyed by (site, reaching exported entry). Every pair
+// either reaches its refusal with an identity that passed ParseID or
+// mustParseID, or is a declared exemption with a reason. The ratio the
+// outcome reports is produced below (TestBackendIDEntryCensus logs
+// validated/total), not read off this table: the table is checked in both
+// directions against the production derivation, and every pair carries an
+// executed proof in this test.
+//
+// What each pair's proof is, by kind:
+//
+//   - hostile-noecho: driving a grammar- or bound-refused identity through
+//     the pair's entry refuses at the ParseID/mustParseID guard (or at a
+//     document-membership gate for raw-document entries) with BackendID
+//     empty and the refused bytes absent from Error(). Deleting the guard
+//     (control plant C1: the ParseID check out of CheckProviderDescriptor)
+//     reopens a 308-byte echo and fails the entry battery.
+//   - validated-fire: driving a grammar-valid identity that fails the
+//     pair's own rule fires the pair's site (attributed through the
+//     runtime refusal recorder) with BackendID equal to that validated
+//     identity. Multi-entry sites carry one fire per entry; single-entry
+//     sites cite their inventoried executed witness, which this test
+//     resolves mechanically against DeclaredArmIdentities (row present,
+//     same entry, not bound) rather than by reading.
+//
+// Derivation reuses the package inventory (deriveRefusalArms) filtered to
+// constructions naming BackendID, plus invcore production scanning for
+// exported-entry coverage. No new file walker: the site set is the
+// inventory's, and attribution is the shared runtime recorder's.
+//
+// Stated bounds (not inferred):
+//   - ParseID's own reserved-namespace arm names its input by design: the
+//     input passed the bound and grammar gates first, so the echo is a
+//     validated identity, never raw input. It is a pair, not an
+//     exemption, proved by the reserved fire below.
+//   - Registration.validate's "executable_digest must be null" arm is
+//     unreachable through any exported entry (RegisterExternal's kind
+//     gate admits exactly the digest-carrying kinds; New builds builtins
+//     without digests). It is the single exempt site, pinned white-box
+//     by TestValidateRefusesBuiltinKindWithDigest.
+//   - Error predicates, platform defaults, ledger, conformance and
+//     descriptor-projection entries take no backend-identity input or
+//     emit no BackendID refusal; each is listed in backendIDFreeEntries
+//     with its reason, and the entry-coverage check fails closed on any
+//     entry missing from both lists.
+//   - The free-entry reasons are unchecked prose, deliberately left open
+//     (round 4, N3): the mapping check requires every free entry to
+//     carry a non-empty reason and to resolve to a derived entry, but
+//     nothing checks the reason's content, so a free entry that reached
+//     a paired site with unvalidated input would still pass. Sound by
+//     measurement, not by gate: a go/ast call-graph sweep from all 44
+//     free entries reaches zero BackendID-naming refusals (the two raw
+//     hits, Binding and TranslateLegacyBackend, are success-value
+//     BackendID fields, never refusals).
+package terminalbackend
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"go/ast"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gowebpki/jcs"
+
+	"github.com/relux-works/agent-session-manager/internal/invcore"
+	"github.com/relux-works/agent-session-manager/internal/scalar"
+)
+
+// backendIDHostileLong is over the 128-byte bound and grammar-refused:
+// terminal escapes plus traversal content, the shape the F2 finding drove
+// through Reconcile (221 bytes).
+var backendIDHostileLong = strings.Repeat("A", 200) + "\x1b[31m" + "../../etc/passwd"
+
+// backendIDHostileShort is within the bound but grammar-refused (27 bytes):
+// the subclass a length-gated entry check would admit.
+const backendIDHostileShort = "BAD ID\x1b[31m../../etc/passwd"
+
+// backendIDValid is a grammar-valid third-party identity used as the
+// validated control wherever a fire must name its identity.
+const backendIDValid = "com.example.term"
+
+// backendIDPair is one (BackendID-carrying refusal site, reaching exported
+// entry) census unit. Site fields use the inventory key space (file,
+// receiver-qualified function, code symbol, static detail, occurrence
+// within that key); entry uses the inventory entry spelling
+// ("CheckProviderDescriptor", "Reconcile", "AdmitProbe").
+// guard states the validation mechanism in prose; fire cites the proof
+// that the site fires with a validated identity ("witness:<entry>" for an
+// inventoried executed witness at that entry, "census:<probe>" for a
+// validated fire driven in this file).
+type backendIDPair struct {
+	file       string
+	function   string
+	code       string
+	detail     string
+	occurrence int
+	entry      string
+	guard      string
+	fire       string
+}
+
+// backendIDPairs is the full (site, entry) census. A site reachable
+// through two exported entries appears twice; collapsing those rows is
+// the exact failure this census exists to prevent.
+var backendIDPairs = []backendIDPair{
+	// ParseID trust root: the reserved arm names only grammar-valid input.
+	{file: "terminalbackend.go", function: "ParseID", code: "CodeNotFound", detail: "terminal_backend_id reserved namespace", occurrence: 1, entry: "ParseID", guard: "input passed the bound and grammar gates in this function before the echo", fire: "census:TestBackendIDEntryCensus/reserved-names-validated-identity"},
+
+	// Registration.validate: mustParseID(record.ID) at the validate top.
+	{file: "terminalbackend.go", function: "Registration.validate", code: "CodeDrift", detail: "implementation_version semver", occurrence: 1, entry: "RegisterExternal", guard: "mustParseID(record.ID) at validate top; observed is caller-bound to the validated trust entry", fire: "witness:RegisterExternal"},
+	{file: "terminalbackend.go", function: "Registration.validate", code: "CodeNotFound", detail: passthroughDetail, occurrence: 1, entry: "RegisterExternal", guard: "mustParseID(record.ID) at validate top; funneled platform details name the validated record", fire: "witness:RegisterExternal"},
+	{file: "terminalbackend.go", function: "Registration.validate", code: "CodeUntrusted", detail: "executable_digest", occurrence: 1, entry: "RegisterExternal", guard: "mustParseID(record.ID) at validate top", fire: "witness:RegisterExternal"},
+
+	// validateProtocolVersions through New: the only caller-supplied member
+	// is the version list; the identity is the BuiltinTmux constant.
+	{file: "terminalbackend.go", function: "validateProtocolVersions", code: "CodeDrift", detail: "protocol_versions bound", occurrence: 1, entry: "New", guard: "BuiltinTmux constant; census proves ParseID(BuiltinTmux) admits", fire: "witness:New"},
+	{file: "terminalbackend.go", function: "validateProtocolVersions", code: "CodeDrift", detail: "protocol_versions major 1", occurrence: 1, entry: "New", guard: "BuiltinTmux constant; census proves ParseID(BuiltinTmux) admits", fire: "census:TestBackendIDEntryCensus/protocol-major-1-via-New"},
+	{file: "terminalbackend.go", function: "validateProtocolVersions", code: "CodeDrift", detail: "protocol_versions sorted unique", occurrence: 1, entry: "New", guard: "BuiltinTmux constant; census proves ParseID(BuiltinTmux) admits", fire: "witness:New"},
+	// validateProtocolVersions through RegisterExternal: record.ID passed
+	// mustParseID at the validate top before the version call.
+	{file: "terminalbackend.go", function: "validateProtocolVersions", code: "CodeDrift", detail: "protocol_versions bound", occurrence: 1, entry: "RegisterExternal", guard: "mustParseID(record.ID) at validate top before the version call", fire: "census:TestBackendIDEntryCensus/protocol-bound-via-RegisterExternal"},
+	{file: "terminalbackend.go", function: "validateProtocolVersions", code: "CodeDrift", detail: "protocol_versions major 1", occurrence: 1, entry: "RegisterExternal", guard: "mustParseID(record.ID) at validate top before the version call", fire: "witness:RegisterExternal"},
+	{file: "terminalbackend.go", function: "validateProtocolVersions", code: "CodeDrift", detail: "protocol_versions sorted unique", occurrence: 1, entry: "RegisterExternal", guard: "mustParseID(record.ID) at validate top before the version call", fire: "census:TestBackendIDEntryCensus/protocol-order-via-RegisterExternal"},
+
+	// TrustEntry.validate: mustParseID(entry.BackendID) at the validate top.
+	{file: "terminalbackend.go", function: "TrustEntry.validate", code: "CodeAmbiguous", detail: "external_trust reserved namespace", occurrence: 1, entry: "RegisterExternal", guard: "mustParseID(entry.BackendID) at validate top", fire: "witness:RegisterExternal"},
+	{file: "terminalbackend.go", function: "TrustEntry.validate", code: "CodeUntrusted", detail: "external_trust executable_path", occurrence: 1, entry: "RegisterExternal", guard: "mustParseID(entry.BackendID) at validate top", fire: "witness:RegisterExternal"},
+	{file: "terminalbackend.go", function: "TrustEntry.validate", code: "CodeUntrusted", detail: "external_trust executable_digest", occurrence: 1, entry: "RegisterExternal", guard: "mustParseID(entry.BackendID) at validate top", fire: "witness:RegisterExternal"},
+
+	// Registry.RegisterExternal: entry.validate then the identity binding
+	// (observed.ID must equal the validated entry ID) then
+	// observed.validate, so every arm below names a validated identity.
+	{file: "terminalbackend.go", function: "Registry.RegisterExternal", code: "CodeUntrusted", detail: "external_trust disabled", occurrence: 1, entry: "RegisterExternal", guard: "entry.validate (mustParseID) before the enabled gate", fire: "witness:RegisterExternal"},
+	{file: "terminalbackend.go", function: "Registry.RegisterExternal", code: "CodeAmbiguous", detail: "external_trust identity binding", occurrence: 1, entry: "RegisterExternal", guard: "entry.validate (mustParseID); the arm names the validated entry ID", fire: "witness:RegisterExternal"},
+	{file: "terminalbackend.go", function: "Registry.RegisterExternal", code: "CodeUntrusted", detail: "external implementation_kind", occurrence: 1, entry: "RegisterExternal", guard: "entry.validate (mustParseID); the arm names the validated entry ID", fire: "witness:RegisterExternal"},
+	{file: "terminalbackend.go", function: "Registry.RegisterExternal", code: "CodeUntrusted", detail: "executable substitution", occurrence: 1, entry: "RegisterExternal", guard: "entry.validate plus observed.validate plus the identity binding before the digest compare", fire: "witness:RegisterExternal"},
+	{file: "terminalbackend.go", function: "Registry.RegisterExternal", code: "CodeAmbiguous", detail: "duplicate backend_id", occurrence: 1, entry: "RegisterExternal", guard: "observed.validate (mustParseID) before the store compare", fire: "witness:RegisterExternal"},
+	{file: "terminalbackend.go", function: "Registry.RegisterExternal", code: "CodeDrift", detail: "implementation drift", occurrence: 1, entry: "RegisterExternal", guard: "observed.validate (mustParseID) before the store compare", fire: "witness:RegisterExternal"},
+
+	// Registry.Resolve: ParseID at the entry; the arm names the admitted ID.
+	{file: "terminalbackend.go", function: "Registry.Resolve", code: "CodeNotFound", detail: "unregistered terminal_backend_id", occurrence: 1, entry: "Resolve", guard: "ParseID(backendID) at the entry", fire: "witness:Resolve"},
+	{file: "terminalbackend.go", function: "Registry.Resolve", code: "CodeNotFound", detail: "unregistered terminal_backend_id", occurrence: 1, entry: "RequireRestoreBinding", guard: "ParseID(boundBackendID) at the entry before Resolve re-validates", fire: "census:TestBackendIDEntryCensus/unregistered-via-RequireRestoreBinding"},
+	{file: "terminalbackend.go", function: "Registry.Resolve", code: "CodeNotFound", detail: "unregistered terminal_backend_id", occurrence: 1, entry: "AdmitProbe", guard: "ParseManifest admission (ParseID) then Resolve re-validation", fire: "census:TestBackendIDEntryCensus/unregistered-via-AdmitProbe"},
+
+	// Registry.RequireRestoreBinding: both IDs pass ParseID at the entry.
+	{file: "terminalbackend.go", function: "Registry.RequireRestoreBinding", code: "CodeRestoreMismatch", detail: "restore requires the prior binding", occurrence: 1, entry: "RequireRestoreBinding", guard: "ParseID(candidateBackendID) at the entry; the arm names the validated candidate", fire: "witness:RequireRestoreBinding"},
+
+	// CheckVersionTuple: ParseID at the entry (this task's round-2 fix).
+	{file: "terminalbackend.go", function: "CheckVersionTuple", code: "CodeDrift", detail: "implementation_version semver", occurrence: 1, entry: "CheckVersionTuple", guard: "ParseID(backendID) at the entry before any version arm", fire: "witness:CheckVersionTuple"},
+	{file: "terminalbackend.go", function: "CheckVersionTuple", code: "CodeDrift", detail: "protocol_version major 1", occurrence: 1, entry: "CheckVersionTuple", guard: "ParseID(backendID) at the entry before any version arm", fire: "witness:CheckVersionTuple"},
+	{file: "terminalbackend.go", function: "CheckVersionTuple", code: "CodeDrift", detail: "protocol_version membership", occurrence: 1, entry: "CheckVersionTuple", guard: "ParseID(backendID) at the entry before any version arm", fire: "witness:CheckVersionTuple"},
+
+	// CheckProviderDescriptor: ParseID(descriptor.BackendID) at the entry;
+	// every arm below names that validated descriptor ID, never the binding.
+	{file: "terminalbackend.go", function: "CheckProviderDescriptor", code: "CodeNotFound", detail: "descriptor backend binding", occurrence: 1, entry: "CheckProviderDescriptor", guard: "ParseID(descriptor.BackendID) at the entry", fire: "witness:CheckProviderDescriptor"},
+	{file: "terminalbackend.go", function: "CheckProviderDescriptor", code: "CodeNotFound", detail: "descriptor binding digest", occurrence: 1, entry: "CheckProviderDescriptor", guard: "ParseID(descriptor.BackendID) at the entry", fire: "witness:CheckProviderDescriptor"},
+	{file: "terminalbackend.go", function: "CheckProviderDescriptor", code: "CodeNotFound", detail: "descriptor binding digest", occurrence: 2, entry: "CheckProviderDescriptor", guard: "ParseID(descriptor.BackendID) at the entry", fire: "witness:CheckProviderDescriptor"},
+	{file: "terminalbackend.go", function: "CheckProviderDescriptor", code: "CodeDrift", detail: "descriptor version binding", occurrence: 1, entry: "CheckProviderDescriptor", guard: "ParseID(descriptor.BackendID) at the entry", fire: "witness:CheckProviderDescriptor"},
+	{file: "terminalbackend.go", function: "CheckProviderDescriptor", code: "CodeStaleGeneration", detail: "descriptor generation binding", occurrence: 1, entry: "CheckProviderDescriptor", guard: "ParseID(descriptor.BackendID) at the entry", fire: "witness:CheckProviderDescriptor"},
+	// CheckProviderDescriptor through AdmitProviderDescriptor: the document
+	// admission validates the ID (ParseID at descriptor.go ParseProvider-
+	// Descriptor) and CheckProviderDescriptor re-validates the projection.
+	{file: "terminalbackend.go", function: "CheckProviderDescriptor", code: "CodeNotFound", detail: "descriptor backend binding", occurrence: 1, entry: "AdmitProviderDescriptor", guard: "ParseProviderDescriptor admission (ParseID) plus CheckProviderDescriptor re-validation", fire: "census:TestBackendIDEntryCensus/descriptor-backend-via-AdmitProviderDescriptor"},
+	{file: "terminalbackend.go", function: "CheckProviderDescriptor", code: "CodeNotFound", detail: "descriptor binding digest", occurrence: 2, entry: "AdmitProviderDescriptor", guard: "ParseProviderDescriptor admission (ParseID) plus CheckProviderDescriptor re-validation", fire: "census:TestBackendIDEntryCensus/descriptor-digest-mismatch-via-AdmitProviderDescriptor"},
+	{file: "terminalbackend.go", function: "CheckProviderDescriptor", code: "CodeDrift", detail: "descriptor version binding", occurrence: 1, entry: "AdmitProviderDescriptor", guard: "ParseProviderDescriptor admission (ParseID) plus CheckProviderDescriptor re-validation", fire: "census:TestBackendIDEntryCensus/descriptor-version-via-AdmitProviderDescriptor"},
+	{file: "terminalbackend.go", function: "CheckProviderDescriptor", code: "CodeStaleGeneration", detail: "descriptor generation binding", occurrence: 1, entry: "AdmitProviderDescriptor", guard: "ParseProviderDescriptor admission (ParseID) plus CheckProviderDescriptor re-validation", fire: "census:TestBackendIDEntryCensus/descriptor-generation-via-AdmitProviderDescriptor"},
+
+	// checkProbeIdentity executable substitution: validated via AdmitProbe
+	// (ParseProbe admission) and, since this task, at the Reconcile entry.
+	{file: "manifest.go", function: "checkProbeIdentity", code: "CodeUntrusted", detail: "executable substitution", occurrence: 1, entry: "AdmitProbe", guard: "ParseProbe admission (ParseID) then Reconcile entry re-validation", fire: "witness:AdmitProbe"},
+	{file: "manifest.go", function: "checkProbeIdentity", code: "CodeUntrusted", detail: "executable substitution", occurrence: 1, entry: "Reconcile", guard: "ParseID(manifest.TerminalBackendID) and ParseID(probe.TerminalBackendID) at the Reconcile entry", fire: "census:TestBackendIDEntryCensus/substitution-via-Reconcile"},
+	// checkProbeGeneration probe generation binding: same two entries.
+	{file: "manifest.go", function: "checkProbeGeneration", code: "CodeStaleGeneration", detail: "probe generation binding", occurrence: 1, entry: "Reconcile", guard: "ParseID(probe.TerminalBackendID) at the Reconcile entry", fire: "witness:Reconcile"},
+	{file: "manifest.go", function: "checkProbeGeneration", code: "CodeStaleGeneration", detail: "probe generation binding", occurrence: 1, entry: "AdmitProbe", guard: "ParseProbe admission (ParseID) then Reconcile entry re-validation", fire: "census:TestBackendIDEntryCensus/generation-via-AdmitProbe"},
+
+	// checkManifestRecordBinding: AdmitProbe-only; the manifest ID passed
+	// ParseManifest admission (ParseID) and Resolve re-validation.
+	{file: "manifest.go", function: "checkManifestRecordBinding", code: "CodeDrift", detail: "manifest implementation drift", occurrence: 1, entry: "AdmitProbe", guard: "ParseManifest admission (ParseID) plus Resolve re-validation", fire: "witness:AdmitProbe"},
+	{file: "manifest.go", function: "checkManifestRecordBinding", code: "CodeUntrusted", detail: "executable substitution", occurrence: 1, entry: "AdmitProbe", guard: "ParseManifest admission (ParseID) plus Resolve re-validation", fire: "witness:AdmitProbe"},
+}
+
+// backendIDExemptSites names derived BackendID sites with no (site, entry)
+// pair because no exported entry can reach them. Each carries the reason
+// and the pinning test; the derivation check below requires every derived
+// BackendID site to appear either here or in backendIDPairs.
+var backendIDExemptSites = []struct {
+	file       string
+	function   string
+	code       string
+	detail     string
+	occurrence int
+	reason     string
+	pin        string
+}{
+	{file: "terminalbackend.go", function: "Registration.validate", code: "CodeDrift", detail: "executable_digest must be null", occurrence: 1, reason: boundUnreachableDigestNull, pin: "TestValidateRefusesBuiltinKindWithDigest"},
+}
+
+// backendIDExemptPairs names (site, entry) combinations with no reaching
+// input, each with the reason and the pin this file executes. Unlike
+// backendIDExemptSites (no entry reaches the site at all), the site here
+// is reachable through other entries; only the listed entry cannot
+// deliver an input to it.
+var backendIDExemptPairs = []struct {
+	file       string
+	function   string
+	code       string
+	detail     string
+	occurrence int
+	entry      string
+	reason     string
+}{
+	// CheckProviderDescriptor's digest-parse arm (occurrence 1) through
+	// AdmitProviderDescriptor: ParseProviderDescriptor refuses a
+	// malformed binding digest at its own "descriptor digest" arm before
+	// any comparison runs, so only a well-formed digest reaches the
+	// match, and a well-formed digest passes the parse arm. The digest
+	// mismatch arm (occurrence 2) stays a live pair. The pin below drives
+	// a malformed digest through AdmitProviderDescriptor and requires
+	// the parse arm, proving the shadow.
+	{file: "terminalbackend.go", function: "CheckProviderDescriptor", code: "CodeNotFound", detail: "descriptor binding digest", occurrence: 1, entry: "AdmitProviderDescriptor", reason: "shadowed: ParseProviderDescriptor descriptor-digest arm fires first on any malformed digest"},
+}
+
+// backendIDFreeEntries names every exported entry that accepts no
+// backend-identity input and constructs no BackendID refusal, with the
+// reason. The entry-coverage check requires every derived exported entry
+// to appear either here or as some pair's entry, so a new entry that can
+// carry an identity fails closed until it gains a battery.
+var backendIDFreeEntries = []struct {
+	entry  string
+	reason string
+}{
+	// Pure predicates over already-built refusals: no identity input.
+	{entry: "IsProtocolError", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsUnauthorized", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsPreconditionFailed", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsIdempotencyMismatch", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsIncompatibleSchema", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsMismatch", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsCapabilityUnproven", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsIntegrityFailure", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsNotFound", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsAmbiguous", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsUntrusted", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsDrift", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsRestoreMismatch", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "IsStaleGeneration", reason: "predicate over an already-built refusal; takes no backend input"},
+	{entry: "Error", reason: "renders an already-built refusal; takes no backend input"},
+	// Membership and projection: no BackendID refusal constructed.
+	{entry: "IDs", reason: "reports admitted membership; constructs no refusal"},
+	{entry: "DefaultForPlatform", reason: "takes a platform, not an identity; its refusals name platforms only"},
+	{entry: "Binding", reason: "pure projection of an already-validated descriptor; constructs no refusal"},
+	{entry: "Has", reason: "membership over admitted capabilities; constructs no refusal"},
+	{entry: "HasOperation", reason: "membership over admitted capabilities; constructs no refusal"},
+	{entry: "CapabilitiesForOperation", reason: "static capability table lookup; its refusals name operations only"},
+	{entry: "CheckOperation", reason: "operates on admitted capabilities; its refusals name operations only"},
+	{entry: "ClassifyReplication", reason: "static replication table lookup; constructs no BackendID refusal"},
+	{entry: "CheckReplicable", reason: "operates on member names; constructs no BackendID refusal"},
+	// Lifecycle, ledger and attach vocabularies: no identity dimension.
+	{entry: "ParseInstanceState", reason: "lifecycle state vocabulary; constructs no BackendID refusal"},
+	{entry: "ParseOperation", reason: "operation vocabulary; constructs no BackendID refusal"},
+	{entry: "ParseSideEffect", reason: "side-effect vocabulary; constructs no BackendID refusal"},
+	{entry: "CheckTransition", reason: "lifecycle transition over states and operations; constructs no BackendID refusal"},
+	{entry: "CheckErrorAllowed", reason: "operation error vocabulary; constructs no BackendID refusal"},
+	{entry: "IdempotencyKey", reason: "key-shape validation over operation strings; constructs no BackendID refusal"},
+	{entry: "NewLedger", reason: "constructs an empty ledger; constructs no refusal"},
+	{entry: "Bind", reason: "idempotency-key binding; constructs no BackendID refusal"},
+	{entry: "Replay", reason: "idempotency lookup; constructs no refusal"},
+	{entry: "Export", reason: "ledger serialization; constructs no refusal"},
+	{entry: "ImportLedger", reason: "ledger image validation; constructs no BackendID refusal"},
+	{entry: "ParseAttachAuthorization", reason: "attach authorization document; its members carry no backend identity"},
+	{entry: "CheckAttachRequest", reason: "attach binding over an already-parsed authorization; constructs no BackendID refusal"},
+	{entry: "CheckAttachResult", reason: "attach input binding; constructs no BackendID refusal"},
+	{entry: "CheckEntrypoint", reason: "argv and session binding; constructs no BackendID refusal"},
+	{entry: "CheckStatusResult", reason: "status identity binding over booleans and digests; constructs no BackendID refusal"},
+	// Legacy translation: the refusal names the legacy input shape, and
+	// admitted outputs are closed-map constants, never input bytes.
+	{entry: "TranslateLegacyBackend", reason: "refusal carries no BackendID; output IDs are closed-map constants"},
+	// Content-addressed helpers: digests and canonical bytes, no identity.
+	{entry: "GenerationDigest", reason: "generation-string digest; takes no backend identity"},
+	{entry: "UnsignedEvidenceBytes", reason: "canonical evidence bytes; takes no backend identity"},
+	// I/O helper: plain errors only, never a BackendID refusal.
+	{entry: "DigestFile", reason: "reports I/O failures as plain errors; constructs no BackendID refusal"},
+}
+
+// backendIDHostileOnlyEntries names exported entries that accept
+// identity-influenced input but construct no BackendID refusal of their
+// own: hostile input is refused upstream (document admission through
+// ParseID, or the ParseID guard for ProjectToLegacy) before any naming
+// arm runs. Each carries a hostile battery in
+// runBackendIDHostileBatteries but no pair row.
+var backendIDHostileOnlyEntries = []string{
+	"ParseManifest",
+	"ParseProbe",
+	"ParseEvidence",
+	"ParseProviderDescriptor",
+	"ProjectToLegacy",
+}
+
+// backendIDPairKey renders one pair's site identity in the inventory key
+// space (line-free, like describeArm).
+func backendIDPairKey(file, function, code, detail string, occurrence int) string {
+	return file + "|" + function + "|" + code + "|" + detail + "#" + strconv.Itoa(occurrence)
+}
+
+// deriveBackendIDSites filters the production-derived refusal arms to the
+// constructions naming BackendID: the census denominator. The filter
+// reads each arm's derivation-time backendID flag — the refuse literal's
+// AST keys, independent of source layout — so a new BackendID arm in any
+// spelling (single-line or multi-line composite literal) is derived
+// without anyone remembering this file. mismatchf/integrityFailure sites
+// never carry BackendID: their Detail is a static clause by derivation
+// and their constructors build no BackendID key.
+func deriveBackendIDSites(t *testing.T) []refusalArm {
+	t.Helper()
+
+	return deriveBackendIDSitesIn(t, ".")
+}
+
+// deriveBackendIDSitesIn runs the site filter against an arbitrary
+// directory. Production runs use "."; derivation tests stage a synthetic
+// package copy under t.TempDir() to prove the filter against shapes the
+// live tree does not contain.
+func deriveBackendIDSitesIn(t *testing.T, dir string) []refusalArm {
+	t.Helper()
+
+	var sites []refusalArm
+	for _, arm := range deriveRefusalArmsIn(t, dir) {
+		if arm.backendID {
+			sites = append(sites, arm)
+		}
+	}
+	if len(sites) == 0 {
+		t.Fatal("derived zero BackendID refusal sites; the filter is broken, not the package")
+	}
+	return sites
+}
+
+// deriveExportedEntries enumerates every exported function and method of
+// the package production sources through the shared core's scan: a new
+// exported entry is covered without anyone remembering this file. The
+// enumeration fails closed on a bare-name collision instead of deduping
+// it away: two exported entries sharing one bare name (a function and a
+// method, or methods on different receivers) would collapse two entry
+// paths into one census row, the exact failure this census exists to
+// prevent.
+func deriveExportedEntries(t *testing.T) []string {
+	t.Helper()
+
+	entries, collisions := collectExportedEntries(t, ".")
+	for _, collision := range collisions {
+		t.Fatalf("derived exported entries collide on one bare name, so two entry paths would share one census row: %s", collision)
+	}
+	return entries
+}
+
+// collectExportedEntries derives (entries, collisions) against an
+// arbitrary directory. Production runs go through deriveExportedEntries,
+// which fails closed on any collision; derivation tests run this against
+// a synthetic package copy to prove the collision gate without touching
+// the repository.
+func collectExportedEntries(t *testing.T, dir string) (entries []string, collisions []string) {
+	t.Helper()
+
+	files, _ := invcore.MustScanProduction(t, dir)
+	// Bare function name, matching the inventory entry convention
+	// (receiver-qualified names live only in the site function
+	// column), mapped to the qualified identity that introduced it.
+	seen := make(map[string]string)
+	for _, production := range files {
+		for _, declaration := range production.Syntax.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Body == nil {
+				continue
+			}
+			if !ast.IsExported(function.Name.Name) {
+				continue
+			}
+			qualified := function.Name.Name
+			if function.Recv != nil && len(function.Recv.List) > 0 {
+				qualified = receiverTypeName(function.Recv.List[0].Type) + "." + qualified
+			}
+			bare := function.Name.Name
+			// Any second introduction of one bare name is a collision:
+			// duplicate declarations do not compile, so a repeat always
+			// means two distinct entry paths hiding behind one row.
+			if first, known := seen[bare]; known {
+				collisions = append(collisions, bare+": "+first+" against "+qualified+" in "+production.Name)
+				continue
+			}
+			seen[bare] = qualified + " in " + production.Name
+			entries = append(entries, bare)
+		}
+	}
+	if len(entries) == 0 {
+		t.Fatal("derived zero exported entries; the scanner is broken, not the package")
+	}
+	return entries, collisions
+}
+
+// censusSyntheticDir stages a synthetic package copy: every production
+// source of this package, byte-identical, plus one synthetic production
+// file. Derivation runs against the copy, so the tests below prove the
+// derivation against shapes the live tree does not contain without
+// touching the repository. Parsing is syntax-only: the synthetic file
+// must parse, not type-check.
+func censusSyntheticDir(t *testing.T, filename, content string) string {
+	t.Helper()
+
+	files, _ := invcore.MustScanProduction(t, ".")
+	dir := t.TempDir()
+	for _, production := range files {
+		if err := os.WriteFile(filepath.Join(dir, production.Name), production.Source, 0o600); err != nil {
+			t.Fatalf("stage synthetic package dir: %v", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0o600); err != nil {
+		t.Fatalf("stage synthetic production file: %v", err)
+	}
+	return dir
+}
+
+// TestBackendIDSiteFilterSeesMultilineSpelling pins the round-4 N1 fix:
+// the site filter reads the refuse literal's AST keys, so a BackendID
+// arm written as a multi-line composite literal enters the denominator.
+// The previous line-text filter ("BackendID:" on the arm's line) misses
+// exactly this spelling, and this test fails on it: the synthetic site
+// is absent from the filtered set.
+func TestBackendIDSiteFilterSeesMultilineSpelling(t *testing.T) {
+	live := deriveBackendIDSites(t)
+	liveKeys := make(map[string]bool, len(live))
+	for _, site := range live {
+		liveKeys[backendIDPairKey(site.file, site.function, site.code, site.detail, site.occurrence)] = true
+	}
+	dir := censusSyntheticDir(t, "zz_census_multiline_plant.go", `package terminalbackend
+
+func syntheticMultilineProbe(probeID string) error {
+	if probeID == "" {
+		return nil
+	}
+	return refuse(&Error{
+		Code:      CodeUntrusted,
+		BackendID: probeID,
+		Detail:    "synthetic multiline identity",
+	})
+}
+`)
+	sites := deriveBackendIDSitesIn(t, dir)
+	derived := make(map[string]bool, len(sites))
+	for _, site := range sites {
+		derived[backendIDPairKey(site.file, site.function, site.code, site.detail, site.occurrence)] = true
+	}
+	if !derived["zz_census_multiline_plant.go|syntheticMultilineProbe|CodeUntrusted|synthetic multiline identity#1"] {
+		t.Fatal("multi-line BackendID arm missing from the site denominator: the filter is line-keyed again")
+	}
+	// Every live-tree site still derives (superset, so future arms do
+	// not need this test touched).
+	for key := range liveKeys {
+		if !derived[key] {
+			t.Errorf("live-tree site %s lost from the synthetic denominator; the staging diverged from production", key)
+		}
+	}
+}
+
+// TestExportedEntryDerivationFailsClosedOnCollision pins the round-4 N2
+// fix: two exported entries sharing one bare name (here a function and a
+// method) are reported as a collision instead of being deduped into one
+// census row. The previous dedupe absorbs exactly this shape, and this
+// test fails on it: the synthetic collision goes unreported.
+func TestExportedEntryDerivationFailsClosedOnCollision(t *testing.T) {
+	dir := censusSyntheticDir(t, "zz_census_collision_plant.go", `package terminalbackend
+
+func CensusCollisionProbe() {}
+
+type censusCollisionRegistry struct{}
+
+func (*censusCollisionRegistry) CensusCollisionProbe() {}
+`)
+	_, collisions := collectExportedEntries(t, dir)
+	found := false
+	for _, collision := range collisions {
+		if strings.Contains(collision, "CensusCollisionProbe") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("synthetic bare-name collision absorbed without a trace: got %q, want a CensusCollisionProbe collision", collisions)
+	}
+	// The live tree stays collision-free: zero repeats among today's
+	// bare names, so the fail-closed gate is vacuous, never red.
+	if _, live := collectExportedEntries(t, "."); len(live) != 0 {
+		t.Fatalf("live-tree entry collision, previously assumed absent: %q", live)
+	}
+}
+
+// checkBackendIDMapping is the static half of the census: every derived
+// BackendID site appears in at least one pair or in the exempt set, every
+// pair and exemption resolves to a derived site, and every derived
+// exported entry appears either as some pair's entry or in the free set.
+// A brand-new BackendID arm fails here until its pairs are rowed and
+// proved; a new exported entry fails here until it gains a battery or a
+// stated reason.
+func checkBackendIDMapping(t *testing.T) (sites []refusalArm, lineToSite map[string]string) {
+	t.Helper()
+
+	sites = deriveBackendIDSites(t)
+	derived := make(map[string]refusalArm, len(sites))
+	for _, site := range sites {
+		key := backendIDPairKey(site.file, site.function, site.code, site.detail, site.occurrence)
+		if first, duplicate := derived[key]; duplicate {
+			t.Fatalf("derived BackendID site %s at %s:%d and %s:%d; one key cannot attribute two lines", key, first.file, first.line, site.file, site.line)
+		}
+		derived[key] = site
+	}
+	paired := make(map[string]bool, len(backendIDPairs))
+	for _, pair := range backendIDPairs {
+		key := backendIDPairKey(pair.file, pair.function, pair.code, pair.detail, pair.occurrence)
+		site, known := derived[key]
+		if !known {
+			t.Errorf("census pair %s at entry %s resolves to no derived BackendID site; a row without a site is a proof without a guard", key, pair.entry)
+			continue
+		}
+		_ = site
+		paired[key] = true
+		if pair.guard == "" {
+			t.Errorf("census pair %s at entry %s states no guard mechanism", key, pair.entry)
+		}
+		if pair.fire == "" {
+			t.Errorf("census pair %s at entry %s names no fire proof", key, pair.entry)
+		}
+	}
+	exempted := make(map[string]bool, len(backendIDExemptSites))
+	for _, exempt := range backendIDExemptSites {
+		key := backendIDPairKey(exempt.file, exempt.function, exempt.code, exempt.detail, exempt.occurrence)
+		if _, known := derived[key]; !known {
+			t.Errorf("census exemption %s resolves to no derived BackendID site", key)
+			continue
+		}
+		exempted[key] = true
+		if exempt.reason == "" || exempt.pin == "" {
+			t.Errorf("census exemption %s states no reason or pinning test", key)
+		}
+	}
+	for key, site := range derived {
+		if !paired[key] && !exempted[key] {
+			t.Errorf("derived BackendID site %s at %s:%d has no census pair and no exemption; row it before the suite passes", key, site.file, site.line)
+		}
+	}
+	for _, exempt := range backendIDExemptPairs {
+		key := backendIDPairKey(exempt.file, exempt.function, exempt.code, exempt.detail, exempt.occurrence)
+		if _, known := derived[key]; !known {
+			t.Errorf("census exempt pair %s at entry %s resolves to no derived BackendID site", key, exempt.entry)
+			continue
+		}
+		if exempt.reason == "" {
+			t.Errorf("census exempt pair %s at entry %s states no reason", key, exempt.entry)
+		}
+		for _, pair := range backendIDPairs {
+			if backendIDPairKey(pair.file, pair.function, pair.code, pair.detail, pair.occurrence) == key && pair.entry == exempt.entry {
+				t.Errorf("census exempt pair %s at entry %s duplicates a live pair; an exemption is not a second row", key, exempt.entry)
+			}
+		}
+	}
+
+	entries := deriveExportedEntries(t)
+	covered := make(map[string]bool, len(entries))
+	for _, pair := range backendIDPairs {
+		covered[pair.entry] = true
+	}
+	for _, entry := range backendIDHostileOnlyEntries {
+		covered[entry] = true
+	}
+	freed := make(map[string]bool, len(backendIDFreeEntries))
+	for _, free := range backendIDFreeEntries {
+		if free.reason == "" {
+			t.Errorf("free entry %s states no reason", free.entry)
+		}
+		freed[free.entry] = true
+	}
+	for _, entry := range entries {
+		if !covered[entry] && !freed[entry] {
+			t.Errorf("derived exported entry %s has no census battery and no free reason; prove it or state why it cannot carry an identity", entry)
+		}
+	}
+	for _, pair := range backendIDPairs {
+		known := false
+		for _, entry := range entries {
+			if entry == pair.entry {
+				known = true
+				break
+			}
+		}
+		if !known {
+			t.Errorf("census pair entry %s is not a derived exported entry; a battery without an entry proves nothing", pair.entry)
+		}
+	}
+	for _, free := range backendIDFreeEntries {
+		known := false
+		for _, entry := range entries {
+			if entry == free.entry {
+				known = true
+				break
+			}
+		}
+		if !known {
+			t.Errorf("free entry %s is not a derived exported entry; a reason without an entry hides drift", free.entry)
+		}
+	}
+
+	lineToSite = make(map[string]string, len(sites))
+	for _, site := range sites {
+		lineToSite[site.file+":"+strconv.Itoa(site.line)] = backendIDPairKey(site.file, site.function, site.code, site.detail, site.occurrence)
+	}
+	return sites, lineToSite
+}
+
+// checkBackendIDWitnessCitations resolves every "witness:<entry>" fire
+// claim mechanically against the inventoried arm table: the row must be
+// present with the same entry and must not be bound (non-bound rows carry
+// exactly one executed witness through their entry by the witness
+// registry's both-direction harness). A citation to a missing, bound, or
+// differently-entered row fails here instead of passing as prose.
+func checkBackendIDWitnessCitations(t *testing.T) {
+	t.Helper()
+
+	rows := DeclaredArmIdentities()
+	byKey := make(map[string]ArmIdentity, len(rows))
+	for _, row := range rows {
+		key := backendIDPairKey(row.File, row.Function, row.Code, row.Detail, row.Occurrence)
+		byKey[key+"@"+row.Entry] = row
+	}
+	for _, pair := range backendIDPairs {
+		if !strings.HasPrefix(pair.fire, "witness:") {
+			continue
+		}
+		wantEntry := strings.TrimPrefix(pair.fire, "witness:")
+		key := backendIDPairKey(pair.file, pair.function, pair.code, pair.detail, pair.occurrence)
+		row, known := byKey[key+"@"+wantEntry]
+		if !known {
+			t.Errorf("census pair %s cites inventoried witness at %s, but no declared row matches with that entry", key, wantEntry)
+			continue
+		}
+		if row.Bound != "" {
+			t.Errorf("census pair %s cites inventoried witness at %s, but the row is bound (%s) and carries no witness", key, wantEntry, row.Bound)
+		}
+	}
+}
+
+// requireNoBackendIDEcho asserts a refusal carries no attacker-controlled
+// bytes: BackendID is empty and the rendered Error() does not contain the
+// refused input. A refusal that merely occurs proves the gate is
+// reachable, not that it holds; the absence of the input in both places
+// is the property.
+func requireNoBackendIDEcho(t *testing.T, err error, hostile, where string) *Error {
+	t.Helper()
+
+	if err == nil {
+		t.Fatalf("%s: error = nil, want a refusal without echo", where)
+	}
+	var refusal *Error
+	if !errors.As(err, &refusal) {
+		t.Fatalf("%s: error = %T (%v), want *Error", where, err, err)
+	}
+	if refusal.BackendID != "" {
+		t.Errorf("%s: BackendID = %q, want empty: the guard must refuse before any arm names the input", where, refusal.BackendID)
+	}
+	if strings.Contains(refusal.Error(), hostile) {
+		t.Errorf("%s: Error() renders the refused input (len %d)", where, len(refusal.Error()))
+	}
+	return refusal
+}
+
+// censusExternalRecord builds one external-kind registration around id
+// with the given version tuple, platforms and digest.
+func censusExternalRecord(id, version string, protocols []string, platforms []scalar.Platform, digest string) Registration {
+	return Registration{
+		ID:                    id,
+		Kind:                  KindLocalProgram,
+		ImplementationVersion: version,
+		ProtocolVersions:      protocols,
+		Platforms:             platforms,
+		ExecutableDigest:      digest,
+	}
+}
+
+// censusTrustEntry builds one enabled trust entry around id with an
+// absolute path and digest.
+func censusTrustEntry(id, digest string) TrustEntry {
+	return TrustEntry{
+		BackendID:        id,
+		ExecutablePath:   "/opt/ax/adapters/" + "adapter",
+		ExecutableDigest: digest,
+		Enabled:          true,
+	}
+}
+
+// censusRegistry returns a registry admitting the two canonical built-ins
+// at the census version tuple.
+func censusRegistry(t *testing.T) *Registry {
+	t.Helper()
+
+	registry, err := New("2.1.0", []string{"1.0.0", "1.1.0"})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return registry
+}
+
+// censusDescriptorBinding is the valid §7.A binding subset matching the
+// valid descriptor document below.
+func censusDescriptorBinding() InstanceBinding {
+	return InstanceBinding{
+		BackendID:             backendIDValid,
+		ImplementationVersion: "1.2.3",
+		ProtocolVersion:       "1.0.0",
+		Generation:            "generation-1",
+		TerminalBindingID:     "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+	}
+}
+
+// censusValidDescriptorDoc is one fully valid §7.A descriptor document
+// matching censusDescriptorBinding field for field.
+const censusValidDescriptorDoc = `{
+  "terminal_binding_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "terminal_instance_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
+  "terminal_backend_id": "com.example.term",
+  "implementation_version": "1.2.3",
+  "protocol_version": "1.0.0",
+  "backend_generation": "generation-1",
+  "interactive": true,
+  "columns": 80,
+  "rows": 24
+}`
+
+// censusDescriptorWith rewrites one top-level member literal of the valid
+// descriptor document.
+func censusDescriptorWith(t *testing.T, member, literal string) []byte {
+	t.Helper()
+
+	anchor := "\"" + member + "\": "
+	index := strings.Index(censusValidDescriptorDoc, anchor)
+	if index < 0 {
+		t.Fatalf("descriptor member %q has no anchor", member)
+	}
+	valueStart := index + len(anchor)
+	valueEnd := strings.Index(censusValidDescriptorDoc[valueStart:], "\n")
+	if valueEnd < 0 {
+		t.Fatalf("descriptor member %q has no line end", member)
+	}
+	valueEnd += valueStart
+	// Preserve a trailing comma: the rewrite replaces the literal only,
+	// so the document stays parseable and reaches the intended gate.
+	trailing := ""
+	if censusValidDescriptorDoc[valueEnd-1] == ',' {
+		trailing = ","
+	}
+	rewritten := censusValidDescriptorDoc[:valueStart] + literal + trailing + censusValidDescriptorDoc[valueEnd:]
+	return []byte(rewritten)
+}
+
+// censusIdentity stamps the omit-self identity on a manifest or probe
+// document map, mirroring production checkIdentity (JCS of the object
+// with the self field omitted, SHA-256, sha256: prefix). A builder bug
+// fails its own parse, never the census: every valid-doc probe parses
+// first and fails the test on any parse error.
+func censusIdentity(t *testing.T, object map[string]any, selfField string) {
+	t.Helper()
+
+	omitted := make(map[string]any, len(object))
+	for name, member := range object {
+		if name != selfField {
+			omitted[name] = member
+		}
+	}
+	serialized, err := json.Marshal(omitted)
+	if err != nil {
+		t.Fatalf("marshal omit-self object: %v", err)
+	}
+	canonical, err := jcs.Transform(serialized)
+	if err != nil {
+		t.Fatalf("canonicalize omit-self object: %v", err)
+	}
+	sum := sha256.Sum256(canonical)
+	object[selfField] = "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// censusManifestDoc builds one builtin manifest document map around the
+// given backend ID and executable digest (nil for builtin_go).
+func censusManifestDoc(t *testing.T, backendID string, digest any) map[string]any {
+	t.Helper()
+
+	object := map[string]any{
+		"schema":                   SchemaManifest,
+		"schema_version":           SchemaVersion100,
+		"manifest_id":              "",
+		"terminal_backend_id":      backendID,
+		"implementation_version":   "2.1.0",
+		"protocol_versions":        []any{"1.0.0", "1.1.0"},
+		"platforms":                []any{"linux", "macos", "wsl2"},
+		"implementation_kind":      "builtin_go",
+		"executable_digest":        digest,
+		"static_capability_claims": []any{},
+		"conformance_fixture_id":   "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		"extensions":               map[string]any{},
+	}
+	censusIdentity(t, object, "manifest_id")
+	return object
+}
+
+// censusProbeDoc builds one builtin probe document map around the given
+// backend ID, executable digest (nil for builtin_go) and generation
+// digest, with empty claims and evidence (sufficient for every probe
+// below: identity and generation fire before claim relation).
+func censusProbeDoc(t *testing.T, backendID string, digest any, generationDigest string) map[string]any {
+	t.Helper()
+
+	object := map[string]any{
+		"schema":                    SchemaProbe,
+		"schema_version":            "1.0.0",
+		"probe_id":                  "",
+		"terminal_backend_id":       backendID,
+		"implementation_version":    "2.1.0",
+		"protocol_version":          "1.1.0",
+		"implementation_kind":       "builtin_go",
+		"executable_digest":         digest,
+		"platform":                  "linux",
+		"os_version":                "14.5",
+		"availability":              "available",
+		"backend_generation_digest": generationDigest,
+		"capability_claims":         []any{},
+		"evidence_ids":              []any{},
+		"probed_at":                 "2026-01-15T12:00:00.000Z",
+		"extensions":                map[string]any{},
+	}
+	censusIdentity(t, object, "probe_id")
+	return object
+}
+
+// censusMarshal encodes a fixture map to JSON bytes.
+func censusMarshal(t *testing.T, object map[string]any) []byte {
+	t.Helper()
+
+	raw, err := json.Marshal(object)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	return raw
+}
+
+// runBackendIDHostileBatteries drives grammar- and bound-refused identities
+// through every entry that accepts identity-influenced input and requires
+// each refusal to carry no attacker bytes. It returns the exercised entry
+// set so the main test can require every pair's entry among it. Deleting
+// any entry's guard reopens an echo here: C1 (no ParseID in
+// CheckProviderDescriptor) fails descriptor-hostile, and the pre-fix
+// Reconcile fails reconcile-hostile.
+//
+// SEQUENTIAL BY DESIGN (no t.Parallel anywhere in this file): probes share
+// the global refusal recorder with the site audit, and attribution
+// snapshots must not interleave.
+func runBackendIDHostileBatteries(t *testing.T) map[string]bool {
+	t.Helper()
+
+	exercised := make(map[string]bool)
+	mark := func(entry string) { exercised[entry] = true }
+
+	hostiles := []string{backendIDHostileLong, backendIDHostileShort}
+
+	t.Run("parse-id", func(t *testing.T) {
+		for _, hostile := range hostiles {
+			_, err := ParseID(hostile)
+			requireNoBackendIDEcho(t, err, hostile, "ParseID(hostile)")
+		}
+		mark("ParseID")
+	})
+
+	t.Run("register-external", func(t *testing.T) {
+		registry := censusRegistry(t)
+		digest := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+		for _, hostile := range hostiles {
+			// Hostile trust-entry identity: refused at entry.validate.
+			err := registry.RegisterExternal(scalar.PlatformLinux, censusTrustEntry(hostile, digest),
+				censusExternalRecord(backendIDValid, "1.2.3", []string{"1.0.0"}, []scalar.Platform{scalar.PlatformLinux}, digest))
+			requireNoBackendIDEcho(t, err, hostile, "RegisterExternal(hostile entry ID)")
+			// Hostile observed identity against a validated entry: refused
+			// at the identity binding naming the validated entry ID.
+			// The refusal names the valid entry ID, never the hostile one.
+			err = registry.RegisterExternal(scalar.PlatformLinux, censusTrustEntry(backendIDValid, digest),
+				censusExternalRecord(hostile, "1.2.3", []string{"1.0.0"}, []scalar.Platform{scalar.PlatformLinux}, digest))
+			var refusal *Error
+			if !errors.As(err, &refusal) {
+				t.Fatalf("RegisterExternal(hostile observed ID) error = %T, want *Error", err)
+			}
+			if refusal.BackendID != backendIDValid {
+				t.Errorf("RegisterExternal(hostile observed ID) BackendID = %q, want the validated entry identity", refusal.BackendID)
+			}
+			if strings.Contains(refusal.Error(), hostile) {
+				t.Errorf("RegisterExternal(hostile observed ID) Error() renders the refused input")
+			}
+		}
+		mark("RegisterExternal")
+	})
+
+	t.Run("resolve", func(t *testing.T) {
+		registry := censusRegistry(t)
+		for _, hostile := range hostiles {
+			_, err := registry.Resolve(hostile)
+			requireNoBackendIDEcho(t, err, hostile, "Resolve(hostile)")
+		}
+		mark("Resolve")
+	})
+
+	t.Run("require-restore-binding", func(t *testing.T) {
+		registry := censusRegistry(t)
+		for _, hostile := range hostiles {
+			_, err := registry.RequireRestoreBinding(hostile, BuiltinTmux)
+			requireNoBackendIDEcho(t, err, hostile, "RequireRestoreBinding(hostile bound)")
+			_, err = registry.RequireRestoreBinding(BuiltinTmux, hostile)
+			requireNoBackendIDEcho(t, err, hostile, "RequireRestoreBinding(hostile candidate)")
+		}
+		mark("RequireRestoreBinding")
+	})
+
+	t.Run("check-version-tuple", func(t *testing.T) {
+		for _, hostile := range hostiles {
+			requireNoBackendIDEcho(t, CheckVersionTuple(hostile, "v1", "1.0.0", []string{"1.0.0"}), hostile, "CheckVersionTuple(hostile)/impl")
+			requireNoBackendIDEcho(t, CheckVersionTuple(hostile, "1.2.3", "2.0.0", []string{"2.0.0"}), hostile, "CheckVersionTuple(hostile)/major")
+			requireNoBackendIDEcho(t, CheckVersionTuple(hostile, "1.2.3", "1.1.0", []string{"1.0.0"}), hostile, "CheckVersionTuple(hostile)/membership")
+		}
+		mark("CheckVersionTuple")
+	})
+
+	t.Run("check-provider-descriptor", func(t *testing.T) {
+		binding := censusDescriptorBinding()
+		for _, hostile := range hostiles {
+			// Hostile descriptor identity: refused at the entry ParseID.
+			descriptor := InstanceBinding{BackendID: hostile, ImplementationVersion: "1.2.3", ProtocolVersion: "1.0.0", Generation: "generation-1", TerminalBindingID: binding.TerminalBindingID}
+			requireNoBackendIDEcho(t, CheckProviderDescriptor(descriptor, binding), hostile, "CheckProviderDescriptor(hostile descriptor)")
+			// Hostile binding identity against a validated descriptor: the
+			// backend-binding arm names the validated descriptor ID.
+			hostileBinding := binding
+			hostileBinding.BackendID = hostile
+			err := CheckProviderDescriptor(binding, hostileBinding)
+			var refusal *Error
+			if !errors.As(err, &refusal) {
+				t.Fatalf("CheckProviderDescriptor(hostile binding) error = %T, want *Error", err)
+			}
+			if refusal.BackendID != backendIDValid {
+				t.Errorf("CheckProviderDescriptor(hostile binding) BackendID = %q, want the validated descriptor identity", refusal.BackendID)
+			}
+			if strings.Contains(refusal.Error(), hostile) {
+				t.Errorf("CheckProviderDescriptor(hostile binding) Error() renders the refused input")
+			}
+		}
+		mark("CheckProviderDescriptor")
+	})
+
+	t.Run("admit-provider-descriptor", func(t *testing.T) {
+		binding := censusDescriptorBinding()
+		for _, hostile := range hostiles {
+			// Hostile document identity: refused at ParseProviderDescriptor
+			// admission before any comparison runs.
+			doc := censusDescriptorWith(t, "terminal_backend_id", strconv.Quote(hostile))
+			_, err := AdmitProviderDescriptor(doc, binding)
+			requireNoBackendIDEcho(t, err, hostile, "AdmitProviderDescriptor(hostile doc)")
+		}
+		// Hostile binding identity against a validated document: the match
+		// arms name the validated document identity.
+		hostileBinding := binding
+		hostileBinding.BackendID = backendIDHostileShort
+		_, err := AdmitProviderDescriptor([]byte(censusValidDescriptorDoc), hostileBinding)
+		var refusal *Error
+		if !errors.As(err, &refusal) {
+			t.Fatalf("AdmitProviderDescriptor(hostile binding) error = %T, want *Error", err)
+		}
+		if refusal.BackendID != backendIDValid {
+			t.Errorf("AdmitProviderDescriptor(hostile binding) BackendID = %q, want the validated document identity", refusal.BackendID)
+		}
+		if strings.Contains(refusal.Error(), backendIDHostileShort) {
+			t.Errorf("AdmitProviderDescriptor(hostile binding) Error() renders the refused input")
+		}
+		mark("AdmitProviderDescriptor")
+	})
+
+	t.Run("parse-provider-descriptor", func(t *testing.T) {
+		for _, hostile := range hostiles {
+			doc := censusDescriptorWith(t, "terminal_backend_id", strconv.Quote(hostile))
+			_, err := ParseProviderDescriptor(doc)
+			requireNoBackendIDEcho(t, err, hostile, "ParseProviderDescriptor(hostile doc)")
+		}
+		mark("ParseProviderDescriptor")
+	})
+
+	t.Run("parse-manifest-probe-evidence", func(t *testing.T) {
+		for _, hostile := range hostiles {
+			manifest := censusManifestDoc(t, hostile, nil)
+			_, err := ParseManifest(censusMarshal(t, manifest))
+			requireNoBackendIDEcho(t, err, hostile, "ParseManifest(hostile doc)")
+			genDigest, genErr := GenerationDigest("generation-alpha")
+			if genErr != nil {
+				t.Fatalf("GenerationDigest() error = %v", genErr)
+			}
+			probe := censusProbeDoc(t, hostile, nil, genDigest)
+			_, err = ParseProbe(censusMarshal(t, probe))
+			requireNoBackendIDEcho(t, err, hostile, "ParseProbe(hostile doc)")
+			// The backend-identity gate runs right after the schema,
+			// version and evidence_id reads, so the remaining members
+			// only need to be present for the exact-member check.
+			evidence := map[string]any{
+				"schema": SchemaCapabilityEvidence, "schema_version": "1.0.0",
+				"evidence_id": "census", "terminal_backend_id": hostile,
+				"implementation_version": nil, "protocol_version": nil,
+				"backend_generation_digest": nil, "capability": nil, "value": nil,
+				"platform": nil, "os_version": nil, "conformance_fixture_id": nil,
+				"observed_at": nil, "expires_at": nil, "issuer": nil, "issuer_id": nil,
+				"attestation_signature": nil, "facts": nil, "terminal_binding_id": nil,
+				"provider_id": nil, "provider_build": nil, "sentinel_result": nil,
+				"provider_auth_smoke_result": nil, "extensions": map[string]any{},
+			}
+			_, err = ParseEvidence(censusMarshal(t, evidence))
+			requireNoBackendIDEcho(t, err, hostile, "ParseEvidence(hostile doc)")
+		}
+		mark("ParseManifest")
+		mark("ParseProbe")
+		mark("ParseEvidence")
+	})
+
+	t.Run("reconcile", func(t *testing.T) {
+		genDigest, err := GenerationDigest("generation-alpha")
+		if err != nil {
+			t.Fatalf("GenerationDigest() error = %v", err)
+		}
+		deny := func(string, []byte, []byte) error { return errors.New("deny") }
+		now := time.Date(2026, time.January, 20, 0, 0, 0, 0, time.UTC)
+		digest1 := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+		digest2 := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+		hostileManifest := func(id, digest string) Manifest {
+			return Manifest{ManifestID: "m", TerminalBackendID: id, ImplementationVersion: "2.1.0",
+				ProtocolVersions: []string{"1.0.0"}, Platforms: []scalar.Platform{scalar.PlatformLinux},
+				ImplementationKind: KindBuiltinGo, ExecutableDigest: digest, ConformanceFixtureID: digest1}
+		}
+		hostileProbe := func(id, digest, generation string) Probe {
+			return Probe{ProbeID: "p", TerminalBackendID: id, ImplementationVersion: "2.1.0",
+				ProtocolVersion: "1.0.0", ImplementationKind: KindBuiltinGo, ExecutableDigest: digest,
+				Platform: scalar.PlatformLinux, OSVersion: "14.5", Availability: "available",
+				BackendGenerationDigest: generation}
+		}
+		for _, hostile := range hostiles {
+			// Per-shape subtests: a length-gated entry check (narrowing
+			// mutant N-tb-reconcile-lengthgated) admits exactly the
+			// short grammar-refused subclass, so the short rows fail
+			// while the long rows pass — the narrowing split is read
+			// off the subtests, not inferred.
+			hostile := hostile
+			t.Run("len"+strconv.Itoa(len(hostile)), func(t *testing.T) {
+				// Equal hostile IDs with differing digests: pre-fix this
+				// renders the substitution refusal naming the hostile ID.
+				_, err = Reconcile(hostileManifest(hostile, digest1), hostileProbe(hostile, digest2, genDigest), nil, "generation-alpha", now, deny)
+				requireNoBackendIDEcho(t, err, hostile, "Reconcile(hostile)/substitution")
+				// Equal hostile IDs with matching digests but a foreign
+				// generation digest: pre-fix this renders the generation
+				// refusal naming the hostile ID.
+				_, err = Reconcile(hostileManifest(hostile, digest1), hostileProbe(hostile, digest1, digest2), nil, "generation-alpha", now, deny)
+				requireNoBackendIDEcho(t, err, hostile, "Reconcile(hostile)/generation")
+				// Hostile manifest ID against a validated probe: the identity
+				// gate must refuse before naming either side.
+				_, err = Reconcile(hostileManifest(hostile, digest1), hostileProbe(backendIDValid, digest1, genDigest), nil, "generation-alpha", now, deny)
+				requireNoBackendIDEcho(t, err, hostile, "Reconcile(hostile manifest only)")
+			})
+		}
+		mark("Reconcile")
+	})
+
+	t.Run("admit-probe", func(t *testing.T) {
+		registry := censusRegistry(t)
+		deny := func(string, []byte, []byte) error { return errors.New("deny") }
+		now := time.Date(2026, time.January, 20, 0, 0, 0, 0, time.UTC)
+		for _, hostile := range hostiles {
+			manifest := censusMarshal(t, censusManifestDoc(t, hostile, nil))
+			_, err := registry.AdmitProbe(manifest, nil, nil, "generation-alpha", now, deny)
+			requireNoBackendIDEcho(t, err, hostile, "AdmitProbe(hostile manifest doc)")
+			genDigest, genErr := GenerationDigest("generation-alpha")
+			if genErr != nil {
+				t.Fatalf("GenerationDigest() error = %v", genErr)
+			}
+			probe := censusMarshal(t, censusProbeDoc(t, hostile, nil, genDigest))
+			validManifest := censusMarshal(t, censusManifestDoc(t, BuiltinTmux, nil))
+			_, err = registry.AdmitProbe(validManifest, probe, nil, "generation-alpha", now, deny)
+			requireNoBackendIDEcho(t, err, hostile, "AdmitProbe(hostile probe doc)")
+		}
+		mark("AdmitProbe")
+	})
+
+	t.Run("project-to-legacy", func(t *testing.T) {
+		for _, hostile := range hostiles {
+			_, err := ProjectToLegacy(hostile)
+			requireNoBackendIDEcho(t, err, hostile, "ProjectToLegacy(hostile)")
+		}
+		mark("ProjectToLegacy")
+	})
+
+	t.Run("new-const-identities", func(t *testing.T) {
+		// New takes no backend-identity input: its BackendID sites name
+		// the BuiltinTmux constant. The runtime half of that claim is
+		// that both constants pass the grammar they are refused under.
+		if _, err := ParseID(BuiltinTmux); err != nil {
+			t.Errorf("ParseID(BuiltinTmux) error = %v, want admission: New names this constant", err)
+		}
+		if _, err := ParseID(BuiltinConpty); err != nil {
+			t.Errorf("ParseID(BuiltinConpty) error = %v, want admission: New names this constant", err)
+		}
+		mark("New")
+	})
+
+	return exercised
+}
+
+// censusFireProver attributes validated fires to (site, entry) pairs
+// through the runtime refusal recorder.
+type censusFireProver struct {
+	t           *testing.T
+	lineToSite  map[string]string
+	firedLines  map[string]bool
+	provenPairs map[string]bool
+}
+
+// requireValidatedFire drives one grammar-valid but rule-refused input
+// through its entry, requires the refusal to name exactly the validated
+// identity at the pair's (code, detail), and attributes the firing site:
+// the pair's line must be newly fired, unless this test already fired it
+// through another entry, in which case the entry-driven construction plus
+// the exact triple carries the attribution and the earlier line fire is
+// cited. Every census "census:*" fire claim resolves here.
+func (prover *censusFireProver) requireValidatedFire(pair backendIDPair, wantID, wantCode, wantDetail string, drive func() error) {
+	prover.t.Helper()
+
+	before := refusalSiteRecorder.Sites()
+	err := drive()
+	if err == nil {
+		prover.t.Fatalf("census fire %s at %s: error = nil, want refusal at %q", prover.pairName(pair), pair.entry, wantDetail)
+		return
+	}
+	var refusal *Error
+	if !errors.As(err, &refusal) {
+		prover.t.Fatalf("census fire %s at %s: error = %T (%v), want *Error", prover.pairName(pair), pair.entry, err, err)
+		return
+	}
+	if refusal.Code != wantCode || refusal.Detail != wantDetail {
+		prover.t.Errorf("census fire %s at %s: refusal = %q at %q, want %q at %q",
+			prover.pairName(pair), pair.entry, refusal.Code, refusal.Detail, wantCode, wantDetail)
+	}
+	if refusal.BackendID != wantID {
+		prover.t.Errorf("census fire %s at %s: BackendID = %q, want the validated identity %q",
+			prover.pairName(pair), pair.entry, refusal.BackendID, wantID)
+	}
+	key := backendIDPairKey(pair.file, pair.function, pair.code, pair.detail, pair.occurrence)
+	attributed := false
+	for site := range refusalSiteRecorder.Sites() {
+		if _, ok := before[site]; ok {
+			continue
+		}
+		prover.firedLines[site] = true
+		if siteKey, known := prover.lineToSite[site]; known && siteKey == key {
+			attributed = true
+		}
+	}
+	if !attributed {
+		// The site fired earlier in this test through another entry (same
+		// line, recorder set semantics): the entry-driven construction
+		// plus the exact triple above carries this pair.
+		already := false
+		for site, siteKey := range prover.lineToSite {
+			_ = site
+			if siteKey == key && prover.firedLines[site] {
+				already = true
+				break
+			}
+		}
+		if !already {
+			prover.t.Errorf("census fire %s at %s: pair site never fired (want %q at %q with %q)",
+				prover.pairName(pair), pair.entry, wantCode, wantDetail, wantID)
+			return
+		}
+	}
+	prover.provenPairs[key+"@"+pair.entry] = true
+}
+
+func (prover *censusFireProver) pairName(pair backendIDPair) string {
+	return backendIDPairKey(pair.file, pair.function, pair.code, pair.detail, pair.occurrence)
+}
+
+// censusPairByFire returns the pair row naming the given census fire.
+func censusPairByFire(t *testing.T, fire string) backendIDPair {
+	t.Helper()
+
+	for _, pair := range backendIDPairs {
+		if pair.fire == fire {
+			return pair
+		}
+	}
+	t.Fatalf("census fire %q names no pair row", fire)
+	return backendIDPair{}
+}
+
+// runBackendIDValidatedFires drives one grammar-valid fire per census
+// "census:*" pair: the site must refuse naming the validated identity.
+// Single-entry pairs cite their inventoried executed witness instead
+// (resolved mechanically in checkBackendIDWitnessCitations); only
+// multi-entry sites need a second-entry fire here.
+func runBackendIDValidatedFires(t *testing.T, lineToSite map[string]string, preFired map[string]struct{}) map[string]bool {
+	t.Helper()
+
+	firedLines := make(map[string]bool, len(preFired))
+	for site := range preFired {
+		firedLines[site] = true
+	}
+	prover := &censusFireProver{t: t, lineToSite: lineToSite, firedLines: firedLines, provenPairs: make(map[string]bool)}
+	deny := func(string, []byte, []byte) error { return errors.New("deny") }
+	now := time.Date(2026, time.January, 20, 0, 0, 0, 0, time.UTC)
+	digest1 := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	digest2 := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+
+	t.Run("reserved-names-validated-identity", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/reserved-names-validated-identity")
+		prover.requireValidatedFire(pair, "ax.evil", CodeNotFound, "terminal_backend_id reserved namespace", func() error {
+			_, err := ParseID("ax.evil")
+			return err
+		})
+	})
+
+	t.Run("substitution-via-Reconcile", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/substitution-via-Reconcile")
+		manifest := Manifest{ManifestID: "m", TerminalBackendID: backendIDValid, ImplementationVersion: "2.1.0",
+			ProtocolVersions: []string{"1.0.0"}, Platforms: []scalar.Platform{scalar.PlatformLinux},
+			ImplementationKind: KindBuiltinGo, ExecutableDigest: digest1, ConformanceFixtureID: digest1}
+		// A builtin_go probe cannot carry a distinct digest past the
+		// document gate, but Reconcile takes structs directly: the pair
+		// property is about the struct path, so structs carry it.
+		probe := Probe{ProbeID: "p", TerminalBackendID: backendIDValid, ImplementationVersion: "2.1.0",
+			ProtocolVersion: "1.0.0", ImplementationKind: KindBuiltinGo, ExecutableDigest: digest2,
+			Platform: scalar.PlatformLinux, OSVersion: "14.5", Availability: "available",
+			BackendGenerationDigest: digest1}
+		prover.requireValidatedFire(pair, backendIDValid, CodeUntrusted, "executable substitution", func() error {
+			_, err := Reconcile(manifest, probe, nil, "generation-alpha", now, deny)
+			return err
+		})
+	})
+
+	t.Run("generation-via-AdmitProbe", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/generation-via-AdmitProbe")
+		registry := censusRegistry(t)
+		manifest := censusMarshal(t, censusManifestDoc(t, BuiltinTmux, nil))
+		probe := censusMarshal(t, censusProbeDoc(t, BuiltinTmux, nil, digest2))
+		prover.requireValidatedFire(pair, BuiltinTmux, CodeStaleGeneration, "probe generation binding", func() error {
+			_, err := registry.AdmitProbe(manifest, probe, nil, "generation-alpha", now, deny)
+			return err
+		})
+	})
+
+	t.Run("unregistered-via-RequireRestoreBinding", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/unregistered-via-RequireRestoreBinding")
+		registry := censusRegistry(t)
+		const ghost = "com.example.ghost"
+		prover.requireValidatedFire(pair, ghost, CodeNotFound, "unregistered terminal_backend_id", func() error {
+			_, err := registry.RequireRestoreBinding(ghost, ghost)
+			return err
+		})
+	})
+
+	t.Run("unregistered-via-AdmitProbe", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/unregistered-via-AdmitProbe")
+		registry := censusRegistry(t)
+		const ghost = "com.example.ghost"
+		manifest := censusMarshal(t, censusManifestDoc(t, ghost, nil))
+		prover.requireValidatedFire(pair, ghost, CodeNotFound, "unregistered terminal_backend_id", func() error {
+			_, err := registry.AdmitProbe(manifest, nil, nil, "generation-alpha", now, deny)
+			return err
+		})
+	})
+
+	t.Run("descriptor-backend-via-AdmitProviderDescriptor", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/descriptor-backend-via-AdmitProviderDescriptor")
+		binding := censusDescriptorBinding()
+		binding.BackendID = "com.example.other"
+		prover.requireValidatedFire(pair, backendIDValid, CodeNotFound, "descriptor backend binding", func() error {
+			_, err := AdmitProviderDescriptor([]byte(censusValidDescriptorDoc), binding)
+			return err
+		})
+	})
+
+	t.Run("descriptor-digest-mismatch-via-AdmitProviderDescriptor", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/descriptor-digest-mismatch-via-AdmitProviderDescriptor")
+		binding := censusDescriptorBinding()
+		binding.TerminalBindingID = digest2
+		prover.requireValidatedFire(pair, backendIDValid, CodeNotFound, "descriptor binding digest", func() error {
+			_, err := AdmitProviderDescriptor([]byte(censusValidDescriptorDoc), binding)
+			return err
+		})
+	})
+
+	t.Run("descriptor-version-via-AdmitProviderDescriptor", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/descriptor-version-via-AdmitProviderDescriptor")
+		binding := censusDescriptorBinding()
+		binding.ImplementationVersion = "9.9.9"
+		prover.requireValidatedFire(pair, backendIDValid, CodeDrift, "descriptor version binding", func() error {
+			_, err := AdmitProviderDescriptor([]byte(censusValidDescriptorDoc), binding)
+			return err
+		})
+	})
+
+	t.Run("descriptor-generation-via-AdmitProviderDescriptor", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/descriptor-generation-via-AdmitProviderDescriptor")
+		binding := censusDescriptorBinding()
+		binding.Generation = "generation-2"
+		prover.requireValidatedFire(pair, backendIDValid, CodeStaleGeneration, "descriptor generation binding", func() error {
+			_, err := AdmitProviderDescriptor([]byte(censusValidDescriptorDoc), binding)
+			return err
+		})
+	})
+
+	t.Run("protocol-major-1-via-New", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/protocol-major-1-via-New")
+		prover.requireValidatedFire(pair, BuiltinTmux, CodeDrift, "protocol_versions major 1", func() error {
+			_, err := New("1.2.3", []string{"2.0.0"})
+			return err
+		})
+	})
+
+	t.Run("protocol-bound-via-RegisterExternal", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/protocol-bound-via-RegisterExternal")
+		registry := censusRegistry(t)
+		prover.requireValidatedFire(pair, backendIDValid, CodeDrift, "protocol_versions bound", func() error {
+			return registry.RegisterExternal(scalar.PlatformLinux, censusTrustEntry(backendIDValid, digest1),
+				censusExternalRecord(backendIDValid, "1.2.3", nil, []scalar.Platform{scalar.PlatformLinux}, digest1))
+		})
+	})
+
+	t.Run("protocol-order-via-RegisterExternal", func(t *testing.T) {
+		pair := censusPairByFire(t, "census:TestBackendIDEntryCensus/protocol-order-via-RegisterExternal")
+		registry := censusRegistry(t)
+		prover.requireValidatedFire(pair, backendIDValid, CodeDrift, "protocol_versions sorted unique", func() error {
+			return registry.RegisterExternal(scalar.PlatformLinux, censusTrustEntry(backendIDValid, digest1),
+				censusExternalRecord(backendIDValid, "1.2.3", []string{"1.1.0", "1.0.0"}, []scalar.Platform{scalar.PlatformLinux}, digest1))
+		})
+	})
+
+	return prover.provenPairs
+}
+
+// runBackendIDExemptionPins executes the exemption pins in this file: the
+// digest-null arm through a direct validate call, and the shadow proof
+// that a malformed digest through AdmitProviderDescriptor refuses at the
+// parse arm rather than reaching the match.
+func runBackendIDExemptionPins(t *testing.T) {
+	t.Helper()
+
+	t.Run("digest-null-unreachable", func(t *testing.T) {
+		record := Registration{ID: backendIDValid, Kind: KindBuiltinGo, ImplementationVersion: "1.2.3",
+			ProtocolVersions: []string{"1.0.0"}, Platforms: []scalar.Platform{scalar.PlatformLinux},
+			ExecutableDigest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+		err := record.validate()
+		var refusal *Error
+		if !errors.As(err, &refusal) {
+			t.Fatalf("validate(builtin kind with digest) error = %T, want *Error", err)
+		}
+		if refusal.Code != CodeDrift || refusal.Detail != "executable_digest must be null" || refusal.BackendID != backendIDValid {
+			t.Errorf("validate() = %q for %q at %q, want drift at executable_digest must be null naming the validated record",
+				refusal.Code, refusal.Detail, refusal.BackendID)
+		}
+	})
+
+	t.Run("digest-parse-shadowed-via-AdmitProviderDescriptor", func(t *testing.T) {
+		doc := censusDescriptorWith(t, "terminal_binding_id", `"not-a-digest"`)
+		_, err := AdmitProviderDescriptor(doc, censusDescriptorBinding())
+		var refusal *Error
+		if !errors.As(err, &refusal) {
+			t.Fatalf("AdmitProviderDescriptor(malformed digest) error = %T, want *Error", err)
+		}
+		if refusal.Code != CodeProtocolError || refusal.Detail != "descriptor digest" {
+			t.Errorf("AdmitProviderDescriptor(malformed digest) = %q at %q, want the parse arm: the match parse arm is shadowed",
+				refusal.Code, refusal.Detail)
+		}
+	})
+}
+
+// TestBackendIDEntryCensus is the instrument: the derived (site, entry)
+// census with every pair proved at runtime. SEQUENTIAL BY DESIGN (no
+// t.Parallel): attribution snapshots must not interleave, matching
+// TestRefusalSiteAttributionIsExact.
+//
+// The outcome ratio is produced here: validated pairs over total pairs,
+// plus executed exemption pins. A hand-maintained count in prose or in
+// the outcome document that disagrees with this log is wrong by
+// construction.
+func TestBackendIDEntryCensus(t *testing.T) {
+	_, lineToSite := checkBackendIDMapping(t)
+	checkBackendIDWitnessCitations(t)
+
+	// Seed the fire prover with sites the hostile batteries already
+	// exercised: the recorder is a set, so a valid fire re-firing a
+	// hostile-fired line (pre-fix Reconcile arms, the descriptor
+	// hostile-binding arm) attributes through the earlier line fire
+	// plus its exact triple rather than a fresh diff.
+	preFired := refusalSiteRecorder.Sites()
+	hostileEntries := runBackendIDHostileBatteries(t)
+	for _, entry := range backendIDHostileOnlyEntries {
+		if !hostileEntries[entry] {
+			t.Errorf("hostile-only entry %s has no hostile battery; an entry without a battery proves nothing", entry)
+		}
+	}
+	for site := range refusalSiteRecorder.Sites() {
+		if _, ok := preFired[site]; !ok {
+			preFired[site] = struct{}{}
+		}
+	}
+	provenPairs := runBackendIDValidatedFires(t, lineToSite, preFired)
+	runBackendIDExemptionPins(t)
+
+	validated := 0
+	for _, pair := range backendIDPairs {
+		key := backendIDPairKey(pair.file, pair.function, pair.code, pair.detail, pair.occurrence)
+		if !hostileEntries[pair.entry] {
+			t.Errorf("census pair %s at entry %s has no hostile battery; every pair's entry must refuse hostile input without echo in this test", key, pair.entry)
+			continue
+		}
+		if provenPairs[key+"@"+pair.entry] {
+			validated++
+			continue
+		}
+		if strings.HasPrefix(pair.fire, "witness:") {
+			// Fire proof is the inventoried executed witness at the
+			// pair's entry, resolved mechanically above; the hostile
+			// battery in this test is the pair's echo proof.
+			validated++
+			continue
+		}
+		t.Errorf("census pair %s at entry %s has no fire proof: neither a census fire in this test nor a witness citation", key, pair.entry)
+	}
+	t.Logf("backend-id entry census: %d/%d pairs validated, %d site exemptions plus %d pair exemptions pinned",
+		validated, len(backendIDPairs), len(backendIDExemptSites), len(backendIDExemptPairs))
+	if validated != len(backendIDPairs) {
+		t.Fatalf("backend-id entry census: %d of %d pairs validated; the package comment must not claim more", validated, len(backendIDPairs))
+	}
+}

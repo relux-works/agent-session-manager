@@ -6,16 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/relux-works/agent-session-manager/internal/invcore"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
 )
 
@@ -97,35 +96,23 @@ func deriveRefusalArms(t *testing.T) map[string]struct{} {
 }
 
 func refusalArmsIn(directory string) (map[string]struct{}, []string, error) {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return nil, nil, err
+	// Production-file selection and fail-closed parsing are the shared
+	// core's; the derivation below only classifies.
+	scannedFiles, fileSet, failures := invcore.ScanProduction(directory)
+	if len(failures) != 0 {
+		return nil, nil, errors.New(strings.Join(failures, "; "))
 	}
 	arms := map[string]struct{}{}
 	var scanned []string
 	parseBranches := 0
-	fileSet := token.NewFileSet()
 	type productionFile struct {
 		syntax *ast.File
 		source []byte
 	}
 	var files []productionFile
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		scanned = append(scanned, name)
-		path := filepath.Join(directory, name)
-		source, err := os.ReadFile(path)
-		if err != nil {
-			return nil, nil, err
-		}
-		syntax, err := parser.ParseFile(fileSet, path, source, parser.ParseComments)
-		if err != nil {
-			return nil, nil, err
-		}
-		files = append(files, productionFile{syntax: syntax, source: source})
+	for _, production := range scannedFiles {
+		scanned = append(scanned, production.Name)
+		files = append(files, productionFile{syntax: production.Syntax, source: production.Source})
 	}
 	// First pass, package-wide: the decodeStrictObject fault detail
 	// set, which the integrity wrapper site expands over. The wrapper

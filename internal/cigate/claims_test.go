@@ -191,6 +191,34 @@ func TestAvailableCapabilityAdmitsPositiveClaim(t *testing.T) {
 	}
 }
 
+// TestAvailabilityFieldDrivesVerdict pins the mechanism the CI comment and
+// doc.go describe: CheckAdvertisements reads ProbeState.Available from the
+// states it is given (claims.go availability map). The same positive-claim
+// sentence is refused with the probe forced unavailable and admitted with
+// it forced available, so a hardcoded availability in either direction —
+// or a dropped map read — reddens here.
+func TestAvailabilityFieldDrivesVerdict(t *testing.T) {
+	t.Parallel()
+	const claim = "The `fifo` capability is available on Linux."
+	refused, err := CheckAdvertisements(claim, unavailableStates("fifo"))
+	if err != nil {
+		t.Fatalf("CheckAdvertisements() error = %v", err)
+	}
+	if len(refused) != 1 {
+		t.Fatalf("unavailable posture findings = %v, want exactly the positive-claim refusal", refused)
+	}
+	if !strings.Contains(refused[0].Reason, "positive availability claim") {
+		t.Errorf("finding reason = %q, want the positive-claim refusal", refused[0].Reason)
+	}
+	admitted, err := CheckAdvertisements(claim, availableStates("fifo"))
+	if err != nil {
+		t.Fatalf("CheckAdvertisements() error = %v", err)
+	}
+	if len(admitted) != 0 {
+		t.Fatalf("available posture findings = %v, want none: Available must be read, not ignored", admitted)
+	}
+}
+
 func TestMixedAvailabilityFindsOnlyUnavailable(t *testing.T) {
 	t.Parallel()
 	findings, err := CheckAdvertisements(
@@ -243,6 +271,36 @@ func TestSubstringIsNotAMarker(t *testing.T) {
 	}
 	if !strings.Contains(findings[0].Reason, "unclassified mention") {
 		t.Errorf("finding reason = %q, want the unclassified refusal", findings[0].Reason)
+	}
+}
+
+// TestSameBlockSentencesSplitOnTerminal is the behavioural pin for the
+// sentence splitter: both sentences share one blank-line block, so
+// paragraph granularity would admit the document (the first sentence
+// carries the negation) while sentence granularity refuses the second.
+// Collapsing splitSentences to one sentence per block reddens here, as
+// does a splitter that only honours a subset of terminal punctuation.
+func TestSameBlockSentencesSplitOnTerminal(t *testing.T) {
+	t.Parallel()
+	documents := map[string]string{
+		"period": "The `fifo` capability is not available on Linux. The `fifo` capability is available on Windows.",
+		"bang":   "The `fifo` lane is not ready! The `fifo` lane works on Windows.",
+		"query":  "Is the `fifo` lane not ready? The `fifo` lane works on Windows.",
+	}
+	for terminal, document := range documents {
+		t.Run(terminal, func(t *testing.T) {
+			t.Parallel()
+			findings, err := CheckAdvertisements(document, unavailableStates("fifo"))
+			if err != nil {
+				t.Fatalf("CheckAdvertisements() error = %v", err)
+			}
+			if len(findings) != 1 {
+				t.Fatalf("CheckAdvertisements() findings = %v, want exactly the second-sentence refusal", findings)
+			}
+			if !strings.Contains(findings[0].Reason, "positive availability claim") {
+				t.Errorf("finding reason = %q, want the positive-claim refusal", findings[0].Reason)
+			}
+		})
 	}
 }
 
@@ -309,11 +367,28 @@ func TestRealREADMEAdmitsWhenAllAvailable(t *testing.T) {
 	}
 }
 
-// TestEveryNonClaimMarkerOccursInCorpus keeps the marker list honest: a
-// marker that fires on no real sentence is either dead weight or an admission
-// hole reserved for future text.
-func TestEveryNonClaimMarkerOccursInCorpus(t *testing.T) {
-	t.Parallel()
+// mentionResolution is how one probe-mentioning corpus sentence resolves
+// under the all-unavailable posture: admitted through a negating context
+// or through marker-classified non-claim context, or refused with the
+// gate's reason.
+type mentionResolution struct {
+	text    string
+	line    int
+	negated bool
+	markers []string
+	refused bool
+	reason  string
+}
+
+// resolveCorpusMentions derives every probe-mentioning README sentence
+// through the production splitter and the production classifiers, and
+// cross-checks each label against the production verdict: a label that
+// disagrees with CheckAdvertisements fails instead of measuring a
+// different gate. The denominator is derived, never retyped: a new
+// probe-mentioning sentence is classified automatically, and an empty
+// derivation fails closed.
+func resolveCorpusMentions(t *testing.T) []mentionResolution {
+	t.Helper()
 	document := readREADME(t)
 	ids, err := CapabilityIDs()
 	if err != nil {
@@ -323,28 +398,88 @@ func TestEveryNonClaimMarkerOccursInCorpus(t *testing.T) {
 	for _, id := range ids {
 		probed["`"+id+"`"] = true
 	}
-	var mentioning []string
+	states := unavailableStates(ids...)
+	var resolved []mentionResolution
 	for _, part := range splitSentences(document) {
+		mentioned := false
 		for token := range probed {
 			if strings.Contains(part.text, token) {
-				mentioning = append(mentioning, part.text)
+				mentioned = true
 				break
 			}
 		}
+		if !mentioned {
+			continue
+		}
+		findings, err := CheckAdvertisements(part.text, states)
+		if err != nil {
+			t.Fatalf("CheckAdvertisements() error = %v", err)
+		}
+		lowered := strings.ToLower(part.text)
+		negated := containsAnyFold(negations, part.text)
+		var markers []string
+		for _, marker := range nonClaimMarkers {
+			if wordMatches(marker, lowered) {
+				markers = append(markers, marker)
+			}
+		}
+		refused := len(findings) > 0
+		reason := ""
+		if refused {
+			reason = findings[0].Reason
+		}
+		// Cross-check: the production gate refuses exactly when the
+		// positive arm fires or when neither admission arm does. A
+		// verdict that disagrees with the classifiers means the census
+		// drifted from the gate it measures, so it fails instead of
+		// mislabelling the mention.
+		positive := containsAnyFold(positiveAvailability, part.text) && !negated
+		wantRefused := (positive && !negated) || (!negated && len(markers) == 0)
+		if refused != wantRefused {
+			t.Fatalf("mention line %d (%q) verdict disagrees with its classifiers (positive=%v negated=%v markers=%v findings=%v); the census drifted from the gate",
+				part.line, part.text, positive, negated, markers, findings)
+		}
+		resolved = append(resolved, mentionResolution{
+			text:    part.text,
+			line:    part.line,
+			negated: negated,
+			markers: markers,
+			refused: refused,
+			reason:  reason,
+		})
 	}
-	if len(mentioning) == 0 {
+	if len(resolved) == 0 {
 		t.Fatal("no corpus sentence mentions a probe ID; the marker census is vacuous")
 	}
-	for _, marker := range nonClaimMarkers {
-		found := false
-		for _, text := range mentioning {
-			if wordMatches(marker, strings.ToLower(text)) {
-				found = true
-				break
-			}
+	return resolved
+}
+
+// TestEveryNonClaimMarkerClassifiesCorpusSentence measures marker effect,
+// not occurrence: every production marker must be load-bearing for at
+// least one corpus mention — admitted with the full lists, refused with
+// exactly that marker gone. A marker that classifies nothing fails here,
+// whether it never fires or its sentences all resolve through negations.
+// Every corpus mention must resolve admitted through a named arm; a
+// refused mention fails naming its line and verdict.
+func TestEveryNonClaimMarkerClassifiesCorpusSentence(t *testing.T) {
+	t.Parallel()
+	resolved := resolveCorpusMentions(t)
+	for _, mention := range resolved {
+		if mention.refused {
+			t.Errorf("corpus mention line %d is refused (%s): %q", mention.line, mention.reason, mention.text)
 		}
-		if !found {
-			t.Errorf("marker %q occurs in no probe-mentioning sentence; remove it or classify with it", marker)
+	}
+	for _, marker := range nonClaimMarkers {
+		classified := false
+		for _, mention := range resolved {
+			if mention.refused || mention.negated || len(mention.markers) != 1 || mention.markers[0] != marker {
+				continue
+			}
+			classified = true
+			break
+		}
+		if !classified {
+			t.Errorf("marker %q classifies no corpus sentence; add a sentence it alone admits, or remove it from the gate", marker)
 		}
 	}
 }

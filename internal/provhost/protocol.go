@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -357,7 +358,34 @@ func checkResponseMembers(members map[string]json.RawMessage, ok bool) *frameFau
 
 // parseMajor extracts the major from a strict numeric X.Y.Z version.
 // Anything else is not a recognizable major, so the frame is unusable
-// rather than a mismatch.
+// rather than a mismatch. A major that does not fit an int saturates
+// instead of wrapping, but saturation never short-circuits the shape
+// check: only a fully numeric X.Y.Z reports a recognized major. An
+// all-numeric giant is observably foreign (it is not 2), so it takes
+// the mismatch arm, never aliases a small native major
+// (18446744073709551618 must not read as 2) and never slides to the
+// unusable-frame arm; a giant with a non-numeric or empty rest
+// (99999999999999999999.abc.def) is unrecognized like any other
+// malformed version. Saturation adds no rejection branch, so the
+// derived parse-arm census needs no new row for it.
+//
+// Leading zeros are accepted, not rejected: "03.0.0" reports major 3
+// and "02.0.0" reports major 2. The looseness is classification-only
+// and deliberately stays. parseMajor never admits a version — the
+// version gate admits exactly "2.0.0" by string equality — it only
+// chooses which refusal a foreign frame takes: a recognizable major
+// other than 2 is a major mismatch (incompatible_protocol), anything
+// else is an unusable frame (provider_protocol_error). "03.0.0" is
+// observably foreign either way, so strictness would only move it
+// from the mismatch arm to the unusable arm, and "02.0.0" already
+// lands unusable and is never admitted. Strict SemVer (no leading
+// zeros) is enforced where a version is admitted — manifest
+// plugin_version and the shared semver grammar — never at this
+// foreign-frame classifier. A leading-zero rejection here would also
+// spell an equality against '0', which the digit-guard census rejects
+// as unclassifiable, so the stricter spelling costs census churn for
+// zero admission gain. TestParseMajorLeadingZeroIsClassifiedAsForeign
+// pins both rows through DecodeResponse.
 func parseMajor(version string) (int, bool) {
 	parts := strings.Split(version, ".")
 	if len(parts) != 3 {
@@ -369,7 +397,12 @@ func parseMajor(version string) (int, bool) {
 		if digit < '0' || digit > '9' {
 			return 0, false
 		}
-		major = major*10 + int(digit-'0')
+		step := int(digit - '0')
+		if major > (math.MaxInt-step)/10 {
+			major = math.MaxInt
+			continue
+		}
+		major = major*10 + step
 	}
 	if len(parts[0]) == 0 {
 		return 0, false
@@ -386,11 +419,6 @@ func parseMajor(version string) (int, bool) {
 	}
 	return major, true
 }
-
-// providerContract is the static Section 7.2 binding every failure
-// envelope is decoded under: provider protocol major 2 binds Structured
-// Error 1.0.0. The version is never taken from the document.
-var providerContract = axerror.ContainingContract{ID: "urn:ax:protocol:provider", Major: 2}
 
 // DecodeResponse validates one stdout line as the single response frame
 // for the request carrying wantRequestID. It returns the success body, or
@@ -537,7 +565,18 @@ func DecodeResponse(frame []byte, wantRequestID scalar.UUIDv7) (Response, error)
 		}
 		return Response{}, failure
 	}
-	child, err := axerror.DecodeBound(providerContract, members["error"])
+	// The failure-error version is selected by the observed envelope
+	// major through the static Section 15.1/17.1 table, never from the
+	// document: major 2 decodes under Structured Error 1.0.0, and major
+	// 3 would decode under Structured Error 1.3.0. Only 2.0.0 reaches
+	// this line — a recognizable 3.x envelope was refused above as a
+	// major mismatch, because a v2-only host never trusts a different
+	// major's error (Section 7.A) — so the contract below carries major
+	// 2 on every reachable path today, and admits 1.3.0 by construction
+	// the day the version gate admits 3.0.0. The blank parse result is
+	// total here: the gate above admitted exactly "2.0.0".
+	observedMajor, _ := parseMajor(version)
+	child, err := axerror.DecodeBound(axerror.ContainingContract{ID: ProtocolID, Major: observedMajor}, members["error"])
 	if err != nil {
 		failure, fault := failProtocol("error is not a bound Structured Error 1.0.0", "error")
 		if fault != nil {

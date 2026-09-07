@@ -411,6 +411,7 @@ var identityRegistrations = []identityRegistration{
 	// the uint53 reader.
 	{id: `decode.go|isNull|string(bytes.TrimSpace(raw)) == "null"|0`, driver: "TestCheckValidateNullabilityDrivesEveryTarget", domain: "validate", reason: "null detector; both directions pinned by the archive/staged target matrix"},
 	{id: `decode.go|rawUint53|literal == ""|0`, exempt: true, reason: "defensive: unreachable — json.Number.String never yields an empty literal, and every non-number is refused at the decode arms above"},
+	{id: `decode.go|parseUint53Literal|literal == ""|0`, exempt: true, reason: "defensive: unreachable — the only caller refuses the empty literal at the rawUint53 arm above, and the shared ladder texture is pinned directly by TestParseUint53LiteralRefusesNonDigits in internal/environ"},
 	// discovery.go: the two live zero-fact refusals F1 names.
 	{id: `discovery.go|Discover|candidate.ExecutablePath == ""|0`, driver: "TestDiscoverRefusals", domain: "discover", reason: "empty executable path refuses at Discover"},
 	{id: `discovery.go|Discover|candidate.OwnerIdentity == ""|0`, driver: "TestDiscoverRefusals", domain: "discover", reason: "empty owner identity refuses at Discover"},

@@ -1,16 +1,16 @@
 package provhost
 
 import (
+	"errors"
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/relux-works/agent-session-manager/internal/invcore"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
 	"github.com/relux-works/agent-session-manager/internal/specdoc"
 )
@@ -542,33 +542,17 @@ func TestAllProductionSwitchesAreClassified(t *testing.T) {
 	if err != nil {
 		t.Fatalf("classify production switches: %v", err)
 	}
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		t.Fatalf("classify production switches: %v", err)
-	}
 	// classified maps the enclosing function of each allowed switch to
 	// the reason it cannot admit a new member.
 	classified := map[string]string{
 		"DecodeStatusOutcome": "dispatches on a state validStatusState already proved a registry member",
 	}
-	fileSet := token.NewFileSet()
 	matched := map[string]bool{}
 	files := 0
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
+	productions, _ := invcore.MustScanProduction(t, directory)
+	for _, production := range productions {
+		syntax, name := production.Syntax, production.Name
 		files++
-		path := filepath.Join(directory, name)
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("classify production switches: %v", err)
-		}
-		syntax, err := parser.ParseFile(fileSet, path, source, 0)
-		if err != nil {
-			t.Fatalf("classify production switches: %v", err)
-		}
 		for _, decl := range syntax.Decls {
 			function, ok := decl.(*ast.FuncDecl)
 			if !ok || function.Body == nil {
@@ -643,32 +627,19 @@ func deriveMembershipVocabularies(t *testing.T) map[string]struct{} {
 // is a refusal-order list, not a containment vocabulary, and is
 // excluded by design.
 func membershipVocabulariesIn(directory string) (map[string]struct{}, []string, error) {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return nil, nil, err
+	scannedFiles, _, failures := invcore.ScanProduction(directory)
+	if len(failures) != 0 {
+		return nil, nil, errors.New(strings.Join(failures, "; "))
 	}
-	fileSet := token.NewFileSet()
 	type productionFile struct {
 		syntax *ast.File
 	}
 	var files []productionFile
 	var scanned []string
 	shapes := map[string]bool{}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		scanned = append(scanned, name)
-		path := filepath.Join(directory, name)
-		source, err := os.ReadFile(path)
-		if err != nil {
-			return nil, nil, err
-		}
-		syntax, err := parser.ParseFile(fileSet, path, source, 0)
-		if err != nil {
-			return nil, nil, err
-		}
+	for _, production := range scannedFiles {
+		scanned = append(scanned, production.Name)
+		syntax := production.Syntax
 		files = append(files, productionFile{syntax: syntax})
 		for _, decl := range syntax.Decls {
 			general, ok := decl.(*ast.GenDecl)

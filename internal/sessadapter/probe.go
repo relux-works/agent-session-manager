@@ -2,6 +2,8 @@ package sessadapter
 
 import (
 	"encoding/json"
+
+	"github.com/relux-works/agent-session-manager/internal/environ"
 )
 
 // This file validates the Section 7.8 Session Adapter Probe 1.0.0,
@@ -285,7 +287,7 @@ func DecodeProbe(body []byte) (Probe, error) {
 		return Probe{}, failure
 	}
 	adapterVersion, ok := rawString(members["adapter_version"])
-	if !ok || !semverPattern.MatchString(adapterVersion) {
+	if !ok || !environ.CheckSemver(adapterVersion) {
 		failure, err := failProtocol("adapter probe adapter version is not SemVer", "adapter_version")
 		if err != nil {
 			return Probe{}, err

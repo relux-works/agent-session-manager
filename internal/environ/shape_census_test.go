@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/relux-works/agent-session-manager/internal/invcore"
 )
 
 // This file is the shape layer of the shared-implementation
@@ -107,15 +109,19 @@ var shapeLedger = map[string]string{
 	"surrogate-gate|provhost|protocol.go|decodeStrictObject":             "caller: owns the gate call, pinned by frame_agreement_test.go",
 	"surrogate-gate|canonicaljson|canonical.go|validateSurrogateEscapes": "canonicalizer gate: string-aware walk, pinned by frame_agreement_test.go",
 	"surrogate-gate|canonicaljson|canonical.go|decodeStrict":             "caller: owns the gate call, pinned by frame_agreement_test.go",
-	"surrogate-gate|scalar|scalar.go|hasLoneJSONSurrogate":               "third spelling (raw scan, scalar-owned): unification tracked in the cross-story follow-up, behaviorally unpinned here",
-	"surrogate-gate|scalar|scalar.go|decodeJSONString":                   "caller: owns the scalar gate call, pinned by the scalar suite",
+	"surrogate-gate|scalar|scalar.go|hasLoneJSONSurrogate":               "third spelling (single-string unit, scalar-owned): retained, pinned both directions by scalar_agreement_test.go",
+	"surrogate-gate|scalar|scalar.go|decodeJSONString":                   "caller: owns the scalar gate call, pinned by scalar_agreement_test.go through DecodeClosedEnumJSON",
 	// Rune measures: one per package plus the canonicalizer's
 	// internal bounded-string helpers, which the name census
-	// never saw under their fresh spellings.
+	// never saw under their fresh spellings. The sessadapter and
+	// dirnode measures converged onto environ.StringLength: their
+	// delegating wrappers carry no rune count of their own, so
+	// they derive no shape row here (the name layer still ledgers
+	// the wrapper names, and TestCheckHelpersDelegateToEnviron
+	// pins the delegation structurally). A revived local count
+	// fails here as unregistered.
 	"string-measure|environ|decode.go|StringLength":                               "canonical owner: runes per Section 1.6",
 	"string-measure|provhost|opdecode.go|runeLength":                              "runes, pinned by measure_agreement_test.go",
-	"string-measure|sessadapter|decode.go|stringLength":                           "runes, pinned by measure_agreement_test.go",
-	"string-measure|dirnode|decode.go|stringLength":                               "runes, pinned by measure_agreement_test.go",
 	"string-measure|canonicaljson|closed_shapes.go|requireBoundedString":          "canonicalizer-internal rune bound, pinned by the canonicaljson suite",
 	"string-measure|canonicaljson|closed_shapes.go|validateBlobDescriptor":        "canonicalizer-internal rune bound, pinned by the canonicaljson suite",
 	"string-measure|canonicaljson|closed_shapes.go|validateManifestEntries":       "canonicalizer-internal rune bound, pinned by the canonicaljson suite",
@@ -140,19 +146,18 @@ type packageShapes struct {
 // to be a registered row, and every row to be derived: an
 // unregistered copy fails as a unification violation, and a row
 // naming an implementation production no longer derives fails
-// as orphaned.
+// as orphaned. Both directions run through the invcore harness.
 func TestSharedShapesAreLedgered(t *testing.T) {
 	derived := deriveShapeSites(t)
+	rows := make(map[string]struct{}, len(shapeLedger))
+	for key := range shapeLedger {
+		rows[key] = struct{}{}
+	}
+	derivedSet := make(map[string]struct{}, len(derived))
 	for key := range derived {
-		if _, ok := shapeLedger[key]; !ok {
-			t.Errorf("unregistered shared-rule copy %q: add one canonical implementation in internal/environ instead, or register the shape with its agreement battery", key)
-		}
+		derivedSet[key] = struct{}{}
 	}
-	for key, rationale := range shapeLedger {
-		if !derived[key] {
-			t.Errorf("orphaned shape row %q (%s): production no longer derives it", key, rationale)
-		}
-	}
+	invcore.MustCheckBothDirections(t, "shared-rule shape", derivedSet, rows)
 }
 
 // deriveShapeSites walks the census scope and derives every
@@ -178,42 +183,25 @@ func deriveShapeSites(t *testing.T) map[string]bool {
 
 // readScopeSources reads every production Go file in the census
 // packages into memory, keyed by package then file name.
+// Production file selection and fail-closed parsing come from
+// invcore: an unreadable or unparseable production file fails the
+// suite instead of scanning as clean.
 func readScopeSources(t *testing.T, root string) map[string]map[string][]byte {
 	t.Helper()
 	sources := map[string]map[string][]byte{}
-	count := 0
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		parts := strings.Split(rel, string(filepath.Separator))
-		pkg := parts[0]
-		if !censusPackages[pkg] {
-			return nil
-		}
-		source, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("shapes: read %s: %v", path, err)
-		}
+	packages := make([]string, 0, len(censusPackages))
+	for pkg := range censusPackages {
+		packages = append(packages, pkg)
+	}
+	sort.Strings(packages)
+	for _, pkg := range packages {
+		files, _ := invcore.MustScanProduction(t, filepath.Join(root, pkg))
 		if sources[pkg] == nil {
 			sources[pkg] = map[string][]byte{}
 		}
-		sources[pkg][parts[len(parts)-1]] = source
-		count++
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("shapes: walk: %v", err)
-	}
-	if count == 0 {
-		t.Fatal("shapes scanned zero files; the scanner is broken, not the tree")
+		for _, production := range files {
+			sources[pkg][production.Name] = production.Source
+		}
 	}
 	return sources
 }
@@ -972,31 +960,306 @@ func TestDelegatingWrappersCallEnviron(t *testing.T) {
 	}
 }
 
-// pinsDelegation requires the wrapper to reference environ and
-// to hold no decoder, gate, or measure of its own.
-func pinsDelegation(t *testing.T, pkg string, wrapper *ast.FuncDecl) {
+// delegatedCheckHelpers names every sessadapter and dirnode
+// decode.go helper that must delegate to environ rather than
+// reimplement the rule. The frame decoder above is pinned
+// separately; these are the per-helper copies this leaf
+// converged. A helper that regrows a local rule fails here
+// structurally, before any behavioral battery runs.
+var delegatedCheckHelpers = []string{
+	"stringLength",
+	"checkStringBounds",
+	"checkUint53Bounds",
+	"checkDigest",
+	"checkUUIDv7",
+	"checkTimestamp",
+	"checkSortedUniqueStrings",
+	"checkSortedUniqueDigests",
+	"checkExtensions",
+}
+
+// removedGrammarCopies names the grammar variables the converged
+// helpers deleted. A revived copy fails here as well as in the
+// grammar census, so the failure names the file, not just the
+// class.
+var removedGrammarCopies = []string{
+	"semverPattern",
+	"environmentIDPattern",
+	"reverseDNSPattern",
+}
+
+// TestCheckHelpersDelegateToEnviron pins the per-helper
+// convergence structurally: every delegated helper must reference
+// the environ package and must hold no decoder, surrogate gate,
+// rune count, or compiled grammar of its own, and the removed
+// grammar copies must not come back. dirnode's checkSemver and
+// checkEnvironmentID delegate the same way through local names
+// the shared list does not ledger.
+func TestCheckHelpersDelegateToEnviron(t *testing.T) {
+	root, err := internalRoot(t)
+	if err != nil {
+		t.Fatalf("check-delegation: %v", err)
+	}
+	for _, pkg := range []string{"sessadapter", "dirnode"} {
+		t.Run(pkg, func(t *testing.T) {
+			path := filepath.Join(root, pkg, "decode.go")
+			source, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("check-delegation: %v", err)
+			}
+			syntax, err := parser.ParseFile(token.NewFileSet(), path, source, 0)
+			if err != nil {
+				t.Fatalf("check-delegation: %v", err)
+			}
+			found := map[string]bool{}
+			for _, decl := range syntax.Decls {
+				node, ok := decl.(*ast.FuncDecl)
+				if !ok {
+					continue
+				}
+				for _, name := range delegatedCheckHelpers {
+					if node.Name.Name == name {
+						found[name] = true
+						pinsCheckDelegation(t, pkg, node)
+					}
+				}
+				if pkg == "dirnode" && (node.Name.Name == "checkSemver" || node.Name.Name == "checkEnvironmentID") {
+					found[node.Name.Name] = true
+					pinsCheckDelegation(t, pkg, node)
+				}
+			}
+			for _, name := range delegatedCheckHelpers {
+				if !found[name] {
+					t.Fatalf("check-delegation: %s helper %q missing in %s/decode.go", pkg, name, pkg)
+				}
+			}
+			if pkg == "dirnode" && (!found["checkSemver"] || !found["checkEnvironmentID"]) {
+				t.Fatalf("check-delegation: dirnode grammar helpers missing in dirnode/decode.go")
+			}
+			assertNoRevivedGrammarCopies(t, pkg, syntax)
+		})
+	}
+}
+
+// checkHelperDelegation reports why the helper is not a pure
+// load-bearing delegation onto its environ twin, or "" when it
+// is. A pure delegation is exactly `return environ.Twin(args)`
+// as the body's only statement: the helper's result IS the
+// owner's answer. A discarded call (`_, _ = environ.Twin(...)`)
+// plus a regrown local rule preserves the searched-for token
+// while the helper's result no longer depends on the owner at
+// all — the decoy the review planted green — so anything but a
+// directly returned single environ call fails here. The twin
+// name must match the wrapper name: delegating to the wrong
+// environ member preserves the token while changing behavior.
+// This check is pure over the declaration so the synthetic
+// controls in TestDelegationPinsAreLoadBearing drive this exact
+// function: a decoy that passes here passes the production
+// census by construction.
+func checkHelperDelegation(wrapper *ast.FuncDecl) string {
+	if wrapper.Body == nil || len(wrapper.Body.List) != 1 {
+		return "holds more than the single delegating return"
+	}
+	ret, ok := wrapper.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		return "does not return exactly one result"
+	}
+	call, ok := ret.Results[0].(*ast.CallExpr)
+	if !ok {
+		return "does not return a call"
+	}
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "does not return an environ call"
+	}
+	identifier, ok := selector.X.(*ast.Ident)
+	if !ok || identifier.Name != "environ" {
+		return "does not return an environ call"
+	}
+	twin := wrapper.Name.Name
+	if len(twin) > 0 && twin[0] >= 'a' && twin[0] <= 'z' {
+		twin = string(twin[0]-'a'+'A') + twin[1:]
+	}
+	if selector.Sel.Name != twin {
+		return "delegates to environ." + selector.Sel.Name + ", want the " + twin + " twin"
+	}
+	return ""
+}
+
+// pinsCheckDelegation requires the helper to reference environ and
+// to hold no rule of its own: no decoder, no surrogate signal, no
+// rune count, and no compiled grammar. The reference alone is not
+// enough — a discarded call satisfies it while regrowing the rule
+// — so the helper must additionally be a pure load-bearing
+// delegation per checkHelperDelegation: the owner's answer must
+// be the helper's result.
+func pinsCheckDelegation(t *testing.T, pkg string, wrapper *ast.FuncDecl) {
 	t.Helper()
-	referencesEnviron := false
+	if failure := checkHelperDelegation(wrapper); failure != "" {
+		t.Fatalf("check-delegation: %s %s is not a load-bearing delegation: %s", pkg, wrapper.Name.Name, failure)
+	}
+	if bodyBuildsJSONDecoder(wrapper.Body) {
+		t.Fatalf("check-delegation: %s %s builds its own decoder", pkg, wrapper.Name.Name)
+	}
+	surrogateState := &packageShapes{funcDups: map[string]bool{}, funcShapes: map[string][]string{}, constBound: map[string]bool{}}
+	if bodyCarriesSurrogateSignal(wrapper.Body, surrogateState) {
+		t.Fatalf("check-delegation: %s %s carries its own surrogate gate", pkg, wrapper.Name.Name)
+	}
+	if bodyCountsRunes(wrapper.Body) {
+		t.Fatalf("check-delegation: %s %s counts runes itself", pkg, wrapper.Name.Name)
+	}
 	ast.Inspect(wrapper.Body, func(node ast.Node) bool {
-		selector, ok := node.(*ast.SelectorExpr)
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if selector.Sel.Name == "MustCompile" {
+			t.Fatalf("check-delegation: %s %s compiles its own grammar", pkg, wrapper.Name.Name)
+		}
+		return true
+	})
+}
+
+// assertNoRevivedGrammarCopies requires the converged grammar
+// variables to stay deleted from the package decode.go file.
+func assertNoRevivedGrammarCopies(t *testing.T, pkg string, syntax *ast.File) {
+	t.Helper()
+	for _, decl := range syntax.Decls {
+		node, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, spec := range node.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for _, name := range value.Names {
+				for _, removed := range removedGrammarCopies {
+					if name.Name == removed {
+						t.Fatalf("check-delegation: removed grammar copy %q is back in %s/decode.go", removed, pkg)
+					}
+				}
+			}
+		}
+	}
+}
+
+// checkWrapperDelegation reports why the frame-decoder wrapper is
+// not a load-bearing delegation onto environ.DecodeStrictObject,
+// or "" when it is. The wrapper's verdict must depend on the
+// owner's answer: exactly one environ call, to DecodeStrictObject,
+// assigned to non-blank names that the body reuses, with no other
+// call in the body. A discarded call (`_, _ =
+// environ.DecodeStrictObject(data)`) preserves the token while
+// the wrapper's verdict no longer depends on the owner, and a
+// fault-ignoring wrapper (`members, _ := ...; return members,
+// nil`) admits every malformed frame while keeping the call —
+// so blanks, unused answers, and extra calls all fail here. This
+// check is pure over the declaration so the synthetic controls
+// in TestDelegationPinsAreLoadBearing drive this exact function.
+func checkWrapperDelegation(wrapper *ast.FuncDecl) string {
+	if wrapper.Body == nil {
+		return "has no body"
+	}
+	var owned []*ast.CallExpr
+	ast.Inspect(wrapper.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
 		if !ok {
 			return true
 		}
 		identifier, ok := selector.X.(*ast.Ident)
+		if !ok || identifier.Name != "environ" {
+			return true
+		}
+		owned = append(owned, call)
+		return true
+	})
+	if len(owned) != 1 {
+		return "holds an environ call count the delegation cannot attribute"
+	}
+	selector := owned[0].Fun.(*ast.SelectorExpr)
+	if selector.Sel.Name != "DecodeStrictObject" {
+		return "delegates to environ." + selector.Sel.Name + ", want the DecodeStrictObject verdict"
+	}
+	assigned := map[string]int{}
+	attributed := false
+	for _, stmt := range wrapper.Body.List {
+		assignment, ok := stmt.(*ast.AssignStmt)
+		if !ok {
+			continue
+		}
+		for _, rhs := range assignment.Rhs {
+			call, ok := rhs.(*ast.CallExpr)
+			if !ok || call != owned[0] {
+				continue
+			}
+			attributed = true
+			for _, lhs := range assignment.Lhs {
+				identifier, ok := lhs.(*ast.Ident)
+				if !ok {
+					return "assigns the owner verdict to a non-name"
+				}
+				if identifier.Name == "_" {
+					return "discards the owner verdict"
+				}
+				assigned[identifier.Name]++
+			}
+		}
+	}
+	if !attributed {
+		return "never attributes the owner verdict to a name"
+	}
+	uses := map[string]int{}
+	ast.Inspect(wrapper.Body, func(node ast.Node) bool {
+		identifier, ok := node.(*ast.Ident)
 		if !ok {
 			return true
 		}
-		if identifier.Name != "environ" {
-			return true
-		}
-		referencesEnviron = true
-		return false
+		uses[identifier.Name]++
+		return true
 	})
-	if !referencesEnviron {
-		t.Fatalf("delegation: %s decodeStrictObject no longer references environ", pkg)
+	for name := range assigned {
+		if uses[name] < 2 {
+			return "ignores the owner answer " + name
+		}
+	}
+	calls := 0
+	ast.Inspect(wrapper.Body, func(node ast.Node) bool {
+		if _, ok := node.(*ast.CallExpr); ok {
+			calls++
+		}
+		return true
+	})
+	if calls != 1 {
+		return "holds a rule of its own beside the delegation"
+	}
+	return ""
+}
+
+// pinsDelegation requires the wrapper to reference environ and
+// to hold no decoder, gate, or measure of its own. The reference
+// alone is not enough — a discarded call satisfies it while the
+// verdict no longer depends on the owner — so the wrapper must
+// additionally be load-bearing per checkWrapperDelegation.
+func pinsDelegation(t *testing.T, pkg string, wrapper *ast.FuncDecl) {
+	t.Helper()
+	if failure := checkWrapperDelegation(wrapper); failure != "" {
+		t.Fatalf("delegation: %s decodeStrictObject is not a load-bearing delegation: %s", pkg, failure)
 	}
 	if bodyBuildsJSONDecoder(wrapper.Body) {
 		t.Fatalf("delegation: %s decodeStrictObject builds its own decoder", pkg)
+	}
+	if bodyHasDupSignal(wrapper.Body) {
+		t.Fatalf("delegation: %s decodeStrictObject carries its own duplicate rule", pkg)
 	}
 	if bodyCountsRunes(wrapper.Body) {
 		t.Fatalf("delegation: %s decodeStrictObject counts runes itself", pkg)
@@ -1004,6 +1267,138 @@ func pinsDelegation(t *testing.T, pkg string, wrapper *ast.FuncDecl) {
 	surrogateState := &packageShapes{funcDups: map[string]bool{}, funcShapes: map[string][]string{}, constBound: map[string]bool{}}
 	if bodyCarriesSurrogateSignal(wrapper.Body, surrogateState) {
 		t.Fatalf("delegation: %s decodeStrictObject carries its own surrogate gate", pkg)
+	}
+}
+
+// delegationControl is one synthetic control for the load-bearing
+// delegation pins: a function source whose check verdict must
+// equal the want ("" for clean delegations, a failure fragment
+// otherwise). The controls drive checkHelperDelegation and
+// checkWrapperDelegation, the same pure functions the production
+// census runs on the real tree, so a decoy that passes here
+// passes the production gate by construction. Every reporting
+// control preserves the searched-for `environ` token: the proof
+// that mentioning the owner is not using it.
+type delegationControl struct {
+	name    string
+	source  string
+	helper  string
+	wrapper string
+	want    string
+}
+
+// delegationControls plants the decoy shapes against both pins:
+// the discarded direct call plus a regrown local copy, the
+// fault-ignoring wrapper, the wrong-twin delegation, and the
+// token-free local rule, with clean delegations that must stay
+// clean.
+func delegationControls() []delegationControl {
+	return []delegationControl{
+		{
+			name:   "clean helper delegation stays clean",
+			source: "package provider\nfunc checkDigest(raw json.RawMessage) (scalar.Digest, bool) {\n\treturn environ.CheckDigest(raw)\n}",
+			helper: "checkDigest",
+			want:   "",
+		},
+		{
+			name:   "helper decoy discards the owner answer",
+			source: "package provider\nfunc checkDigest(raw json.RawMessage) (scalar.Digest, bool) {\n\t_, _ = environ.CheckDigest(raw)\n\tvalue, ok := rawString(raw)\n\tif !ok {\n\t\treturn scalar.Digest{}, false\n\t}\n\tdigest, err := scalar.ParseDigest(value)\n\tif err != nil {\n\t\treturn scalar.Digest{}, false\n\t}\n\treturn digest, true\n}",
+			helper: "checkDigest",
+			want:   "single delegating return",
+		},
+		{
+			name:   "helper decoy without the drift still reports",
+			source: "package provider\nfunc checkDigest(raw json.RawMessage) (scalar.Digest, bool) {\n\t_, _ = environ.CheckDigest(raw)\n\treturn scalar.ParseDigest(value)\n}",
+			helper: "checkDigest",
+			want:   "single delegating return",
+		},
+		{
+			name:   "helper delegating to the wrong twin reports",
+			source: "package provider\nfunc checkDigest(raw json.RawMessage) (scalar.Digest, bool) {\n\treturn environ.CheckUUIDv7(raw)\n}",
+			helper: "checkDigest",
+			want:   "want the CheckDigest twin",
+		},
+		{
+			name:   "helper token-free local rule reports",
+			source: "package provider\nfunc checkDigest(raw json.RawMessage) (scalar.Digest, bool) {\n\treturn scalar.ParseDigest(value)\n}",
+			helper: "checkDigest",
+			want:   "environ call",
+		},
+		{
+			name:    "clean wrapper delegation stays clean",
+			source:  "package provider\nfunc decodeStrictObject(data []byte) (map[string]json.RawMessage, *frameFault) {\n\tmembers, fault := environ.DecodeStrictObject(data)\n\tif fault != nil {\n\t\treturn nil, &frameFault{detail: fault.Detail, member: fault.Member}\n\t}\n\treturn members, nil\n}",
+			wrapper: "decodeStrictObject",
+			want:    "",
+		},
+		{
+			name:    "wrapper decoy discards the owner verdict",
+			source:  "package provider\nfunc decodeStrictObject(data []byte) (map[string]json.RawMessage, *frameFault) {\n\t_, _ = environ.DecodeStrictObject(data)\n\tvar members map[string]json.RawMessage\n\tif err := json.Unmarshal(data, &members); err != nil {\n\t\treturn nil, &frameFault{detail: \"not a JSON object\"}\n\t}\n\treturn members, nil\n}",
+			wrapper: "decodeStrictObject",
+			want:    "discards the owner verdict",
+		},
+		{
+			name:    "wrapper ignoring the fault reports",
+			source:  "package provider\nfunc decodeStrictObject(data []byte) (map[string]json.RawMessage, *frameFault) {\n\tmembers, _ := environ.DecodeStrictObject(data)\n\treturn members, nil\n}",
+			wrapper: "decodeStrictObject",
+			want:    "discards the owner verdict",
+		},
+		{
+			name:    "wrapper delegating to the wrong member reports",
+			source:  "package provider\nfunc decodeStrictObject(data []byte) (map[string]json.RawMessage, *frameFault) {\n\tmembers, fault := environ.CheckExtensions(data)\n\tif fault != nil {\n\t\treturn nil, &frameFault{detail: \"bad\"}\n\t}\n\treturn members, nil\n}",
+			wrapper: "decodeStrictObject",
+			want:    "want the DecodeStrictObject verdict",
+		},
+	}
+}
+
+// parseControlFunc extracts one named function declaration from a
+// synthetic control source.
+func parseControlFunc(t *testing.T, source, name string) *ast.FuncDecl {
+	t.Helper()
+	syntax, err := parser.ParseFile(token.NewFileSet(), "control.go", []byte(source), 0)
+	if err != nil {
+		t.Fatalf("control does not parse: %v", err)
+	}
+	for _, decl := range syntax.Decls {
+		node, ok := decl.(*ast.FuncDecl)
+		if !ok || node.Name.Name != name {
+			continue
+		}
+		return node
+	}
+	t.Fatalf("control holds no function %q", name)
+	return nil
+}
+
+// TestDelegationPinsAreLoadBearing drives every delegation
+// control through the production pin functions and requires the
+// ledgered verdict: clean delegations stay clean, and every
+// token-preserving decoy reports. A decoy that stopped
+// reporting proves nothing and fails here by construction.
+func TestDelegationPinsAreLoadBearing(t *testing.T) {
+	for _, control := range delegationControls() {
+		t.Run(control.name, func(t *testing.T) {
+			target := control.helper
+			if target == "" {
+				target = control.wrapper
+			}
+			node := parseControlFunc(t, control.source, target)
+			var got string
+			if control.helper != "" {
+				got = checkHelperDelegation(node)
+			} else {
+				got = checkWrapperDelegation(node)
+			}
+			if control.want == "" {
+				if got != "" {
+					t.Fatalf("clean delegation reported: %q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, control.want) {
+				t.Fatalf("decoy reported %q, want a failure containing %q", got, control.want)
+			}
+		})
 	}
 }
 
