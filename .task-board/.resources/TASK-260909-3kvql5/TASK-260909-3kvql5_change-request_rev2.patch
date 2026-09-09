@@ -1,0 +1,195 @@
+diff --git a/README.md b/README.md
+index 3629512..a4e4230 100644
+--- a/README.md
++++ b/README.md
+@@ -2474,18 +2474,26 @@ Project management is intentionally global. The repository does not declare or
+ install `project-management`; development uses the globally installed skill
+ and `task-board` CLI.
+ 
+-Repository development routing in `task-board.config.json` admits only Codex
+-`gpt-6-astra` with `medium` or `high` reasoning for all new spawns, including
+-producers and reviewers. Mechanical, documentation, and operations workloads
+-recommend medium first; all other workloads, including review, recommend high
+-then medium. Every recommendation uses Astra. Existing runs and their work are
+-preserved. Retained Claude and Muse ceiling definitions are inactive under
+-exclusive Codex admission; Claude, Muse, and Fable are not active spawn routes.
++Repository development routing in `task-board.config.json` admits Muse
++`muse-spark` with `xhigh` reasoning and Codex `gpt-6-astra` with `medium` or
++`high` reasoning for new spawns. Producers recommend Muse Spark xhigh first;
++the ceiling restricts Codex reviewer effort to Astra medium, with a Codex
++reviewer medium default, and the review workload recommends medium only.
++Required operator routing selects Codex Astra medium for all new reviewers;
++Muse reviewer admission remains possible at provider ceiling level with no
++recommendations. Empty recommendations are advisory, not refusal.
++Architecture workloads stay Codex Astra high then medium. Mechanical,
++documentation, and operations workloads recommend Muse xhigh, then Codex
++medium, then Codex high; all other producer workloads recommend Muse xhigh,
++then Codex high, then Codex medium. The mixed allow-set is limited to Muse
++and Codex: other providers are refused, and the retained Claude ceiling
++definition is inactive under mixed admission. Existing runs and their work
++are preserved.
+ 
+ Inspect effective admission and recommendations before spawning:
+ 
+ ```bash
+-task-board q 'project_config(view=spawn-preflight, role=developer, agent=codex, workload_class=mechanical)'
++task-board q 'project_config(view=spawn-preflight, role=developer, agent=muse, workload_class=mechanical)'
+ task-board q 'project_config(view=spawn-preflight, role=reviewer, agent=codex, workload_class=review)'
+ ```
+ 
+diff --git a/task-board.config.json b/task-board.config.json
+index 1a2b314..4907c13 100644
+--- a/task-board.config.json
++++ b/task-board.config.json
+@@ -27,7 +27,22 @@
+         ],
+         "resolution_model": "gpt-6-astra",
+         "adjustment_confirmation": "none",
+-        "fast_mode": true
++        "fast_mode": true,
++        "roles": {
++          "reviewer": {
++            "entries": [
++              {
++                "criterion": "equal",
++                "model": "gpt-6-astra",
++                "reasoning_effort": "medium"
++              }
++            ],
++            "resolution_model": "gpt-6-astra",
++            "adjustment_confirmation": "none",
++            "default_model": "gpt-6-astra",
++            "default_reasoning_effort": "medium"
++          }
++        }
+       },
+       "claude": {
+         "entries": [
+@@ -53,10 +68,18 @@
+       }
+     },
+     "preferred_agentic_system": {
+-      "exclusive": "codex"
++      "mixed": [
++        "muse",
++        "codex"
++      ]
+     },
+     "workload_classes": {
+       "unified": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -81,6 +104,11 @@
+         }
+       ],
+       "implementation": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -93,6 +121,11 @@
+         }
+       ],
+       "mechanical": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -105,6 +138,11 @@
+         }
+       ],
+       "debugging": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -117,6 +155,11 @@
+         }
+       ],
+       "testing": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -129,11 +172,6 @@
+         }
+       ],
+       "review": [
+-        {
+-          "runtime": "codex",
+-          "model": "gpt-6-astra",
+-          "reasoning_effort": "high"
+-        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -141,6 +179,11 @@
+         }
+       ],
+       "research": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -153,6 +196,11 @@
+         }
+       ],
+       "documentation": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -165,6 +213,11 @@
+         }
+       ],
+       "migration": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -177,6 +230,11 @@
+         }
+       ],
+       "operations": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",

@@ -1,0 +1,2639 @@
+OpenAI Codex v0.153.4
+--------
+workdir: /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a08381-2980-7f21-8a40-dd6c0af0bf94
+--------
+user
+# Agent Task Assignment
+
+## FIRST — Run Immediately
+
+```bash
+task-board m 'set_status(TASK-260909-3kvql5, status=reviewing)'
+```
+
+## Operational Constraints (Headless Run)
+
+Read this before you run any gate or attach any outcome. A spawned run is
+usually headless: the session ends when your turn ends.
+
+- **Never background a long command and end your turn.** The session terminates
+  with the turn and the process dies with it, while the run is still recorded as
+  completed — a successful-looking run with no evidence attached.
+- **A single shell call is time-bounded (~10 minutes).** Waiting out a longer
+  check inside one call fails too. Split long verification into bounded
+  sequential calls (package subsets, `-run` masks) and state explicitly what you
+  reran yourself versus accepted from already-attached evidence.
+- **Attach evidence before you end the lifecycle, not after.** "I will attach it
+  when the run finishes" is unfulfillable by construction: once your turn ends
+  there is no session left to attach anything.
+
+## Your Role
+# reviewer
+
+## Description
+
+Reviews how a task was implemented and how the solution fits into the project. Does not modify code; records one of the explicit verdict branches below.
+
+When the run is goal-bound, query `task-board spawn goal "$TASK_BOARD_RUN_ID"` before recording the verdict. The reviewer goal is role-derived as `reviewer_verdict/reviewer_verdict`, carries its immutable parent goal ID/revision, and is satisfied only by exactly one verdict branch with evidence. A provider exit or `reviewing` status is not a verdict.
+The runner persists the branch from the accepted board status plus a new or updated task-scoped verdict artifact. Only persisted `accepted` can satisfy the parent delivery goal; `changes_requested` and `stop_the_line` finish the reviewer goal without accepting delivery.
+
+## Deliverable
+
+Verdict branches are explicit:
+
+- accepted → `done`, or `accept_cr` when the run was launched against a Change Request (see below)
+- changes requested → `to-dev` for implementation rework or `analysis` for research/decision work, with verdict evidence for the next producer and another reviewer cycle
+- genuine stop-the-line boundary → `blocked` only for a concrete external blocker or an unresolved human-only platform/product/architecture/tradeoff/approval decision, with evidence, failed assumptions/attempts, viable alternatives and tradeoffs, a recommendation, and the exact human decision or external input needed
+
+Do not leave the task in `reviewing`, and do not use `blocked` for ordinary rework or a recoverable child/runtime failure.
+
+### Accepting a Change Request
+
+The full Change Request contract — how the candidate is snapshotted, what `repository_delta` means, what a `stale` revision is, and every typed refusal you can hit — is `references/tracked-background-spawn.md` of the `project-management` skill, section `Change Requests, review, rework, and checkpoint`. Read it when a refusal surprises you rather than guessing at a retry.
+
+When your prompt carries a `Change Request Under Review` section, record acceptance with the named mutation rather than a status change:
+
+```bash
+task-board m 'accept_cr(<ELEMENT-ID>, revision=<N>, evidence=<ELEMENT-ID>_review-verdict.md)'
+```
+
+The signature is exactly `accept_cr(ID, revision=N, evidence=NAME)`. Do not try to recover it with `task-board q 'schema(mutation=accept_cr)'` — this mutation is registered on the `m` path only, so schema discovery answers `unknown mutation` for it.
+
+Only the run that was handed the revision may accept it. `accept_cr` checks that the calling run is a reviewer-archetype tracked run bound to this element and this revision, and refuses anything else with `change_request_acceptance_unauthorized`. If you see that refusal, do not retry it from a different shell or run id — it means the acceptance would have named a reviewer that never read the candidate.
+
+`accept_cr` writes `accepted` and `integrating` atomically: the Change Request becomes `accepted`, your run is stamped as the reviewer, and it routes the element to `integrating`. That state means "accepted, not landed". The accepted revision is bound to its producer role and archetype, and only a new tracked run carrying that exact producer role and archetype may checkpoint or integrate it; the orchestrator routes that run but does not close the leaf, and an orchestrator run that tries to integrate is refused. `done` is produced only by the integration transaction. Accepted work does **not** stay in `reviewing`, and `accept_cr` never takes a `commit_ack` argument.
+
+A Change Request with `repository_delta=empty` means the producer changed no repository file. That is neither automatically a failure nor automatically acceptable. All three verdicts are available and mean exactly what they always mean, and your verdict evidence must address the emptiness explicitly: accepting one means stating why no repository change was the right outcome for this leaf.
+
+For an enforced Bug/Story `done` transition, a reviewer-archetype run must not supply `commit_ack`, and must never escalate the commit-or-acknowledge decision to the human. Record acceptance evidence and stop there. Under a Change Request the routing above applies: `accept_cr` moves the element to `integrating`, and only the bound producer run may checkpoint or integrate it. For an inline element with no Change Request the acknowledged transition belongs to the producer that owns the committed scope. Never make it yourself.
+
+For board reads, use compact task-specific projections. A concrete review does not need routine `summary()`, `plan()`, `schema()`, or `{ full }`; request scoped schema only after an unknown call.
+
+## Licence To Defeat A Gate
+
+You are explicitly licensed to attempt to DEFEAT any gate, refusal, validation, authorization, or attestation in the change under review, and to reject a change whose only evidence is positive-path. Reading the code is not review; attacking it is.
+
+- Try to make the gate admit what it must reject. Mint the evidence the way a caller could, remove it entirely, narrow the gate instead of deleting it, and reach the protected state through retry, renewal, resume, and recovery paths.
+- Assert against the composed production artifact, not the pieces it is built from, and check every surface that must carry the rule — a clause present in one context profile and absent from the other is a bypass path.
+- Grep for callers before believing a guard is in force. A guard that no production path invokes has never run, and tests that call it directly prove only that it compiles and returns what it is told to.
+- Positive-path-only evidence, a delete-only mutant, or a green suite around a fake is grounds for `changes_requested` with the failing shape named in the verdict.
+- Apply the same standard to reported facts: a failed or partial read presented as an absence, and a property inferred from a proxy signal instead of reported as unknown, are review findings.
+- Check the AC-row coverage ratio before reading any code. An AC row with no named driving test is an unchecked AC row and is `changes_requested` on its own. A mutant table whose entries are all deletions is positive-path evidence wearing a mutant costume — name the shape and reject it.
+- A gate that inspects source text is defeated by a mutant that preserves the searched-for token. Reject a mutant harness that runs the static checker alone: it reports nothing about the class.
+
+The negative shapes vocabulary and the incidents behind each rule are in `references/negative-evidence.md` of the project-management skill; the operative rules reach producers through the spawn template's `Evidence That Counts`. Name the shape rather than restating the rule.
+
+## Execution Rules
+
+Reviews run sequentially in this session. Do not delegate to sub-agents: the verdict is yours to produce and evidence, and a review distributed across children that do not complete produces nothing. A reviewer run that ends without a recorded verdict is a failed run, not a partial one — record the verdict before you finish, even when the finding list is short.
+
+Every `changes_requested` verdict names a `repeat-of:` value — the prior revision and finding ID this repeats, or `none`. The orchestrator routes on that field, and two consecutive same-class findings mean the next step is a gate, not another revision.
+
+A republish of an unchanged, already-accepted tree is an annotation, not a new revision of substance. Do not review it as fresh work and do not count it as rework.
+
+## Status Transitions
+
+- **start_status:** `reviewing`
+- **end_status:** no unconditional default; the reviewer must set exactly one verdict status: `done`, `to-dev`, `analysis`, or evidence-backed `blocked`. For a Change Request run, acceptance is recorded by `accept_cr`, which routes the element to `integrating` on your behalf and binds the revision to its producer role and archetype; the other three branches are unchanged.
+
+## Constraints
+
+Does NOT modify code. Read-only access.
+- Reviewer-archetype runs must not supply `commit_ack` and must not escalate the commit-or-acknowledge decision to the human; record acceptance evidence and leave every `done` transition to the producer side.
+- When your prompt carries a `Change Request Under Review` section, record acceptance with `task-board m 'accept_cr(ID, revision=N, evidence=ID_review-verdict.md)'`. It writes `accepted` and `integrating` atomically and routes the element to `integrating` — accepted work never stays in `reviewing` and never reaches `done` from here. The accepted revision is bound to its producer role and archetype, and only a new tracked run with that exact producer role and archetype may checkpoint or integrate it; the orchestrator routes that run but does not close the leaf. `accept_cr` takes no `commit_ack`, and only the reviewer run that was handed the revision may call it.
+
+## Skills
+
+These role skill references are a lazy catalog, not a mandate to bulk-read every
+body. Before technical work, identify the skills relevant to this task's concrete
+scope and read those full skill bodies. Always read any skill explicitly required
+by the task, user, or project instructions.
+
+- **project-management**: `/Users/iv/.claude/skills/project-management/SKILL.md`
+- **architecture-diagrams**: `/Users/iv/.claude/skills/architecture-diagrams/SKILL.md`
+
+## Definition of Done
+
+- [ ] Canonical configuration admits Muse Spark xhigh producers and Astra medium reviewers, with aligned role defaults, recommendations and documentation; no unrelated delivery or CI policy changes.
+- [ ] Code written per task description and AC
+- [ ] Relevant tests written for new or changed behavior and passing
+- [ ] In a managed Story worktree the candidate is left UNCOMMITTED in the worktree for the handoff to snapshot — never commit on the Story branch. A producer commit moves the branch tip off the recorded checkpoint and the handoff refuses with change_request_candidate_committed_past_checkpoint; repair with `git reset --soft <checkpoint_oid>` before completing again.
+- [ ] Every command, message, state, or refusal named in the AC is driven through the production entry point by a named committed test, or is declared a stated bound. Report coverage as a ratio — `n of m AC rows driven` — and name the production call site for each. Prose in place of the ratio is not evidence.
+- [ ] Gating, refusing, validating, authorizing, or attesting behavior covered by negative tests that fail when the gate admits what it must reject, with the production call site named
+- [ ] Every gate ships at least one NARROWING mutant — the gate stays present and is weakened to admit exactly one member of the class it must reject, and a named test must fail. A delete-only mutant proves only that the gate exists and is not accepted as evidence.
+- [ ] A gate that inspects source text is additionally attacked by a mutant that PRESERVES the searched-for token and changes behavior, and the mutant harness executes the behavioral suite, not only the static checker.
+- [ ] Lint clean
+- [ ] Relevant build/validation commands run after changes and build not broken
+- [ ] New outcome artifact attached on the board with a task-scoped name when the work produces notes, logs, screenshots, or other deliverables
+- [ ] Important findings, decisions, anomalies, or regressions recorded in logbook when relevant
+- [ ] Implementation matches AC
+- [ ] Solution fits project architecture
+- [ ] Tests green
+- [ ] Gate, refusal, validation, authorization, and attestation behavior attacked, not read — positive-path-only evidence is not accepted
+- [ ] If review does not accept the work — verdict evidence added and status routed by the explicit verdict branches
+## Your Task
+
+- **ID**: TASK-260909-3kvql5
+- **Title**: TASK-260909-3kvql5: admit-muse-producers-and-medium-astra-reviewers
+- **Parent**: STORY-260909-2uobs6
+### Description
+
+Apply the user-approved future model policy to canonical AX configuration: producers muse/muse-spark xhigh, reviewers codex/gpt-6-astra medium, existing active runs unchanged, orchestrators Codex Astra high or medium. Use only the authorized config delta and aligned documentation; preserve all product and delivery gates.
+### Scope
+
+task-board.config.json and directly corresponding README model-policy documentation; task evidence.
+### Acceptance Criteria
+
+Fresh canonical developer Muse xhigh and reviewer Astra medium preflights succeed; review role default and recommendations prefer medium; no unrelated runtime or hosted CI enabled; JSON and focused config checks pass; independent Astra medium review and signed exact-head PR landing complete.
+
+## Instructions
+
+The following instructions have been attached to this task:
+
+### TASK-260909-3kvql5_producer-brief.md
+# Apply approved producer/reviewer routing
+
+User explicitly changed future production to muse/muse-spark xhigh and future review to codex/gpt-6-astra medium. Existing runs may finish; orchestration remains Codex Astra high/medium. This is the bootstrap configuration task itself, launched through the supported explicit TASK_BOARD_CONFIG source because current canonical config is exclusive codex. The approved runtime config is an immutable operational input, not a published repository change. Do not alter it. Root runtime, control repository and board authority remain this AX repository.
+
+Implement the equivalent minimal model-policy delta in the managed Story worktree task-board.config.json. Use the approved-runtime-config.json as the requested policy reference, preserve all non-policy fields. Keep the mixed allow-set limited to Muse and Codex, existing unrelated dormant ceilings unchanged, Muse Spark xhigh admitted, reviewer role restricted/defaulted to Astra medium, review recommendations medium and producer workload recommendations Muse first. Leave architecture/orchestrator Astra choices usable. Align only the directly relevant README model-routing text; do not broaden product scope. Do not edit canonical root files or foreign worktrees. Record explicit-config bootstrap provenance in task evidence; subsequent canonical preflights after landing must prove the real policy.
+
+Read repository instructions and the task class lifecycle. This is a small configuration change, not a Go behavior change: run JSON/parser and actual task-board preflight checks on candidate canonical config, including reviewer high not admitted and other providers excluded, plus repository-required local validation. No hosted CI, no synthetic status. Preserve every foreign board/index/worktree change. Use only task-board for board data. Leave the managed Story candidate UNCOMMITTED at its recorded checkpoint as the current merged checklist and handoff require; never make a producer commit on the Story branch. Task-board owns subsequent human-signed managed commits. Publish the correct derived Change Request and hand off ready for independent review. Primary owns Astra medium review and bound integration/PR/exact-head landing. Do not land or tag from this producer, do not spawn a reviewer or another producer.
+
+Only the explicit config admission source changes for this bootstrap; do not create a reusable wrapper or patch task-board. The public tool documents and tests support external explicit config with unchanged project/runtime/control roots. Produce a concise outcome including candidate HEAD/tree, changed paths, command exits, policy observations and all limitations.
+
+
+
+### TASK-260909-3kvql5_approved-runtime-config.json
+{
+  "mode": "local",
+  "local": {
+    "board_dir": ".task-board"
+  },
+  "version_control": {
+    "confirm": true,
+    "desired_commit_time": "current real time; AX does not backdate commits"
+  },
+  "spawn": {
+    "enabled": true,
+    "max_parallel": 20,
+    "ceilings": {
+      "contract_version": "spawn-policy-v4",
+      "codex": {
+        "entries": [
+          {
+            "criterion": "equal",
+            "model": "gpt-6-astra",
+            "reasoning_effort": "medium"
+          },
+          {
+            "criterion": "equal",
+            "model": "gpt-6-astra",
+            "reasoning_effort": "high"
+          }
+        ],
+        "resolution_model": "gpt-6-astra",
+        "adjustment_confirmation": "none",
+        "fast_mode": true,
+        "roles": {
+          "reviewer": {
+            "entries": [
+              {
+                "criterion": "equal",
+                "model": "gpt-6-astra",
+                "reasoning_effort": "medium"
+              }
+            ],
+            "resolution_model": "gpt-6-astra",
+            "adjustment_confirmation": "none",
+            "default_model": "gpt-6-astra",
+            "default_reasoning_effort": "medium"
+          }
+        }
+      },
+      "claude": {
+        "entries": [
+          {
+            "criterion": "equal",
+            "model": "claude-opus-5",
+            "reasoning_effort": "xhigh"
+          }
+        ],
+        "resolution_model": "claude-opus-5",
+        "adjustment_confirmation": "none"
+      },
+      "muse": {
+        "entries": [
+          {
+            "criterion": "equal",
+            "model": "muse-spark",
+            "reasoning_effort": "xhigh"
+          }
+        ],
+        "resolution_model": "muse-spark",
+        "adjustment_confirmation": "none"
+      }
+    },
+    "preferred_agentic_system": {
+      "mixed": [
+        "muse",
+        "codex"
+      ]
+    },
+    "workload_classes": {
+      "unified": [
+        {
+          "runtime": "muse",
+          "model": "muse-spark",
+          "reasoning_effort": "xhigh"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "high"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "medium"
+        }
+      ],
+      "architecture": [
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "high"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "medium"
+        }
+      ],
+      "implementation": [
+        {
+          "runtime": "muse",
+          "model": "muse-spark",
+          "reasoning_effort": "xhigh"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "high"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "medium"
+        }
+      ],
+      "mechanical": [
+        {
+          "runtime": "muse",
+          "model": "muse-spark",
+          "reasoning_effort": "xhigh"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "medium"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "high"
+        }
+      ],
+      "debugging": [
+        {
+          "runtime": "muse",
+          "model": "muse-spark",
+          "reasoning_effort": "xhigh"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "high"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "medium"
+        }
+      ],
+      "testing": [
+        {
+          "runtime": "muse",
+          "model": "muse-spark",
+          "reasoning_effort": "xhigh"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "high"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "medium"
+        }
+      ],
+      "review": [
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "medium"
+        }
+      ],
+      "research": [
+        {
+          "runtime": "muse",
+          "model": "muse-spark",
+          "reasoning_effort": "xhigh"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "high"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "medium"
+        }
+      ],
+      "documentation": [
+        {
+          "runtime": "muse",
+          "model": "muse-spark",
+          "reasoning_effort": "xhigh"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "medium"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "high"
+        }
+      ],
+      "migration": [
+        {
+          "runtime": "muse",
+          "model": "muse-spark",
+          "reasoning_effort": "xhigh"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "high"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "medium"
+        }
+      ],
+      "operations": [
+        {
+          "runtime": "muse",
+          "model": "muse-spark",
+          "reasoning_effort": "xhigh"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "medium"
+        },
+        {
+          "runtime": "codex",
+          "model": "gpt-6-astra",
+          "reasoning_effort": "high"
+        }
+      ]
+    },
+    "worktree_isolation": {
+      "validation": {
+        "commands": [
+          "test -z \"$(gofmt -l $(git ls-files --cached --others --exclude-standard -- '*.go'))\"",
+          "go build ./...",
+          "go vet ./...",
+          "go test ./... -count=1 -v",
+          "go test ./... -race -count=1",
+          "go test ./... -cover -count=1",
+          "go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1",
+          "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1",
+          "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1",
+          "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1",
+          "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1",
+          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzCheckArgv$ -fuzztime=100x -parallel=1",
+          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzCheckMemberPath$ -fuzztime=100x -parallel=1",
+          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzIsEnvName$ -fuzztime=100x -parallel=1",
+          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzRedactCorpus$ -fuzztime=100x -parallel=1",
+          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzEscapeForTerminal$ -fuzztime=100x -parallel=1",
+          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzRenderForTerminal$ -fuzztime=100x -parallel=1",
+          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzGuardResolve$ -fuzztime=100x -parallel=1",
+          "go test ./internal/secconftest -run=^$ -fuzz=^FuzzDetectCaseCollision$ -fuzztime=100x -parallel=1",
+          "go run ./internal/traceability/cmd/tracecheck",
+          "go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check",
+          "GOOS=linux GOARCH=amd64 go build ./...",
+          "GOOS=windows GOARCH=amd64 go build ./...",
+          "git ls-files -z '*.json' | xargs -0 -n1 python3 -c 'import json,sys;json.load(open(sys.argv[1]))'",
+          "task-board validate",
+          "git diff --check"
+        ]
+      }
+    }
+  },
+  "features": {
+    "agent_context": {
+      "enabled": true,
+      "profile": "full"
+    },
+    "context_sharing": {
+      "enabled": false
+    },
+    "primary_session_goals": {
+      "enabled": true
+    },
+    "spawned_run_goals": {
+      "enabled": true
+    }
+  }
+}
+
+
+
+### TASK-260909-3kvql5_reviewer-brief.md
+# Review the user-requested model policy
+
+Independent reviewer must use codex/gpt-6-astra medium per the latest user instruction. Task TASK-260909-3kvql5 / STORY-260909-2uobs6. Primary owns review routing and later bound Muse integration/PR publication. Do not widen scope or launch workers.
+
+Review the complete current CR from developer RUN-260908-347bd2. Candidate only task-board.config.json and aligned README. User requires every new producer launch Muse Spark xhigh, every new reviewer launch Astra medium; existing running assignments may finish and orchestration retains Astra high/medium. Shared class recommendations can retain Codex choices for explicitly selected orchestration; they are advisory, not provider-role authorization. No unrelated provider, hosted CI, product or signing/integration policy change.
+
+Check candidate canonical policy parser/preflights independently, including mixed provider allow-set Muse+Codex, Muse xhigh developer admission, medium-only reviewer ceiling/default and recommendation, high excluded from reviewer ceiling, inactive Claude ceiling does not admit Claude, architecture/orchestrator Astra remains usable. The explicit bootstrap TASK_BOARD_CONFIG is supported operational input; canonical candidate must carry equivalent policy and all non-policy fields preserved. Root/runtime/control/authority bindings stay AX. Do not mutate source, root config or operational bootstrap file.
+
+Use proportional evidence for this mechanical change. Inspect actual config diffs and immutable CR binding, validation terminal exits, policy probes and exact counts. Historical producer outcome initially had inconsistent AC denominator and M2 recommendation-index failure inflated as admission proof; primary asked correction before handoff. If still present, assess materiality honestly and require truthful bounds; do not credit index-only/static/compile-invalid evidence as behavioral refusal. No Go behavior changed; irrelevant generic gate mutation rows may be explicitly N/A. Do not demand new Go product tests or repeat broad validation without unresolved concerns; current required CR validation remains mandatory.
+
+Record task-scoped independent verdict and relevant checks, then accept the actual CR if all live criteria and merged checklist are satisfied, otherwise focused changes requested. This source CR acceptance is not post-integration exact-head GitHub approval. Primary routes the accepted bound Muse integration run and actual PR review before signed FF. No commit, branch push, integration, tag, release or landing from this reviewer; no hosted CI or synthetic status; preserve foreign files/indexes/worktrees.
+
+
+
+### TASK-260909-3kvql5_rework-brief-rev2.md
+# Focused R1/R2 configuration documentation rework
+
+Developer muse/muse-spark xhigh, TASK-260909-3kvql5, same managed Story worktree. Read independent verdict TASK-260909-3kvql5_review-verdict-rev1.md. Both findings are new documentation/evidence inaccuracies, not a rejected policy choice. Do not change the already approved model configuration or expand shared-tool/product scope.
+
+R1: README must state that the ceiling restricts CODEX reviewer effort to Astra medium. Required operator routing selects Codex Astra medium for all new reviewers; Muse reviewer admission remains possible at provider ceiling level with no recommendations. Empty recommendations are advisory, not refusal. Use exact plain wording; do not claim the config enforces provider-role exclusion it does not enforce.
+
+R2: Correct outcome coverage denominator against its actual row inventory. Distinguish direct preflight observations, static comparisons and future lifecycle bounds. M2's recommendation index shift after filtering is a position assertion, not an admitted-high behavioral kill; explicitly state the limit and remove blanket no-survivor gate claims. No new Go tests or invented product gate is requested. Preserve actual successful required CR validation as historical current-revision evidence, run narrow diff/JSON/policy checks for the delta, and let required CR handoff validation execute. Do not rerun broad Go/adversarial suites beyond a contract or unresolved concern.
+
+Use absolute /Users/iv/.curator/global/bin/task-board for board and policy evidence; bare ~/.local/bin is a different externally maintained build. Record applicable actual tool identity. Persist any probes needed for audit under task-scoped .temp and attach concise evidence instead of relying only on /tmp. Print compact projections, save full outputs to files. The existing approved explicit TASK_BOARD_CONFIG remains immutable operational input, not repository source.
+
+Leave candidate uncommitted at recorded checkpoint; no producer commit/reset/clean. Preserve foreign worktree/index/board files. Update outcome through resource update, not direct board edits. Hand off corrected revision for Astra medium review; no integration, PR landing, hosted CI or new worker. This brief supersedes stale generic producer guidance only for these focused R1/R2 corrections.
+
+
+
+### TASK-260909-3kvql5_reviewer-brief-rev2.md
+# Focused second review: R1/R2 only, preserve full acceptance
+
+Independent reviewer codex/gpt-6-astra medium. TASK-260909-3kvql5. Wait for terminal producer e61106 and inspect actual new CR revision/binding. Read prior independent verdict rev1 and latest outcome.
+
+Only requested source rework is README scope clarification: the ceiling restricts CODEX reviewer effort; operator routing requires all new reviews Astra medium while other provider-role admission is not claimed blocked by advisory recommendations. Evidence rework fixes the denominator and classifies M2 as recommendation-position assertion, not a behavioral refusal kill, with no blanket survivor inflation. Verify these two corrections precisely and check there is no unrelated diff. Config should be byte-identical to accepted policy reference/prior reviewed config; inspect actual hashes/diff before retaining earlier configuration observations. Do not relitigate previously closed checks or repeat broad Go tests/attacks without changed source or an unresolved concern. Current mandatory CR validation must still be terminal successful.
+
+Use absolute /Users/iv/.curator/global/bin/task-board; bare ~/.local/bin is a different externally maintained build. Save full outputs in task evidence; print only relevant compact fields. Distinguish actual observations, static comparisons and lifecycle bounds. Check actual CLI provenance where results depend on it. No new product tests or fabricated mutant gates are requested for this documentation correction.
+
+Attach concise verdict and accept actual CR if R1/R2 and applicable live checklist satisfied; otherwise focused changes requested. No source edits, commit, integration, push, hosted CI, invented GitHub verdict or worker spawn. Primary owns subsequent correctlybound Muse integration and signed exact-head reviewed PR delivery.
+
+
+
+
+
+## Board CLI Reference
+
+You have access to `task-board` CLI for managing your work. All writes use the `m` (mutation DSL) subcommand:
+
+```bash
+# FIRST/LAST lifecycle commands:
+# Use explicit status changes when the task flow requires it.
+task-board m 'set_status(TASK-260909-3kvql5, status=analysis)'       # analyst-style work
+task-board m 'set_status(TASK-260909-3kvql5, status=development)'    # implementation / testing work
+task-board m 'set_status(TASK-260909-3kvql5, status=reviewing)'      # reviewer handoff
+task-board m 'set_status(TASK-260909-3kvql5, status=blocked)'        # when blocked
+task-board m 'set_status(TASK-260909-3kvql5, status=to-review)'      # when your work is ready for review
+
+# Track progress with checklist
+task-board m 'check_item(TASK-260909-3kvql5, item=1)'                        # check item N
+task-board m 'add_checklist_item(TASK-260909-3kvql5, text="Write tests")'    # add checklist item
+
+# Add notes about your progress, decisions, blockers, or review findings
+task-board m 'set_notes(TASK-260909-3kvql5, text="your note here")'
+
+# Save short text directly as outcome resources
+task-board m 'add_resource(TASK-260909-3kvql5, name=TASK-260909-3kvql5_results.md, content="...", type=outcome, description="Description")'
+
+# Attach an existing local file (screenshots, PDFs, logs, archives, research docs)
+task-board resource add TASK-260909-3kvql5 ./path/to/file --type outcome --name TASK-260909-3kvql5_artifact.bin -d "Description"
+```
+
+## Spawn Run Control
+
+Tracked background spawn runs expose `TASK_BOARD_RUN_ID` in the child environment.
+If your work is long-running, check for operator directives at safe checkpoints:
+
+```bash
+task-board spawn status "$TASK_BOARD_RUN_ID"
+task-board spawn directives "$TASK_BOARD_RUN_ID"
+```
+
+Current runtimes do not support direct inbound push into your active session.
+Treat directives as cooperative checkpoint signals:
+- persist your current notes/artifacts before acting on `cancel`-style requests
+- only honor pause/reroute intent at a safe checkpoint
+- if no directive is present, continue normally
+
+## IMPORTANT: Saving Results
+
+When you produce work products (research documents, design docs, screenshots, logs, archives, implementation notes), you MUST save them as outcome resources with names that include the task ID:
+
+```bash
+task-board m 'add_resource(TASK-260909-3kvql5, name=TASK-260909-3kvql5_results.md, content="...", type=outcome, description="Description")'
+task-board resource add TASK-260909-3kvql5 ./path/to/file --type outcome --name TASK-260909-3kvql5_artifact.bin -d "Description"
+```
+
+If you revise the same artifact later, use `task-board m 'update_resource(...)'` or `task-board resource update ...` instead of creating a silent overwrite.
+
+If you discover important findings, decisions, anomalies, regressions, or non-obvious constraints while working, record them in `logbook` as well as on the board.
+
+This ensures your results persist on the board and are accessible to other agents and the coordinator. Spawn completion is expected to produce at least one new task-scoped outcome artifact before the task can cleanly remain in `to-review`.
+
+## Evidence That Counts
+
+A passing suite means nothing unless something in it would have failed.
+
+- Any behavior that GATES, REFUSES, VALIDATES, AUTHORIZES, or ATTESTS ships with negative tests that fail when the gate admits what it must reject. A positive test proves the gate is reachable, not that it works.
+- Prove a bound by NARROWING the gate, not only by deleting it. A delete-only mutant proves the gate exists and says nothing about the class it covers.
+- Prove behavior by driving the real entry point — launch, materialize, resolve, publish — and name the production call site. A helper that is unit-tested but called from nowhere promises nothing.
+- Standard negative shapes to test and to look for: forged or self-minted evidence; absent evidence treated as satisfied; the check present but uncalled from production; a bypass path around the check; a capability claim that does not reproduce.
+- A gate reports coverage as a measured ratio, not as prose: prose cannot distinguish 7 of 7 from 3 of 7, and "nothing is there" is not "nothing this checker sees". Name the blind spot as a stated bound.
+- An absence and a failure to read are different facts. A failed, partial, or malformed read is never a legitimate absence, and a fallback defined for absence must not fire on a read failure.
+- Prove, or report nothing. Where a property cannot be established, report unknown instead of inferring it from a proxy signal; callers act on a plausible guess.
+
+Shapes vocabulary and the incident record behind each rule: `references/negative-evidence.md` in the project-management skill.
+
+## Stop-The-Line: No Forced Fits
+
+Do not keep implementing when autonomous work starts requiring a forced fit. A forced fit is any path where the task conflicts with a platform/API constraint, product decision, UX state model, ownership boundary, or architecture, and the remaining "solution" is mostly compensating hacks.
+
+Warning signs:
+- each fix needs another flag, stub, priority rule, mock-only behavior, or special-case test
+- the tests can pass only because the test harness avoids the real platform behavior
+- the implementation depends on an assumption you can no longer defend
+- the user-facing behavior cannot be described cleanly without contradicting the product model
+
+When this happens, stop product-code changes before adding another workaround layer. Attach or note:
+- the constraint and evidence
+- the failed assumptions/attempts
+- the viable options and tradeoffs
+- the recommended option
+- the exact human/product/architecture decision needed
+
+Then set the board item to `blocked` and ask only for that exact decision or external input. This stop applies only to a concrete external blocker or an unresolved human-only platform/product/architecture/tradeoff/approval decision; recoverable failures and ordinary rework stay autonomous. Tests and stubs are not proof that a forced-fit design is correct; use them only after the state model and platform assumptions are valid.
+
+## Working Directory
+Board directory: `/Users/iv/Developer/ReluxWorks/agent-session-manager/.task-board`
+
+Work in the project root. Do not modify board files directly — always use the `task-board` CLI.
+
+## Story Workspace
+
+You are running in an isolated Git worktree for STORY-260909-2uobs6.
+
+- Workspace path: `.temp/STORY-260909-2uobs6/worktree` (this is your working directory)
+- Branch: `task-board/story/STORY-260909-2uobs6`, forked from `main`
+- Authoritative board: `/Users/iv/Developer/ReluxWorks/agent-session-manager/.task-board` (already exported as `TASK_BOARD_DIR`)
+
+Make every repository change here. Do not commit, switch, rebase, merge, or delete this branch, and do not run `task-board` against the `.task-board` copy inside this worktree — it is a checkout artifact, not the board. Integration into trunk is the orchestrator's step, not yours.
+
+Leave your work UNCOMMITTED in the worktree — the handoff snapshots the working tree against the recorded checkpoint. A commit of your own on this branch is refused at handoff with `change_request_candidate_committed_past_checkpoint`, and the repair is `git reset --soft <checkpoint_oid>` before completing again.
+
+## Change Request Under Review
+
+- Change Request: `CR-TASK-260909-3kvql5-2` revision `2` (state `ready`)
+- Element: `TASK-260909-3kvql5`, integration scope: `STORY-260909-2uobs6`
+- Branch: `task-board/story/STORY-260909-2uobs6`
+- Base OID: `7654d7cadb2c226bfa3db5f23ac355a730285eea`
+- Candidate tree OID: `d529efd2ab760d524dd04340da8e0e8ae8ce2de2`
+- Repository delta: `present`
+- Patch resource: `TASK-260909-3kvql5_change-request_rev2.patch` (sha256 `71c0ff85d1d01d2a5c0b71c7716edbf198e32d03d848caf0a741e1eda1bfe102`)
+
+```bash
+git -C . diff 7654d7cadb2c226bfa3db5f23ac355a730285eea d529efd2ab760d524dd04340da8e0e8ae8ce2de2          # the exact reviewable delta
+git -C . diff --stat 7654d7cadb2c226bfa3db5f23ac355a730285eea d529efd2ab760d524dd04340da8e0e8ae8ce2de2   # its shape
+```
+
+Changed paths (2):
+
+- `README.md`
+- `task-board.config.json`
+
+### Recording the verdict
+
+Acceptance is a named mutation, not a status change:
+
+```bash
+task-board m 'accept_cr(TASK-260909-3kvql5, revision=2, evidence=TASK-260909-3kvql5_review-verdict-rev2.md)'
+```
+
+`accept_cr` writes `accepted` and `integrating` atomically: the Change Request becomes `accepted`, this run is stamped as the reviewer, and TASK-260909-3kvql5 routes the element to `integrating` — accepted but not landed, and never `done`. The accepted revision is bound to its producer role and archetype (`developer`/`implementer`), and only a new tracked run with that exact producer role and archetype may checkpoint or integrate it. The orchestrator routes that run; it does not close the leaf, and no orchestrator run may execute the integration itself. `done` is produced only by the integration transaction, never by you and never by an acknowledgement. Never supply `commit_ack` yourself.
+
+Changes requested and Stop-The-Line are unchanged: route to `to-dev`/`analysis` or evidence-backed `blocked`. Leaving the element in `reviewing` is still not a verdict and still gets this run cancelled and respawned.
+
+codex
+Проверю исправления R1/R2 и привязку второй ревизии CR. Использую skill `project-management`; исходники менять не буду.
+
+exec
+/bin/zsh -lc "/Users/iv/.curator/global/bin/task-board m 'set_status(TASK-260909-3kvql5, status=reviewing)'" in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 912ms:
+{"ok":true,"result":{"primary":{"action":"status_changed","element_id":"TASK-260909-3kvql5","field":"status","new_value":"reviewing","old_value":"to-review"},"side_effects":[{"action":"promoted","element_id":"STORY-260909-2uobs6","field":"status","new_value":"reviewing","old_value":"to-review"},{"action":"promoted","element_id":"EPIC-260829-dz9yvx","field":"status","new_value":"reviewing","old_value":"to-review"}]}}
+
+exec
+/bin/zsh -lc 'cat /Users/iv/.claude/skills/project-management/SKILL.md' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+---
+name: project-management
+description: >
+  File-backed task boards and spawn-first multi-agent orchestration through
+  task-board. Use for board/spec decomposition, task tracking, planning,
+  status/progress, tracked producer/reviewer runs, and delivery goals. A normal
+  primary session is the Orchestrator; a prompt-assigned role or
+  TASK_BOARD_RUN_ID is a specialist worker. Russian triggers: борд, доска,
+  задачи, эпик, стори, таски, спавн, оркестратор, субагент, статус, прогресс.
+triggers:
+  - task board, epic, story, task, bug, status, progress
+  - spec decomposition, planning, critical path
+  - spawn, orchestrator, coordinator, sub-agent, delivery goal
+  - борд, доска, задачи, эпик, стори, таски, спавн, оркестратор
+---
+
+# Project Management Router
+
+Load only the focused references needed. Use `task-board` for reads/writes;
+never edit `.task-board/` directly.
+
+## Active Role
+
+- **Specialist:** when assigned a role, `TASK_BOARD_RUN_ID` exists, or the
+  human explicitly requests inline execution. Follow lifecycle/evidence gates.
+- **Orchestrator:** otherwise. Detail settled specs inline; route
+  every artifact-producing or validating task through a tracked
+  background child run. `solution-architect` only for genuine
+  architecture decisions.
+
+## Critical Invariants
+
+1. Preflight with `project_config(view=spawn-preflight, role=ROLE, agent=RUNTIME?)`;
+   bare `project_config()` stays the role-optional config surface.
+   Cross-provider ranking requires the agent-less query: omit `agent`, compare
+   recommendations, then narrow with `agent=RUNTIME` for the fresh spawn snapshot.
+   `providers.targeted` names the query's runtime scope; policy-allowed entries
+   outside it use `runtime_not_targeted_by_query`, while policy-excluded entries
+   use `provider_not_allowed_by_preferred_agentic_system`.
+   When workload recommendations are configured: query with `task_class` or an
+   explicit `workload_class`, reason about scope/risk/autonomy/validation and
+   context cost, then spawn an explicit pair with the exact class transport,
+   fresh snapshot digest, and one-line recommendation rationale. A ranking is
+   advice, never authority, a default, or permission to widen the pair.
+   For a proprietary (paid) model, choose the pair that maximises delivered
+   work per token and escalate only for a stated reason.
+   Every child has explicit role, background mode, and a complete
+   model/reasoning-effort pair across its applicable dimensions — model
+   either typed or seeded by a configured per-role default, and, for Codex,
+   Qwen, or a Claude model whose registry row declares a reasoning-effort
+   vocabulary, an in-policy effort either typed or default-seeded the same
+   way. Built-in runtimes: `agy`, `claude`, `codex`, `gemini`, `muse`, `qwen`
+   (plus any runtime declared under `spawn.runtimes`); Gemini, Agy,
+   `muse-spark-1.2-contributor`, and an effortless Claude model take no
+   `--reasoning-effort` at all, while `muse-spark-1.3-contributor` and its
+   `muse-spark` alias REQUIRE one from `high`/`xhigh`/`max`. The
+   versioned-short `muse-spark-1.3` names no registered row and is not
+   spawnable; codex `gpt-6-astra`/`astra` REQUIRE one of `low`/`medium`/`high`/`xhigh`/`max`/`ultra`.
+   Treat the v3 `admitted_pairs` set the
+   preflight reports as the exact admission authority, not `allowed_models`,
+   which is one input form and is `null` when the runtime uses combinable
+   `entries`; when preflight reports a v2 migration warning, use the
+   full read-only migration snapshot for an explicit reviewed repository edit.
+   Never infer admission from `PolicyRank` or silently migrate config.
+   Codex-only `fast_mode` defaults false and forces direct/managed
+   `service_tier` default/priority; preflight records root/remote provenance.
+   Remote-v4 parity is owned by the client projection and its checked fixtures;
+   authority schema v1 intentionally authorizes an empty per-board backend
+   policy set, so do not infer or add a server policy route.
+2. Workers use compact, task-specific projections. Skip routine
+   `summary()`, `plan()`, `schema()`, and `{ full }`; scoped schema only
+   repairs an unknown call.
+3. Default to `task-board spawn observe RUN --until terminal --format compact`,
+   then route its handoff. Other reads are for barriers, replay/follow,
+   diagnosis.
+4. The Orchestrator owns producer -> reviewer -> rework -> reviewer until the
+   configured review policy is satisfied and the board reaches `done`.
+   `to-review` is a routing trigger, not human acceptance. Commit
+   decomposition is that same Orchestrator's own call, never a per-commit
+   human checkpoint.
+5. Handoff needs a task-scoped outcome and `task-board handoff TASK-ID --role
+   ROLE`. Early exits and intermediate parked states are
+   retried, or rerouted through a focused child; routine work is never handed to the human.
+   Producer `set_status(to-review)`
+   is refused, and reviewer `accept_cr` requires its live merged checklist.
+   Attach artifacts through resource CRUD under
+   `.task-board/.resources/<ELEMENT-ID>/`, optionally in safe nested paths;
+   never write that tree directly or attach directories.
+6. `blocked` needs an evidence-backed external blocker or unresolved
+   human-only product/platform/architecture/approval decision. Persist
+   constraint, evidence, failed assumptions/attempts, viable alternatives,
+   tradeoffs, recommendation, and the exact decision or external input needed.
+7. At `to-review` say **ready for review** / **handed off to review**;
+   done/complete/final only for `done`.
+8. `board-goal-v2` is authoritative: `goal` owns `parent/primary`; `spawn goal`
+   owns `run/RUN-*`. V1 shapes are compatibility-only.
+9. `openai-board` / `anthropic-board` launch the primary `task-board
+   codex|claude` sessions.
+   agents-infra composes; `tb-sessiond` owns goal bind, location-scoped
+   `openai-board|anthropic-board resume [SES-*]`, native identity restart, and
+   session operations. Provider-native adoption remains explicit as
+   `codex resume THREAD_ID` (compatibility form) or `codex --resume THREAD_ID`,
+   and `claude --resume UUID`.
+   Bad records move to private `<state>/quarantine/`; listen continues and
+   status/list report them.
+10. Freeze stable project/config/runtime/control roots and one binding+digest.
+    Explicit config must exist; direct/managed children override ambient roots.
+    `TASK_BOARD_DIR` stores, not authority. Resolve authority from a
+    binding via fresh `git ls-remote --symref <authorized-url> HEAD`,
+    exact-ref fetch, and equal advertised/fetched OIDs. Never use cached/local
+    refs, tracking, caller/config fields, or prior tuples. Cross-check
+    `integration_base_branch` against the independent branch/remote
+    pair. Zero/multiple/unavailable/indeterminate evidence refuses.
+    Producer publishes a Change Request, reviewer runs `accept_cr`,
+    then Orchestrator checkpoints leaves and integrates the Story. Managed
+    commits use `-S` with repository human identity/key; index failures never
+    justify broad reset. See
+    [tracked background spawn](references/tracked-background-spawn.md#story-worktree-isolation).
+11. Cross-Story `set_parent` and integration are durable and fail closed; move
+    evidence never widens source-tombstone admission. See
+    [tracked background spawn](references/tracked-background-spawn.md#what-the-board-state-commit-covers-and-what-it-leaves-alone).
+12. Board validation stays strict by default. The project setting
+    `validation.allow_legacy_empty_done_containers=true` suppresses only the
+    historical empty-`done` Story/Epic aggregate mismatch; active or
+    child-backed containers remain strict.
+13. Transaction-owned `.activity/<ID>/events.ndjson` forbids caller logging.
+    Reads are bounded; corrections privileged/append-only. Transfer/worktrees
+    reject foreign history, preserve legacy/deletion boundaries, and never backfill.
+    See [file format](references/file-formats.md#activity-streams),
+    [query](references/querying.md), and
+    [coverage](docs/activity-mutation-coverage.md).
+14. Never run `make install*`, `scripts/setup.sh`, or `task-board self-update`
+    from inside a manager-hosted session. A Claude host's PTY master lives in
+    the `tb-sessiond` process, so replacing that daemon hangs up every hosted
+    session including the caller's own. A binary swap is a human action taken
+    between sessions; the manager restarts from an outside shell with
+    `task-board session restart`. See
+    [goals recovery](references/goals-recovery.md#1-a-skill-reinstall-beside-a-running-tb-sessiond).
+
+## Decision Tree
+
+```text
+Prompt-assigned role or TASK_BOARD_RUN_ID? -> work as that specialist
+Artifact, test, docs, research, or review? -> tracked role-based spawn
+Producer reached to-review? -> spawn reviewer, route verdict
+Concrete stop boundary? -> persist packet, then blocked
+Known structured board operation? -> q/m DSL with narrow projection
+Unknown name/field? -> schema(); known call syntax? -> schema(operation|mutation=NAME); see querying recovery examples
+```
+
+## Lazy Reference Routes
+
+| Need | Read |
+| --- | --- |
+| Queries, observability, goals, estimates, deps | [querying](references/querying.md), [file formats](references/file-formats.md) |
+| Status, review, recovery, Stop-The-Line | [statuses](references/statuses.md) |
+| Resources, bugs, evidence | [resources and bugs](references/resources-and-bugs.md) |
+| Detailing, plans, execution | [planning workflow](references/planning-workflow.md) |
+| Research and synthesis | [research workflow](references/research-workflow.md) |
+| Roles, task classes, DoD | [roles](references/roles.md) |
+| Negative tests, gate proofs, unknown vs absence | [negative evidence](references/negative-evidence.md) |
+| Spawned goals, selection, runs, recovery, Story worktrees | [tracked background spawn](references/tracked-background-spawn.md) |
+| Change Request order, checkpoint, republish | [CR lifecycle](references/change-request-lifecycle.md) |
+| Session Manager wrappers, goal runtimes | [codex goal runtime](docs/codex-goal-runtime.md), [claude goal runtime](docs/claude-goal-runtime.md) |
+| Templates, reviewer routing | [sub-agent templates](references/sub-agent-templates.md) |
+| Context budgets | [context efficiency](references/context-efficiency.md) |
+| Config feature gates | [config features](references/config-features.md) |
+| Goal daemon skew, native recovery | [goals recovery](references/goals-recovery.md) |
+| Project config refusals/schema/examples, authority envelopes, guarded alias migration, spawn supervision in minutes | [canonical config reference](references/task-board-config.md); persist a matching scoped selection before removing legacy `remote.user`, preview with `task-board migrate-project-config`, then apply only with its reviewed `--expected-digest` |
+| Install/bootstrap | [setup](references/setup.md) |
+| Remote auth/admin/ops | [remote board runbook](docs/remote-board-operations.md) |
+| CLI/deploy overview | [README](README.md) |
+
+Runtime changes follow canonical `.specs/` contracts.
+
+Built-in spawn runtimes: `agy`, `claude`, `codex`, `gemini`, `muse`, `qwen`
+(plus any runtime declared under `spawn.runtimes`). Gemini CLI 0.54.4 is
+deprecated in favour of Antigravity, but both remain supported.
+
+```bash
+task-board spawn TASK-ID --role developer --background --agent agy --model gemini-3.6-flash-high --timeout 35m
+```
+
+`agy` takes no `--reasoning-effort`; effort is encoded in its eight scoped
+model IDs. Minimum `agy` is 1.1.12; 1.1.14 is validated. Prompt delivery has
+a 96 KiB argv budget; `SUCCESS`/`ERROR` JSON overrides process exit. Only the
+top-level worker is tracked. See [README](README.md) for the full models,
+flags, JSON, safety, configuration, and Gemini compatibility contract.
+
+context compacted
+exec
+/bin/zsh -lc 'pwd; /Users/iv/.curator/global/bin/task-board --version; print -r -- "$TASK_BOARD_RUN_ID"; cat /Users/iv/.claude/skills/project-management/references/querying.md; cat /Users/iv/.claude/skills/project-management/references/resources.md' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ exited 1 in 0ms:
+/Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+task-board version dev
+RUN-260909-376688
+# Querying & Mutating the Board
+
+Three primary access modes following the [agent-facing-api](https://github.com/relux-works/skill-agent-facing-api) pattern, plus CLI for humans:
+
+## Concrete Assignment Default
+
+When a prompt already supplies a Task/Bug ID and task inputs, query only fields
+needed for the next decision:
+
+```bash
+task-board q --format compact 'get(TASK-260211-abc) { status checklist outcomeResources }'
+task-board q --format compact 'get(TASK-260211-abc) { status blockedBy derivedBlockedBy }'
+```
+
+Do not add routine `summary()`, `plan()`, `schema()`, or `{ full }` orientation.
+Use `schema(operation=NAME)` or `schema(mutation=NAME)` only after an unknown
+call. Board-wide observability and plans belong to an orchestrator routing
+decision; full reads remain explicit audit/debug surfaces.
+
+## DSL Queries — primary read approach for agents
+
+Compact queries that return structured output. Zero session overhead (no MCP handshake), batch multiple queries in a single call. **This is what agents should use for all structured reads.**
+
+**Output format:** Use `--format compact` for token-efficient output (~40% fewer tokens). Default is `--format json`.
+
+```bash
+# Board overview
+task-board q --format compact 'summary()'
+
+# Whole-project readiness with the existing summary folded in
+task-board q --format compact 'summary() { observability-project }'
+
+# Scoped readiness at each board level
+task-board q --format compact 'list(type=epic) { observability-epic }'
+task-board q --format compact 'get(STORY-260211-def) { observability-story }'
+task-board q --format compact 'list(type=task, status=development) { observability-task }'
+
+# Single element lookup
+task-board q --format compact 'get(TASK-260211-abc) { status assignee }'
+
+# Bounded activity history (continue with cursor=<next_cursor>)
+task-board q --format compact \
+  'activity(TASK-260211-abc, limit=25, order=descending, kinds="progress,content", view=effective)'
+
+# Filtered listing with field preset
+task-board q --format compact 'list(type=task, status=development) { overview }'
+
+# Agent monitoring
+task-board q --format compact 'agents(stale=60)'
+
+# Batch: multiple queries in one call (semicolon-separated)
+task-board q --format compact 'get(T1) { status }; get(T2) { status }; get(T3) { status }'
+
+# Zero-argument and parameterized operations can share a batch
+task-board q --format compact 'project_config(); models(agent=codex)'
+
+# Execution plan
+task-board q --format compact 'plan(EPIC-01, mode=children)'
+
+# Schema introspection — discover available fields, presets, operations, and mutations
+task-board q 'schema()'
+task-board q 'schema(operation=project_config)'
+task-board q 'schema(mutation=set_status)'
+
+# Target-only spawn policy (explicit opt-in in every profile)
+task-board q --format compact 'project_config(view=spawn-preflight, role=developer, agent=codex)'
+```
+
+**Operations:** `get(ID)`, `activity(ID, cursor?, limit?, order?, kinds?, view?)`, `list(filters...)`, `count(filters...)`, `summary()`, `plan(scope?, mode=?, active=?)`, `agents(stale=N?)`, `models(agent?)`, `project_config(view?, role?, agent?)`, `whoami()`, `schema(operation?|mutation?)`
+**Field projection:** `{ id status assignee }`; base presets: `minimal`, `default`, `overview`, `full`, `progress`, `planning`; observability presets: `observability-project`, `observability-epic`, `observability-story`, `observability-task`
+**Batching:** semicolons between queries. Statements and results preserve source order. JSON batches return an ordered top-level array; compact batches format each result normally and separate adjacent results with one blank line. A single query remains unwrapped. Syntax and unknown-operation errors reject the whole batch before execution instead of returning partial output; handler errors remain ordered in-band error results and later statements continue. Element mutations in one batch run inside one activity transaction: when any statement is refused, the refused statements keep their own errors, every statement that would otherwise have succeeded is reported as `ok:false` with code `batch_rolled_back`, and nothing is persisted. A clean batch commits every statement and records one activity event per affected element, so a batch may change an element's checklist only once; issue further checklist changes as separate commands. Local and remote mutation commands both print that complete envelope before returning a nonzero exit, so the envelope always describes exactly what was persisted.
+**Format:** `--format compact` (agent default) or `--format json` (TUI/programmatic)
+
+**First-time setup:** Under the full profile, `schema()` returns the complete API contract. Under lite, skip the proactive full read and request only the failed/unknown call with `schema(operation=NAME)` or `schema(mutation=NAME)`. Parser errors for a known call include that same typed signature directly.
+
+`activity()` is deliberately separate from element projections: ordinary
+`get`/`list` reads never embed history. Its `limit` defaults to 50 and is bounded
+to 1..100. `order` accepts `ascending` or `descending`, `view` accepts `raw` or
+`effective`, and `kinds` accepts a comma-separated operation filter. Reuse only
+the opaque `next_cursor` returned by the previous page and keep the same order;
+the cursor is direction-bound and sequence-anchored for stable traversal across
+concurrent appends. The local CLI and remote `/q` endpoint share this contract.
+Activity is automatic infrastructure output; callers must not append routine
+history themselves. An explicit `legacy_pre_feature` boundary means older
+events are unavailable, not that they should be inferred. Deletion retains the
+terminal typed history. Operators correct a bad record only with confirmed,
+append-only `correct_activity`; the original remains in `view=raw`, while
+`view=effective` applies the correction, and remote correction requires Admin.
+Never replace bounded pages with `get(...){full}` or an unbounded filesystem
+read.
+
+`kinds` also selects the three DERIVED control-plane planes. `run` returns the
+spawn run lifecycle mirrored onto the run's task, `change_request` returns the
+Change Request transitions mirrored onto the element the CR is attached to, and
+`workspace` returns the Story workspace operations mirrored onto the Story:
+
+```bash
+task-board q --format compact 'activity(TASK-260211-abc, kinds="run,change_request", limit=25)'
+task-board q --format compact 'activity(STORY-260211-abc, kinds=workspace, limit=25)'
+```
+
+These events carry one typed `ledger_event` change — domain, ledger id,
+enumerated event token, sequence, revision, from/to state tokens, a UTC
+instant, and typed `oid`/`ref`/`id`/`token` facts. They never carry a summary,
+message or reason: each ledger keeps its own human-readable text and the mirror
+cannot transport it. The default unfiltered view includes them alongside board
+mutations, and filtering by a board kind such as `kinds=progress` returns
+exactly what it returned before the planes existed.
+
+The runtime emits them automatically at the moment each ledger row is written.
+`record_ledger_event` exists so the local and remote transports share one
+statement and one validator, and it refuses any free-text payload.
+
+**It is not an agent-facing mutation.** `task-board m 'record_ledger_event(...)'`
+is refused, on a local and a remote board alike, with a
+`ledger_mirror_unauthorized` error: a mirror is DERIVED from a ledger row, so
+one appended by hand asserts a control-plane fact that never happened. On a
+local board the refusal is enforced twice over — once on the CLI mutation
+surface and once in the shared activity layer, which admits only the runtime's
+derived-mirror sink as the source entrypoint.
+
+**Stated bound — board-server boards.** The prevention above is a property of
+the CLI, not of the server. A mirror bound for a remote board is relayed over
+the same `m` transport, authenticating as the same principal, through the same
+handler entrypoint, as any other mutation that principal could send, so the
+server cannot tell a relayed mirror from one a write-capable principal composed
+by hand — and it admits both. What the remote plane holds instead is
+attribution: every mirror records the authenticated principal that sent it, so
+a hand-minted one is traceable to its author even though it is not prevented.
+Preventing it would need per-record attestation the transport has no field for;
+admin-gating the operation would break the ordinary agent's mirror, which is
+the behaviour the remote plane exists to provide.
+
+**Server capability is proven, never assumed.** Before sending a mirror to a
+board-server the CLI reads `/v1/version` and requires the `ledger_mirror`
+contract. A server that advertises none, or a different version, is refused
+with a message naming what it advertised — a server that cannot persist a
+mirror would refuse `record_ledger_event` as an unknown operation, which looks
+exactly like a mirror that was never attempted. A `/version` read that FAILS is
+refused too, and separately: a failed read is not an absence, and treating it
+as one would silently drop mirrors a capable server would have accepted.
+
+Run heartbeats are deliberately not mirrored — see
+`docs/activity-mutation-coverage.md` for that bound and for what
+`task-board validate` reports when a ledger row has no mirror.
+
+### Scoped signatures
+
+`schema(operation=NAME)` and `schema(mutation=NAME)` return one flat signature object: `kind`, `name`, a typed `signature`, description, parameters, and examples; mutations also report `destructive` and `idempotent`. They do not include unrelated fields, presets, operations, or mutation contracts. Provide exactly one scope. `schema()` without a scope retains the full legacy response.
+
+Known-operation parser failures preserve the underlying typed parse error and append the relevant signature. This lets an agent repair a call without reading the full schema.
+
+### Recovery examples from the Story binary
+
+Captured at Story commit `13afc672f01a38d5748cca533f33524aec8080d9`.
+From the repository root, build without installing:
+
+```bash
+(cd tools/board-cli && go build -o ../../.temp/TASK-260907-bg79el/task-board .)
+```
+
+The commands below use that binary and the authoritative board selected by
+`TASK_BOARD_DIR`. IDs refer to this Story's board; substitute existing IDs on
+another board. Output blocks quote the exact emitted text (errors are stderr).
+Exit 1 is an expected refusal, not a passing command.
+
+#### Unknown operation
+
+An unknown operation lists the known query operations and points to `schema()` for discovery and `schema(operation=NAME)` for one signature.
+
+```bash
+.temp/TASK-260907-bg79el/task-board q 'fetch()'
+```
+
+Output (exit 1):
+
+```text
+query error: parse error at 1:1: unknown operation "fetch" (got "fetch"); known operations: activity, agents, context, context_boundary, context_candidates, context_retention, contexts, count, get, list, models, plan, project_config, provider_limits, schema, summary, whoami; see schema() for the contract and schema(operation=NAME) for one signature
+```
+
+#### Statement grammar and bare positional arguments
+
+The scoped signature includes `syntax`: the first bare positional value is the element/identifier argument, and subsequent arguments use `key=value`. Thus `get(TASK-260907-bg79el)` matches `get(id:string)`.
+
+```bash
+.temp/TASK-260907-bg79el/task-board q 'schema(operation=get)'
+```
+
+Output (exit 0):
+
+```text
+{"description":"Get a single element by ID","examples":["get(TASK-XX) { overview }"],"kind":"operation","name":"get","parameters":[{"name":"id","type":"string","optional":false,"description":"Element ID"}],"signature":"get(id:string)","syntax":"OPERATION(element-or-identifier, key=value, key=\"quoted string\") { field preset }; statements separated by ';'; the first bare positional value is the element/identifier argument; remaining arguments use key=value (no operators or lists); string escapes: \\\" \\\\ \\n \\t"}
+```
+
+#### Unknown projection field
+
+A misspelled projection field suggests `updated` and points to `schema()` for valid fields and presets.
+
+```bash
+.temp/TASK-260907-bg79el/task-board q 'get(TASK-260907-bg79el) { updated_at }'
+```
+
+Output (exit 1):
+
+```text
+query error: parse error at 1:29: unknown field "updated_at" (got "updated_at"); did you mean `updated`?; see schema() for valid fields and preset names
+```
+
+#### Bare element ID
+
+An element ID alone is refused; wrap it in `get(ID) { fields }`.
+
+```bash
+.temp/TASK-260907-bg79el/task-board q 'TASK-260907-bg79el'
+```
+
+Output (exit 1):
+
+```text
+query error: an element ID is not an operation; use get(ID) { fields }
+```
+
+#### Keyword IDs on mutations
+
+Every id-first mutation accepts `id=...` (bare or quoted) as well as the first positional argument. This includes `link`, `add_checklist_item`, and `set_status`; supplying both forms is rejected. These successful dry runs preview without persisting changes.
+
+```bash
+.temp/TASK-260907-bg79el/task-board m --dry-run 'link(id=TASK-260907-bg79el, blocked_by=TASK-260211-1saw6h)'
+```
+
+Output (exit 0):
+
+```text
+{"ok":true,"result":{"blocked_by":"TASK-260211-1saw6h","dry_run":true,"id":"TASK-260907-bg79el"}}
+```
+
+```bash
+.temp/TASK-260907-bg79el/task-board m --dry-run 'add_checklist_item(id=TASK-260907-bg79el, text="Verify recovery guidance")'
+```
+
+Output (exit 0):
+
+```text
+{"ok":true,"result":{"dry_run":true,"id":"TASK-260907-bg79el","text":"Verify recovery guidance"}}
+```
+
+```bash
+.temp/TASK-260907-bg79el/task-board m --dry-run 'set_status(id=TASK-260907-bg79el, status=development)'
+```
+
+Output (exit 0):
+
+```text
+{"ok":true,"result":{"dry_run":true,"id":"TASK-260907-bg79el","status":"development"}}
+```
+
+### `project_config()` runtime shape
+
+`project_config()` is always resolved by the local CLI, including when normal
+board reads and writes target a remote server. Its current top-level keys are
+`configured_mode`, `effective_mode`, `board_source`,
+`explicit_remote_override`, `project_root`, `config_path`, `config_exists`,
+`local`, `remote`, `whoami`, `goals`, `spawn`, `codex`, and `version_control`.
+
+The no-argument shape remains the role-optional general config surface in every
+profile, including the full default. For a spawn decision, opt in explicitly:
+
+```bash
+task-board q --format compact 'project_config(view=spawn-preflight, role=developer, agent=codex)'
+```
+
+`role` is required. `agent` is optional and otherwise follows the same
+preferred-provider/schedule/runtime-affinity resolver as `task-board spawn`.
+The narrow result contains `enabled`, `max_parallel`, a small effective
+agent-context profile/source header, the effective allowed and target providers,
+the active schedule window, canonical role, merged role ceiling for the target
+provider, provider selection mode, and launch-composition enabled/status. It
+excludes local/remote auth, `whoami`, Codex session, nested agent-context policy,
+project paths, all unrelated provider ceilings, and version-control fields.
+Active schedule allow-sets and provider refusals use the same fail-closed
+resolver as spawn.
+
+For Codex, `resolved_role_ceiling` includes the resolved boolean `fast_mode`,
+`fast_mode_source` (`default` or `configured`), and `provenance.fast_mode` with
+the exact root or remote key. Durable spawn status and JSON run state carry
+`service_tier`, `fast_mode`, `fast_mode_source`, and `fast_mode_config_key`;
+provider-limit retries update them to describe the provider currently being
+launched, while each `provider_attempts[]` entry preserves the tier evidence
+carried by that historical launch.
+
+The lite profile's resolved `queries.project_config=spawn-preflight` setting
+guides agents toward the target-specific call; it does not rewrite a bare
+`project_config()` invocation. Supplying a view or target argument opts into
+the narrow projection, whose role remains mandatory.
+
+The policy members relevant to spawning and status mutation are:
+
+| Path | Shape |
+|---|---|
+| `spawn.preferred_agent` | Legacy configured provider string, or `null`. It is retained only as compatibility evidence. |
+| `spawn.preferred_agentic_system` | Currently effective `{mode, allowed_providers, source, config_key}`, or `null`. During an active schedule window, `source` is `schedule`. |
+| `spawn.schedule` | `{configured, timezone, config_key, windows, active_window, base_preferred_agentic_system}`. `timezone` is always `UTC`; every projected window also carries its normalized bounds, key, and provider-system projection. |
+| `spawn.launch_composition` | `{enabled, config_key, contract, schema_version, degradation}` without invoking `agents-infra`. |
+| `spawn.ceilings` | Always reports effective `contract_version`, `authority`, `configured`, and `config_path`. V3 providers expose normalized `allowed_models` or `entries`, nullable `resolution_model`, confirmation mode, effort direction, merged role-effective policy, and exact provenance. Every contract version and input form reports `admitted_pairs`, the canonical admitted `(model, effort)` set with its digest — the field to read when deciding what a policy admits, since `allowed_models` is `null` under the entries form. An entries policy also reports `entries_expanded`, `entries_expansion_pinned`, and any unreachable/redundant entry `warnings`. V2 exposes `snapshot_version`, `snapshot_allowed_models`, `migration_required`, stable actionable warnings, and exact read-only v3 `migration` objects. |
+| `spawn.selection` | Required flags plus provider effort vocabularies and supported model criteria. |
+| `spawn.execution` / `spawn.tracking` | Executable background mode and durable run-observation contract. |
+| `goals` | Static compact `board-goal-v2` capability with required Session Manager native reflection and the one-release `primary-goal-v1` / `board-goal-v1` adapters. The legacy `goals.primary` descriptor remains nested alongside the v2 fields for the compatibility release. It never embeds the current objective and is omitted from `view=spawn-preflight`. |
+| `version_control` | `{configured, confirm, desired_commit_time, enforced_types, owner_message, acknowledgement_parameter, acknowledgement_value, config_key}`. |
+
+Local mode uses `spawn.*` keys. Remote mode uses `remote.spawn.*` when that
+object is present and non-null; otherwise it falls back to the whole root
+`spawn` object. The reported `spawn.config_key_prefix` and nested `config_key`
+values always identify the effective source. `preferred_agentic_system` is the
+canonical config spelling; `preferred_agent_system` is not an alias.
+
+`spawn-policy-v3` admission is exact membership in the effective
+`allowed_models` set. `PolicyRank`, lifecycle, recommendation, registry order,
+and price are not policy inputs. A v2 projection is compatibility evidence,
+not an automatic migration: setup, query, spawn, and install never rewrite the
+repository. For an explicit migration, copy the full projection's provider and
+role `migration` objects under `contract_version: spawn-policy-v3`, review the
+diff, then repeat full and target-role preflight queries. An effort-only v2
+warning uses reason `spawn_policy_v2_effort_only_migration_required` and
+explicitly says to omit `resolution_model` unless a fallback is intended.
+
+### Project observability preset family
+
+`summary() { observability-project }` returns the whole-project view. The
+element presets work with the existing `get` and `list` operations; the task
+preset also applies to Bugs because Tasks and Bugs share the leaf estimate
+contract.
+
+Every preset exposes the same nested `observability` field:
+
+- `scope` identifies the project or selected Epic/Story/Task/Bug.
+- `summary` carries the existing `byType`, `active`, and `blocked` summary,
+  scoped to that element and its descendants.
+- `readiness.estimateKind` carries the leaf or calculated
+  Story/Epic/project projection state without dumping every missing leaf.
+- `readiness.coverage` always reports `estimated`, `unestimated`, `total`,
+  `ratio`, and `complete`, including fully estimated scopes.
+- `readiness.rolledEstimate` is the known Fibonacci sum even when coverage is
+  partial. Query the separate `estimate` field on the incomplete Story/Epic to
+  retrieve its exact `unestimatedTaskIds` drill-down list.
+- `isBlocked` / `blockedElementIds` aggregate hard dependency state across the
+  scope, while `isAdvisoryBlocked` / `advisoryBlockedElementIds` aggregate
+  derived cross-container waiting. The nested summary retains blocker details.
+- Only the project preset adds `primary_goal`. Its active form is
+  `{active:true,id,revision,objective,updated_at}`; after a clear or before
+  any creation it is `{active:false,latest_ref}` (where `latest_ref` can be
+  `null`). Epic, Story, Task, and Bug observability deliberately do not repeat
+  this board-wide parent intent or treat it as element acceptance.
+
+Plain `summary()` keeps its legacy response shape for compatibility.
+
+## DSL Mutations — structured writes for agents
+
+Write operations through the same DSL engine. All mutations support `--dry-run` preview. Destructive mutations require `--confirm`.
+
+Element-ID mutations accept the first positional argument or `id=ID` (bare or quoted), matching their schema signatures: `link(ID, blocked_by=OTHER)` and `link(id="ID", blocked_by=OTHER)` are equivalent. Supplying both forms is rejected. `create(type=..., parent=...)` retains its keyword syntax.
+
+```bash
+# Status changes
+task-board m 'set_status(TASK-12, status=development)'
+
+# Evidence-backed role handoff (preferred producer end transition)
+task-board handoff TASK-12 --role developer
+
+# Task/Bug estimate enum
+task-board m 'set_estimate(TASK-12, estimate=notEstimated)'
+task-board m 'set_estimate(TASK-12, estimate=estimated, scale=fibonacci, number=5)'
+
+# Create elements
+task-board m 'create(type=task, parent=STORY-05, name=new-task)'
+task-board m 'create(type=task, parent=STORY-05, name=new-task, description="Implement feature", scope="Backend only", ac="Tests pass")'
+
+# Update README fields
+task-board m 'set_details(TASK-12, title="New title", description="Updated desc")'
+
+# Rename overview name/slug while preserving ID, README, progress, children, and resources
+task-board m 'rename(TASK-12, name=better-task-name)'
+
+# Assignment
+task-board m 'assign(TASK-12, agent=claude-opus)'
+task-board m 'unassign(TASK-12)'
+
+# Dependencies
+task-board m 'link(TASK-13, blocked_by=TASK-12)'
+task-board m 'unlink(TASK-13, blocked_by=TASK-12)'
+
+# Checklist
+task-board m 'check_item(TASK-12, item=1)'
+task-board m 'uncheck_item(TASK-12, item=1)'
+task-board m 'add_checklist_item(TASK-12, text="Write tests")'
+
+# Notes
+task-board m 'set_notes(TASK-12, text="Progress update")'        # append
+task-board m 'set_notes(TASK-12, text="Replace all", set=true)'  # replace
+
+# Move to new parent
+task-board m 'set_parent(TASK-12, parent=STORY-03)'
+
+# Resources
+task-board m 'add_resource(TASK-12, name="TASK-12_design.md", type=precondition, content="...", description="Design doc")'
+task-board m 'update_resource(TASK-12, name="TASK-12_design.md", type=precondition, content="revised", description="Design doc v2")'
+task-board m --confirm 'delete_resource(TASK-12, name="TASK-12_design.md")'
+
+# Destructive — preview first, then confirm
+task-board m --dry-run 'remove_checklist_item(TASK-12, item=2)'
+task-board m --confirm 'remove_checklist_item(TASK-12, item=2)'
+task-board m --dry-run 'delete(TASK-12)'
+task-board m --confirm 'delete(TASK-12)'
+
+# Batch mutations (semicolon-separated)
+task-board m 'set_status(TASK-12, status=done); set_status(TASK-13, status=development)'
+```
+
+**Safety flags:**
+- `--dry-run` — preview mutation without applying. Returns what would change
+- `--confirm` — required for destructive mutations (`delete`, `delete_resource`)
+- Mutation arguments are schema-checked. Unknown named arguments and extra positional fragments are rejected with typed errors before any write runs.
+- Without `--confirm`, destructive mutations are rejected with an error
+
+**Format:** `--format json` (default) or `--format compact`
+
+**Introspection:** Run `task-board q 'schema(mutation=NAME)'` for one mutation signature, or full `schema()` for the entire contract.
+
+`task-board handoff` resolves the role's configured end status, verifies all
+checklist items plus an actual stored task-scoped outcome, and serializes that
+decision with the ordinary status transition. The underlying shared `handoff`
+mutation carries the already-resolved role/status for remote execution; use the
+CLI facade so callers do not have to reproduce role-policy resolution.
+
+The `estimate` q field is a nested enum. Task/Bug values are either
+`{"kind":"notEstimated"}` or
+`{"kind":"estimated","scale":{"kind":"fibonacci","number":5}}`.
+Story/Epic values are calculated, never persisted or hand-set. Full coverage
+returns the same `estimated` shape with the descendant sum. Partial coverage
+returns
+`{"kind":"partiallyEstimated","rolledEstimate":{"kind":"estimated","scale":{"kind":"fibonacci","number":5}},"notEstimatedCount":"1/3","unestimatedTaskIds":["TASK-..."]}`.
+Story counts direct Task/Bug children; Epic rolls up descendant Task/Bug values.
+New Task/Bug records must be estimated before entering `development`; legacy
+records with no persisted Estimate section remain compatible and count as
+unestimated in container projections.
+
+## Grep — unstructured text search
+
+When DSL can't help — searching for arbitrary text across board files.
+
+```bash
+# Find mentions of a term
+task-board grep "AudioRecorder"
+
+# Search in specific file type
+task-board grep "blocked.*deployment" --file progress.md
+
+# Case-insensitive search in descriptions
+task-board grep "TODO" -i --file README.md
+
+# With context lines
+task-board grep "error" -C 2
+```
+
+## CLI — human-facing output and complex operations
+
+CLI text output with ANSI colors is designed for humans. Use for operations not covered by DSL, or when human-readable output is needed.
+
+When reporting board state to a person, reference each epic, story, task, or bug with both its concrete ID and its human-readable title/name. In practice, that usually means carrying both `id` and `name` in your query output, or using a preset such as `default` or `overview` that already includes them. ID-only references are not enough for chat summaries because readers should not have to resolve identifiers manually.
+
+```bash
+# Good human-facing summary inputs
+task-board q --format compact 'list(type=task, status=development) { id name status }'
+task-board q --format compact 'list(type=story, parent=EPIC-260218-abc123) { overview }'
+```
+
+### Parent alignment in the unified goal ledger
+
+Use the top-level `goal` group to maintain one provider-neutral, board-scoped
+statement of the current `parent/primary` owner's complete objective. It
+survives a parent-session replacement, records immutable `board-goal-v2`
+revisions, and never changes a board element's status or acceptance evidence.
+The command group is the one-release `primary-goal-v1` compatibility adapter.
+
+```bash
+# Create only when no primary goal is active.
+task-board goal set-primary \
+  --objective "Keep the parent goal aligned with the current user requirements." \
+  --reason "First actionable requirement"
+
+# CAS-replace the whole objective. Repeating the same objective is idempotent.
+task-board goal update --if-revision 1 \
+  --objective "Keep the parent goal aligned with the current user requirements and active delivery work." \
+  --reason "Requirement expanded"
+
+# Read current state, immutable audit history, or one immutable revision.
+task-board goal get
+task-board goal get --history
+task-board goal get --goal-id PRIMARY-GOAL-260723-a1b2c3 --revision 1
+
+# Clear only with the observed revision and an explicit disposition reason.
+task-board goal clear --if-revision 2 --reason "Parent intent superseded"
+```
+
+`goal get` is read-only and remains available inside a spawned run. When
+`TASK_BOARD_RUN_ID` is set, `set-primary`, `update`, and `clear` return the
+typed `primary_goal_parent_context_required` failure with no side effects;
+spawned owners must use `task-board spawn goal` or `task-board spawn goal
+upsert` for their `run/RUN-*` owner. Both commands use `board-goal-v2`; owner
+isolation prevents either compatibility adapter from silently updating or
+clearing the other.
+
+Every successful JSON response has `ok`, `board_scope`, `primary_goal`, and
+`latest_ref`; mutations additionally carry `mutation`. Exact revision reads
+add `primary_goal_revision`, and history reads add newest-first `history`
+summaries. Typed failures use
+`{ok:false,error:{code,message,current_ref,side_effects:false,remediation?}}`.
+Remote primary-adapter mutations accept authoritative `goal=board-v2` or the
+one-release `primary_goal=board-v1` compatibility capability. Direct v2
+mutations require `goal=board-v2`, and reads never create a local shadow
+ledger.
+
+## Decision table
+
+| Need | Tool | Example |
+|------|------|---------|
+| Discover full API contract | DSL | `task-board q 'schema()'` |
+| Repair one operation/mutation call | DSL | `task-board q 'schema(operation=NAME)'` / `schema(mutation=NAME)` |
+| Preflight one spawn target | DSL | `task-board q 'project_config(view=spawn-preflight, role=ROLE, agent=PROVIDER)'` |
+| Structured query (status, filter, lookup) | DSL query | `task-board q --format compact 'list(type=task, status=development) { overview }'` |
+| Structured write (status, assign, link, create) | DSL mutation | `task-board m 'set_status(TASK-XX, status=development)'` |
+| Evidence-backed producer handoff | CLI facade over shared mutation | `task-board handoff TASK-XX --role developer` |
+| Board parent intent | CLI primary-goal group | `task-board goal get` / `task-board goal update --if-revision N ...` |
+| Preview write without applying | DSL mutation | `task-board m --dry-run 'delete(TASK-XX)'` |
+| Text search across elements | Grep | `task-board grep "AudioRecorder"` |
+| **Phase planning (canonical API)** | **DSL query** | **`task-board q 'plan(EPIC-XX, mode=children)'`** |
+| **Pretty-print / render / save a plan** | **CLI facade** | **`task-board plan EPIC-XX --render --format png`** |
+| Resource management | DSL mutation / CLI | `task-board m 'add_resource(TASK-XX, name=TASK-XX_results.md, content="...", type=outcome)'` |
+
+**IMPORTANT:** Canonical planning lives in `task-board q 'plan(...)'`. Use `task-board plan` only as a local pretty-print / render / save facade over that same planning model. Never manually create phase breakdowns or write `.planning/` files from scratch.
+cat: /Users/iv/.claude/skills/project-management/references/resources.md: No such file or directory
+
+context compacted
+exec
+/bin/zsh -lc "mkdir -p .temp/TASK-260909-3kvql5/review-rev2
+/Users/iv/.curator/global/bin/task-board --version > .temp/TASK-260909-3kvql5/review-rev2/tool-readiness.log
+printf '%s\\n' 'Prior reference read failed: resources.md does not exist; locating supported reference.' >> .temp/TASK-260909-3kvql5/review-rev2/tool-readiness.log
+rg --files /Users/iv/.claude/skills/project-management/references agents/skills .claude/skills .codex/skills 2>/dev/null | head -60
+/Users/iv/.curator/global/bin/task-board q --format compact 'get(TASK-260909-3kvql5) { status checklist outcomeResources }'" in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 154ms:
+status:reviewing
+checklist:[{"text":"Canonical configuration admits Muse Spark xhigh producers and Astra medium reviewers, with aligned role defaults, recommendations and documentation; no unrelated delivery or CI policy changes.","done":true},{"text":"Code written per task description and AC","done":true},{"text":"Relevant tests written for new or changed behavior and passing","done":true},{"text":"In a managed Story worktree the candidate is left UNCOMMITTED in the worktree for the handoff to snapshot — never commit on the Story branch. A producer commit moves the branch tip off the recorded checkpoint and the handoff refuses with change_request_candidate_committed_past_checkpoint; repair with `git reset --soft \u003ccheckpoint_oid\u003e` before completing again.","done":true},{"text":"Every command, message, state, or refusal named in the AC is driven through the production entry point by a named committed test, or is declared a stated bound. Report coverage as a ratio — `n of m AC rows driven` — and name the production call site for each. Prose in place of the ratio is not evidence.","done":true},{"text":"Gating, refusing, validating, authorizing, or attesting behavior covered by negative tests that fail when the gate admits what it must reject, with the production call site named","done":true},{"text":"Every gate ships at least one NARROWING mutant — the gate stays present and is weakened to admit exactly one member of the class it must reject, and a named test must fail. A delete-only mutant proves only that the gate exists and is not accepted as evidence.","done":true},{"text":"A gate that inspects source text is additionally attacked by a mutant that PRESERVES the searched-for token and changes behavior, and the mutant harness executes the behavioral suite, not only the static checker.","done":true},{"text":"Lint clean","done":true},{"text":"Relevant build/validation commands run after changes and build not broken","done":true},{"text":"New outcome artifact attached on the board with a task-scoped name when the work produces notes, logs, screenshots, or other deliverables","done":true},{"text":"Important findings, decisions, anomalies, or regressions recorded in logbook when relevant","done":true},{"text":"Implementation matches AC","done":true},{"text":"Solution fits project architecture","done":true},{"text":"Tests green","done":true},{"text":"Gate, refusal, validation, authorization, and attestation behavior attacked, not read — positive-path-only evidence is not accepted","done":true},{"text":"If review does not accept the work — verdict evidence added and status routed by the explicit verdict branches","done":true}]
+outcomeResources:[{"name":"TASK-260909-3kvql5_spawn-log_-implementer--developer--muse-_RUN-260908-347bd2.log","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_spawn-log_-implementer--developer--muse-_RUN-260908-347bd2.log","description":"System spawn log captured by task-board"},{"name":"TASK-260909-3kvql5_outcome.md","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_outcome.md","description":"Producer outcome rev2: R1 README scope + R2 denominator/M2/bounds corrections"},{"name":"TASK-260909-3kvql5_change-request_rev1.patch","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_change-request_rev1.patch","description":"Change Request CR-TASK-260909-3kvql5-1 revision 1 candidate patch (repository_delta=present, 2 changed paths)"},{"name":"TASK-260909-3kvql5_change-request_rev1-validation.log","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_change-request_rev1-validation.log","description":"Change Request CR-TASK-260909-3kvql5-1 revision 1 bounded validation log"},{"name":"TASK-260909-3kvql5_spawn-log_-reviewer--reviewer--codex-_RUN-260908-d4e1fb.log","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_spawn-log_-reviewer--reviewer--codex-_RUN-260908-d4e1fb.log","description":"System spawn log captured by task-board"},{"name":"TASK-260909-3kvql5_review-probes-rev1.json","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_review-probes-rev1.json","description":"Independent candidate canonical policy preflight evidence"},{"name":"TASK-260909-3kvql5_review-verdict-rev1.md","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_review-verdict-rev1.md","description":"Independent revision 1 review: changes requested with scoped findings and validation bounds"},{"name":"TASK-260909-3kvql5_spawn-log_-implementer--developer--muse-_RUN-260909-e61106.log","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_spawn-log_-implementer--developer--muse-_RUN-260909-e61106.log","description":"System spawn log captured by task-board"},{"name":"TASK-260909-3kvql5_rev2-evidence.md","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_rev2-evidence.md","description":"Rev2 narrow checks: diff/JSON/non-policy/policy preflights with real exits"},{"name":"TASK-260909-3kvql5_change-request_rev2.patch","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_change-request_rev2.patch","description":"Change Request CR-TASK-260909-3kvql5-2 revision 2 candidate patch (repository_delta=present, 2 changed paths)"},{"name":"TASK-260909-3kvql5_change-request_rev2-validation.log","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_change-request_rev2-validation.log","description":"Change Request CR-TASK-260909-3kvql5-2 revision 2 bounded validation log"},{"name":"TASK-260909-3kvql5_spawn-log_-reviewer--reviewer--codex-_RUN-260909-376688.log","uri":"file://TASK-260909-3kvql5/TASK-260909-3kvql5_spawn-log_-reviewer--reviewer--codex-_RUN-260909-376688.log","description":"System spawn log captured by task-board"}]
+
+context compacted
+exec
+/bin/zsh -lc 'cat /Users/iv/.claude/skills/project-management/references/resources-and-bugs.md' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+# Resources
+
+Resources are owned by the board element they are attached to. Use explicit
+CRUD operations against that element ID. Local payloads are grouped under
+`.task-board/.resources/<elementID>/`; remote board-server uses the equivalent
+element-scoped filesystem or MinIO object-key prefix.
+
+## Resource Types
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| **precondition** | Inputs needed before work starts | Design docs, specs, instructions, API schemas |
+| **outcome** | Results produced by work | Research findings, implementation notes, analysis |
+
+## Commands
+
+```bash
+# Create a resource
+task-board m 'add_resource(TASK-260218-abc, name=TASK-260218-abc_design.md, type=precondition, content="...", description="Architecture design")'
+task-board m 'add_resource(TASK-260218-abc, name=reports/TASK-260218-abc_results.md, type=outcome, content="...", description="Research findings")'
+
+# Replace an existing resource
+task-board m 'update_resource(TASK-260218-abc, name=reports/TASK-260218-abc_results.md, type=outcome, content="revised findings", description="Research findings v2")'
+task-board resource update TASK-260218-abc ./TASK-260218-abc_results.md --name reports/TASK-260218-abc_results.md --type outcome
+
+# Adopt an existing orphaned local payload without rewriting it
+task-board resource adopt TASK-260218-abc revisions/2/TASK-260218-abc_results.md --type outcome --description "Recovered result"
+
+# Delete a resource (destructive — requires --confirm)
+task-board m --confirm 'delete_resource(TASK-260218-abc, name=artifacts/obsolete/TASK-260218-abc_design.md)'
+task-board resource delete TASK-260218-abc artifacts/obsolete/TASK-260218-abc_design.md --confirm
+
+# View resources on an element
+task-board q --format compact 'get(TASK-260218-abc) { preconditionResources outcomeResources }'
+```
+
+## Element-Owned Storage
+
+Resources from different tasks are not stored in one shared file pile. Each
+element gets its own directory, and every resource attached to that element is
+stored below it:
+
+```
+.task-board/.resources/
+├── TASK-260203-g7h8i9/
+│   ├── findings/
+│   │   └── investigation.md
+│   ├── artifacts/
+│   │   └── run-1/
+│   │       └── output.json
+│   ├── reports/
+│   │   └── TASK-260203-g7h8i9_results.md
+│   └── revisions/
+│       └── 2/
+│           └── review.md
+└── STORY-260203-d4e5f6/
+    └── research.md         # outcome
+```
+
+The resource `name` is a safe forward-slash-relative path. Agents may choose
+the hierarchy that fits the artifact and nest it further as needed. Every
+segment must be non-empty printable UTF-8 and must not be `.`, `..`, an
+absolute/drive-qualified path, or contain a backslash. Raw forward slashes are
+the only hierarchy delimiter; malformed URL escapes and encoded or repeatedly
+encoded separators/traversal are rejected. Attach related files to the same
+owning element; do not invent a generic board-wide resource task or write
+payloads into `.task-board/.resources/` manually.
+
+Directories are structural nodes, not payloads. Resource CRUD, validation, and
+handoff evidence recognize regular files only; a directory named like a report
+cannot be adopted or used to satisfy outcome evidence.
+
+Local and board-server filesystem element deletion is journaled and
+crash-recoverable. Direct resource CRUD first resolves any pending staged
+element delete under the board mutation lock. MinIO element/subtree deletion
+currently fails before mutation with the typed
+`ErrAtomicResourceDeleteUnsupported` capability error; ordinary resource CRUD
+remains available.
+
+References are tracked in `progress.md` as markdown links:
+```markdown
+## Precondition Resources
+- [specs/auth/design.md](board-resource://TASK-260203-g7h8i9/precondition/specs/auth/design.md) — Architecture design
+
+## Outcome Resources
+- [reports/TASK-260203-g7h8i9_results.md](board-resource://TASK-260203-g7h8i9/outcome/reports/TASK-260203-g7h8i9_results.md) — Research findings
+```
+
+## Spawn Integration
+
+Precondition resources are automatically injected into agent prompts by `task-board spawn`. Full prompts preserve normal text inlining. Lite prompts use the resolved `agent_context.prompt.preconditions` policy: by default, text below `inline_bytes` is rendered inline, while larger text and binary resources are written read-only under `.temp/resources/` and represented by their name, description, byte count, SHA-256 digest, and local path. This means:
+
+1. Attach instructions/specs as precondition resources to a task
+2. Run `task-board spawn TASK-XX --role developer --background --agent codex --model gpt-5.6-sol --reasoning-effort max` — agent gets everything automatically
+3. Agent saves results via `task-board m 'add_resource(..., type=outcome)'` on first write, then `update_resource(...)` for revisions
+
+## Best Practices
+
+- **Use preconditions for agent instructions** — attach design docs, specs, or step-by-step instructions before spawning
+- **Use outcomes for work products** — research findings, analysis, implementation notes
+- **Attach to the owning element** — pass the Task, Bug, Story, or Epic ID that owns the artifact; the storage layer groups its payloads under that element directory automatically
+- **Use explicit create/update/delete** — `add_resource` / `resource add` must not silently overwrite; use `update_resource` / `resource update` when replacing an existing payload
+- **Use adopt only for local repair** — `resource adopt` registers bytes already stored at `.resources/<elementID>/<relative-resource-path>` without rewriting them; a missing payload returns resource-not-found and an existing declaration returns resource-exists
+- **Choose a useful hierarchy inside the owning element** — `findings/`, `artifacts/`, `reports/`, and `revisions/` are conventions, not a fixed schema; nest further when it makes the handoff easier to navigate
+- **Use safe relative resource paths** — `/` separates validated path segments; empty, dot/traversal, absolute/drive-qualified, backslash, control-character, malformed escape, and encoded/repeatedly encoded separator or traversal forms are rejected in local and remote storage
+- **Attach files, not folders** — directories only organize resource files and never satisfy resource existence or handoff evidence
+- **Always use board commands** — never create/edit resource files or progress.md resource sections manually
+- **Name handoff evidence with task scope** — keep the task ID in the resource path, for example `reports/TASK-260218-abc_architecture-design.md`, so `task-board handoff` can recognize it
+- **Add descriptions** — the `description=` param adds a one-line description shown in spawn prompts
+
+---
+
+# Bugs
+
+Bugs are elements of the board, living inside stories alongside tasks.
+
+```bash
+# Create bug
+task-board m 'create(type=bug, parent=STORY-260218-abc, name=crash-on-start, description="App crashes when starting recording")'
+
+# Track like any element
+task-board m 'set_status(BUG-260218-abc, status=development)'
+task-board m 'add_checklist_item(BUG-260218-abc, text="Reproduce the issue")'
+task-board m 'add_checklist_item(BUG-260218-abc, text="Find root cause")'
+task-board m 'add_checklist_item(BUG-260218-abc, text="Write fix")'
+task-board m 'add_checklist_item(BUG-260218-abc, text="Add regression test")'
+```
+
+exec
+/bin/zsh -lc '/Users/iv/.curator/global/bin/task-board resource --help' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+Manage attached resources such as screenshots, docs, logs, and other files.
+
+Use "task-board resource add" to create a new attached resource, "task-board
+resource adopt" to register an orphaned local payload, "task-board resource
+update" to replace an existing one, "task-board resource delete" to remove it,
+and "task-board resource get" to materialize a resource back to the local
+filesystem for inspection.
+
+Usage:
+  task-board resource [command]
+
+Available Commands:
+  add         Attach a new file resource to an element
+  adopt       Register an existing unreferenced local resource payload
+  delete      Delete a resource from an element (requires --confirm)
+  get         Download a resource to the local filesystem
+  update      Replace an existing file resource on an element
+
+Flags:
+  -h, --help   help for resource
+
+Global Flags:
+      --board-dir string         Path to the board directory (overrides TASK_BOARD_DIR and config local.board_dir) (default ".task-board")
+      --context-profile string   Agent context profile override: full or lite
+      --insecure                 Skip TLS certificate verification (for self-signed certs)
+      --json                     Output in JSON format
+      --no-update-check          Disable automatic update check
+      --remote string            Remote board server URL (overrides TASK_BOARD_REMOTE)
+      --remote-board string      Remote board ID (overrides TASK_BOARD_ID)
+
+Use "task-board resource [command] --help" for more information about a command.
+
+context compacted
+exec
+/bin/zsh -lc '/Users/iv/.curator/global/bin/task-board resource get --help' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+Download a board resource and save it locally.
+
+If --output is omitted, the file is materialized under:
+  .temp/resources/<ELEMENT-ID>/<NAME>
+
+Nested resource names preserve their directory hierarchy below the element.
+
+Use --output - to write the resource bytes to stdout.
+
+Usage:
+  task-board resource get <ELEMENT-ID> <NAME> [flags]
+
+Flags:
+  -h, --help            help for get
+  -o, --output string   Write resource to this path (default: .temp/resources/<ELEMENT-ID>/<NAME>, use - for stdout)
+
+Global Flags:
+      --board-dir string         Path to the board directory (overrides TASK_BOARD_DIR and config local.board_dir) (default ".task-board")
+      --context-profile string   Agent context profile override: full or lite
+      --insecure                 Skip TLS certificate verification (for self-signed certs)
+      --json                     Output in JSON format
+      --no-update-check          Disable automatic update check
+      --remote string            Remote board server URL (overrides TASK_BOARD_REMOTE)
+      --remote-board string      Remote board ID (overrides TASK_BOARD_ID)
+
+exec
+/bin/zsh -lc 'cat /Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+# Change Request Lifecycle Runbook
+
+Orchestrator-owned. An accepted Change Request is accepted work, not delivered
+work. This page states the order, the recovery paths, and the republish
+semantics that used to live only in an operator's head.
+
+The full typed contract — how a candidate is snapshotted, what
+`repository_delta` means, what a `stale` revision is, and every refusal you can
+hit — stays in
+[tracked background spawn](tracked-background-spawn.md), section
+`Change Requests, review, rework, and checkpoint`. This page is the order of
+operations on top of it.
+
+---
+
+## The Change Request lifecycle, in order
+
+1. **Accept.** The reviewer runs
+   `task-board m 'accept_cr(<ELEMENT-ID>, revision=<N>, evidence=<ELEMENT-ID>_review-verdict.md)'`.
+   The element moves to `integrating`. It is accepted, not delivered. Only the
+   reviewer run that was handed the revision may accept it.
+2. **Checkpoint immediately.** For every non-final leaf, run
+   `task-board worktree checkpoint <ELEMENT-ID>` as the next action after
+   acceptance. The accepted tree lands on the Story branch only, and the leaf
+   stays `integrating` until Story integration lands it on trunk. Delay here is
+   what makes the next producer's Change Request go `stale`.
+3. **Checkpoint refreshes the real index automatically.** Candidate capture
+   records (but never mutates) the real-index tree. Under the bound run's Story
+   lease and the candidate-captured index CAS, checkpoint replaces only that
+   captured state and independently verifies branch/HEAD/index/worktree
+   identity. A typed
+   `change_request_checkpoint_index_unsynced` refusal is retried after its named
+   lock, I/O, or ownership condition is resolved; do not use a broad manual
+   reset that can erase unreviewed staged state.
+4. **Final leaf: integrate, do not checkpoint.** `checkpoint` refuses the
+   Story's last open leaf with `change_request_final_leaf_checkpoint`, because
+   closing it would promote a Story whose branch has never reached trunk. Land
+   the Story with
+   `task-board worktree integrate <STORY-ID> --cr <ELEMENT-ID> --revision <N>`.
+5. **When `integrate` refuses, report the refusal.** `validation_not_configured`
+   (`BUG-260807-1o5092`, the as-shipped behavior) and
+   `integration_indeterminate` for a board that lives outside the control root
+   are blockers, not detours. Report the refusal as the blocker it is and land
+   only by the documented manual signed substitute — an isolated clone, signed
+   cherry-pick of the exact reviewed head, a platform review record, and a
+   fail-closed plain push. Never route around a typed refusal by moving board
+   files or the branch by hand.
+6. **A lost run is recovered by republish, never by re-running the producer.** A
+   run that died after producing content but before the board recorded it still
+   has its content on disk. Republish it with provenance. Re-running the
+   producer discards work that already exists and costs the run again.
+7. **A republish of an unchanged accepted tree is an annotation, not a new
+   revision.** A candidate whose `repository_delta` is byte-identical to the
+   accepted one, and whose acceptance still stands, is not a new candidate.
+   Recording it as a revision turns the revision count — the only rework
+   measure the board has — into process noise.
+8. **Never commit manually on the Story branch.** The managed worktree's tree is
+   published by the producer's handoff and landed by `checkpoint` or
+   `integrate`. A hand commit on that branch makes the accepted snapshot and the
+   branch head disagree, and the disagreement surfaces later as an unexplained
+   `stale` or an integration that lands the wrong tree. A `task_delta` handoff
+   now fails closed on it: the tip is compared to the workspace record's
+   `checkpoint_oid` before the validation suite runs and before anything is
+   written, and a disagreement is refused with
+   `change_request_candidate_committed_past_checkpoint`. The producer repairs it
+   inside its own run with `git reset --soft <checkpoint_oid>` — the work stays
+   in the worktree — and completes the handoff again.
+
+## A revision that will never be integrated
+
+Two shapes end a Change Request revision without a reviewer verdict, and they
+are different facts.
+
+### An empty delta does not block the Story
+
+A revision whose `repository_delta` is `empty` — an analyst or research run that
+changed no repository file — is created `ready` like any other, because
+emptiness is an attribute of the candidate and never a state. What changed with
+`BUG-260906-37s3ps` is what that revision does to everybody else: while it sits
+`ready` or `reviewing`, it no longer refuses a sibling producer with
+`change_request_sibling_producer_blocked`.
+
+The gate's argument is contamination — the new producer writes into the same
+Story worktree the pending candidate was snapshotted from — and an empty
+candidate has no repository work product for those writes to reach. Its
+checkpoint writes no commit, and its integration is a no-op. Before the fix a
+research-only run deadlocked its whole Story: nothing was routed at a candidate
+with nothing to review, and every later producer was refused with a blocker
+nobody could clear.
+
+The exemption is scoped, and the scope is deliberate:
+
+| Blocking state | `repository_delta=present` | `repository_delta=empty` |
+| --- | --- | --- |
+| `ready`, `reviewing` | refuses siblings | **admits siblings** |
+| `draft`, `changes_requested`, `stale`, `conflicted` | refuses siblings | refuses siblings |
+
+The bottom row expects a REPUBLISH, and the next snapshot of the shared worktree
+would pick up the sibling's writes. Emptiness today says nothing about the
+revision that replaces it. A revision with no readable `repository_delta` —
+legacy, or from a newer build — refuses: a value this build cannot read is not
+evidence that the candidate is empty.
+
+The revision is still fully auditable. It is not deleted, not hidden, and not
+given a special state; it simply stops being a blocker.
+
+### Retiring a revision: `withdraw_cr`
+
+An empty delta is not the only revision that never reaches integration. A
+candidate can be superseded, abandoned, or published by a run whose deliverable
+turned out to belong somewhere else. Before `BUG-260906-37s3ps` there was no
+route for that at all: `accept_cr` needs a reviewer verdict and a merged
+checklist, `worktree abort` discards the entire workspace, and republishing only
+produces another revision in the same unresolved state.
+
+```bash
+task-board m 'withdraw_cr(<ELEMENT-ID>, revision=<N>, reason="why this revision will never be integrated")'
+```
+
+It moves the revision to `aborted`, which is terminal on both predicates that
+read the state: it stops refusing sibling producers, and it stops withholding
+the Story workspace's base convergence. The revision file and its ledger row
+stay readable.
+
+Four things it refuses, and why:
+
+- **A revision that is `accepted`, `checkpointing`, `checkpointed`,
+  `integrating` or `integrated`** — `change_request_state_conflict`. Those
+  carry a reviewer's attestation, or commits that are already on the Story
+  branch or in trunk. Recording one as never integrated would make the board
+  disagree with git history.
+- **A missing or whitespace-only `reason`** —
+  `change_request_withdraw_reason_missing`. The ledger row is the only surviving
+  explanation of why the revision exists and was never integrated.
+- **A call from inside a tracked spawn run** —
+  `change_request_withdraw_unauthorized`. Withdrawal is an ORCHESTRATOR route.
+  A producer refused by `change_request_sibling_producer_blocked` must not clear
+  its own blocker, and a producer handed `changes_requested` must not retire the
+  rework signal instead of answering it.
+- **A revision number that is not the current one** —
+  `change_request_revision_conflict`, the same CAS every other transition takes.
+
+`withdraw_cr` deliberately does NOT move the board element. Where the element
+goes next — back to development, `blocked`, or closed as a duplicate — is a
+routing decision the orchestrator makes with information the mutation does not
+have; make it explicitly, in a separate call.
+
+## Two same-class findings mean a missing gate
+
+When two consecutive reviews of one leaf raise the same finding class, stop
+routing another rework revision. Spawn one task to add a gate for the class — a
+conformance vector set, a checker, a mutant harness — and let the next revision
+be reviewed against the gate rather than against a reviewer's memory. The
+reviewer's `repeat-of:` verdict field is the signal to route on.
+
+## Recovery surfaces
+
+- Stopped or refused integration: `task-board worktree transaction show <STORY-ID>`,
+  then the disposition surface it names.
+- A leaf whose handoff guard refused for artifact naming: attach the correctly
+  named `<ELEMENT-ID>_<slug>.<ext>` outcome resource and re-run the handoff. Do
+  not respawn the producer to satisfy a naming rule.
+
+context compacted
+exec
+/bin/zsh -lc '/Users/iv/.curator/global/bin/task-board resource get TASK-260909-3kvql5 TASK-260909-3kvql5_outcome.md --output .temp/TASK-260909-3kvql5/review-rev2/outcome.md
+/Users/iv/.curator/global/bin/task-board resource get TASK-260909-3kvql5 TASK-260909-3kvql5_review-verdict-rev1.md --output .temp/TASK-260909-3kvql5/review-rev2/verdict-rev1.md
+cat .temp/TASK-260909-3kvql5/review-rev2/outcome.md .temp/TASK-260909-3kvql5/review-rev2/verdict-rev1.md' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 6ms:
+.temp/TASK-260909-3kvql5/review-rev2/verdict-rev1.md
+# TASK-260909-3kvql5 outcome: admit Muse producers + medium Astra reviewers
+
+## Provenance (explicit-config bootstrap)
+
+This run was spawned through the supported explicit `TASK_BOARD_CONFIG` source
+(`.../.temp/TASK-260909-3kvql5/approved-runtime-config.json`, immutable
+operational input, NOT modified) because the canonical config was still
+exclusive-Codex. The approved file served as policy reference only. Root
+runtime, control repository and board authority remain this AX repository.
+Canonical preflights below were run with `TASK_BOARD_CONFIG` overridden to the
+worktree candidate file (read-only queries); post-landing preflights on the
+default source must re-prove the real policy.
+
+## Candidate identity (uncommitted, Story worktree)
+
+- Branch: `task-board/story/STORY-260909-2uobs6` (no producer commit made)
+- Base HEAD: `7654d7cadb2c226bfa3db5f23ac355a730285eea`
+- `task-board.config.json` sha256: `ac85fa77b01f0f0d07a9831965504731b627660abb6ea5983c25809c53134e6b`
+- Changed paths (2, policy scope only): `task-board.config.json`, `README.md`
+- Candidate `task-board.config.json` is byte-identical to the approved runtime
+  config (`diff` clean); `git diff` vs HEAD is confined to the authorized delta.
+
+## Change (authorized delta only)
+
+1. `spawn.preferred_agentic_system`: `{"exclusive":"codex"}` ->
+   `{"mixed":["muse","codex"]}`.
+2. `spawn.ceilings.codex.roles.reviewer` added: Astra medium-only entries with
+   `default_model gpt-6-astra` / `default_reasoning_effort medium`.
+3. `spawn.workload_classes`: `muse/muse-spark/xhigh` inserted rank 1 in every
+   producer class (unified, implementation, mechanical, debugging, testing,
+   research, documentation, migration, operations); `review` reduced to
+   Codex Astra medium only; `architecture` unchanged (Codex high, medium).
+4. README model-routing paragraph aligned (Muse-first producers, ceiling
+   restricts Codex reviewer effort to Astra medium with Codex reviewer medium
+   default, required operator routing selects Codex Astra medium for all new
+   reviewers, Muse reviewer admission remains possible at provider ceiling
+   level with no recommendations, empty recommendations advisory not refusal,
+   architecture high-then-medium, mechanical/documentation/operations Muse
+   xhigh > Codex medium > Codex high, mixed allow-set limited to Muse+Codex,
+   retained Claude ceiling inactive, existing runs preserved); preflight
+   examples updated to `developer/muse/mechanical` and
+   `reviewer/codex/review`. Rev2 wording; no provider-role exclusion is
+   claimed beyond the Codex reviewer ceiling.
+5. Preserved byte-identical: `mode`, `local`, `version_control`, `features`,
+   `spawn.enabled`, `max_parallel`, all provider ceiling entries/models,
+   `worktree_isolation.validation` commands, `.github` (no CI/delivery change).
+
+## Command exits (all run directly, exit codes real)
+
+| Command | Exit | Result |
+| --- | --- | --- |
+| preflight battery (8 checks, production entry point `task-board q 'project_config(view=spawn-preflight,…)'`) on candidate | 0 | 8/8 PASS |
+| mutant harness (4 mutants x full battery + static checks) | 0 (harness); nonzero batteries as expected | M1/M3/M4 killed; M2 position-only, not a refusal kill (see table) |
+| `git ls-files -z '*.json' \| xargs … json.load` | 0 | all JSON parse |
+| `git diff --check` | 0 | clean |
+| gofmt gate (`gofmt -l` over tracked+untracked go files) | 0 | clean |
+| `go build ./...`, `go vet ./...` | 0 | pass |
+| `GOOS=linux/windows GOARCH=amd64 go build ./...` | 0 | pass |
+| `go test ./internal/canonicaljson -run TestConfiguredValidationRunsEveryFuzzTargetWithFixedBudget` | 0 | PASS (config-coupled: validation commands preserved) |
+| `go test ./... -count=1` | 0 | all 23 packages ok |
+| `go test ./... -cover -count=1` | 0 | ok (e.g. secprim 94.4%, secconftest 92.6%) |
+| `task-board validate` | 0 | 233 pre-existing board ledger-mirror lints, unchanged by this edit (233 before and after; config adds none) |
+
+## AC coverage: 8 of 8 rows driven; plus 2 stated bounds
+
+Evidence kinds: rows 1–5 and 7 are direct preflight observations through the
+production entry point `task-board q project_config(view=spawn-preflight,…)`;
+rows 6 and 8 are static comparisons (JSON parse, structural diff, file
+inventory), not behavioral refusals; bounds A–B are future/operational
+lifecycle bounds not drivable in this producer run.
+1. Developer Muse xhigh preflight succeeds — P1 (`developer/muse/mechanical`
+   rank 1 `muse-spark/xhigh`) and P4 (default routing Muse-first). Direct preflight. Driven.
+2. Reviewer Astra medium preflight succeeds — P2 (admitted, recs medium-only). Direct preflight. Driven.
+3. Review role default + recommendations prefer medium — P2 (`resolved_role_default`
+   `gpt-6-astra/medium`) + N3 (recs exactly `[medium]`, len 1). Direct preflight. Driven.
+4. Codex reviewer high not admitted — N1 (`resolved_role_ceiling` models exactly
+   `[{gpt-6-astra:[medium]}]`; no `reasoning_effort` arg exists on preflight, so the
+   ceiling object is the refusal surface). Direct preflight observation of the
+   Codex reviewer ceiling, not an actual high-effort launch attempt. Driven.
+5. Other providers excluded — N2a/N2b (`agent=claude`, `agent=gemini` refused with
+   `agent_not_allowed_by_preferred_agentic_system`; claude refused despite its retained
+   ceiling entry, proving ceilings do not imply admission). Direct preflight. Driven.
+6. JSON + focused config checks pass — `json.load` over all `*.json` plus
+   candidate-vs-approved structural comparison. Static comparison. Driven.
+7. Orchestrator Astra high/medium usable — P3 (`developer/codex/architecture`
+   recs high rank 1, medium rank 2). Direct preflight. Driven.
+8. No unrelated runtime/hosted CI — `git diff --stat` (2 files), non-policy-field
+   assertion script, `.github` untouched. Static comparison. Driven.
+- Bound A (future lifecycle, not drivable here): independent Astra-medium review +
+  signed exact-head PR landing — owned by Primary after handoff.
+- Bound B (operational): existing active runs unchanged — no run was created,
+  stopped, or edited; config-only change.
+
+## Mutant table (behavioral battery is the gate; static = file-level assertions)
+
+| Mutant | Narrowing | Named failing checks | Outcome / bound stated |
+| --- | --- | --- | --- |
+| M1 reviewer ceiling entries medium+high | admits exactly one extra effort | N1-reviewer-ceiling-medium-only | KILLED. Survival would mean high reviewers admittable. |
+| M2 review workload high inserted first | recommendation ordering only (high pair filtered by Codex reviewer ceiling before recs) | P2 position assertion: recs index shift (`review[1]`) | NOT a behavioral refusal kill: the high pair never reached an admission surface, so this is a recommendation-position assertion with the stated limit that it does not prove high-effort launch refusal. |
+| M3 mixed allow-set +claude | admits exactly one excluded provider | N2a-claude-excluded (claude admitted, refusal gone) | KILLED. Survival would mean a third provider routable. |
+| M4 reviewer ceiling high-only, `medium` default token kept | preserves searched-for token, changes behavior | P2, N1, N3 fail while static check still reports default `gpt-6-astra/medium` | KILLED. Proves the static token check is insufficient and the behavioral (preflight) suite is required. |
+
+M1, M3, and M4 are killed by the named behavioral checks above; M2 is a
+recommendation-position assertion with the stated limit, not a refusal kill,
+so no blanket gate-kill claim is made. Delete-only mutants were not used as
+evidence.
+
+## Policy observations
+
+- `reviewer/muse/review` is not refused at ceiling level (muse ceiling has no role
+  restriction) but returns empty recommendations (`recs: []`) because the review
+  class holds only the Codex medium pair, filtered when targeting muse.
+- `task-board validate` reports 233 pre-existing ledger-mirror issues with exit 0;
+  count identical before/after this change.
+
+## Limitations
+
+- Candidate preflights used a read-only `TASK_BOARD_CONFIG` override to the
+  candidate file because the live session still sources the approved runtime
+  config; post-landing preflights on the default source must re-prove the policy.
+- No committed Go tests: scope limits this task to config + README + evidence and
+  no Go behavior changed; the 8-check preflight battery plus mutant harness are
+  the tests. Rev1 probes persist under worktree `.temp/TASK-260909-3kvql5/`
+  (gitignored); rev2 narrow checks persist under worktree
+  `.temp/TASK-260909-3kvql5/rev2/` (gitignored) and are attached as
+  `TASK-260909-3kvql5_rev2-evidence.md`.
+- Full suite ran as `go test ./... -count=1` (exit 0) and `-cover` (exit 0); a
+  separate full `-v` rerun was not repeated.
+- Repo `LOGBOOK.md` intentionally untouched to keep the delivery diff policy-only;
+  provenance recorded here instead.
+
+## Rev2 corrections (RUN-260909-e61106 rework)
+
+- R1: README reviewer sentence rescoped to the Codex reviewer ceiling with the
+  required operator-routing / Muse-admission / advisory-recs wording; no
+  provider-role exclusion is claimed beyond that ceiling.
+- R2: coverage header corrected to 8 of 8 rows driven plus 2 stated bounds,
+  with direct-preflight vs static-comparison vs lifecycle-bound classification;
+  M2 reclassified as a recommendation-position assertion (not a refusal kill)
+  and the blanket no-survivor gate claim removed.
+- Config unchanged from rev1: candidate `task-board.config.json` remains
+  byte-identical to the approved runtime reference; rev2 delta is README
+  wording plus this outcome correction. Narrow rev2 checks (diff, JSON,
+  policy preflights) are recorded in `TASK-260909-3kvql5_rev2-evidence.md`.
+  Historical rev1 validation exits above are preserved as reported, not rerun.
+# Review verdict: changes_requested
+
+Task: TASK-260909-3kvql5. CR-TASK-260909-3kvql5-1 revision 1.
+Reviewer run: RUN-260908-d4e1fb.
+Base: 7654d7cadb2c226bfa3db5f23ac355a730285eea.
+Candidate tree: cf9b764d80dea2ed85f26f09ab12f39e6346fa7c.
+
+## Findings
+
+### R1 — README overstates reviewer provider authorization
+Repeat-of: none.
+
+README.md:2480 says reviewers are restricted to Codex Astra medium by the reviewer role ceiling/default. The actual ceiling is spawn.ceilings.codex.roles.reviewer. Independent candidate-config preflight for role=reviewer, agent=muse, workload_class=review succeeds and reports Muse Spark xhigh admitted through spawn.ceilings.muse; it has no review recommendations. Thus the ceiling restricts Codex reviewer effort, not all reviewer providers. Empty recommendations are advisory and are not a refusal. This is an unsupported documentation claim, not proof of an actual spawn bypass.
+
+Requested correction: scope the ceiling/default statement to Codex reviewers and distinguish the required operator routing (new reviewers use Codex Astra medium) from provider-role admission. The candidate config equals the approved reference; do not expand this into unauthorized config or shared-tool changes.
+
+### R2 — Outcome coverage denominator and mutant claim remain inaccurate
+Repeat-of: none. Earlier primary feedback is acknowledged, but no prior reviewer revision/finding is being claimed.
+
+TASK-260909-3kvql5_outcome.md:59 says 6 of 8 rows driven with 2 stated bounds, while its table contains 8 driven rows plus 2 bounds. Report one consistent denominator and distinguish direct preflights, static comparisons, and lifecycle bounds. The M2 result at line 88 is caused by a recommendation index shift after filtering; it is not a behavioral refusal kill. The subsequent blanket no-survivors statement at line 92 therefore overstates gate evidence.
+
+Requested correction: classify M2 truthfully as a recommendation-position assertion (or a stated behavioral bound), remove the blanket gate-kill inference, and correct the coverage count. New Go product tests are not requested for this mechanical configuration change.
+
+## Independent evidence and coverage
+
+8 of 8 configuration observations checked; no committed driving tests were added or claimed. These are focused CLI/parser checks appropriate to the authorized config-only delta:
+
+1. Muse developer xhigh admission: task-board q project_config(view=spawn-preflight, role=developer, agent=muse, workload_class=implementation), exit 0; Muse Spark xhigh admitted and first recommendation.
+2. Codex reviewer medium admission: same production query with role=reviewer, agent=codex, workload_class=review, exit 0.
+3. Codex reviewer default and review recommendation: that query reports Astra medium default and sole medium recommendation.
+4. Codex reviewer high exclusion: that query reports only medium in the role admitted set. This is a preflight observation, not an actual high-effort launch attempt.
+5. Other providers excluded: developer Claude and Gemini preflights each exit 1 with agent_not_allowed_by_preferred_agentic_system; allowed providers are Muse and Codex.
+6. Candidate JSON parses and is structurally identical to the approved operational reference.
+7. Architecture Astra retained: developer/Codex architecture preflight exit 0, Astra high and medium admitted, high then medium recommended.
+8. Non-policy preservation: base/candidate structural comparison with the three authorized policy locations removed is equal; immutable diff has only README.md and task-board.config.json. No CI or delivery policy change.
+
+Additional adversarial observation: Muse reviewer preflight exit 0 exposes the scope of the Codex-specific ceiling, producing R1. All preflights used TASK_BOARD_CONFIG pointing to the candidate canonical file, not the bootstrap override. Raw output is attached as TASK-260909-3kvql5_review-probes-rev1.json.
+
+Binding: working HEAD equals the CR base; HEAD..main count is 0. Current README blob f6c1fe26477269c18647df1c066f1e09cb1c5ea2 and config blob 4907c13928d8c33d13f618813a4a2a4f7cc4a65b match the immutable candidate tree. Independent git diff --check passed. Source and index were not modified.
+
+Accepted existing validation evidence: the CR revision-1 validation log contains five successful terminal commands: gofmt cleanliness, go build ./..., go vet ./..., go test ./... -count=1 -v, and git diff --check. These were inspected, not rerun. Other producer-reported validation remains producer evidence; no claim is made that this reviewer independently repeated it. Broad Go validation was not repeated because no Go behavior changed and the findings require only documentation/evidence correction.
+
+Stated bounds: actual launches and existing active-run continuity were not exercised; recommendations do not prove authorization; committed Go behavioral/mutant tests are not applicable to this source delta; post-integration PR review, signing and exact-head landing belong to the later bound integration lifecycle and are not satisfied by source CR review. No hosted CI or synthetic status was created. The reviewer spawn goal query returned no active goal.
+
+Route to to-dev for focused corrections, then a new review cycle. No acceptance, integration, commit, publication, or landing performed.
+
+context compacted
+exec
+/bin/zsh -lc '/Users/iv/.curator/global/bin/task-board resource get TASK-260909-3kvql5 TASK-260909-3kvql5_rev2-evidence.md --output .temp/TASK-260909-3kvql5/review-rev2/rework-evidence.md' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+.temp/TASK-260909-3kvql5/review-rev2/rework-evidence.md
+
+exec
+/bin/zsh -lc '/Users/iv/.curator/global/bin/task-board resource get TASK-260909-3kvql5 TASK-260909-3kvql5_change-request_rev2-validation.log --output .temp/TASK-260909-3kvql5/review-rev2/validation.log' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+.temp/TASK-260909-3kvql5/review-rev2/validation.log
+
+exec
+/bin/zsh -lc '/Users/iv/.curator/global/bin/task-board spawn status RUN-260909-e61106' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 98ms:
+Run: RUN-260909-e61106
+Task: TASK-260909-3kvql5
+Status: completed
+Phase: finalizing
+Summary: Run completed successfully
+Workload Selection: class=documentation source=explicit policy=spawn.workload_classes pair=muse/muse-spark/xhigh pair_source=explicit match=recommended_rank_1 snapshot=sha256:ab902c2630922d808b9553508c480b913b79f0bb377a2c092d4eb76851be0e72 rationale="Muse xhigh is the user-required producer; repair only reviewer R1 README scope and R2 evidence count/index-assertion claims, preserving the accepted policy choice and avoiding unrelated code or tests."
+Ceiling Contract: spawn-policy-v4
+Started: 2026-09-09T00:03:32.249804Z
+Completed: 2026-09-09T00:10:13.68928Z
+Last Progress: 2026-09-09T00:10:13.68928Z
+Completion: success
+Attempt 1: muse muse-spark/xhigh exit=0
+  Provider Output: /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/logwork/TASK-260909-3kvql5/-implementer--developer--muse-_RUN-260909-e61106.log
+Spread: round_robin via explicit_override [config: spawn.limits.spread]
+Last Event Seq: 153
+Launch Composition: degraded_contract_unavailable (provider=muse, diagnostic=composition_contract_unavailable)
+Agent: [implementer] developer (muse) (muse)
+Logwork: /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/logwork/TASK-260909-3kvql5/-implementer--developer--muse-_RUN-260909-e61106.log
+Exit Code: 0
+
+exec
+/bin/zsh -lc 'git --version > .temp/TASK-260909-3kvql5/review-rev2/git-readiness.log
+python3 --version > .temp/TASK-260909-3kvql5/review-rev2/python-readiness.log
+cat .temp/TASK-260909-3kvql5/review-rev2/rework-evidence.md' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+# TASK-260909-3kvql5 rev2 evidence: R1/R2 documentation corrections
+
+Tool identity: `/Users/iv/.curator/global/bin/task-board` (`task-board version dev`).
+All board/policy commands below ran through that absolute binary, not the bare
+`~/.local/bin` build.
+
+## Candidate identity (uncommitted, Story worktree)
+
+- Branch: `task-board/story/STORY-260909-2uobs6` (no producer commit made)
+- Base HEAD: `7654d7cadb2c226bfa3db5f23ac355a730285eea`
+- `task-board.config.json` sha256:
+  `ac85fa77b01f0f0d07a9831965504731b627660abb6ea5983c25809c53134e6b`
+  (unchanged from rev1; byte-identical to the approved runtime reference)
+- Changed paths (2, policy scope only): `task-board.config.json`, `README.md`
+- Rev2 source delta vs rev1: README reviewer wording only. Config untouched.
+
+## R1 — README rescoped to the Codex reviewer ceiling
+
+Old sentence claimed reviewers are restricted to Codex Astra medium "by the
+reviewer role ceiling and its medium default". The ceiling at
+`spawn.ceilings.codex.roles.reviewer` restricts Codex reviewer effort only:
+`reviewer/muse/review` preflight exits 0, admitted through
+`spawn.ceilings.muse` with empty recommendations.
+
+New README wording (exact):
+
+> Producers recommend Muse Spark xhigh first; the ceiling restricts Codex
+> reviewer effort to Astra medium, with a Codex reviewer medium default, and
+> the review workload recommends medium only. Required operator routing
+> selects Codex Astra medium for all new reviewers; Muse reviewer admission
+> remains possible at provider ceiling level with no recommendations. Empty
+> recommendations are advisory, not refusal.
+
+No provider-role exclusion beyond the Codex reviewer ceiling is claimed.
+
+## R2 — outcome corrections
+
+- Coverage header: `6 of 8 rows driven` corrected to `8 of 8 rows driven;
+  plus 2 stated bounds`, matching the 8 driven rows + bounds A–B inventory.
+- Evidence kinds now explicit: rows 1–5 and 7 are direct preflight
+  observations through `task-board q project_config(view=spawn-preflight,…)`;
+  rows 6 and 8 are static comparisons (JSON parse, structural diff, file
+  inventory); bounds A–B are future/operational lifecycle bounds.
+- M2 reclassified: the review-workload-high-first mutant produces a
+  recommendation-position assertion (recs index shift after ceiling
+  filtering), not an admitted-high behavioral kill; the high pair never
+  reached an admission surface, so it does not prove high-effort launch
+  refusal. Stated as a limit in the mutant table.
+- Blanket `No surviving mutants` claim removed; replaced with: M1/M3/M4
+  killed by named behavioral checks, M2 position-only with stated limit, no
+  blanket gate-kill claim. Delete-only mutants still not used as evidence.
+
+## Rev2 narrow checks (all run directly, real exits)
+
+| Check | Exit | Result |
+| --- | --- | --- |
+| `git diff --stat` | 0 | 2 files: `README.md`, `task-board.config.json` |
+| `git diff --check` | 0 | clean |
+| `python3 json.load(task-board.config.json)` | 0 | candidate JSON parses |
+| `cmp` candidate vs approved runtime config | 0 | byte-identical |
+| non-policy-field preservation (base vs candidate, `spawn.preferred_agentic_system`, `spawn.ceilings.codex.roles`, `spawn.workload_classes` removed) | 0 | `non-policy-fields-equal=True` |
+| preflight `developer/muse/implementation` | 0 | recs `[(muse, muse-spark, xhigh, rank 1)]` |
+| preflight `reviewer/codex/review` | 0 | default `gpt-6-astra/medium`, recs `[(gpt-6-astra, medium)]`, ceiling `[{gpt-6-astra:[medium]}]` |
+| preflight `reviewer/muse/review` | 0 | ceiling `[{muse-spark:[xhigh]}]`, recs `[]` (R1 proof) |
+| preflight `developer/claude/implementation` | 1 | `agent_not_allowed_by_preferred_agentic_system` (allowed: muse, codex) |
+| preflight `developer/gemini/implementation` | 1 | `agent_not_allowed_by_preferred_agentic_system` (allowed: muse, codex) |
+| preflight `developer/codex/architecture` | 0 | recs `[(high, 1), (medium, 2)]` |
+
+All preflights used `TASK_BOARD_CONFIG` pointing at the candidate canonical
+file (read-only queries), not the bootstrap override.
+
+## Limitations (unchanged bounds)
+
+- Historical rev1 validation exits (`gofmt`, `go build`, `go vet`,
+  `go test ./...`, `task-board validate`) are preserved as reported in the
+  outcome, not rerun; no Go behavior changed and the rev2 delta is
+  README wording plus outcome text.
+- No broad Go/adversarial suites rerun beyond the checks above; no
+  committed Go tests (config + README + evidence scope).
+- Actual launches and existing active-run continuity not exercised;
+  post-landing default-source preflights must re-prove the real policy.
+- No integration, PR publication, landing, tag, hosted CI, or new worker
+  from this producer. Corrected revision handed off for Astra medium review.
+
+context compacted
+codex
+R1/R2 исправлены в документации и отчёте. Проверю точный diff ревизии, неизменность конфигурации и завершение обязательной валидации перед вердиктом.
+
+exec
+/bin/zsh -lc 'git diff --stat 7654d7cadb2c226bfa3db5f23ac355a730285eea d529efd2ab760d524dd04340da8e0e8ae8ce2de2
+ git diff cf9b764d80dea2ed85f26f09ab12f39e6346fa7c d529efd2ab760d524dd04340da8e0e8ae8ce2de2
+ git rev-parse d529efd2ab760d524dd04340da8e0e8ae8ce2de2:task-board.config.json
+ tail -40 .temp/TASK-260909-3kvql5/review-rev2/validation.log' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+ README.md              | 24 +++++++++++------
+ task-board.config.json | 72 +++++++++++++++++++++++++++++++++++++++++++++-----
+ 2 files changed, 81 insertions(+), 15 deletions(-)
+diff --git a/README.md b/README.md
+index f6c1fe2..a4e4230 100644
+--- a/README.md
++++ b/README.md
+@@ -2477,8 +2477,11 @@ and `task-board` CLI.
+ Repository development routing in `task-board.config.json` admits Muse
+ `muse-spark` with `xhigh` reasoning and Codex `gpt-6-astra` with `medium` or
+ `high` reasoning for new spawns. Producers recommend Muse Spark xhigh first;
+-reviewers are restricted to Codex Astra medium by the reviewer role ceiling
+-and its medium default, and the review workload recommends medium only.
++the ceiling restricts Codex reviewer effort to Astra medium, with a Codex
++reviewer medium default, and the review workload recommends medium only.
++Required operator routing selects Codex Astra medium for all new reviewers;
++Muse reviewer admission remains possible at provider ceiling level with no
++recommendations. Empty recommendations are advisory, not refusal.
+ Architecture workloads stay Codex Astra high then medium. Mechanical,
+ documentation, and operations workloads recommend Muse xhigh, then Codex
+ medium, then Codex high; all other producer workloads recommend Muse xhigh,
+4907c13928d8c33d13f618813a4a2a4f7cc4a65b
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#108/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#111/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#112/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#114/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#115/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#116/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#119/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#124/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#125/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#126/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#127/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#128/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#129/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#130/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#131/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#132/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#133/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#134/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#135/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#136/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#137/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#138/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#139/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#140/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#141/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#142/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#143/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#144/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#145/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#146/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#147/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#148/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#149/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+[33m[LEDGER_ROW_UNOWNED][0m ledger row run/RUN-260909-e61106#150/progress names owning element TASK-260909-3kvql5, which is not on this board, so its mirror cannot be decided
+Ledger mirror: 2042/3606 checked rows mirrored (0 pending, 10009 pre-boundary, 161 unowned, 0 journaled failures)
+
+2008 issue(s) found.
+[exit 0]
+$ git diff --check
+[exit 0]
+
+exec
+/bin/zsh -lc "/Users/iv/.curator/global/bin/task-board q --format compact 'activity(TASK-260909-3kvql5, kinds=\"run,change_request\", limit=8)'
+/Users/iv/.curator/global/bin/task-board spawn goal \""'$TASK_BOARD_RUN_ID"
+/Users/iv/.curator/global/bin/task-board spawn directives "$TASK_BOARD_RUN_ID"' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 554ms:
+{"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"boundary":{"version":"activity-history-boundary.v1","kind":"legacy_pre_feature","established_at":"2026-09-08T23:26:56.495153Z","implicit":true},"events":[{"version":"activity-event.v1","id":"AEV-260908-fdd5cda6d9533e07f28788c4","sequence":6,"timestamp":"2026-09-08T23:28:28.619123Z","actor":{"principal":{"availability":"unknown"},"agent":{"availability":"known","value":"codex"},"run":{"availability":"unknown"},"session":{"availability":"known","value":"01a07dc7-99cc-76b3-84c1-a4803344890e"},"operator":{"availability":"unknown"}},"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"source":{"kind":"local_cli","entrypoint":"cmd.ledgerMirror","request":{"availability":"unknown"}},"correlation_id":"COR-260908-40b68c0b52c98d7ac71e2a4d","causal_order":1,"operation":"run","changes":[{"field":"ledger_event","after":{"kind":"ledger","ledger":{"domain":"run","ledger_id":"RUN-260908-347bd2","event":"queued","sequence":1,"to_state":"queued","recorded_at":"2026-09-08T23:28:28.618672Z","facts":[{"name":"phase","kind":"token","value":"queued"},{"name":"workspace","kind":"id","value":"WS-b9dfa9fb7f0f"},{"name":"story","kind":"id","value":"STORY-260909-2uobs6"}]}}}]},{"version":"activity-event.v1","id":"AEV-260908-9b205ed62ab19be4af1c4dd9","sequence":7,"timestamp":"2026-09-08T23:28:28.718877Z","actor":{"principal":{"availability":"unknown"},"agent":{"availability":"known","value":"codex"},"run":{"availability":"unknown"},"session":{"availability":"known","value":"01a07dc7-99cc-76b3-84c1-a4803344890e"},"operator":{"availability":"unknown"}},"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"source":{"kind":"local_cli","entrypoint":"cmd.ledgerMirror","request":{"availability":"unknown"}},"correlation_id":"COR-260908-1acefdcac3df2576a7e4a246","causal_order":1,"operation":"run","changes":[{"field":"ledger_event","after":{"kind":"ledger","ledger":{"domain":"run","ledger_id":"RUN-260908-347bd2","event":"progress","sequence":2,"to_state":"queued","recorded_at":"2026-09-08T23:28:28.718712Z","facts":[{"name":"phase","kind":"token","value":"queued"},{"name":"workspace","kind":"id","value":"WS-b9dfa9fb7f0f"},{"name":"story","kind":"id","value":"STORY-260909-2uobs6"}]}}}]},{"version":"activity-event.v1","id":"AEV-260908-f06b328768ef64f6c7cfe85f","sequence":8,"timestamp":"2026-09-08T23:28:29.599409Z","actor":{"principal":{"availability":"unknown"},"agent":{"availability":"known","value":"codex"},"run":{"availability":"unknown"},"session":{"availability":"known","value":"01a07dc7-99cc-76b3-84c1-a4803344890e"},"operator":{"availability":"unknown"}},"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"source":{"kind":"local_cli","entrypoint":"cmd.ledgerMirror","request":{"availability":"unknown"}},"correlation_id":"COR-260908-ae6ca92906ace1b99fc888b1","causal_order":1,"operation":"run","changes":[{"field":"ledger_event","after":{"kind":"ledger","ledger":{"domain":"run","ledger_id":"RUN-260908-347bd2","event":"slot_claimed","sequence":4,"to_state":"running","recorded_at":"2026-09-08T23:28:29.599123Z","facts":[{"name":"phase","kind":"token","value":"booting"},{"name":"workspace","kind":"id","value":"WS-b9dfa9fb7f0f"},{"name":"story","kind":"id","value":"STORY-260909-2uobs6"}]}}}]},{"version":"activity-event.v1","id":"AEV-260908-cdd69c09c96b23e530f0c966","sequence":9,"timestamp":"2026-09-08T23:28:29.845219Z","actor":{"principal":{"availability":"unknown"},"agent":{"availability":"known","value":"codex"},"run":{"availability":"unknown"},"session":{"availability":"known","value":"01a07dc7-99cc-76b3-84c1-a4803344890e"},"operator":{"availability":"unknown"}},"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"source":{"kind":"local_cli","entrypoint":"cmd.ledgerMirror","request":{"availability":"unknown"}},"correlation_id":"COR-260908-0b5ad12719eb1adf812a27ff","causal_order":1,"operation":"run","changes":[{"field":"ledger_event","after":{"kind":"ledger","ledger":{"domain":"run","ledger_id":"RUN-260908-347bd2","event":"progress","sequence":5,"to_state":"running","recorded_at":"2026-09-08T23:28:29.845066Z","facts":[{"name":"phase","kind":"token","value":"booting"},{"name":"workspace","kind":"id","value":"WS-b9dfa9fb7f0f"},{"name":"story","kind":"id","value":"STORY-260909-2uobs6"}]}}}]},{"version":"activity-event.v1","id":"AEV-260908-105211fe2ef27ba91f7b1f05","sequence":10,"timestamp":"2026-09-08T23:28:30.031346Z","actor":{"principal":{"availability":"unknown"},"agent":{"availability":"known","value":"codex"},"run":{"availability":"unknown"},"session":{"availability":"known","value":"01a07dc7-99cc-76b3-84c1-a4803344890e"},"operator":{"availability":"unknown"}},"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"source":{"kind":"local_cli","entrypoint":"cmd.ledgerMirror","request":{"availability":"unknown"}},"correlation_id":"COR-260908-73fc70fbaf023d8dc8ab08da","causal_order":1,"operation":"run","changes":[{"field":"ledger_event","after":{"kind":"ledger","ledger":{"domain":"run","ledger_id":"RUN-260908-347bd2","event":"progress","sequence":6,"to_state":"running","recorded_at":"2026-09-08T23:28:30.031207Z","facts":[{"name":"phase","kind":"token","value":"planning"},{"name":"workspace","kind":"id","value":"WS-b9dfa9fb7f0f"},{"name":"story","kind":"id","value":"STORY-260909-2uobs6"}]}}}]},{"version":"activity-event.v1","id":"AEV-260908-691d1599d2e2083edd20397f","sequence":11,"timestamp":"2026-09-08T23:28:30.143216Z","actor":{"principal":{"availability":"unknown"},"agent":{"availability":"known","value":"codex"},"run":{"availability":"unknown"},"session":{"availability":"known","value":"01a07dc7-99cc-76b3-84c1-a4803344890e"},"operator":{"availability":"unknown"}},"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"source":{"kind":"local_cli","entrypoint":"cmd.ledgerMirror","request":{"availability":"unknown"}},"correlation_id":"COR-260908-4f4039d6778cfcd9a7963a09","causal_order":1,"operation":"run","changes":[{"field":"ledger_event","after":{"kind":"ledger","ledger":{"domain":"run","ledger_id":"RUN-260908-347bd2","event":"progress","sequence":7,"to_state":"running","recorded_at":"2026-09-08T23:28:30.14304Z","facts":[{"name":"phase","kind":"token","value":"executing"},{"name":"workspace","kind":"id","value":"WS-b9dfa9fb7f0f"},{"name":"story","kind":"id","value":"STORY-260909-2uobs6"}]}}}]},{"version":"activity-event.v1","id":"AEV-260908-d3b6cf83da0bdf9abf89a1ce","sequence":13,"timestamp":"2026-09-08T23:28:37.995251Z","actor":{"principal":{"availability":"unknown"},"agent":{"availability":"known","value":"codex"},"run":{"availability":"known","value":"RUN-260908-347bd2"},"session":{"availability":"known","value":"01a07dc7-99cc-76b3-84c1-a4803344890e"},"operator":{"availability":"unknown"}},"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"source":{"kind":"local_cli","entrypoint":"cmd.ledgerMirror","request":{"availability":"unknown"}},"correlation_id":"COR-260908-3b186098c72d1c5c6d2be4ee","causal_order":1,"operation":"run","changes":[{"field":"ledger_event","after":{"kind":"ledger","ledger":{"domain":"run","ledger_id":"RUN-260908-347bd2","event":"progress","sequence":12,"to_state":"running","recorded_at":"2026-09-08T23:28:37.995062Z","facts":[{"name":"workspace","kind":"id","value":"WS-b9dfa9fb7f0f"},{"name":"story","kind":"id","value":"STORY-260909-2uobs6"}]}}}]},{"version":"activity-event.v1","id":"AEV-260908-786f9db9f9efa36b1a4f0475","sequence":15,"timestamp":"2026-09-08T23:28:38.918239Z","actor":{"principal":{"availability":"unknown"},"agent":{"availability":"known","value":"codex"},"run":{"availability":"known","value":"RUN-260908-347bd2"},"session":{"availability":"known","value":"01a07dc7-99cc-76b3-84c1-a4803344890e"},"operator":{"availability":"unknown"}},"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"source":{"kind":"local_cli","entrypoint":"cmd.ledgerMirror","request":{"availability":"unknown"}},"correlation_id":"COR-260908-f91ce32fb8bc73f1fc868d02","causal_order":1,"operation":"run","changes":[{"field":"ledger_event","after":{"kind":"ledger","ledger":{"domain":"run","ledger_id":"RUN-260908-347bd2","event":"progress","sequence":13,"to_state":"running","recorded_at":"2026-09-08T23:28:38.917993Z","facts":[{"name":"workspace","kind":"id","value":"WS-b9dfa9fb7f0f"},{"name":"story","kind":"id","value":"STORY-260909-2uobs6"}]}}}]}],"next_cursor":"YWN0aXZpdHktY3Vyc29yLnYxOmFzY2VuZGluZzoxNQ","view":"raw"}
+Active Goal: none (run is not goal-bound)
+Active Goal: none (run is not goal-bound)
+No directives recorded for RUN-260909-376688
+
+context compacted
+exec
+/bin/zsh -lc "rg -n 'change_request|changeRequest|revision' /Users/iv/.claude/skills/project-management/references/querying.md /Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md" in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+/Users/iv/.claude/skills/project-management/references/querying.md:93:spawn run lifecycle mirrored onto the run's task, `change_request` returns the
+/Users/iv/.claude/skills/project-management/references/querying.md:98:task-board q --format compact 'activity(TASK-260211-abc, kinds="run,change_request", limit=25)'
+/Users/iv/.claude/skills/project-management/references/querying.md:103:enumerated event token, sequence, revision, from/to state tokens, a UTC
+/Users/iv/.claude/skills/project-management/references/querying.md:349:  `{active:true,id,revision,objective,updated_at}`; after a clear or before
+/Users/iv/.claude/skills/project-management/references/querying.md:481:revisions, and never changes a board element's status or acceptance evidence.
+/Users/iv/.claude/skills/project-management/references/querying.md:491:task-board goal update --if-revision 1 \
+/Users/iv/.claude/skills/project-management/references/querying.md:495:# Read current state, immutable audit history, or one immutable revision.
+/Users/iv/.claude/skills/project-management/references/querying.md:498:task-board goal get --goal-id PRIMARY-GOAL-260723-a1b2c3 --revision 1
+/Users/iv/.claude/skills/project-management/references/querying.md:500:# Clear only with the observed revision and an explicit disposition reason.
+/Users/iv/.claude/skills/project-management/references/querying.md:501:task-board goal clear --if-revision 2 --reason "Parent intent superseded"
+/Users/iv/.claude/skills/project-management/references/querying.md:513:`latest_ref`; mutations additionally carry `mutation`. Exact revision reads
+/Users/iv/.claude/skills/project-management/references/querying.md:514:add `primary_goal_revision`, and history reads add newest-first `history`
+/Users/iv/.claude/skills/project-management/references/querying.md:532:| Board parent intent | CLI primary-goal group | `task-board goal get` / `task-board goal update --if-revision N ...` |
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:8:`repository_delta` means, what a `stale` revision is, and every refusal you can
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:19:   `task-board m 'accept_cr(<ELEMENT-ID>, revision=<N>, evidence=<ELEMENT-ID>_review-verdict.md)'`.
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:21:   reviewer run that was handed the revision may accept it.
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:32:   `change_request_checkpoint_index_unsynced` refusal is retried after its named
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:36:   Story's last open leaf with `change_request_final_leaf_checkpoint`, because
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:39:   `task-board worktree integrate <STORY-ID> --cr <ELEMENT-ID> --revision <N>`.
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:53:   revision.** A candidate whose `repository_delta` is byte-identical to the
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:55:   Recording it as a revision turns the revision count — the only rework
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:65:   `change_request_candidate_committed_past_checkpoint`. The producer repairs it
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:69:## A revision that will never be integrated
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:71:Two shapes end a Change Request revision without a reviewer verdict, and they
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:76:A revision whose `repository_delta` is `empty` — an analyst or research run that
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:79:`BUG-260906-37s3ps` is what that revision does to everybody else: while it sits
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:81:`change_request_sibling_producer_blocked`.
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:100:revision that replaces it. A revision with no readable `repository_delta` —
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:104:The revision is still fully auditable. It is not deleted, not hidden, and not
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:107:### Retiring a revision: `withdraw_cr`
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:109:An empty delta is not the only revision that never reaches integration. A
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:114:produces another revision in the same unresolved state.
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:117:task-board m 'withdraw_cr(<ELEMENT-ID>, revision=<N>, reason="why this revision will never be integrated")'
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:120:It moves the revision to `aborted`, which is terminal on both predicates that
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:122:the Story workspace's base convergence. The revision file and its ledger row
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:127:- **A revision that is `accepted`, `checkpointing`, `checkpointed`,
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:128:  `integrating` or `integrated`** — `change_request_state_conflict`. Those
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:133:  `change_request_withdraw_reason_missing`. The ledger row is the only surviving
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:134:  explanation of why the revision exists and was never integrated.
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:136:  `change_request_withdraw_unauthorized`. Withdrawal is an ORCHESTRATOR route.
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:137:  A producer refused by `change_request_sibling_producer_blocked` must not clear
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:140:- **A revision number that is not the current one** —
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:141:  `change_request_revision_conflict`, the same CAS every other transition takes.
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:151:routing another rework revision. Spawn one task to add a gate for the class — a
+/Users/iv/.claude/skills/project-management/references/change-request-lifecycle.md:152:conformance vector set, a checker, a mutant harness — and let the next revision
+
+exec
+/bin/zsh -lc "python3 - <<'PY'
+from pathlib import Path
+p=Path('.temp/TASK-260909-3kvql5/review-rev2/validation.log')
+s=p.read_text(); lines=s.splitlines()
+for l in lines:
+ if l.startswith('"'$ '"') or l.startswith('[exit '): print(l)
+print('commands',sum(l.startswith('"'$ '"') for l in lines),'exits',sum(l.startswith('[exit ') for l in lines))
+PY" in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+$ test -z "$(gofmt -l $(git ls-files --cached --others --exclude-standard -- '*.go'))"
+[exit 0]
+$ go build ./...
+[exit 0]
+$ go vet ./...
+[exit 0]
+$ go test ./... -count=1 -v
+[exit 0]
+$ git diff --check
+[exit 0]
+commands 5 exits 5
+
+context compacted
+exec
+/bin/zsh -lc "/Users/iv/.curator/global/bin/task-board q --format compact 'activity(TASK-260909-3kvql5, kinds=\"change_request\", limit=20)'" in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 138ms:
+{"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"boundary":{"version":"activity-history-boundary.v1","kind":"legacy_pre_feature","established_at":"2026-09-08T23:26:56.495153Z","implicit":true},"events":[{"version":"activity-event.v1","id":"AEV-260908-9beab0fbace6fb384be14ca9","sequence":79,"timestamp":"2026-09-08T23:37:15.671084Z","actor":{"principal":{"availability":"unknown"},"agent":{"availability":"known","value":"codex"},"run":{"availability":"unknown"},"session":{"availability":"known","value":"01a07dc7-99cc-76b3-84c1-a4803344890e"},"operator":{"availability":"unknown"}},"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"source":{"kind":"local_cli","entrypoint":"cmd.ledgerMirror","request":{"availability":"unknown"}},"correlation_id":"COR-260908-51218f39f88a36d76f94c3ee","causal_order":1,"operation":"change_request","changes":[{"field":"ledger_event","after":{"kind":"ledger","ledger":{"domain":"change_request","ledger_id":"CR-TASK-260909-3kvql5-1","event":"created","sequence":1,"revision":1,"to_state":"ready","recorded_at":"2026-09-08T23:37:15.654958Z","facts":[{"name":"run","kind":"id","value":"RUN-260908-347bd2"}]}}}]},{"version":"activity-event.v1","id":"AEV-260909-76c0f1b4d564c201d99d7087","sequence":162,"timestamp":"2026-09-09T00:10:13.236033Z","actor":{"principal":{"availability":"unknown"},"agent":{"availability":"known","value":"codex"},"run":{"availability":"unknown"},"session":{"availability":"known","value":"01a07dc7-99cc-76b3-84c1-a4803344890e"},"operator":{"availability":"unknown"}},"subject":{"element_id":"TASK-260909-3kvql5","element_type":"task"},"source":{"kind":"local_cli","entrypoint":"cmd.ledgerMirror","request":{"availability":"unknown"}},"correlation_id":"COR-260909-d3ab720b1a5da922e238d477","causal_order":1,"operation":"change_request","changes":[{"field":"ledger_event","after":{"kind":"ledger","ledger":{"domain":"change_request","ledger_id":"CR-TASK-260909-3kvql5-2","event":"created","sequence":2,"revision":2,"to_state":"ready","recorded_at":"2026-09-09T00:10:13.217761Z","facts":[{"name":"run","kind":"id","value":"RUN-260909-e61106"}]}}}]}],"view":"raw"}
+
+exec
+/bin/zsh -lc '/Users/iv/.curator/global/bin/task-board resource get TASK-260909-3kvql5 TASK-260909-3kvql5_change-request_rev2.patch -o .temp/TASK-260909-3kvql5/review-rev2/candidate.patch' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+.temp/TASK-260909-3kvql5/review-rev2/candidate.patch
+
+context compacted
+exec
+/bin/zsh -lc '/Users/iv/.curator/global/bin/task-board spawn status "$TASK_BOARD_RUN_ID" > .temp/TASK-260909-3kvql5/review-rev2/reviewer-status.log
+/Users/iv/.curator/global/bin/task-board spawn status RUN-260909-e61106 > .temp/TASK-260909-3kvql5/review-rev2/producer-status.log
+/Users/iv/.curator/global/bin/task-board spawn goal "$TASK_BOARD_RUN_ID" > .temp/TASK-260909-3kvql5/review-rev2/goal.log
+/Users/iv/.curator/global/bin/task-board q --format compact '"'activity(TASK-260909-3kvql5, kinds=\"change_request\", limit=20)' > .temp/TASK-260909-3kvql5/review-rev2/cr-activity.json
+python3 - <<'PY'
+import hashlib,json,subprocess,pathlib
+p=pathlib.Path('.temp/TASK-260909-3kvql5/review-rev2')
+base='7654d7cadb2c226bfa3db5f23ac355a730285eea'; old='cf9b764d80dea2ed85f26f09ab12f39e6346fa7c'; tree='d529efd2ab760d524dd04340da8e0e8ae8ce2de2'
+def git(*args): return subprocess.check_output(['git',*args])
+config=git('show',tree+':task-board.config.json'); json.loads(config)
+patchhash=hashlib.sha256((p/'candidate.patch').read_bytes()).hexdigest()
+assert patchhash=='71c0ff85d1d01d2a5c0b71c7716edbf198e32d03d848caf0a741e1eda1bfe102'
+assert config==git('show',old+':task-board.config.json')
+assert git('diff','--name-only',old,tree).decode().splitlines()==['README.md']
+assert git('diff','--name-only',base,tree).decode().splitlines()==['README.md','task-board.config.json']
+subprocess.run(['git','diff','--check',base,tree],check=True)
+(p/'candidate.diff').write_bytes(git('diff',base,tree))
+(p/'revision.diff').write_bytes(git('diff',old,tree))
+result={'patch_sha256':patchhash,'config_sha256':hashlib.sha256(config).hexdigest(),'config_blob':git('rev-parse',tree+':task-board.config.json').decode().strip(),'config_equal_rev1':True,'json_parse':'pass','exact_diff_check':'pass','HEAD':git('rev-parse','HEAD').decode().strip(),'HEAD_behind_local_main':git('rev-list','--count','HEAD..main').decode().strip()}
+(p/'verification.json').write_text(json.dumps(result,indent=2)+'\\n'); print(json.dumps(result,indent=2))
+print((p/'reviewer-status.log').read_text()[:4500])
+PY" in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 979ms:
+{
+  "patch_sha256": "71c0ff85d1d01d2a5c0b71c7716edbf198e32d03d848caf0a741e1eda1bfe102",
+  "config_sha256": "ac85fa77b01f0f0d07a9831965504731b627660abb6ea5983c25809c53134e6b",
+  "config_blob": "4907c13928d8c33d13f618813a4a2a4f7cc4a65b",
+  "config_equal_rev1": true,
+  "json_parse": "pass",
+  "exact_diff_check": "pass",
+  "HEAD": "7654d7cadb2c226bfa3db5f23ac355a730285eea",
+  "HEAD_behind_local_main": "0"
+}
+Run: RUN-260909-376688
+Task: TASK-260909-3kvql5
+Status: running
+Phase: executing
+Summary: child board mutation: set_status("TASK-260909-3kvql5", status="reviewing")
+Workload Selection: class=review source=explicit policy=spawn.workload_classes pair=codex/gpt-6-astra/medium pair_source=explicit match=recommended_rank_1 snapshot=sha256:e54a1cbd87b53e7c4b4c204220ca6929c4434ba4a2df8d8b392651c3271c3f71 rationale="Astra medium independently verifies focused R1/R2 README and evidence corrections against prior accepted configuration observations, preserving required current CR validation and all downstream delivery gates."
+Ceiling Contract: spawn-policy-v4
+Codex Fast Mode: true (service_tier=priority, config_key=spawn.ceilings.codex.fast_mode, source=configured)
+Started: 2026-09-09T00:11:14.39369Z
+Last Progress: 2026-09-09T00:11:22.976105Z
+Spread: round_robin via explicit_override [config: spawn.limits.spread]
+Last Event Seq: 251
+Launch Composition: empty (provider=codex, diagnostic=launch_composition_empty)
+Agent: [reviewer] reviewer (codex) (codex)
+Logwork: /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/logwork/TASK-260909-3kvql5/-reviewer--reviewer--codex-_RUN-260909-376688.log
+
+
+context compacted
+exec
+/bin/zsh -lc 'cat .temp/TASK-260909-3kvql5/review-rev2/candidate.diff' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+diff --git a/README.md b/README.md
+index 3629512..a4e4230 100644
+--- a/README.md
++++ b/README.md
+@@ -2474,18 +2474,26 @@ Project management is intentionally global. The repository does not declare or
+ install `project-management`; development uses the globally installed skill
+ and `task-board` CLI.
+ 
+-Repository development routing in `task-board.config.json` admits only Codex
+-`gpt-6-astra` with `medium` or `high` reasoning for all new spawns, including
+-producers and reviewers. Mechanical, documentation, and operations workloads
+-recommend medium first; all other workloads, including review, recommend high
+-then medium. Every recommendation uses Astra. Existing runs and their work are
+-preserved. Retained Claude and Muse ceiling definitions are inactive under
+-exclusive Codex admission; Claude, Muse, and Fable are not active spawn routes.
++Repository development routing in `task-board.config.json` admits Muse
++`muse-spark` with `xhigh` reasoning and Codex `gpt-6-astra` with `medium` or
++`high` reasoning for new spawns. Producers recommend Muse Spark xhigh first;
++the ceiling restricts Codex reviewer effort to Astra medium, with a Codex
++reviewer medium default, and the review workload recommends medium only.
++Required operator routing selects Codex Astra medium for all new reviewers;
++Muse reviewer admission remains possible at provider ceiling level with no
++recommendations. Empty recommendations are advisory, not refusal.
++Architecture workloads stay Codex Astra high then medium. Mechanical,
++documentation, and operations workloads recommend Muse xhigh, then Codex
++medium, then Codex high; all other producer workloads recommend Muse xhigh,
++then Codex high, then Codex medium. The mixed allow-set is limited to Muse
++and Codex: other providers are refused, and the retained Claude ceiling
++definition is inactive under mixed admission. Existing runs and their work
++are preserved.
+ 
+ Inspect effective admission and recommendations before spawning:
+ 
+ ```bash
+-task-board q 'project_config(view=spawn-preflight, role=developer, agent=codex, workload_class=mechanical)'
++task-board q 'project_config(view=spawn-preflight, role=developer, agent=muse, workload_class=mechanical)'
+ task-board q 'project_config(view=spawn-preflight, role=reviewer, agent=codex, workload_class=review)'
+ ```
+ 
+diff --git a/task-board.config.json b/task-board.config.json
+index 1a2b314..4907c13 100644
+--- a/task-board.config.json
++++ b/task-board.config.json
+@@ -27,7 +27,22 @@
+         ],
+         "resolution_model": "gpt-6-astra",
+         "adjustment_confirmation": "none",
+-        "fast_mode": true
++        "fast_mode": true,
++        "roles": {
++          "reviewer": {
++            "entries": [
++              {
++                "criterion": "equal",
++                "model": "gpt-6-astra",
++                "reasoning_effort": "medium"
++              }
++            ],
++            "resolution_model": "gpt-6-astra",
++            "adjustment_confirmation": "none",
++            "default_model": "gpt-6-astra",
++            "default_reasoning_effort": "medium"
++          }
++        }
+       },
+       "claude": {
+         "entries": [
+@@ -53,10 +68,18 @@
+       }
+     },
+     "preferred_agentic_system": {
+-      "exclusive": "codex"
++      "mixed": [
++        "muse",
++        "codex"
++      ]
+     },
+     "workload_classes": {
+       "unified": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -81,6 +104,11 @@
+         }
+       ],
+       "implementation": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -93,6 +121,11 @@
+         }
+       ],
+       "mechanical": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -105,6 +138,11 @@
+         }
+       ],
+       "debugging": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -117,6 +155,11 @@
+         }
+       ],
+       "testing": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -129,11 +172,6 @@
+         }
+       ],
+       "review": [
+-        {
+-          "runtime": "codex",
+-          "model": "gpt-6-astra",
+-          "reasoning_effort": "high"
+-        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -141,6 +179,11 @@
+         }
+       ],
+       "research": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -153,6 +196,11 @@
+         }
+       ],
+       "documentation": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -165,6 +213,11 @@
+         }
+       ],
+       "migration": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+@@ -177,6 +230,11 @@
+         }
+       ],
+       "operations": [
++        {
++          "runtime": "muse",
++          "model": "muse-spark",
++          "reasoning_effort": "xhigh"
++        },
+         {
+           "runtime": "codex",
+           "model": "gpt-6-astra",
+
+context compacted
+exec
+/bin/zsh -lc 'cat .temp/TASK-260909-3kvql5/review-rev2/verification.json' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+{
+  "patch_sha256": "71c0ff85d1d01d2a5c0b71c7716edbf198e32d03d848caf0a741e1eda1bfe102",
+  "config_sha256": "ac85fa77b01f0f0d07a9831965504731b627660abb6ea5983c25809c53134e6b",
+  "config_blob": "4907c13928d8c33d13f618813a4a2a4f7cc4a65b",
+  "config_equal_rev1": true,
+  "json_parse": "pass",
+  "exact_diff_check": "pass",
+  "HEAD": "7654d7cadb2c226bfa3db5f23ac355a730285eea",
+  "HEAD_behind_local_main": "0"
+}
+
+context compacted
+codex
+Проверка завершена: R1/R2 исправлены, конфигурация побайтово совпадает с предыдущей ревизией, обязательная валидация завершилась успешно. Сохраню независимый вердикт и приму CR revision 2.
+
+exec
+/bin/zsh -lc 'cat .temp/TASK-260909-3kvql5/review-rev2/verification.json' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+{
+  "patch_sha256": "71c0ff85d1d01d2a5c0b71c7716edbf198e32d03d848caf0a741e1eda1bfe102",
+  "config_sha256": "ac85fa77b01f0f0d07a9831965504731b627660abb6ea5983c25809c53134e6b",
+  "config_blob": "4907c13928d8c33d13f618813a4a2a4f7cc4a65b",
+  "config_equal_rev1": true,
+  "json_parse": "pass",
+  "exact_diff_check": "pass",
+  "HEAD": "7654d7cadb2c226bfa3db5f23ac355a730285eea",
+  "HEAD_behind_local_main": "0"
+}
+
+context compacted
+exec
+/bin/zsh -lc 'cat .temp/TASK-260909-3kvql5/review-rev2/verification.json' in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+{
+  "patch_sha256": "71c0ff85d1d01d2a5c0b71c7716edbf198e32d03d848caf0a741e1eda1bfe102",
+  "config_sha256": "ac85fa77b01f0f0d07a9831965504731b627660abb6ea5983c25809c53134e6b",
+  "config_blob": "4907c13928d8c33d13f618813a4a2a4f7cc4a65b",
+  "config_equal_rev1": true,
+  "json_parse": "pass",
+  "exact_diff_check": "pass",
+  "HEAD": "7654d7cadb2c226bfa3db5f23ac355a730285eea",
+  "HEAD_behind_local_main": "0"
+}
+
+context compacted
+exec
+/bin/zsh -lc "python3 - <<'PY'
+import json
+from pathlib import Path
+p=Path('.temp/TASK-260909-3kvql5/review-rev2')
+v=json.loads((p/'verification.json').read_text())
+text='''# Revision 2 independent review verdict
+
+Verdict: accepted. R1 and R2 from revision 1 are closed.
+
+Reviewer: RUN-260909-376688, codex/gpt-6-astra/medium. Producer RUN-260909-e61106 completed successfully. Reviewed CR-TASK-260909-3kvql5-2 revision 2, base 7654d7cadb2c226bfa3db5f23ac355a730285eea, candidate tree d529efd2ab760d524dd04340da8e0e8ae8ce2de2. Repository delta is present: README.md and task-board.config.json only.
+
+## Independent checks
+
+Used /Users/iv/.curator/global/bin/task-board (version dev), not the different bare-command installation. Read the actual immutable candidate diff, prior verdict, corrected outcome, producer rework evidence, CR creation/binding activity, producer terminal status, reviewer routing, and current validation log. Reviewer goal query returned no bound goal; no operator directive was present.
+
+Patch SHA256: 71c0ff85d1d01d2a5c0b71c7716edbf198e32d03d848caf0a741e1eda1bfe102, independently verified. Candidate config SHA256: ac85fa77b01f0f0d07a9831965504731b627660abb6ea5983c25809c53134e6b; blob 4907c13928d8c33d13f618813a4a2a4f7cc4a65b. Config is byte-identical to revision 1 tree cf9b764d80dea2ed85f26f09ab12f39e6346fa7c. Revision 1 to revision 2 changes README.md only. JSON parsing and exact candidate diff whitespace check pass. HEAD remains the base, with zero commits behind local main. No source was modified by this reviewer.
+
+## Findings resolved
+
+R1: The immutable README now states that the ceiling restricts Codex reviewer effort to Astra medium, while required operator routing selects Astra medium for all new reviewers. It explicitly states Muse reviewer admission remains possible at the provider ceiling and empty recommendations are advisory, not refusal. This accurately separates operator routing from admission enforcement.
+
+R2: Corrected outcome reports 8 of 8 observation rows driven, classified as six direct preflight observations (1–5, 7) and two static comparisons (6, 8), plus two separate operational/lifecycle bounds (A, B). This is not eight behavioral tests. Row 4 observes the reviewer ceiling rather than proving a high-effort launch refusal. M2 is explicitly a recommendation-position assertion after filtering, not a behavioral refusal kill; blanket no-survivor claims are removed. No new Go behavior or gate is introduced, so generic new-product-test and narrowing-mutant requirements are not applicable to this documentation correction.
+
+## Retained evidence and current validation
+
+Because configuration is byte-identical, retain revision 1 independent policy observations rather than claim a new preflight run: Muse developer xhigh admitted; Codex reviewer medium admitted with medium-only default/ceiling/recommendation; Claude and Gemini excluded with agent_not_allowed_by_preferred_agentic_system; architecture Astra high/medium available; approved policy and non-policy structure preserved. Prior probes: TASK-260909-3kvql5_review-probes-rev1.json. Producer revision 2 evidence additionally documents Muse reviewer admission with empty recommendations and explicit candidate-config provenance. Operational bootstrap configuration remains an immutable input, not a repository modification.
+
+Current mandatory CR validation evidence TASK-260909-3kvql5_change-request_rev2-validation.log contains 5 of 5 terminal command exits equal to zero: gofmt assertion, go build ./..., go vet ./..., go test ./... -count=1 -v, and git diff --check. These are inspected producer/handoff results, not reviewer reruns. The log also contains diagnostic ledger issue counts; this review does not characterize the board as warning-free or infer a separate task-board validate invocation. No broad Go suite or unrelated attack was repeated for unchanged Go source. All 17 checklist items were checked when inspected.
+
+## Bounds and disposition
+
+Default-source canonical preflights after landing, actual future launches, active-run continuity, signed PR publication, platform review, and exact-head fast-forward landing are not established by this source review. They remain operational/delivery bounds owned by subsequent routing and the bound producer integration lifecycle. No hosted CI or synthetic status was introduced. Source CR acceptance is not GitHub approval and is not landing.
+
+Accept revision 2 and route to integrating using accept_cr. No commit_ack, commit, integration, push, or landing was performed by this reviewer.
+'''
+(p/'TASK-260909-3kvql5_review-verdict-rev2.md').write_text(text)
+print('Verdict written; verification evidence:', json.dumps(v))
+PY" in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 0ms:
+Verdict written; verification evidence: {"patch_sha256": "71c0ff85d1d01d2a5c0b71c7716edbf198e32d03d848caf0a741e1eda1bfe102", "config_sha256": "ac85fa77b01f0f0d07a9831965504731b627660abb6ea5983c25809c53134e6b", "config_blob": "4907c13928d8c33d13f618813a4a2a4f7cc4a65b", "config_equal_rev1": true, "json_parse": "pass", "exact_diff_check": "pass", "HEAD": "7654d7cadb2c226bfa3db5f23ac355a730285eea", "HEAD_behind_local_main": "0"}
+
+context compacted
+exec
+/bin/zsh -lc "/Users/iv/.curator/global/bin/task-board resource add TASK-260909-3kvql5 .temp/TASK-260909-3kvql5/review-rev2/verification.json --type outcome --name TASK-260909-3kvql5_review-checks-rev2.json -d 'Independent revision 2 candidate hash and scope checks'" in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 492ms:
+Attached TASK-260909-3kvql5_review-checks-rev2.json on TASK-260909-3kvql5 as outcome
+
+exec
+/bin/zsh -lc "/Users/iv/.curator/global/bin/task-board resource add TASK-260909-3kvql5 .temp/TASK-260909-3kvql5/review-rev2/TASK-260909-3kvql5_review-verdict-rev2.md --type outcome --name TASK-260909-3kvql5_review-verdict-rev2.md -d 'Independent revision 2 acceptance verdict closing R1 and R2'" in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 492ms:
+Attached TASK-260909-3kvql5_review-verdict-rev2.md on TASK-260909-3kvql5 as outcome
+
+context compacted
+exec
+/bin/zsh -lc "/Users/iv/.curator/global/bin/task-board m 'accept_cr(TASK-260909-3kvql5, revision=2, evidence=TASK-260909-3kvql5_review-verdict-rev2.md)'" in /Users/iv/Developer/ReluxWorks/agent-session-manager/.temp/STORY-260909-2uobs6/worktree
+ succeeded in 10161ms:
+{"ok":true,"result":{"cr_id":"CR-TASK-260909-3kvql5-2","cr_state":"accepted","evidence":"TASK-260909-3kvql5_review-verdict-rev2.md","id":"TASK-260909-3kvql5","next":"route a new integration run using the accepted revision's bound producer role and archetype","primary":{"action":"status_changed","element_id":"TASK-260909-3kvql5","field":"status","new_value":"integrating","old_value":"reviewing"},"producer_archetype":"implementer","producer_role":"developer","repository_delta":"present","reviewer_run_id":"RUN-260909-376688","revision":2,"status":"integrating"}}
+
+context compacted
+context compacted
+codex
+CR revision 2 принят. R1/R2 исправлены, обязательная валидация успешна: 5/5 проверок.
+
+Вердикт приложен, задача переведена в `integrating`. PR review и signed exact-head landing остаются следующему producer-run.
+CR revision 2 принят. R1/R2 исправлены, обязательная валидация успешна: 5/5 проверок.
+
+Вердикт приложен, задача переведена в `integrating`. PR review и signed exact-head landing остаются следующему producer-run.
+tokens used
+85,766

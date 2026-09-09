@@ -1,0 +1,11 @@
+# Focused R1/R2 configuration documentation rework
+
+Developer muse/muse-spark xhigh, TASK-260909-3kvql5, same managed Story worktree. Read independent verdict TASK-260909-3kvql5_review-verdict-rev1.md. Both findings are new documentation/evidence inaccuracies, not a rejected policy choice. Do not change the already approved model configuration or expand shared-tool/product scope.
+
+R1: README must state that the ceiling restricts CODEX reviewer effort to Astra medium. Required operator routing selects Codex Astra medium for all new reviewers; Muse reviewer admission remains possible at provider ceiling level with no recommendations. Empty recommendations are advisory, not refusal. Use exact plain wording; do not claim the config enforces provider-role exclusion it does not enforce.
+
+R2: Correct outcome coverage denominator against its actual row inventory. Distinguish direct preflight observations, static comparisons and future lifecycle bounds. M2's recommendation index shift after filtering is a position assertion, not an admitted-high behavioral kill; explicitly state the limit and remove blanket no-survivor gate claims. No new Go tests or invented product gate is requested. Preserve actual successful required CR validation as historical current-revision evidence, run narrow diff/JSON/policy checks for the delta, and let required CR handoff validation execute. Do not rerun broad Go/adversarial suites beyond a contract or unresolved concern.
+
+Use absolute /Users/iv/.curator/global/bin/task-board for board and policy evidence; bare ~/.local/bin is a different externally maintained build. Record applicable actual tool identity. Persist any probes needed for audit under task-scoped .temp and attach concise evidence instead of relying only on /tmp. Print compact projections, save full outputs to files. The existing approved explicit TASK_BOARD_CONFIG remains immutable operational input, not repository source.
+
+Leave candidate uncommitted at recorded checkpoint; no producer commit/reset/clean. Preserve foreign worktree/index/board files. Update outcome through resource update, not direct board edits. Hand off corrected revision for Astra medium review; no integration, PR landing, hosted CI or new worker. This brief supersedes stale generic producer guidance only for these focused R1/R2 corrections.

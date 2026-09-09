@@ -1,0 +1,9 @@
+# Focused second review: R1/R2 only, preserve full acceptance
+
+Independent reviewer codex/gpt-6-astra medium. TASK-260909-3kvql5. Wait for terminal producer e61106 and inspect actual new CR revision/binding. Read prior independent verdict rev1 and latest outcome.
+
+Only requested source rework is README scope clarification: the ceiling restricts CODEX reviewer effort; operator routing requires all new reviews Astra medium while other provider-role admission is not claimed blocked by advisory recommendations. Evidence rework fixes the denominator and classifies M2 as recommendation-position assertion, not a behavioral refusal kill, with no blanket survivor inflation. Verify these two corrections precisely and check there is no unrelated diff. Config should be byte-identical to accepted policy reference/prior reviewed config; inspect actual hashes/diff before retaining earlier configuration observations. Do not relitigate previously closed checks or repeat broad Go tests/attacks without changed source or an unresolved concern. Current mandatory CR validation must still be terminal successful.
+
+Use absolute /Users/iv/.curator/global/bin/task-board; bare ~/.local/bin is a different externally maintained build. Save full outputs in task evidence; print only relevant compact fields. Distinguish actual observations, static comparisons and lifecycle bounds. Check actual CLI provenance where results depend on it. No new product tests or fabricated mutant gates are requested for this documentation correction.
+
+Attach concise verdict and accept actual CR if R1/R2 and applicable live checklist satisfied; otherwise focused changes requested. No source edits, commit, integration, push, hosted CI, invented GitHub verdict or worker spawn. Primary owns subsequent correctlybound Muse integration and signed exact-head reviewed PR delivery.
