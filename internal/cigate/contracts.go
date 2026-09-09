@@ -25,9 +25,14 @@ type ReleaseContracts struct {
 // requiring the two packages to agree on the release roots themselves. It
 // lists no versions: every version below these roots is derived, never
 // retyped.
+//
+// The current root is the adopted v0.6.0 source and the historical root is
+// v0.4.3. The v0.5.0 registry is a derived projection of the adopted lock,
+// not a root: its agreement is checked by the catalog projection tests and
+// the traceability legacy check rather than by this gate.
 func PinnedReleases() ([]string, error) {
-	return checkReleaseRoots(specpin.ReleaseV050, specpin.ReleaseV043,
-		string(catalog.ReleaseV050), string(catalog.ReleaseV043))
+	return checkReleaseRoots(specpin.ReleaseV060, specpin.ReleaseV043,
+		string(catalog.ReleaseV060), string(catalog.ReleaseV043))
 }
 
 // checkReleaseRoots is the testable core of PinnedReleases: production passes
@@ -54,7 +59,7 @@ func checkReleaseRoots(pinCurrent, pinHistorical, catalogCurrent, catalogHistori
 // comes from ContractsForRelease, so absent contracts and version overrides
 // are the lock's own, not a retyped copy.
 func PinContractSets() (map[string][]ContractVersions, error) {
-	manifest, err := specpin.Current()
+	manifest, err := specpin.CurrentV060()
 	if err != nil {
 		return nil, fmt.Errorf("cigate: load pinned source: %w", err)
 	}

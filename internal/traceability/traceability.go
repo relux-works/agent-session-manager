@@ -29,9 +29,9 @@ import (
 )
 
 const (
-	ownershipRegistryPath = "internal/traceability/ownership.v0.5.0.json"
-	contractLockPath      = "internal/specpin/v0.5.0.lock.json"
-	catalogMetadataPath   = "internal/catalog/catalog.v0.5.0.json"
+	ownershipRegistryPath = "internal/traceability/ownership.v0.6.0.json"
+	contractLockPath      = "internal/specpin/v0.6.0.lock.json"
+	catalogMetadataPath   = "internal/catalog/catalog.v0.6.0.json"
 	generatedCatalogPath  = "internal/catalog/catalog_gen.go"
 
 	ownershipFormat        = "ax-spec-to-code-ownership"
@@ -40,7 +40,7 @@ const (
 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
 	// formatting may change, but ownership claims cannot be self-minted without
 	// an explicit review of this binding.
-	reviewedOwnershipCanonicalSHA256 = "caaca4c9b2d0a2ddb225810dba757807474230cf20e39cb3676c902f83fd9faa"
+	reviewedOwnershipCanonicalSHA256 = "a1ab29139bbf53259f6b76b4095a71531be6c2e7197979a598ffb6d54f3b130d"
 )
 
 var ErrTraceability = errors.New("spec-to-code traceability check failed")
@@ -89,7 +89,7 @@ type ownershipRegistry struct {
 	UnownedSections []unownedSection `json:"unowned_sections"`
 }
 
-// unownedSection records a real v0.5.0 section that this repository does not
+// unownedSection records a real v0.6.0 section that this repository does not
 // implement. It exists so an unimplemented section is disclosed by name rather
 // than bound to a symbol from a neighbouring package, which is what an owned
 // key would otherwise assert. It is a disclosure, never an exemption: a section
@@ -223,7 +223,7 @@ func verifyRepository(repository fs.FS, assignedSections []string) (Report, erro
 	if err != nil {
 		return Report{}, err
 	}
-	manifest, err := specpin.Verify(lockBytes)
+	manifest, err := specpin.VerifyV060(lockBytes)
 	if err != nil {
 		return Report{}, fail("verify normative source lock: %v", err)
 	}
@@ -244,11 +244,26 @@ func verifyRepository(repository fs.FS, assignedSections []string) (Report, erro
 		return Report{}, fail("generated catalog is stale; run go generate ./internal/catalog")
 	}
 
-	currentCatalog, err := catalog.ForRelease(catalog.ReleaseV050)
+	currentCatalog, err := catalog.ForRelease(catalog.ReleaseV060)
 	if err != nil {
 		return Report{}, fail("load current catalog: %v", err)
 	}
 	if err := verifyCatalogContracts(manifest.Contracts, currentCatalog.Contracts); err != nil {
+		return Report{}, err
+	}
+	// The legacy projection keeps the superseded v0.5.0 registry honest:
+	// the generated catalog must still carry the exact historical rows the
+	// adopted lock derives, so legacy support claims stay verifiable after
+	// the authority moved to v0.6.0.
+	legacyContracts, err := manifest.ContractsForRelease(specpin.ReleaseV050)
+	if err != nil {
+		return Report{}, fail("derive legacy catalog contracts: %v", err)
+	}
+	legacyCatalog, err := catalog.ForRelease(catalog.ReleaseV050)
+	if err != nil {
+		return Report{}, fail("load legacy catalog: %v", err)
+	}
+	if err := verifyCatalogContracts(legacyContracts, legacyCatalog.Contracts); err != nil {
 		return Report{}, err
 	}
 	compatibilityCatalog, err := catalog.ForRelease(catalog.ReleaseV043)
@@ -268,14 +283,14 @@ func verifyRepository(repository fs.FS, assignedSections []string) (Report, erro
 	if err != nil {
 		return Report{}, err
 	}
-	document, err := specdoc.Load()
+	document, err := specdoc.LoadV060()
 	if err != nil {
 		return Report{}, fail("load pinned specification document: %v", err)
 	}
-	if manifest.Source.Document.SHA256 != specpin.DocumentSHA256 {
+	if manifest.Source.Document.SHA256 != specpin.DocumentSHA256V060 {
 		return Report{}, fail(
 			"verified normative lock document digest %s differs from the pinned clause source %s",
-			manifest.Source.Document.SHA256, specpin.DocumentSHA256)
+			manifest.Source.Document.SHA256, specpin.DocumentSHA256V060)
 	}
 	return verifyOwnership(repository, document, registry, manifest, currentCatalog, compatibilityCatalog, bindings)
 }
@@ -629,8 +644,8 @@ func resolveAssignedSections(pinned []string, assigned []string) ([]assignedSect
 		root := canonical
 		identifiers := []string{canonical}
 		if strings.HasPrefix(canonical, "appendix-") {
-			if !specpin.IsSectionV050(canonical) {
-				return nil, fail("assigned section %q is not a real v0.5.0 section identifier", raw)
+			if !specpin.IsSectionV060(canonical) {
+				return nil, fail("assigned section %q is not a real v0.6.0 section identifier", raw)
 			}
 		} else {
 			matches := assignedSectionPattern.FindStringSubmatch(scope)
@@ -647,11 +662,11 @@ func resolveAssignedSections(pinned []string, assigned []string) ([]assignedSect
 				return nil, fail("invalid assigned section %q", raw)
 			}
 			for _, identifier := range []string{start, end} {
-				if !specpin.IsSectionV050(identifier) {
-					return nil, fail("assigned section %q is not a real v0.5.0 section identifier", raw)
+				if !specpin.IsSectionV060(identifier) {
+					return nil, fail("assigned section %q is not a real v0.6.0 section identifier", raw)
 				}
 			}
-			expanded, expandErr := expandV050SectionRange(start, end)
+			expanded, expandErr := expandV060SectionRange(start, end)
 			if expandErr != nil {
 				return nil, fail("invalid assigned section %q: %v", raw, expandErr)
 			}
@@ -674,8 +689,8 @@ func resolveAssignedSections(pinned []string, assigned []string) ([]assignedSect
 	return bindings, nil
 }
 
-func expandV050SectionRange(start, end string) ([]string, error) {
-	inventory := specpin.SectionInventoryV050()
+func expandV060SectionRange(start, end string) ([]string, error) {
+	inventory := specpin.SectionInventoryV060()
 	startIndex := -1
 	endIndex := -1
 	for index, identifier := range inventory {
@@ -687,7 +702,7 @@ func expandV050SectionRange(start, end string) ([]string, error) {
 		}
 	}
 	if startIndex == -1 || endIndex == -1 {
-		return nil, fmt.Errorf("range endpoint is not a real v0.5.0 section identifier")
+		return nil, fmt.Errorf("range endpoint is not a real v0.6.0 section identifier")
 	}
 	if endIndex < startIndex {
 		return nil, fmt.Errorf("section range descends from %s to %s", start, end)
@@ -701,7 +716,7 @@ func sectionBindingKey(identifier string) string {
 
 func expectedSectionBindingInventory() map[string]struct{} {
 	result := make(map[string]struct{})
-	for _, identifier := range specpin.SectionInventoryV050() {
+	for _, identifier := range specpin.SectionInventoryV060() {
 		result[sectionBindingKey(identifier)] = struct{}{}
 	}
 	return result
@@ -721,7 +736,7 @@ func expectedCatalogSectionBindings(value catalog.Catalog) (map[string]struct{},
 			if len(parts) == 2 {
 				end = canonicalNumericSection(strings.TrimSpace(parts[1]))
 			}
-			identifiers, err := expandV050SectionRange(start, end)
+			identifiers, err := expandV060SectionRange(start, end)
 			if err != nil {
 				return fail("catalog normative section %q: %v", normativeSection, err)
 			}

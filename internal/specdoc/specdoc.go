@@ -35,6 +35,9 @@ import (
 //go:embed SPEC.md
 var embedded []byte
 
+//go:embed SPEC.v0.6.0.md
+var embeddedV060 []byte
+
 // ErrDocumentMismatch reports an absent, empty, or non-pinned document. A
 // failed or partial read is reported as a mismatch, never as an absence that
 // some caller could treat as satisfied.
@@ -94,9 +97,22 @@ func Load() (*Document, error) {
 	return Parse(embedded)
 }
 
+// LoadV060 returns the embedded adopted v0.6.0 document after verifying its
+// digest against specpin.DocumentSHA256V060. Load still serves the v0.5.0
+// document for historical readers; the traceability gate compares against the
+// adopted document through LoadV060.
+func LoadV060() (*Document, error) {
+	return ParseV060(embeddedV060)
+}
+
 // Bytes returns an isolated copy of the exact embedded document bytes.
 func Bytes() []byte {
 	return bytes.Clone(embedded)
+}
+
+// BytesV060 returns an isolated copy of the exact embedded v0.6.0 bytes.
+func BytesV060() []byte {
+	return bytes.Clone(embeddedV060)
 }
 
 // Parse accepts only a byte-exact copy of the pinned SPEC.md identified by
@@ -110,6 +126,26 @@ func Parse(candidate []byte) (*Document, error) {
 		return nil, fmt.Errorf("%w: SHA-256 is %s, want %s", ErrDocumentMismatch, got, specpin.DocumentSHA256)
 	}
 
+	return buildDocument(candidate), nil
+}
+
+// ParseV060 accepts only a byte-exact copy of the adopted v0.6.0 SPEC.md
+// identified by specpin.DocumentSHA256V060. The v0.5.0 document, a partial
+// read, and any edited copy are refused, so a gate that has not been
+// deliberately re-pointed cannot silently compare against the new text.
+func ParseV060(candidate []byte) (*Document, error) {
+	if len(candidate) == 0 {
+		return nil, fmt.Errorf("%w: document is empty", ErrDocumentMismatch)
+	}
+	digest := sha256.Sum256(candidate)
+	if got := hex.EncodeToString(digest[:]); got != specpin.DocumentSHA256V060 {
+		return nil, fmt.Errorf("%w: SHA-256 is %s, want %s", ErrDocumentMismatch, got, specpin.DocumentSHA256V060)
+	}
+
+	return buildDocument(candidate), nil
+}
+
+func buildDocument(candidate []byte) *Document {
 	document := &Document{raw: bytes.Clone(candidate)}
 	document.lines = strings.Split(strings.ReplaceAll(string(document.raw), "\r\n", "\n"), "\n")
 
@@ -151,7 +187,7 @@ func Parse(candidate []byte) (*Document, error) {
 	document.lineOf = lineOf
 	document.sectionOfLine = indexSections(document.lines)
 	document.tableRowOfLine = indexTableRows(document.lines)
-	return document, nil
+	return document
 }
 
 // indexHardBoundaries marks, for each 1-based line n, whether the newline

@@ -18,11 +18,12 @@ import (
 // is a known configuration version, so no earlier disjunct can refuse it.
 func TestMigrateRefusesEveryTargetOutsideTheUpgradeVocabulary(t *testing.T) {
 	refused := map[string]string{
-		"empty target":                    "",
-		"unknown newer target":            "9.9.9",
-		"unknown patch target":            "3.0.1",
-		"non-semver target":               "v3",
-		"known but not an upgrade target": Version1,
+		"empty target":                     "",
+		"unknown newer target":             "9.9.9",
+		"adopted but unimplemented target": Version4,
+		"unknown patch target":             "3.0.1",
+		"non-semver target":                "v3",
+		"known but not an upgrade target":  Version1,
 	}
 	for name, target := range refused {
 		name, target := name, target

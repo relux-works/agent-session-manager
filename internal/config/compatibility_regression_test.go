@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -11,6 +12,9 @@ import (
 	"github.com/relux-works/agent-session-manager/internal/catalog"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
 )
+
+// Version4 labels adopted census rows whose runtime reader is not implemented.
+const Version4 = "4.0.0"
 
 type closedMapMemberCase struct {
 	configure func(*Configuration) BackendSettingsValidator
@@ -173,6 +177,15 @@ func TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes(t *testing.T) {
 logical_root = "relux"
 path = %q
 `, platformCase.path))...)
+				if version == Version4 {
+					// SPEC 6.6: a 3.0.0 reader refuses 4.0.0 documents on
+					// every platform lane rather than selecting legacy
+					// behavior for a mesh it cannot secure.
+					if _, err := loadConfigDocument(document, platformCase.platform, nil); !errors.Is(err, ErrUnsupportedConfigVersion) {
+						t.Fatalf("Load(%s %s native path) error = %v, want unsupported-version refusal", version, platformCase.platform, err)
+					}
+					return
+				}
 				snapshot, err := loadConfigDocument(document, platformCase.platform, nil)
 				if err != nil {
 					t.Fatalf("Load(%s %s native path) error = %v", version, platformCase.platform, err)
@@ -194,6 +207,15 @@ func TestLegacyConPTYTranslationIsPinnedForEveryLegacyReader(t *testing.T) {
 			continue
 		}
 		document := append(minimalValidConfigVersion(scalar.PlatformWindows, version), []byte("\n[terminal]\nbackend = \"conpty\"\n")...)
+		if version == Version4 {
+			// SPEC 6.6: the version refusal fires before any member
+			// translation, so even a familiar terminal table on a 4.0.0
+			// document is refused rather than read as legacy.
+			if _, err := loadConfigDocument(document, scalar.PlatformWindows, nil); !errors.Is(err, ErrUnsupportedConfigVersion) {
+				t.Fatalf("Load(%s explicit conpty) error = %v, want unsupported-version refusal", version, err)
+			}
+			continue
+		}
 		snapshot, err := loadConfigDocument(document, scalar.PlatformWindows, nil)
 		if err != nil {
 			t.Fatalf("Load(%s explicit conpty) error = %v", version, err)

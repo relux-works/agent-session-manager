@@ -21,14 +21,16 @@ func TestPinnedReleasesAgreeAcrossAuthorities(t *testing.T) {
 
 func TestCheckReleaseRootsRefusesDrift(t *testing.T) {
 	t.Parallel()
-	if _, err := checkReleaseRoots("v0.5.0", "v0.4.3", "v0.5.0", "v0.4.3"); err != nil {
+	if _, err := checkReleaseRoots("v0.6.0", "v0.4.3", "v0.6.0", "v0.4.3"); err != nil {
 		t.Fatalf("agreeing roots refused: %v", err)
 	}
 	for _, roots := range [][4]string{
-		{"v0.5.0", "v0.4.3", "v0.5.1", "v0.4.3"},
-		{"v0.5.0", "v0.4.3", "v0.5.0", "v0.4.4"},
+		{"v0.6.0", "v0.4.3", "v0.6.1", "v0.4.3"},
+		{"v0.6.0", "v0.4.3", "v0.6.0", "v0.4.4"},
+		{"v0.6.0", "v0.4.3", "v0.5.0", "v0.4.3"},
+		{"v0.5.0", "v0.4.3", "v0.6.0", "v0.4.3"},
 		{"", "v0.4.3", "", "v0.4.3"},
-		{"v0.5.0", "v0.5.0", "v0.5.0", "v0.5.0"},
+		{"v0.6.0", "v0.6.0", "v0.6.0", "v0.6.0"},
 	} {
 		if _, err := checkReleaseRoots(roots[0], roots[1], roots[2], roots[3]); err == nil {
 			t.Errorf("checkReleaseRoots(%q) admitted drift", roots)

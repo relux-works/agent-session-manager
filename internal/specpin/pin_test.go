@@ -10,6 +10,26 @@ import (
 	"github.com/relux-works/agent-session-manager/internal/specpin"
 )
 
+// TestCurrentV050IsTheExplicitHistoricalBaseline pins the intentionally
+// historical reader that consumers like the platform-path registry declare:
+// it serves the verified v0.5.0 baseline, row-equal to Current.
+func TestCurrentV050IsTheExplicitHistoricalBaseline(t *testing.T) {
+	historical, err := specpin.CurrentV050()
+	if err != nil {
+		t.Fatalf("CurrentV050() error = %v", err)
+	}
+	if historical.Source.Release != specpin.ReleaseV050 || historical.Source.Commit != specpin.CommitV050 {
+		t.Fatalf("CurrentV050() source = %+v, want the v0.5.0 baseline", historical.Source)
+	}
+	current, err := specpin.Current()
+	if err != nil {
+		t.Fatalf("Current() error = %v", err)
+	}
+	if !reflect.DeepEqual(historical, current) {
+		t.Fatal("CurrentV050() differs from Current(); the explicit historical binding drifted")
+	}
+}
+
 func TestCurrentPinsPublishedV050Source(t *testing.T) {
 	manifest, err := specpin.Current()
 	if err != nil {

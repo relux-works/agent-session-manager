@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,8 +15,8 @@ func TestRunGeneratesCommittedCatalogAndSupportsIdenticalRetry(t *testing.T) {
 
 	output := filepath.Join(t.TempDir(), "catalog_gen.go")
 	arguments := []string{
-		"-metadata", filepath.Join("..", "..", "catalog.v0.5.0.json"),
-		"-contracts", filepath.Join("..", "..", "..", "specpin", "v0.5.0.lock.json"),
+		"-metadata", filepath.Join("..", "..", "catalog.v0.6.0.json"),
+		"-contracts", filepath.Join("..", "..", "..", "specpin", "v0.6.0.lock.json"),
 		"-output", output,
 	}
 	if err := run(arguments); err != nil {
@@ -61,8 +62,8 @@ func TestRunCheckRefusesStaleOutputWithoutRewritingIt(t *testing.T) {
 		t.Fatalf("write stale output: %v", err)
 	}
 	arguments := []string{
-		"-metadata", filepath.Join("..", "..", "catalog.v0.5.0.json"),
-		"-contracts", filepath.Join("..", "..", "..", "specpin", "v0.5.0.lock.json"),
+		"-metadata", filepath.Join("..", "..", "catalog.v0.6.0.json"),
+		"-contracts", filepath.Join("..", "..", "..", "specpin", "v0.6.0.lock.json"),
 		"-output", output,
 		"-check",
 	}
@@ -82,8 +83,8 @@ func TestRunCheckRefusesStaleOutputWithoutRewritingIt(t *testing.T) {
 func TestRunRefusesInvalidArgumentsInputsAndOutput(t *testing.T) {
 	t.Parallel()
 
-	metadata := filepath.Join("..", "..", "catalog.v0.5.0.json")
-	contracts := filepath.Join("..", "..", "..", "specpin", "v0.5.0.lock.json")
+	metadata := filepath.Join("..", "..", "catalog.v0.6.0.json")
+	contracts := filepath.Join("..", "..", "..", "specpin", "v0.6.0.lock.json")
 	tests := []struct {
 		name      string
 		arguments func(string) []string
@@ -170,5 +171,81 @@ func TestWriteIfChangedRefusesUnreadableDestinationWithoutReplacement(t *testing
 	}
 	if !info.IsDir() {
 		t.Fatal("failed write replaced the original destination")
+	}
+}
+
+// Drive the command taken from the CR configuration through the real CLI entry.
+// A recognizable generator token alone cannot prove its selected authority.
+func TestConfiguredCRCatalogGateConsumesAdoptedAuthority(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "..")
+	data, err := os.ReadFile(filepath.Join(root, "task-board.config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Spawn struct {
+			WorktreeIsolation struct {
+				Validation struct {
+					Commands []string `json:"commands"`
+				} `json:"validation"`
+			} `json:"worktree_isolation"`
+		} `json:"spawn"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		t.Fatal(err)
+	}
+	var commands []string
+	for _, command := range config.Spawn.WorktreeIsolation.Validation.Commands {
+		if strings.Contains(command, "./internal/catalog/cmd/cataloggen") {
+			commands = append(commands, command)
+		}
+	}
+	if len(commands) != 1 {
+		t.Fatalf("configured catalog gates = %d, want exactly 1", len(commands))
+	}
+	fields := strings.Fields(commands[0])
+	if len(fields) != 10 || strings.Join(fields[:3], " ") != "go run ./internal/catalog/cmd/cataloggen" || fields[9] != "-check" {
+		t.Fatalf("unexpected gate command shape: %q", commands[0])
+	}
+	args := append([]string(nil), fields[3:]...)
+	for i := 1; i < 6; i += 2 {
+		args[i] = filepath.Join(root, args[i])
+	}
+	if err := run(args); err != nil {
+		t.Fatalf("configured cataloggen run: %v", err)
+	}
+	stale := append([]string(nil), args...)
+	stale[1] = strings.ReplaceAll(stale[1], "v0.6.0", "v0.5.0")
+	stale[3] = strings.ReplaceAll(stale[3], "v0.6.0", "v0.5.0")
+	if err := run(stale); err == nil || !strings.Contains(err.Error(), "verify normative lock") {
+		t.Fatalf("stale configured cataloggen run = %v, want normative-lock refusal", err)
+	}
+}
+
+func TestGenerateDirectiveConsumesAdoptedAuthority(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "catalog.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var directives []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "//go:generate ") {
+			directives = append(directives, strings.TrimPrefix(line, "//go:generate "))
+		}
+	}
+	if len(directives) != 1 {
+		t.Fatalf("active directives = %d, want 1", len(directives))
+	}
+	fields := strings.Fields(directives[0])
+	if len(fields) != 9 || strings.Join(fields[:3], " ") != "go run ./cmd/cataloggen" {
+		t.Fatalf("unexpected directive: %q", directives[0])
+	}
+	args := append([]string(nil), fields[3:]...)
+	for i := 1; i < 6; i += 2 {
+		args[i] = filepath.Join("..", "..", args[i])
+	}
+	// Check mode drives the same Generate entry without writing the source tree.
+	if err := run(append(args, "-check")); err != nil {
+		t.Fatalf("directive cataloggen run: %v", err)
 	}
 }

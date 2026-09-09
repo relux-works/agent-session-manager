@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/relux-works/agent-session-manager/internal/cataloggen"
@@ -290,15 +291,61 @@ func TestGenerateRejectsReleaseContractSubstitution(t *testing.T) {
 
 func sourceInputs(t *testing.T) ([]byte, []byte) {
 	t.Helper()
-	metadata, err := os.ReadFile(filepath.Join("..", "catalog", "catalog.v0.5.0.json"))
+	metadata, err := os.ReadFile(filepath.Join("..", "catalog", "catalog.v0.6.0.json"))
 	if err != nil {
 		t.Fatalf("read metadata: %v", err)
 	}
-	lock, err := os.ReadFile(filepath.Join("..", "specpin", "v0.5.0.lock.json"))
+	lock, err := os.ReadFile(filepath.Join("..", "specpin", "v0.6.0.lock.json"))
 	if err != nil {
 		t.Fatalf("read source lock: %v", err)
 	}
 	return metadata, lock
+}
+
+// staleAuthorityInputs reads the superseded v0.5.0 metadata and lock. Generate
+// must refuse them: the committed catalog regenerates from the adopted v0.6.0
+// authority only, and a stale generation input is a refusal, not a fallback.
+func staleAuthorityInputs(t *testing.T) ([]byte, []byte) {
+	t.Helper()
+	metadata, err := os.ReadFile(filepath.Join("..", "catalog", "catalog.v0.5.0.json"))
+	if err != nil {
+		t.Fatalf("read stale metadata: %v", err)
+	}
+	lock, err := os.ReadFile(filepath.Join("..", "specpin", "v0.5.0.lock.json"))
+	if err != nil {
+		t.Fatalf("read stale source lock: %v", err)
+	}
+	return metadata, lock
+}
+
+// TestGenerateRefusesStaleV050Authority drives the production Generate entry
+// point with the superseded v0.5.0 metadata and lock. Both the stale lock and
+// the stale source identity inside the stale metadata must be refused with
+// ErrInvalidMetadata: adopting v0.6.0 does not keep a quiet v0.5.0 path. Each
+// arm pins the refusing layer by message, so a mutant that weakens only the
+// lock layer visibly moves the refusal instead of silently passing it.
+func TestGenerateRefusesStaleV050Authority(t *testing.T) {
+	t.Parallel()
+
+	staleMetadata, staleLock := staleAuthorityInputs(t)
+	if _, err := cataloggen.Generate(staleMetadata, staleLock); !refusesWith(err, "verify normative lock") {
+		t.Fatalf("Generate(stale v0.5.0 inputs) error = %v, want the lock layer refusal", err)
+	}
+	metadata, _ := sourceInputs(t)
+	if _, err := cataloggen.Generate(metadata, staleLock); !refusesWith(err, "verify normative lock") {
+		t.Fatalf("Generate(v0.6.0 metadata, stale v0.5.0 lock) error = %v, want the lock layer refusal", err)
+	}
+	_, lock := sourceInputs(t)
+	if _, err := cataloggen.Generate(staleMetadata, lock); !refusesWith(err, "source identity differs") {
+		t.Fatalf("Generate(stale v0.5.0 metadata, v0.6.0 lock) error = %v, want the metadata source refusal", err)
+	}
+}
+
+func refusesWith(err error, fragment string) bool {
+	if !errors.Is(err, cataloggen.ErrInvalidMetadata) {
+		return false
+	}
+	return strings.Contains(err.Error(), fragment)
 }
 
 func mutateMetadata(t *testing.T, source []byte, mutate func(map[string]any)) []byte {

@@ -77,10 +77,18 @@ planning authority.
 ## Normative Source Pin
 
 [`internal/specpin`](internal/specpin) embeds one implementation lock for
-`agent-session-manager-spec@v0.5.0`. Its production `Current` and `Verify`
+`agent-session-manager-spec@v0.5.0`, plus the adopted
+`agent-session-manager-spec@v0.6.0` lock (signed tag `v0.6.0`, verified
+before adoption). Its production `Current` and `Verify`
 entry points fail closed on a partial read, unknown member, source substitution,
 contract or fixture drift, and any byte-level lock change. It also projects the
 exact historical v0.4.3 registry without widening that immutable baseline.
+The v0.6.0 entry points (`CurrentV060`, `VerifyV060`) enforce the same
+closed policy over the 63-row prepared registry, and the v0.6.0 projections
+of the v0.5.0 and v0.4.3 registries are proved row-equal to the real
+historical locks, so adoption rewrites no history. `Current` and `CurrentV050` retain the historical v0.5.0 baseline.
+The catalogue generator, CI contract roots and traceability gate explicitly
+consume v0.6.0; localstore explicitly uses `CurrentV050`.
 
 This package is read-only and does not mutate durable state. Repeated reads are
 idempotent and isolated from caller mutation. It deliberately adds no `ax`
@@ -94,7 +102,11 @@ acceptance tasks land.
 same pinned release so repository fidelity gates can compare their artifacts
 against the specification text instead of against the implementation those
 artifacts are supposed to constrain. The upstream specification remains
-normative; this copy is a verification input and amends nothing.
+normative; this copy is a verification input and amends nothing. It
+additionally embeds the byte-exact adopted v0.6.0 `SPEC.md` behind the
+`LoadV060`/`ParseV060` entry points, which accept only
+`specpin.DocumentSHA256V060` and refuse the historical document; `Load`
+retains v0.5.0 for historical consumers; traceability uses `LoadV060`.
 
 `Load` accepts the document only when its SHA-256 equals
 `specpin.DocumentSHA256`, so a substituted, edited, truncated, or unreadable
@@ -2225,7 +2237,7 @@ Regenerate and verify the committed output with:
 
 ```bash
 go generate ./internal/catalog
-go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check
+go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6.0.json -contracts internal/specpin/v0.6.0.lock.json -output internal/catalog/catalog_gen.go -check
 go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/cataloggen -count=1
 ```
 
@@ -2233,13 +2245,14 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
 
 [`internal/traceability`](internal/traceability) provides the read-only
 repository gate used by CI. Its reviewed
-[`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
-registry independently enumerates implementation owners for all 60 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 98
-executable acceptance cases, 53 exact section bindings with their declared
-coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
-Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
-The generated v0.5.0 catalog also carries the reviewed schema/version/self-field
+[`ownership.v0.6.0.json`](internal/traceability/ownership.v0.6.0.json)
+registry independently enumerates implementation owners for all 63 current
+contract rows, 36 pinned or catalog-referenced normative section keys, 101
+executable acceptance cases, 56 exact section bindings with their declared
+coverage, 12 disclosed unowned sections, and 32 exact fixture identities or
+Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
+and the superseded v0.5.0 registry is checked as an owned legacy projection.
+The generated v0.6.0 catalog also carries the reviewed schema/version/self-field
 contracts used by canonical object identity calculation; generator validation
 binds each row to a pinned contract and rejects duplicate, unsupported,
 malformed, or digest-drifted metadata.
@@ -2336,10 +2349,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=53 full=1 partial=3 sliver=1 unevidenced=45 unmeasured=3 unowned=2 clauses_discharged=17/428
+section coverage: bindings=56 full=1 partial=3 sliver=1 unevidenced=48 unmeasured=3 unowned=12 clauses_discharged=17/463
 ```
 
-Fifty-three section bindings discharge 17 of the 428 normative clauses their
+Fifty-six section bindings discharge 17 of the 463 normative clauses their
 sections carry. One binding is `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
@@ -2370,13 +2383,18 @@ one is
 enforced by `validateBlobDescriptor` while its two receiver clauses have no
 implementation), three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of
 which carries a gap saying why the scanner measures zero and what is missing),
-and forty-one are `unevidenced`. Two sections are recorded unowned.
+and forty-eight are `unevidenced`. Twelve sections are recorded unowned.
+All 13 sections added by v0.6.0 name pending task owners in the reviewed
+registry gaps; these assignments grant no runtime admission. The
+[adoption ownership map](internal/traceability/adoption-v0.6.0.md) separates
+shared runtime APIs, their callers, product conformance and upstream source
+publication validators, and preserves historical acceptance obligations.
 Assigned-scope admission therefore succeeds today for `-section 6.2` and
 nothing else; every other assignment is refused with its ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-One admitted binding out of forty-nine covers a single clause, and it is
+One admitted binding out of fifty-six covers a single clause, and it is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and
@@ -2509,7 +2527,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | --- | --- | --- | --- |
 | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
-| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.5.0.json -contracts internal/specpin/v0.5.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6.0.json -contracts internal/specpin/v0.6.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
 | `github.com/pelletier/go-toml/v2` | Parse and emit TOML while the repository-owned Configuration layer enforces exact versioned closed schemas | Imported by `internal/config.Decode`, `internal/config.EncodeCurrent`, and explicit `internal/config.Migrate` at pinned module version `v2.4.3` | Validated Configuration values/TOML bytes in memory; explicit migration writes a same-directory replacement plus an owner-only versioned backup |
 | `modernc.org/sqlite` | Provide the pure-Go SQLite driver for the local derived index without a CGO platform dependency | Imported by `internal/localstore.OpenProjection` at pinned module version `v1.57.0` | `<state>/index.sqlite`, its owner-only lock and WAL/SHM/journal sidecars, and `<state>/index-recovery/<uuid>/` corruption evidence |

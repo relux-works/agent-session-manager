@@ -171,7 +171,11 @@ func decodePathRegistry(candidate []byte) ([]PathDefinition, error) {
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("%w: trailing JSON", ErrPathRegistry)
 	}
-	manifest, err := specpin.Current()
+	// The platform-path registry is intentionally historical: it binds the
+	// v0.5.0 source through the explicit CurrentV050 reader, never through
+	// whatever Current serves, so adopting a newer normative authority
+	// elsewhere cannot silently re-point this registry.
+	manifest, err := specpin.CurrentV050()
 	if err != nil {
 		return nil, fmt.Errorf("%w: verify source pin: %v", ErrPathRegistry, err)
 	}

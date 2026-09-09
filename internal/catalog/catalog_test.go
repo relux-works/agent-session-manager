@@ -3,6 +3,7 @@ package catalog_test
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -12,16 +13,21 @@ import (
 	"github.com/relux-works/agent-session-manager/internal/specpin"
 )
 
-func TestCurrentMatchesReviewedV050Catalog(t *testing.T) {
+// TestCurrentMatchesReviewedV060Catalog drives the production Current entry
+// point and pins it to the adopted v0.6.0 authority: release, source
+// identity, the exact 63-row verified registry, and the carried vocabulary
+// counts. The RPC-5 and new-contract assertions below are the consumer proof
+// that the adopted source is actually consumed, not merely pinned.
+func TestCurrentMatchesReviewedV060Catalog(t *testing.T) {
 	t.Parallel()
 
 	got := catalog.Current()
-	if got.Release != catalog.ReleaseV050 {
-		t.Fatalf("Current().Release = %q, want %q", got.Release, catalog.ReleaseV050)
+	if got.Release != catalog.ReleaseV060 {
+		t.Fatalf("Current().Release = %q, want %q", got.Release, catalog.ReleaseV060)
 	}
 	if got.Source.Repository != specpin.Repository ||
-		got.Source.Commit != specpin.CommitV050 ||
-		got.Source.DocumentSHA256 != specpin.DocumentSHA256 {
+		got.Source.Commit != specpin.CommitV060 ||
+		got.Source.DocumentSHA256 != specpin.DocumentSHA256V060 {
 		t.Fatalf("Current().Source = %#v, want exact spec pin", got.Source)
 	}
 	wantScope := []string{
@@ -33,16 +39,51 @@ func TestCurrentMatchesReviewedV050Catalog(t *testing.T) {
 		t.Fatalf("Current().Source.NormativeScope = %v, want %v", got.Source.NormativeScope, wantScope)
 	}
 
-	manifest, err := specpin.Current()
+	manifest, err := specpin.CurrentV060()
 	if err != nil {
-		t.Fatalf("specpin.Current() error = %v", err)
+		t.Fatalf("specpin.CurrentV060() error = %v", err)
 	}
-	wantContracts, err := manifest.ContractsForRelease(specpin.ReleaseV050)
+	wantContracts, err := manifest.ContractsForRelease(specpin.ReleaseV060)
 	if err != nil {
-		t.Fatalf("ContractsForRelease(v0.5.0) error = %v", err)
+		t.Fatalf("ContractsForRelease(v0.6.0) error = %v", err)
 	}
 	if !reflect.DeepEqual(contractPins(got.Contracts), wantContracts) {
-		t.Fatal("generated v0.5.0 contracts differ from the verified source pin")
+		t.Fatal("generated v0.6.0 contracts differ from the verified source pin")
+	}
+	if len(got.Contracts) != 63 {
+		t.Fatalf("v0.6.0 contracts = %d, want 63", len(got.Contracts))
+	}
+	for _, want := range []struct {
+		name     string
+		id       catalog.ContractID
+		versions []string
+	}{
+		{"Host Channel", "urn:ax:transport:host-channel", []string{"1.0.0"}},
+		{"Host Trust Store", "urn:ax:schema:host-trust-store", []string{"1.0.0"}},
+		{"Session selector", "urn:ax:contract:session-selector", []string{"1.0.0"}},
+		{"Configuration", "urn:ax:schema:config", []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0"}},
+		{"Mesh RPC", "urn:ax:protocol:rpc", []string{"2.0.0", "3.0.0", "4.0.0", "5.0.0"}},
+		{"Structured error", "urn:ax:schema:error", []string{"1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"}},
+		{"CLI result", "urn:ax:schema:cli-result", []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0"}},
+	} {
+		found := false
+		for _, contract := range got.Contracts {
+			if contract.Name == want.name && contract.ID == want.id && reflect.DeepEqual(contract.Versions, want.versions) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("v0.6.0 catalog omits adopted delta row %q %q %v", want.name, want.id, want.versions)
+		}
+	}
+	for _, operation := range got.Operations {
+		if operation.ContractID != "urn:ax:protocol:rpc" {
+			continue
+		}
+		if !reflect.DeepEqual(operation.ContractVersions, []string{"2.0.0", "3.0.0", "4.0.0", "5.0.0"}) {
+			t.Errorf("mesh operation %q versions = %v, want RPC 5 vocabulary", operation.Name, operation.ContractVersions)
+		}
 	}
 
 	if len(got.Operations) != 99 {
@@ -258,6 +299,66 @@ func TestCurrentMatchesReviewedV050Catalog(t *testing.T) {
 		default:
 			t.Errorf("operation %s/%s has unknown effect %q", operation.Family, operation.Name, operation.Effect)
 		}
+	}
+}
+
+// TestV050ProjectionMatchesHistoricalLock proves the superseded registry is
+// preserved exactly: the generated v0.5.0 projection must equal the real
+// v0.5.0 lock row for row, and its vocabulary counts must be the reviewed
+// ones. Legacy support claims stay truthful because this test reads the
+// historical lock bytes as an independent oracle, not the adopted manifest.
+func TestV050ProjectionMatchesHistoricalLock(t *testing.T) {
+	t.Parallel()
+
+	got, err := catalog.ForRelease(catalog.ReleaseV050)
+	if err != nil {
+		t.Fatalf("ForRelease(v0.5.0) error = %v", err)
+	}
+	lock, err := os.ReadFile(filepath.Join("..", "specpin", "v0.5.0.lock.json"))
+	if err != nil {
+		t.Fatalf("read historical lock: %v", err)
+	}
+	manifest, err := specpin.Verify(lock)
+	if err != nil {
+		t.Fatalf("specpin.Verify(historical lock) error = %v", err)
+	}
+	wantContracts, err := manifest.ContractsForRelease(specpin.ReleaseV050)
+	if err != nil {
+		t.Fatalf("ContractsForRelease(v0.5.0) error = %v", err)
+	}
+	if !reflect.DeepEqual(contractPins(got.Contracts), wantContracts) {
+		t.Fatal("generated v0.5.0 contracts differ from the historical source lock")
+	}
+	if len(got.Contracts) != 60 {
+		t.Errorf("v0.5.0 contracts = %d, want 60", len(got.Contracts))
+	}
+	for _, contract := range got.Contracts {
+		if contract.Name == "Session selector" || contract.Name == "Host Channel" || contract.Name == "Host Trust Store" {
+			t.Errorf("v0.5.0 projection carries adopted v0.6.0 row %q", contract.Name)
+		}
+	}
+	for _, operation := range got.Operations {
+		if operation.ContractID != "urn:ax:protocol:rpc" {
+			continue
+		}
+		if !reflect.DeepEqual(operation.ContractVersions, []string{"2.0.0", "3.0.0", "4.0.0"}) {
+			t.Errorf("v0.5.0 mesh operation %q versions = %v, want historical RPC vocabulary", operation.Name, operation.ContractVersions)
+		}
+	}
+	if len(got.Operations) != 99 {
+		t.Errorf("v0.5.0 operations = %d, want 99", len(got.Operations))
+	}
+	if len(got.Capabilities) != 46 {
+		t.Errorf("v0.5.0 capabilities = %d, want 46", len(got.Capabilities))
+	}
+	if len(got.Events) != 112 {
+		t.Errorf("v0.5.0 events = %d, want 112", len(got.Events))
+	}
+	if len(got.Errors) != 109 {
+		t.Errorf("v0.5.0 errors = %d, want 109", len(got.Errors))
+	}
+	if len(got.SelfIdentities) != 40 {
+		t.Errorf("v0.5.0 self identity contracts = %d, want 40", len(got.SelfIdentities))
 	}
 }
 

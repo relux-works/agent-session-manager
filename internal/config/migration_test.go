@@ -303,13 +303,14 @@ func TestMigrateFsyncsEveryStagedFileBeforeItBecomesVisible(t *testing.T) {
 // catalog's declared major versions rather than from the production comparison,
 // so the case SPEC 6.5 names literally - "A v1/v2 binary opening v3 is
 // read-only diagnostic" - is asserted at both the one-major and two-major step,
-// and every same-or-older pair is asserted compatible in the other direction.
+// and every same-or-older implemented reader pair is compatible. Adopted
+// census versions with no runtime reader are explicitly refused.
 func TestAssessCompatibilityPinsEveryPinnedVersionPairAtTheProductionEntry(t *testing.T) {
 	versions := pinnedConfigurationVersions(t)
 	if len(versions) < 2 {
 		t.Fatalf("pinned catalog declares %d Configuration versions, need at least two to bound a downgrade", len(versions))
 	}
-	readOnlyPairs, compatiblePairs := 0, 0
+	readOnlyPairs, compatiblePairs, refusedReaders := 0, 0, 0
 	for _, source := range versions {
 		for _, reader := range versions {
 			source, reader := source, reader
@@ -321,6 +322,15 @@ func TestAssessCompatibilityPinsEveryPinnedVersionPairAtTheProductionEntry(t *te
 				document := minimalValidConfigVersion(scalar.PlatformMacOS, source)
 				original := append([]byte(nil), document...)
 				assessment, err := AssessCompatibility(document, reader)
+				if reader == Version4 {
+					if !errors.Is(err, ErrCompatibilityReader) {
+						t.Fatalf("AssessCompatibility(%s, unimplemented reader %s) = %#v, %v; want reader refusal", source, reader, assessment, err)
+					}
+					if !bytes.Equal(document, original) {
+						t.Fatal("reader refusal mutated source bytes")
+					}
+					return
+				}
 				if err != nil {
 					t.Fatalf("AssessCompatibility(%s document, %s reader) error = %v", source, reader, err)
 				}
@@ -334,7 +344,9 @@ func TestAssessCompatibilityPinsEveryPinnedVersionPairAtTheProductionEntry(t *te
 					t.Fatal("compatibility assessment mutated the source bytes")
 				}
 			})
-			if majorVersionForTest(t, source) > majorVersionForTest(t, reader) {
+			if reader == Version4 {
+				refusedReaders++
+			} else if majorVersionForTest(t, source) > majorVersionForTest(t, reader) {
 				readOnlyPairs++
 			} else {
 				compatiblePairs++
@@ -343,8 +355,8 @@ func TestAssessCompatibilityPinsEveryPinnedVersionPairAtTheProductionEntry(t *te
 	}
 	// Both branches must be exercised, so a gate that answered a single mode
 	// for every pair cannot pass by covering only one side.
-	if readOnlyPairs == 0 || compatiblePairs == 0 {
-		t.Fatalf("cross-product exercised %d read-only and %d compatible pairs; both directions are required", readOnlyPairs, compatiblePairs)
+	if readOnlyPairs != 6 || compatiblePairs != 6 || refusedReaders != 4 {
+		t.Fatalf("16 version pairs: read-only=%d compatible=%d refused-reader=%d; want 6/6/4", readOnlyPairs, compatiblePairs, refusedReaders)
 	}
 }
 

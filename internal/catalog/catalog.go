@@ -14,6 +14,7 @@ const (
 
 	ReleaseV043 Release = "v0.4.3"
 	ReleaseV050 Release = "v0.5.0"
+	ReleaseV060 Release = "v0.6.0"
 )
 
 var ErrUnsupportedRelease = errors.New("unsupported catalog release")
@@ -180,11 +181,13 @@ type scopedError struct {
 	Releases   []Release
 }
 
-//go:generate go run ./cmd/cataloggen -metadata catalog.v0.5.0.json -contracts ../specpin/v0.5.0.lock.json -output catalog_gen.go
+//go:generate go run ./cmd/cataloggen -metadata catalog.v0.6.0.json -contracts ../specpin/v0.6.0.lock.json -output catalog_gen.go
 
-// Current returns an isolated v0.5.0 catalog.
+// Current returns an isolated catalog for the adopted v0.6.0 source. The
+// exact historical v0.5.0 and v0.4.3 projections remain available through
+// ForRelease; they are derived from the adopted lock, never retyped.
 func Current() Catalog {
-	catalog, err := ForRelease(ReleaseV050)
+	catalog, err := ForRelease(ReleaseV060)
 	if err != nil {
 		panic(fmt.Sprintf("generated current catalog is invalid: %v", err))
 	}

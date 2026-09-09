@@ -19,9 +19,20 @@ import (
 )
 
 const (
-	metadataFormat                  = "ax-implementation-catalog"
-	metadataFormatVersion           = 1
-	reviewedMetadataCanonicalSHA256 = "7bbc5172fbd77216ef4888126787a91a2aabea63b8aa308a9a8ac2ccbc1e5bab"
+	metadataFormat        = "ax-implementation-catalog"
+	metadataFormatVersion = 1
+
+	// reviewedMetadataCanonicalSHA256 pins the v0.6.0 reviewed metadata:
+	// the v0.5.0 families carried onto the adopted v0.6.0 source with Mesh
+	// RPC 5.0.0 (SPEC 11.10.1: RPC 5 carries the exact RPC-4 operations).
+	// No family gains operations, capabilities, events, or sections beyond
+	// the adopted delta. Structured Error 1.4.0 stays out of the error
+	// vocabulary on purpose: the axerror registry is closed over 1.0-1.3
+	// and the 1.4.0 code-to-exit mapping has no Go owner yet, so minting
+	// the codes here would panic every axerror consumer at init. The 1.4.0
+	// contract version itself is adopted at the census level through the
+	// verified lock, and Section 14.7.3 is disclosed unowned.
+	reviewedMetadataCanonicalSHA256 = "5788d45d89a7f7a39f91130e4758d86697d22097a39e0a86cb32a0e9de87b963"
 )
 
 var ErrInvalidMetadata = errors.New("invalid implementation catalog metadata")
@@ -168,8 +179,14 @@ var (
 
 // Generate is the production generation entry point. It is pure: callers own
 // any output write and receive no partial artifact on validation failure.
+//
+// Generate verifies the adopted v0.6.0 normative lock and derives every
+// release projection the lock represents: the v0.6.0 current registry and
+// the exact historical v0.5.0 and v0.4.3 projections. A stale v0.5.0 lock or
+// metadata bound to it is refused, so the committed catalog cannot be
+// regenerated against superseded authority.
 func Generate(metadataBytes, contractLock []byte) ([]byte, error) {
-	manifest, err := specpin.Verify(contractLock)
+	manifest, err := specpin.VerifyV060(contractLock)
 	if err != nil {
 		return nil, invalid("verify normative lock: %v", err)
 	}
@@ -466,8 +483,8 @@ func validateFamilyHeader(kind string, index int, family, contractID string, ver
 }
 
 func releaseContractVersions(manifest specpin.Manifest) (map[string]map[string]map[string]struct{}, error) {
-	result := make(map[string]map[string]map[string]struct{}, 2)
-	for _, release := range []string{specpin.ReleaseV043, specpin.ReleaseV050} {
+	result := make(map[string]map[string]map[string]struct{}, 3)
+	for _, release := range []string{specpin.ReleaseV043, specpin.ReleaseV050, specpin.ReleaseV060} {
 		contracts, err := manifest.ContractsForRelease(release)
 		if err != nil {
 			return nil, err
@@ -530,7 +547,7 @@ func validateReleases(releases []string) error {
 	if len(releases) == 0 {
 		return errors.New("release set is empty")
 	}
-	order := map[string]int{specpin.ReleaseV043: 0, specpin.ReleaseV050: 1}
+	order := map[string]int{specpin.ReleaseV043: 0, specpin.ReleaseV050: 1, specpin.ReleaseV060: 2}
 	previous := -1
 	for _, release := range releases {
 		position, ok := order[release]
@@ -660,7 +677,7 @@ func writeSource(output *bytes.Buffer, value metadata) {
 
 func writeContracts(output *bytes.Buffer, manifest specpin.Manifest) {
 	output.WriteString("\tContracts: map[Release][]Contract{\n")
-	for _, release := range []string{specpin.ReleaseV043, specpin.ReleaseV050} {
+	for _, release := range []string{specpin.ReleaseV043, specpin.ReleaseV050, specpin.ReleaseV060} {
 		contracts, err := manifest.ContractsForRelease(release)
 		if err != nil {
 			panic(err)

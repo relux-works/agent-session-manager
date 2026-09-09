@@ -37,6 +37,7 @@ func TestLoadSupportsEveryPinnedConfigurationVersionAndTranslatesLegacyAtProduct
 		Version1:       minimalValidConfigVersion(scalar.PlatformMacOS, Version1),
 		Version2:       minimalValidConfigVersion(scalar.PlatformMacOS, Version2),
 		CurrentVersion: minimalValidConfigVersion(scalar.PlatformMacOS, CurrentVersion),
+		Version4:       minimalValidConfigVersion(scalar.PlatformMacOS, Version4),
 	}
 	if len(fixtures) != len(expected) {
 		t.Fatalf("reader fixture registry has %d versions, pinned catalog requires %v", len(fixtures), expected)
@@ -48,6 +49,17 @@ func TestLoadSupportsEveryPinnedConfigurationVersionAndTranslatesLegacyAtProduct
 			document, ok := fixtures[version]
 			if !ok {
 				t.Fatalf("pinned Configuration version %s has no production reader fixture", version)
+			}
+			if version == Version4 {
+				// SPEC 6.6 makes a 4.0.0 document on a 3.0.0 reader a
+				// refusal, never legacy selection: translating one down to
+				// 3.0.0 would silently drop the mandatory mesh.transport
+				// and mesh.host_channel members, so Load must refuse with
+				// the unsupported-version refusal instead of translating.
+				if _, err := loadConfigDocument(document, scalar.PlatformMacOS, nil); !errors.Is(err, ErrUnsupportedConfigVersion) {
+					t.Fatalf("Load(%s) error = %v, want unsupported-version refusal", version, err)
+				}
+				return
 			}
 			snapshot, err := loadConfigDocument(document, scalar.PlatformMacOS, nil)
 			if err != nil {

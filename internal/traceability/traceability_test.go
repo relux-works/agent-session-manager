@@ -27,19 +27,19 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 		t.Fatalf("VerifyRepository() error = %v", err)
 	}
 	want := Report{
-		Contracts:              60,
+		Contracts:              63,
 		NormativeSections:      36,
-		AcceptanceCases:        98,
-		Fixtures:               30,
+		AcceptanceCases:        101,
+		Fixtures:               32,
 		CompatibilityContracts: 55,
-		SectionBindings:        53,
+		SectionBindings:        56,
 		FullCoverage:           1,
 		PartialCoverage:        3,
 		SliverCoverage:         1,
-		UnevidencedCoverage:    45,
+		UnevidencedCoverage:    48,
 		UnmeasuredCoverage:     3,
-		UnownedSections:        2,
-		NormativeClauses:       428,
+		UnownedSections:        12,
+		NormativeClauses:       463,
 		DischargedClauses:      17,
 	}
 	if !reflect.DeepEqual(report, want) {
@@ -120,7 +120,7 @@ func TestVerifyAssignedSectionsRejectsMalformedUnpinnedAndEmptyScope(t *testing.
 	}{
 		{name: "empty", sections: nil, contains: "assigned section scope is empty"},
 		{name: "malformed", sections: []string{"10.x!"}, contains: "invalid assigned section"},
-		{name: "nonexistent", sections: []string{"10.999"}, contains: "not a real v0.5.0 section identifier"},
+		{name: "nonexistent", sections: []string{"10.999"}, contains: "not a real v0.6.0 section identifier"},
 	} {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
@@ -223,12 +223,67 @@ func TestVerifyRepositoryRejectsNarrowedOwnership(t *testing.T) {
 	}
 }
 
+// TestVerifyRepositoryRefusesStaleV050Lock drives the production
+// VerifyRepository entry point with the superseded v0.5.0 lock bytes at the
+// lock path. The adopted authority is v0.6.0, so a stale lock is a refusal,
+// never a quiet fallback to the previous baseline.
+func TestVerifyRepositoryRefusesStaleV050Lock(t *testing.T) {
+	t.Parallel()
+
+	repository := repositorySnapshot(t)
+	if _, err := VerifyRepository(repository); err != nil {
+		t.Fatalf("baseline VerifyRepository() error = %v, want green mask before planting", err)
+	}
+	stale, err := os.ReadFile(filepath.Join("..", "specpin", "v0.5.0.lock.json"))
+	if err != nil {
+		t.Fatalf("read stale lock: %v", err)
+	}
+	repository[contractLockPath] = &fstest.MapFile{Data: bytes.Clone(stale)}
+	_, err = VerifyRepository(repository)
+	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), "verify normative source lock") {
+		t.Fatalf("VerifyRepository(stale v0.5.0 lock) error = %v, want ErrTraceability verifying the normative source lock", err)
+	}
+}
+
+// TestVerifyRepositoryRefusesMissingSelectorContract pins the omission arm
+// for an adopted v0.6.0 row: a registry that drops the Session selector
+// contract owner is refused naming the exact missing key, so a new contract
+// cannot silently lose its implementation owner.
+func TestVerifyRepositoryRefusesMissingSelectorContract(t *testing.T) {
+	t.Parallel()
+
+	repository := repositorySnapshot(t)
+	if _, err := VerifyRepository(repository); err != nil {
+		t.Fatalf("baseline VerifyRepository() error = %v, want green mask before planting", err)
+	}
+	rewriteRegistry(t, repository, func(registry *ownershipRegistry) {
+		for index := range registry.Ownership {
+			if registry.Ownership[index].Kind != ownershipContract {
+				continue
+			}
+			kept := registry.Ownership[index].Keys[:0]
+			for _, key := range registry.Ownership[index].Keys {
+				if key == "Session selector [urn:ax:contract:session-selector]" {
+					continue
+				}
+				kept = append(kept, key)
+			}
+			registry.Ownership[index].Keys = kept
+		}
+	})
+	_, err := VerifyRepository(repository)
+	want := `registered contract "Session selector [urn:ax:contract:session-selector]" has no implementation owner`
+	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), want) {
+		t.Fatalf("VerifyRepository() error = %v, want ErrTraceability containing %q", err, want)
+	}
+}
+
 func TestCatalogSectionBindingCoverageIsExactAndDoesNotClaimUnimplementedScope(t *testing.T) {
 	t.Parallel()
 
-	current, err := catalog.ForRelease(catalog.ReleaseV050)
+	current, err := catalog.ForRelease(catalog.ReleaseV060)
 	if err != nil {
-		t.Fatalf("ForRelease(v0.5.0) error = %v", err)
+		t.Fatalf("ForRelease(v0.6.0) error = %v", err)
 	}
 	bindings, err := expectedCatalogSectionBindings(current)
 	if err != nil {
@@ -1240,5 +1295,52 @@ func TestMentionsSectionRequiresAWholeIdentifier(t *testing.T) {
 		if got := mentionsSection(test.text, test.display); got != test.want {
 			t.Errorf("mentionsSection(%q, %q) = %v, want %v", test.text, test.display, got, test.want)
 		}
+	}
+}
+
+// A task owner is a future implementation obligation, never coverage. Derive
+// the complete new-section denominator from the two pinned source inventories.
+func TestAdoptedSectionsHavePendingOwnersAndRefuseRuntimeAdmission(t *testing.T) {
+	repository := repositorySnapshot(t)
+	if _, err := VerifyRepository(repository); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := decodeOwnershipRegistry(repository[ownershipRegistryPath].Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gaps := map[string]string{}
+	for _, group := range registry.Ownership {
+		if group.Kind == ownershipSectionBinding {
+			for _, key := range group.Keys {
+				gaps[strings.TrimPrefix(key, "section:")] = group.Gap
+			}
+		}
+	}
+	for _, entry := range registry.UnownedSections {
+		gaps[strings.TrimPrefix(entry.Key, "section:")] = entry.Gap
+	}
+	previous := map[string]bool{}
+	for _, section := range specpin.SectionInventoryV050() {
+		previous[section] = true
+	}
+	count := 0
+	for _, section := range specpin.SectionInventoryV060() {
+		if previous[section] {
+			continue
+		}
+		count++
+		t.Run(section, func(t *testing.T) {
+			if !strings.Contains(gaps[section], "Pending implementation owner: TASK-") {
+				t.Fatalf("new section %s has no pending task owner: %q", section, gaps[section])
+			}
+			_, err := VerifyAssignedSections(repository, []string{section})
+			if !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), "Pending implementation owner: TASK-") {
+				t.Fatalf("VerifyAssignedSections(%s) = %v; pending owner must not grant runtime admission", section, err)
+			}
+		})
+	}
+	if count != 13 {
+		t.Fatalf("new-section owner/refusal cases = %d, want 13 of 13", count)
 	}
 }
