@@ -1,0 +1,7 @@
+# Checkpoint accepted non-final source pin leaf
+
+Integration-role producer operation only. Completed reviewer RUN-260909-515154 accepted TASK-260908-3kvnm2 CR1 and task is integrating. Exact candidate49db6d060742b6ba68426ad583c17f0e7afcf5da base2a8db9653e476f8375371b16e9b6b82adfa23b91, producer roledeveloper/archetypeimplementer. Read review-verdict-rev1.md. This is non-final task_delta; sibling2tkufa remains open.
+
+Use supported task-board worktree checkpoint TASK-260908-3kvnm2 from the correct control root with explicit actual RFC3339 commit-time as required. Verify immutable accepted revision binding and resulting signed Ivan Oparin commit/tree/parent. Do not change source, create another CR, run redundant semantic tests, integrate Story, push main, create LOGBOOK or perform destructive cleanup. Preserve candidate and all other worktrees. If drift/authority refusal occurs, report exact evidence and preserve it; do not bypass.
+
+Attach task-scoped checkpoint outcome with command/exits, signed commit/tree/checkpoint state. Leave task integrating per checkpoint contract, do not handoff back to-review. The next leaf is TASK-260908-2tkufa and must wire actualV060 consumers and catalogue as specified by reviewer. Its producer must use individual command exits and clean isolated mutant copies; previous producer mutant-battery log was not valid evidence, independent reviewer recovered six genuine kills. No runtime support claimed by this checkpoint.
