@@ -1,0 +1,9 @@
+# RUN-260908-0dbb0d — blocked audit 2
+
+Fresh spawn goal/directives confirms GOAL-260907-d09cee revision 1, the unchanged six-leaf required-review delivery scope, and no new directives. TASK-260830-21gygk and TASK-260830-2xt6fd remain blocked. All assigned runtime chain owners (1c28dz, 35urbp, 2056mm, kkh1an, 1geqhj) remain to-dev. The aggregate Epic remains integrating; the prior supported integrating-to-blocked mutation refusal is retained in the owner stop packet and is not bypassed.
+
+Source BUG-260908-dgwq5i remains development under primary ownership. PR184 remains OPEN at exact 7a0296eeb4994d2a4c60af7b50cf2df183f8b973 with six QUEUED jobs in the fresh GitHub read. It is not accepted/landed/installed evidence, and no duplicate source repair or draft installation is authorized. The additional aggregate-owner lifecycle reproduction is attached to that source bug as a precondition.
+
+Previous goal turn: progress, because it reproduced a previously unrecorded contradictory lifecycle gate and routed its actual refusal to the existing owner. Current turn: no product progress after revalidation. Queued CI was inspected but does not resolve the contract or runtime dependency. No live product child is being abandoned; no new command is running in the background.
+
+This is the second consecutive blocker observation in this recovery run. Provider goal remains active because its fresh three-turn threshold is not yet met. No success claim, no scope change, no acceptance rollback, no new product code and no repeat request for the already pending selector decision. Full options, evidence, preserved source manifests, six-task acceptance map, and exact external inputs remain in EPIC-260830-1uwj54_RUN-260908-0dbb0d-stop-line.md. Resume requires the selector contract and assigned runtime implementation; the source owner also owes a supported truthful aggregate stop path without regressing accepted leaves.
