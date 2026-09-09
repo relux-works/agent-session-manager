@@ -2474,18 +2474,26 @@ Project management is intentionally global. The repository does not declare or
 install `project-management`; development uses the globally installed skill
 and `task-board` CLI.
 
-Repository development routing in `task-board.config.json` admits only Codex
-`gpt-6-astra` with `medium` or `high` reasoning for all new spawns, including
-producers and reviewers. Mechanical, documentation, and operations workloads
-recommend medium first; all other workloads, including review, recommend high
-then medium. Every recommendation uses Astra. Existing runs and their work are
-preserved. Retained Claude and Muse ceiling definitions are inactive under
-exclusive Codex admission; Claude, Muse, and Fable are not active spawn routes.
+Repository development routing in `task-board.config.json` admits Muse
+`muse-spark` with `xhigh` reasoning and Codex `gpt-6-astra` with `medium` or
+`high` reasoning for new spawns. Producers recommend Muse Spark xhigh first;
+the ceiling restricts Codex reviewer effort to Astra medium, with a Codex
+reviewer medium default, and the review workload recommends medium only.
+Required operator routing selects Codex Astra medium for all new reviewers;
+Muse reviewer admission remains possible at provider ceiling level with no
+recommendations. Empty recommendations are advisory, not refusal.
+Architecture workloads stay Codex Astra high then medium. Mechanical,
+documentation, and operations workloads recommend Muse xhigh, then Codex
+medium, then Codex high; all other producer workloads recommend Muse xhigh,
+then Codex high, then Codex medium. The mixed allow-set is limited to Muse
+and Codex: other providers are refused, and the retained Claude ceiling
+definition is inactive under mixed admission. Existing runs and their work
+are preserved.
 
 Inspect effective admission and recommendations before spawning:
 
 ```bash
-task-board q 'project_config(view=spawn-preflight, role=developer, agent=codex, workload_class=mechanical)'
+task-board q 'project_config(view=spawn-preflight, role=developer, agent=muse, workload_class=mechanical)'
 task-board q 'project_config(view=spawn-preflight, role=reviewer, agent=codex, workload_class=review)'
 ```
 
