@@ -5,7 +5,9 @@
 // canonical identity attestation through the canonicaljson owner, so
 // query-layer admission (internal/sessquery) never attests the binding
 // itself: it calls AttestLeaseRecord and then extracts the already
-// validated members. The provhost identity bound allowlists this site
+// validated members. The lease store's mint path confirms through the
+// same funnel, keeping this file the leaf's only direct Verify caller
+// for lease objects. The provhost identity bound allowlists this site
 // with the three session record/event sites.
 package sessrepo
 

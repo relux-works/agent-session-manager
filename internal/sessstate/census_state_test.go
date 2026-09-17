@@ -89,8 +89,8 @@ func sessstateRefusalRows() map[string]string {
 		"sessstate.go:849": "TestReduceRefusesLeaseLinkageMismatch/envelope_outside_payload",
 		"sessstate.go:865": "TestReduceRefusesTaskBoardRepeatMismatch/foreign_provider",
 		"sessstate.go:876": "TestReduceRefusesTaskBoardRepeatMismatch/foreign_creation_lease",
-		"sessstate.go:924": "TestReduceRefusesUnionVectors/empty_lease_head",
-		"sessstate.go:927": "TestReduceRefusesUnionVectors/malformed_lease_id",
+		"sessstate.go:929": "TestReduceRefusesUnionVectors/empty_lease_head",
+		"sessstate.go:932": "TestReduceRefusesUnionVectors/malformed_lease_id",
 	}
 }
 

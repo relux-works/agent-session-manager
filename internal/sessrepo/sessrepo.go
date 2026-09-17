@@ -137,6 +137,10 @@ type Repository struct {
 	BeforeWrite     func() error
 	AfterCommit     func() error
 	AfterCreateStep func(CreateStep) error
+	// AfterLeaseStage fires after a lease blob stages and fsyncs and
+	// before the install rename. It is nil in normal operation; crash
+	// tests drive the rename seam through it.
+	AfterLeaseStage func() error
 }
 
 // Open binds a repository to the sessions namespace beneath dataRoot,

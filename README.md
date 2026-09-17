@@ -1632,9 +1632,11 @@ to a prefix admits exactly the near miss.
 
 ## Session Repository and Append-Only Event Chain
 
-[`internal/sessrepo`](internal/sessrepo) persists and validates Session Records
-and per-session event chains with source sequence continuity (pinned v0.5.0
-Sections 2.3, 5.1-5.2, 5.7, 14.4). `Open` binds a repository to the sessions
+[`internal/sessrepo`](internal/sessrepo) persists and validates Session Records,
+per-session event chains with source sequence continuity, and the Lease Record
+lifecycle with compare-and-swap succession (pinned v0.5.0 Sections 2.3,
+5.1-5.2, 5.7, 14.4, plus the v0.6.0 lease lifecycle in Sections 2.2, 5.3,
+13.6-13.10). `Open` binds a repository to the sessions
 namespace beneath a data root. `CreateSession` validates one Session Record
 through `canonicaljson.VerifyObjectIdentity` and stores its bytes verbatim;
 `AppendEvent` validates one Session Event the same way and links it onto the
@@ -1683,16 +1685,36 @@ ID, a record without a chain retries the byte-identical record (full-content
 equality, not length-only), and a torn store past the create window has no
 healing retry — the operator removes
 `<data-root>/sessions/<session-id>` after confirming no host will retry, and
-the listing heals. The two content-equality comparisons (resume in
-`sessrepo.go`, blob install in `chain.go`) each ship a same-length differing
-vector and a length-only narrowing mutant.
+the listing heals. The three content-equality comparisons (resume in
+`sessrepo.go`, blob install in `chain.go`, lease install in `lease_store.go`)
+each ship a same-length differing vector and a length-only narrowing mutant.
 
-The package derives no lifecycle state, renders no list/status output, learns
-no peer names, and takes no lease-arbitration decision: the Section 5.7
-reducer, the full Section 2.3 order with interactive choice, Section 14.4
-rendering, and cross-partition lease convergence belong to the sibling leaves
-that build on these entries. It adds no `ax` command, no `doctor` result, and
-no runtime capability claim.
+The lease lifecycle mints epoch-1 `create` leases from the durable bootstrap
+inputs (`CreateLease`), persists successors through compare-and-swap
+(`CompareAndSwapLease`), and revalidates fencing tokens (`VerifyFencingToken`)
+with the operational grant-expiry policy (`CheckFencingExpiry`). Lease blobs
+are immutable content-addressed files installed stage-then-rename beneath the
+session directory — there is no lease index to skew — and the winner is the
+greatest `(epoch, lease_id)` tuple derived from the blobs on every read. A
+successor always extends the head (epoch head plus one, predecessor the head
+fencing token); an expectation naming nothing known refuses `lease_conflict`,
+a superseded expectation refuses stale (or replays the persisted successor
+when the input already applied as its successor, so a retry after a crashed
+commit names its pre-commit basis and still succeeds), and a reused fencing
+token refuses. Fencing renewal accepts the winning token and refuses stale,
+future, losing, and foreign-holder tokens each in its own class; grants lapse
+past the refresh interval while the lease itself never expires — liveness is
+not authority, and grants are never persisted. A real SIGKILL drill at the
+rename seam proves no torn final and a safe identical retry. Query-layer
+admission is unchanged and admits store-minted records without behavioral
+change.
+
+The package derives no lifecycle state, renders no list/status output, and
+learns no peer names: the Section 5.7 reducer, the full Section 2.3 order with
+interactive choice, and Section 14.4 rendering belong to the sibling leaves
+that build on these entries, as do checkpoint admission on the write path and
+cross-partition union convergence. It adds no `ax` command, no `doctor`
+result, and no runtime capability claim.
 
 Run the focused tests and coverage with:
 
@@ -1701,11 +1723,13 @@ go test ./internal/sessrepo -count=1
 go test ./internal/sessrepo -cover -count=1
 ```
 
-The unfiltered package run derives the 35-site refusal inventory from the
+The unfiltered package run derives the 61-site refusal inventory from the
 production source through `internal/invcore` (5 in `sessrepo.go`, 25 in
-`chain.go`, 5 in `store.go`): every `refuse` call site must
+`chain.go`, 5 in `store.go`, 26 in `lease_store.go`): every `refuse` call site must
 have a boundary-driven negative path (`Open`, `CreateSession`, `AppendEvent`,
-`GetRecord`, `GetEvent`, `ListEvents`, `ListSessions`, `Resolve`), every
+`GetRecord`, `GetEvent`, `ListEvents`, `ListSessions`, `Resolve`,
+`CreateLease`, `CompareAndSwapLease`, `GetLease`, `ListLeases`,
+`WinningLease`, `VerifyFencingToken`, `CheckFencingExpiry`), every
 exercised site must derive, sentinel wraps outside the funnel fail, and the
 observed sentinel set must equal the derived roster. The load re-verification
 holds three separate rows — verify failure, non-`event_id` self field, and
@@ -1714,9 +1738,10 @@ audit keeps the funnel and the watched owner delegations
 (`VerifyObjectIdentity`, `DecodeStrictObject`, `CheckUUIDv7`,
 `CheckUint53Bounds`, `ParseDigest`, `ParseUUIDv7`, `ParseUUIDv4`) in
 direct-call position, proved by plants that include an import alias and a var
-binding in both directions. A second derived census covers the two
-content-equality comparisons (`bytes.Equal` in `sessrepo.go` resume and
-`chain.go` blob install, plus the `string(...) ==` spelling form): every
+binding in both directions. A second derived census covers the three
+content-equality comparisons (`bytes.Equal` in `sessrepo.go` resume,
+`chain.go` blob install, and `lease_store.go` lease install, plus the
+`string(...) ==` spelling form): every
 derived site needs a registered same-length vector, an unregistered site, an
 orphan row, or an unclassifiable spelling fails the gate, and the static
 census runs on every full package run whether the suite is green or red, so a
@@ -1724,7 +1749,13 @@ red test masks no plant. The mutation battery (33 applied, 33 killed, 0
 survivors; 16 narrowing, 10 arm-deletion, 4 census-only, 3 audit-only; plus
 NOT_APPLIED and COMPILE_FAIL controls) covers the write, load, and recovery
 paths — including the per-session parked channel and both content-equality
-comparisons — and is recorded on the owning task board item.
+comparisons — and is recorded on the owning task board item. The lease
+lifecycle ships its own battery through
+`internal/sessrepo/testdata/mutate.py` (27 applied — 26 narrowing, one per
+refusal site, plus one token-preserving timestamp mutant — 27 killed, 0
+survivors; plus SURVIVED, NOT_APPLIED, and COMPILE_OR_HARNESS_FAILURE
+controls reported separately),
+covering every lease gate at its production entry with per-plant raw logs.
 
 ## Session State Reducer
 
@@ -1995,6 +2026,123 @@ stay pinned by the derivation test on every host.
 
 Task validation logs and conformance artifacts are attached to
 `TASK-260830-2zvo8m`.
+
+## Provider and pane fencing gates
+
+[`internal/fencing`](internal/fencing) gates every activation-class action on
+the winning lease and the exact fencing epoch (pinned v0.6.0 Sections 2.2,
+5.3, and 13.6-13.10, the Section 4 terminal wrapper rule, and the Section 7.5
+`LeaseToken`). `Observe` loads the winning lease through the `sessrepo` owner
+and combines it with the caller's sync, handoff, grant, and clock facts;
+`AuthorizeActivation`, `AuthorizeInput`, `AuthorizeMutation`,
+`AuthorizeCheckpoint`, and `AuthorizeRestore` decide over that observation
+through one core, and `AuthorizeTerminateStale` gates stale-process
+termination. A passed gate mints a sealed `LeaseToken` that binds the exact
+`{session_id, lease_epoch, lease_id}` triple to the `quiesce`, `capture`, and
+`materialize` provider operations; a failed gate refuses with a Section 15
+registered code and nothing else (`lease_conflict`, `not_owner`, `stale_owner`
+at exit 10, `invalid_arguments` at exit 2, `local_precondition_failed` at
+exit 3, proven by constructing each through `internal/axerror`). Launch-class
+entries park instead of refusing when ownership is remote, ambiguous,
+unverified, or absent, carrying the Section 5.2 `session.parked` vocabulary
+(`remote_owner`, `stale_owner`, `restore_policy`, `failed_handoff`) with the
+winning lease ID; every other entry refuses outright. Takeover, fork, stop,
+and resume transactions are modeled as callers, not members: the gates own
+their entry points only, and terminal backends and provider plugin processes
+stay outside the package.
+
+The gates are pure over durable inputs: they perform no writes, hold no
+cache, and read no clock except the caller-supplied reading, so there is no
+crash seam and repeated evaluation decides identically. The sealed token has
+no exported field or constructor — only the gate mints it — and an AST census
+pins that boundary with comment/string controls plus an alias-backdoor plant
+that preserves the searched-for token while changing the construction path.
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/fencing -count=1
+go test ./internal/fencing -cover -count=1
+```
+
+Run the narrowing battery (30 narrowing mutants plus one token-preserving
+census mutant and three controls) with:
+
+```bash
+python3 internal/fencing/testdata/mutate.py /absolute/path/to/new/evidence-dir
+```
+
+The harness copies the tree, applies each plant, runs the named behavioral
+tests (the full suite for the census mutant), and writes per-mutant logs with
+real exits to `mutants.json`; it restores its copied sources and never
+mutates the managed worktree. Task validation logs and mutation artifacts are
+attached to `TASK-260830-3g12yp`; scratch outputs live under
+`.temp/TASK-260830-3g12yp/`. The package adds no `ax` command, no `doctor`
+result, and no runtime capability claim; the clause-to-test matrix with its
+stated bounds lives in
+[the task evidence map](internal/fencing/TRACEABILITY.md).
+
+## Ownership reducer properties
+
+The four story-pinned ownership invariants (pinned v0.6.0 Sections 2.2, 5.3,
+and 13.6-13.10) hold as executable property tests over the landed production
+reducers — `sessstate.Reduce` with `Compare` and the union projection,
+`sessrepo.WinningLease` with `ListLeases`, and `fencing.Authorize*`:
+
+1. Union-order independence: every permutation of a union multiset, and every
+   partition into successive unions, projects byte-identically (winner,
+   conflicts, divergent-history warnings). Losing-branch evidence is a pure
+   function of the union multiset: every entry below the final winner reports
+   in ascending tuple order naming the final winner.
+2. Loser preservation: a losing lease — lower epoch, or same epoch losing the
+   tuple order — is never dropped, rewritten, or promoted; its history stays
+   visible as divergent/conflict evidence after unions, force takeovers, and
+   reconnects, and superseded store blobs stay byte-identical.
+3. Clock non-authority: `created_at` and absolute wall-clock position never
+   influence the winner, the fencing decision, or the parked/refused outcome.
+   The fencing-grant age relative to the refresh policy stays authoritative by
+   design; the property translates the clock with the age fixed.
+4. Zero duplicate authorized owners: at most one lease is authoritative per
+   logical session and epoch, and the gates admit exactly that one — no two
+   hosts, processes, or presenters ever both pass an activation-class gate for
+   the same session.
+
+The generators use a closed small alphabet (epochs 1..4, lease IDs R/A/B/C,
+holders A/B, hosts h1/h2, the landed Section 5.3 reasons) with exhaustive
+enumeration where the space is small — all union multisets of size 0..3 with
+all distinct permutations and all ordered 2-partitions across three chain
+shapes, all `Compare` pairs and triples, all reason sequences of length 0..2,
+and the full 6-presenter by 5-observation by 5-operation gate table — and
+bounded seeded-random exploration otherwise (seed 260830 for union multisets
+of size 4..6, seed 260831 for reason sequences of length 3..5, both with
+recorded iteration counts). Each test logs its exact enumeration counts. The
+refusal of a malformed union names the first malformed entry in arrival order;
+order-independence covers well-formed inputs only, and malformed vectors stay
+with the landed negative tests.
+
+Run the focused properties with:
+
+```bash
+go test ./internal/sessstate ./internal/sessrepo ./internal/fencing -run '^TestOwnership' -count=1
+```
+
+Run the falsification battery (8 narrowing mutants plus three controls) with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 internal/sessstate/testdata/mutate_properties.py /absolute/path/to/new/evidence-dir
+```
+
+Each plant keeps its reducer present and weakens it to admit exactly one
+member of the rejected class (inverted tie-break, first-arrival evidence
+target, dropped same- or lower-epoch losers, clock-consulting creation and
+expiry, admitted same-epoch loser, admitted remote holder); a named ownership
+property must fail, the applied harmless control must survive, and the
+harness refuses any other outcome. The harness copies the tree, runs each
+plant in isolation with real exits, and restores its copied sources; it never
+mutates the managed worktree. Task validation logs and mutation artifacts are
+attached to `TASK-260830-2atgj4`; scratch outputs live under
+`.temp/TASK-260830-2atgj4/`. The suite adds no `ax` command, no `doctor`
+result, and no runtime capability claim.
 
 ## Session selector, read summaries, and selection plans
 
@@ -2845,9 +2993,9 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6
 repository gate used by CI. Its reviewed
 [`ownership.v0.6.0.json`](internal/traceability/ownership.v0.6.0.json)
 registry independently enumerates implementation owners for all 63 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 119
-executable acceptance cases, 59 exact section bindings with their declared
-coverage, 12 disclosed unowned sections, and 32 exact fixture identities or
+contract rows, 36 pinned or catalog-referenced normative section keys, 131
+executable acceptance cases, 60 exact section bindings with their declared
+coverage, 11 disclosed unowned sections, and 32 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
 and the superseded v0.5.0 registry is checked as an owned legacy projection.
 The generated v0.6.0 catalog also carries the reviewed schema/version/self-field
@@ -2947,10 +3095,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=59 full=2 partial=5 sliver=3 unevidenced=45 unmeasured=4 unowned=12 clauses_discharged=38/489
+section coverage: bindings=60 full=2 partial=6 sliver=4 unevidenced=44 unmeasured=4 unowned=11 clauses_discharged=49/511
 ```
 
-Fifty-nine section bindings discharge 38 of the 489 normative clauses their
+Sixty section bindings discharge 49 of the 511 normative clauses their
 sections carry. Two bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
@@ -2959,7 +3107,7 @@ refusal arm; and Section 2.4 at 4/4, bound to
 [`internal/sessprofile`](internal/sessprofile), whose derivation, checkpoint
 closure, fork projection, and mapping-failure clauses are discharged by the
 profile derivation, heads, fork-pair, and mapping-resolution acceptance
-cases), five are
+cases), six are
 `partial` (Section 13.13 at 9/11, bound to
 [`internal/matjournal`](internal/matjournal) with the
 [`internal/crashgate`](internal/crashgate) conformance harness, whose
@@ -2969,6 +3117,9 @@ lifecycle-projection surfaces this repository has no binary or projection to
 produce; Section 14.2 at 8/9, bound to
 [`internal/cliresult`](internal/cliresult), whose undischarged clause `14.2#6`
 is the process exit status this repository has no binary to produce; Section
+5.3 at 7/8, bound to
+[`internal/sessrepo`](internal/sessrepo), whose undischarged clause `5.3#5`
+is the initiator-union maximum no takeover flow computes yet; Section
 15.1 at 5/7 and Section 15.3 at 2/3, both bound to
 [`internal/axerror`](internal/axerror); the three undischarged clauses there are
 the RPC hello obligation `15.1#5`, the bootstrap-row sentence `15.1#6` that
@@ -2990,17 +3141,21 @@ bound to [`internal/provhost`](internal/provhost), whose undischarged clause
 `7.7#2` is the machine-local-alias sentence - the omit rule is enforced, but a
 shell word that expands to unrestricted mode without spelling a table token is
 beyond argv inspection),
-three are
+four are
 `sliver` (Section 10.3, whose chunk offset invariant is
 enforced by `validateBlobDescriptor` while its two receiver clauses have no
 implementation; Section 5.5 at 1/3, whose discharged negative-battery clause
 is enforced by identity creation and checking while the opaque-map content
-rule stays half-decided; and Section 8 at 4/12, whose discharged probe,
+rule stays half-decided; Section 8 at 4/12, whose discharged probe,
 label-integrity, and row-separation clauses are enforced by the resume tuple
 gate and the native-resume smoke while every materialization rule stays
-unimplemented), four are `unmeasured` (Sections 7.3, 13.12, 13.14.5 and 15.2, each of
+unimplemented; and Section 2.2 at 4/22, bound to
+[`internal/fencing`](internal/fencing), whose discharged clauses are the
+single-owner, replica-restraint, winning-epoch-carriage, and
+losing-event-rejection invariants while the replication, secret, store,
+and directory invariants have no implementation), four are `unmeasured` (Sections 7.3, 13.12, 13.14.5 and 15.2, each of
 which carries a gap saying why the scanner measures zero and what is missing),
-and forty-five are `unevidenced`. Twelve sections are recorded unowned.
+and forty-four are `unevidenced`. Eleven sections are recorded unowned.
 All 13 sections added by v0.6.0 name pending task owners in the reviewed
 registry gaps; these assignments grant no runtime admission. The
 [adoption ownership map](internal/traceability/adoption-v0.6.0.md) separates
@@ -3012,7 +3167,7 @@ ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-Two admitted bindings out of fifty-nine cover five clauses, and that is
+Two admitted bindings out of sixty cover five clauses, and that is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and
@@ -3149,6 +3304,8 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | --- | --- | --- | --- |
 | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
 | `sessquery` mutation harness | Run isolated selector, plan, summary, and admission narrowing/order mutants with exact replacement and real test-exit classification | `python3 internal/sessquery/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
+| `fencing` mutation harness | Run isolated fencing-gate narrowing mutants, one token-preserving census mutant, and three controls with real test-exit classification | `python3 internal/fencing/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
+| `ownership properties` mutation harness | Run isolated ownership-invariant narrowing mutants and three controls with real test-exit classification | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessstate/testdata/mutate_properties.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
 | Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -adopted -output internal/catalog/catalog_gen.go -check` (`-metadata`/`-contracts` select the same inputs explicitly); `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |

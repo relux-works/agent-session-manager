@@ -1,27 +1,34 @@
-// Package sessrepo persists and validates AX Session Records and the
-// append-only per-session event chain with source sequence continuity.
+// Package sessrepo persists and validates AX Session Records, the
+// append-only per-session event chain with source sequence continuity, and
+// the Lease Record lifecycle with compare-and-swap succession.
 //
 // Normative scope: AX v0.5.0 sections 2.3 (session name resolution), 5.1
 // (Session Record), 5.2 (Session Event), 5.7 (derived session states), and
-// 14.4 (list and status fields). This package owns durable session state:
-// the immutable record, the ordered event chain beneath it, and the stored
+// 14.4 (list and status fields), plus the v0.6.0 lease lifecycle in
+// sections 2.2 (global invariants), 5.3 (Lease Record and ownership), and
+// 13.6-13.10 (takeover, fork, stop, resume). This package owns durable
+// session state: the immutable record, the ordered event chain beneath it,
+// the immutable lease blobs with their winning head, and the stored
 // identity fields that later leaves project into lifecycle state, resolved
 // names, and list/status rows.
 //
 // Division of authority inside this story:
 //
-//   - Validation of record and event closed shapes and of every self-identity
-//     digest is owned by internal/canonicaljson and reached only through its
-//     production VerifyObjectIdentity entry. Entry decodes refuse a foreign
-//     schema before Verify; the load path re-verifies stored blobs through
-//     Verify — recomputing whatever digest the bytes claim — and refuses a
-//     non-event_id self field or an index-disagreeing digest at its named
-//     arms. This package never re-decodes a frame, never recomputes a
-//     bound, and never selects a self field.
+//   - Validation of record, event, and lease closed shapes and of every
+//     self-identity digest is owned by internal/canonicaljson and reached
+//     only through its production entries (VerifyObjectIdentity for
+//     attestation, CalculateObjectIdentity for minting identity). Entry
+//     decodes refuse a foreign schema before Verify; the load path
+//     re-verifies stored blobs through Verify — recomputing whatever
+//     digest the bytes claim — and refuses a non-event_id self field or
+//     an index-disagreeing digest at its named arms, or a torn lease blob
+//     through the lease load funnel. This package never re-decodes a
+//     frame, never recomputes a bound, and never selects a self field.
 //   - Strict frame decoding and scalar bound checks on the members this
 //     package must read (session and lease identifiers, lease_sequence,
-//     predecessor digests, names) are owned by internal/environ and
-//     internal/scalar and reached only through their production checks.
+//     predecessor digests, names, fencing tokens, timestamps) are owned by
+//     internal/environ and internal/scalar and reached only through their
+//     production checks.
 //   - Crash-point vocabulary and outcomes are owned by
 //     internal/secconftest. The repository fires the owner's own points
 //     through the owner's Injector: a fault before the durable write carries
@@ -29,6 +36,11 @@
 //     crashed commit counts as committed.
 //   - The refusal census denominator is derived from production through
 //     internal/invcore; see census_test.go.
+//   - The winning-tuple rule is owned by internal/sessstate (Compare).
+//     The lease store restates it as CompareLeaseTuple because sessstate
+//     imports this package, and a cross-package agreement test pins
+//     identical order. Query-layer admission (internal/sessquery
+//     winningLeaseFor) is unchanged and admits store-minted records.
 //
 // Per-session parked reporting (SPEC.md:9082, Section 13.13
 // recoverable_parked_state; Section 14.4 per-session warnings).
@@ -67,6 +79,18 @@
 //     verifies): no CreateSession retry heals it. A byte-identical
 //     retry is refused as an existing session and a differing retry is
 //     refused the same way; the store stays parked.
+//   - Missing lease after a killed install: retry CreateLease or
+//     CompareAndSwapLease with the byte-identical input. The install is
+//     stage-then-rename, so a kill leaves at most an orphaned staged
+//     temp (ignored on load, never a torn final); the retry replays to
+//     the same digest, and a duplicate install of identical bytes is
+//     reused. A CAS retry still names its pre-commit expectation: the
+//     replay check re-mints against that basis and answers the persisted
+//     successor.
+//   - Torn lease blob (disagreeing bytes at a digest path, or a blob
+//     that no longer attests): no retry heals it. The colliding write is
+//     refused with ErrChainCorrupt and every lease read funnels the same
+//     class; the operator remedy below applies to the leases namespace.
 //
 // Operator remedy. There is no delete, prune, or quarantine entry by
 // design: records and events are append-only and no production path
@@ -87,8 +111,17 @@
 //   - Single authoritative branch. The repository tracks one ordered chain
 //     per session in arrival order. A same-epoch event under a different
 //     lease is preserved as an immutable blob but refused from the chain
-//     with ErrDivergentBranch; lease arbitration across partitions belongs
-//     to the ownership-leases story, not to this leaf.
+//     with ErrDivergentBranch; converging lease histories across
+//     partitions (union and divergent-branch reconciliation) belongs to
+//     the sibling ownership leaves, not to this record lifecycle.
+//   - No checkpoint admission on the write path. CAS requires a
+//     well-formed checkpoint digest for every successor, but validating
+//     that the digest names an admitted checkpoint for the predecessor
+//     lease stays with the query-layer admission this store feeds.
+//   - No wall-clock lease expiry. The lease never expires (Section 5.3);
+//     only the process-local fencing grant lapses past the refresh
+//     interval, and revalidation renews it. Grants are never persisted
+//     and never replicated.
 //   - No lifecycle derivation. Section 5.7 SessionState reduction and the
 //     full Section 2.3 four-step resolution order (peer-learned names,
 //     interactive choice) belong to the sibling reducer and name-resolution

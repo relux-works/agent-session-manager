@@ -898,7 +898,10 @@ func (fold *chainFold) noteCheckpoint(id, kind, eventID string) {
 // an off-chain union winner moves the reported winner but never
 // rewrites authoritative state; union leases that lose are reported
 // preserved-never-applied. With no union the chain head wins alone
-// and no conflict is recorded.
+// and no conflict is recorded. The reported projection is a pure
+// function of the union multiset: every permutation and every
+// partition into successive unions yields the identical winner,
+// conflicts, and warnings.
 func (fold *chainFold) resolveWinner(union []LeaseHead) error {
 	winner := fold.current
 	onChain := map[string]struct{}{}
@@ -918,7 +921,9 @@ func (fold *chainFold) resolveWinner(union []LeaseHead) error {
 	for _, lease := range fold.chainLeases() {
 		note(lease)
 	}
-	offChainWinner := false
+	// First pass: validate every union entry and select the greatest
+	// tuple. The winner depends only on the multiset, never on
+	// arrival order.
 	for _, lease := range union {
 		if lease.IsZero() {
 			return refuse(ErrInvalidEvent, "union carries an empty lease head")
@@ -927,23 +932,28 @@ func (fold *chainFold) resolveWinner(union []LeaseHead) error {
 			return refuse(ErrInvalidEvent, "union lease %q is not a UUIDv4: %v", lease.LeaseID, err)
 		}
 		note(lease)
-		switch Compare(lease, winner) {
-		case 1:
+		if Compare(lease, winner) > 0 {
 			winner = lease
-			if _, ok := onChain[lease.LeaseID]; !ok {
-				offChainWinner = true
-			}
-		case -1:
-			fold.conflict(ConflictLosingBranchPreserved, ResolveRulePreservedNeverApplied,
-				"union lease (%d, %s) loses to (%d, %s); its history stays preserved and never applies",
-				lease.Epoch, lease.LeaseID, winner.Epoch, winner.LeaseID)
-		case 0:
-			// A duplicate union entry names the tuple already
-			// selected: the winner and the off-chain flag stand.
-			// Clearing here would drop a correctly recorded
-			// union_supersedes_chain conflict (and its
-			// divergent_history warning) on a repeated entry.
 		}
+	}
+	// Second pass: every union entry strictly below the final winner
+	// is reported preserved-never-applied in ascending tuple order,
+	// naming the final winner. Reporting each loss against the
+	// transient arrival-order winner instead would make the conflict
+	// evidence — even its presence — depend on union order. A
+	// duplicate of the winning tuple is neither greater nor lesser,
+	// so it reports nothing and the off-chain flag below stands.
+	losing := make([]LeaseHead, 0, len(union))
+	for _, lease := range union {
+		if Compare(lease, winner) < 0 {
+			losing = append(losing, lease)
+		}
+	}
+	sort.Slice(losing, func(i, j int) bool { return Compare(losing[i], losing[j]) < 0 })
+	for _, lease := range losing {
+		fold.conflict(ConflictLosingBranchPreserved, ResolveRulePreservedNeverApplied,
+			"union lease (%d, %s) loses to (%d, %s); its history stays preserved and never applies",
+			lease.Epoch, lease.LeaseID, winner.Epoch, winner.LeaseID)
 	}
 	epochs := make([]uint64, 0, len(byEpoch))
 	for epoch := range byEpoch {
@@ -963,6 +973,20 @@ func (fold *chainFold) resolveWinner(union []LeaseHead) error {
 		fold.conflict(ConflictSameEpochTie, ResolveRuleGreatestLeaseIDWins,
 			"epoch %d is shared by leases %v; the bytewise-greater lease ID %s wins",
 			epoch, ordered, ordered[len(ordered)-1])
+	}
+	// The off-chain flag is recomputed from the final winner rather
+	// than tracked through the arrival order: it is set exactly when
+	// the winning tuple stands outside the authoritative chain and
+	// arrived in the union. A repeated winning entry keeps the
+	// conflict recorded (and its divergent_history warning raised).
+	offChainWinner := false
+	if _, ok := onChain[winner.LeaseID]; !ok {
+		for _, lease := range union {
+			if lease == winner {
+				offChainWinner = true
+				break
+			}
+		}
 	}
 	if offChainWinner {
 		fold.conflict(ConflictUnionSupersedesChain, ResolveRuleAuthoritativeStateUnchanged,

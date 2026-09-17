@@ -29,18 +29,18 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 	want := Report{
 		Contracts:              63,
 		NormativeSections:      36,
-		AcceptanceCases:        119,
+		AcceptanceCases:        131,
 		Fixtures:               32,
 		CompatibilityContracts: 55,
-		SectionBindings:        59,
+		SectionBindings:        60,
 		FullCoverage:           2,
-		PartialCoverage:        5,
-		SliverCoverage:         3,
-		UnevidencedCoverage:    45,
+		PartialCoverage:        6,
+		SliverCoverage:         4,
+		UnevidencedCoverage:    44,
 		UnmeasuredCoverage:     4,
-		UnownedSections:        12,
-		NormativeClauses:       489,
-		DischargedClauses:      38,
+		UnownedSections:        11,
+		NormativeClauses:       511,
+		DischargedClauses:      49,
 	}
 	if !reflect.DeepEqual(report, want) {
 		t.Fatalf("VerifyRepository() report = %#v, want %#v", report, want)
@@ -661,7 +661,7 @@ func TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers(t *testing.T) 
 	}{
 		{"1.6", `binding "section:1.6" discharges 0/31 normative clauses, which is unevidenced coverage`},
 		{"2.1", `binding "section:2.1" discharges 0/1 normative clauses, which is unevidenced coverage`},
-		{"2.2", `binding "section:2.2" is recorded unowned:`},
+		{"2.2", `binding "section:2.2" discharges 4/22 normative clauses, which is sliver coverage`},
 		{"2.3", `binding "section:2.3" discharges 0/7 normative clauses, which is unevidenced coverage`},
 		{"3.2", `binding "section:3.2" discharges 0/13 normative clauses, which is unevidenced coverage`},
 		{"3.3", `binding "section:3.3" discharges 0/4 normative clauses, which is unevidenced coverage`},
@@ -935,9 +935,9 @@ func TestPlantedSliverRedensTheProductionEntryPoints(t *testing.T) {
 			name: "an unowned entry pads its gap with a neighbouring identifier",
 			mutate: func(registry *ownershipRegistry) {
 				registry.UnownedSections[0].Gap =
-					"Section 2.22 lease and replica invariants are not implemented in this repository at all."
+					"Section 18.44 audit retention is not implemented in this repository at all."
 			},
-			contains: `unowned section "section:2.2" does not name what 2.2 leaves unimplemented: gap does not name section 2.2 as a whole identifier`,
+			contains: `unowned section "section:18.4" does not name what 18.4 leaves unimplemented: gap does not name section 18.4 as a whole identifier`,
 		},
 		{
 			name: "a contract owner claims section coverage",
@@ -974,14 +974,14 @@ func TestPlantedSliverRedensTheProductionEntryPoints(t *testing.T) {
 			mutate: func(registry *ownershipRegistry) {
 				registry.UnownedSections[0].Gap = "todo"
 			},
-			contains: `unowned section "section:2.2" does not name what 2.2 leaves unimplemented`,
+			contains: `unowned section "section:18.4" does not name what 18.4 leaves unimplemented`,
 		},
 		{
 			name: "an unowned entry discloses no evidence",
 			mutate: func(registry *ownershipRegistry) {
 				registry.UnownedSections[0].Evidence = ""
 			},
-			contains: `unowned section "section:2.2" states no evidence for its gap`,
+			contains: `unowned section "section:18.4" states no evidence for its gap`,
 		},
 		{
 			name: "an unowned entry is self-minted for a section that does not exist",

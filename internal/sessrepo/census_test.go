@@ -46,6 +46,7 @@ var sessrepoBoundarySites = map[string]struct{}{}
 
 var sessrepoBoundaryMarkers = []string{
 	"sessrepo.Open",
+	"sessrepo.CheckFencingExpiry",
 	").CreateSession",
 	").AppendEvent",
 	").GetRecord",
@@ -53,6 +54,12 @@ var sessrepoBoundaryMarkers = []string{
 	").ListEvents",
 	").ListSessions",
 	").Resolve",
+	").CreateLease",
+	").CompareAndSwapLease",
+	").GetLease",
+	").ListLeases",
+	").WinningLease",
+	").VerifyFencingToken",
 }
 
 func TestMain(main *testing.M) {
@@ -649,8 +656,9 @@ func unclassifiableEqualitySpellings(syntax *ast.File, fileSet *token.FileSet, d
 // without a site is a witness without a guard.
 func sessrepoEqualityLedger() map[string]string {
 	return map[string]string{
-		"sessrepo.go:258": "TestCreateSessionRefusesResumeWithDifferingBytes // N10 length-only",
-		"chain.go:426":    "TestAppendEventRefusesSameLengthDisagreeingBytes // N13 length-only",
+		"sessrepo.go:262":    "TestCreateSessionRefusesResumeWithDifferingBytes // N10 length-only",
+		"chain.go:426":       "TestAppendEventRefusesSameLengthDisagreeingBytes // N13 length-only",
+		"lease_store.go:650": "TestInstallDisagreeingBytesRefuses/same_length // N length-only",
 	}
 }
 

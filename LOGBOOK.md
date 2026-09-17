@@ -5,6 +5,53 @@
 
 ## 2026-09-17
 
+### TASK-260830-2atgj4 — property-test the ownership reducer (final leaf)
+
+- SCOPE: executable proofs of the four story-pinned ownership invariants
+  (union-order independence, loser preservation, clock non-authority,
+  zero duplicate authorized owners) over `sessstate.Reduce`/`Compare`,
+  `sessrepo.WinningLease`/`ListLeases`, and `fencing.Authorize*`
+  (Sections 2.2, 5.3, 13.6-13.10, v0.6.0). Final leaf of
+  STORY-260830-1oqfec; carries the story-close traceability,
+  README, and registry re-pin items.
+- DEFECT (RED-first): `resolveWinner` reported each losing union lease
+  against the transient arrival-order winner, so a loser's
+  divergent-history evidence — even its presence — depended on union
+  order (witness: `{R@1, A@1}` on an empty chain reports the loss in
+  one arrival order and drops it in the other). FIX: two-pass
+  resolution — select the greatest tuple first, then report every
+  entry below it in ascending tuple order naming the final winner,
+  with the off-chain flag recomputed from the final winner. All
+  landed union assertions were order-free, so only the refusal-census
+  line pins moved (sessstate.go:924/927 to :929/:932).
+- GENERATORS: closed small alphabet, hand-written (no new dependency):
+  exhaustive multisets of size 0..3 with all permutations and all
+  ordered 2-partitions over three chain shapes, all `Compare`
+  pairs/triples against an independent builtin-operator oracle, all
+  reason sequences of length 0..2, the full presenter/observation/
+  operation gate table, plus seeded-random union multisets (seed
+  260830) and reason sequences (seed 260831) with recorded counts.
+- MUTANTS (`internal/sessstate/testdata/mutate_properties.py`): 8
+  narrowing plants (inverted tie-break, first-arrival evidence
+  target, dropped same-/lower-epoch losers, clock-consulting
+  creation and expiry, admitted same-epoch loser, admitted remote
+  holder), each KILLED by its named property; applied harmless
+  control SURVIVED; not-applied and compile-failure controls
+  classified separately. The expiry plant is invisible to the landed
+  suite (all-2026 fixtures) and only the translation property kills
+  it, which proves the property adds falsification power.
+- BOUNDS: grant age relative to the refresh policy stays authoritative
+  by design (only absolute clock position is non-authoritative);
+  malformed-union refusal evidence names the first malformed entry in
+  arrival order (order-independence covers well-formed inputs);
+  no `ax` command, doctor result, or runtime capability is claimed.
+- TRACEABILITY: three new acceptance cases
+  (`lease-ownership-union/store/gate-properties`) bound to `Reduce`,
+  `WinningLease`, and `Authorize`, attached to the discharged 5.3#6,
+  5.3#7, 2.2#1, 2.2#2, and 2.2#4 clause evidence with unchanged
+  coverage ratios; section:17.2 gap reworded to its narrower
+  reader-enum meaning; registry digest re-pinned; acceptance count
+  128 to 131 with the README figure and tracecheck pins updated.
 ### TASK-260830-17ootk — Section 13.13 crash/restart outcome gate (`internal/crashgate`, story-final)
 
 - NEW PACKAGE: boundary registry (94 IDs: 12 Section 13.13 table
@@ -254,6 +301,87 @@
   implemented") is stale but the registry digest is review-pinned
   against self-minting, so the text is untouched; the clause
   record lives in `internal/sessckpt/TRACEABILITY.md` (stated bound 5).
+
+### TASK-260830-3g12yp — implement provider and pane fencing gates
+- SCOPE (`internal/fencing`): winning lease plus exact epoch before
+  provider activation/launch, provider input, owner-authored mutation,
+  checkpoint capture, and terminal restore/wrapper first start, with
+  terminate-stale gated on explicit force recovery. Sections 2.2, 5.3,
+  13.6-13.10, the Section 4 wrapper rule, and the Section 7.5
+  `LeaseToken` (v0.6.0).
+- DESIGN: no second lease model — the winner loads through the
+  `sessrepo` owner, expiry reuses `CheckFencingExpiry`, and the gates
+  compare one presented token for exact equality without ordering two
+  leases. Launch entries park with the `session.parked` vocabulary
+  (remote/ambiguous/unverified/absent); all other entries refuse
+  outright. Every refusal carries a Section 15 registered code only
+  (proven by constructing each through `axerror`). The sealed
+  `LeaseToken` has no exported field or constructor; an AST census
+  pins the single mint site. Takeover/fork/stop/resume are modeled
+  as callers; no transaction, backend, or plugin process is built.
+- PRECEDENCE (pinned by test): malformed calls die first, then
+  foreign sessions, then presence/verifiability, then the grant,
+  then direction (a stale token under a remote winner parks
+  remote), then the exact tuple match.
+- MUTANTS: the shipped `internal/fencing/testdata/mutate.py` battery
+  reports 31/31 applied plants killed (30 narrowing — epoch `==` to
+  `>=`/`<=`, lease/session/holder prefix confusion, expiry widening,
+  park/refuse swaps — plus 1 token-preserving census-alias mutant
+  executed against the full behavioral suite); the harmless control
+  is `SURVIVED`, `NOT_APPLIED`/`COMPILE_OR_HARNESS_FAILURE` stay
+  separate. Per-plant logs live under `.temp/TASK-260830-3g12yp/`.
+- TRACEABILITY: Section 5.3 binding moved to the real
+  `CompareAndSwapLease` owner at 7/8 partial (only the caller-side
+  union-maximum clause stays open); Section 2.2 moved from unowned
+  to a 4/22 sliver bound to `Authorize`; 9 lease acceptance cases
+  registered; the tuple-agreement test grew from 6 pairs to an
+  exhaustive 144-pair enumeration. Pin re-derived: 110 cases, 57
+  bindings, 28/485 clauses.
+- PURITY: the gates perform no durable writes, so crash evidence is
+  the no-write test (byte-identical tree plus identical verdicts
+  across two runs), not a seam drill.
+- COVERAGE: 18 of 18 shared-library AC rows driven by named
+  production entries; public CLI coverage is 0 of 18 by stated
+  ownership bound. Candidate left uncommitted in the managed Story
+  worktree for handoff.
+
+### TASK-260830-2f5393 — implement Lease Record validation and CAS lifecycle
+- SCOPE (`internal/sessrepo/lease_store.go`): epoch-1 `create` leases from
+  the durable bootstrap inputs, successor leases through compare-and-swap,
+  fencing-token renewal, the operational grant-expiry policy, epoch
+  monotonicity (head plus one, never from input), host-UUIDv7 holder
+  identity, and tuple-ordered reads over content-addressed blobs with no
+  lease index to skew. Sections 2.2, 5.3, 13.6-13.10 (v0.6.0).
+- DESIGN: no second lease model — closed shape/identity stay with
+  `canonicaljson`, the tuple rule stays with `sessstate.Compare`
+  (restated as `CompareLeaseTuple` across the import cycle, pinned by a
+  cross-package agreement test), and `sessquery.winningLeaseFor` is
+  unchanged (an adoption test proves store-minted records admit there).
+  Mint failures are plain operational errors, never refusals, so a
+  weakened grammar gate fails closed at mint with a changed class —
+  which is what kills its narrowing mutant.
+- EXPIRY POLICY: the lease itself never expires (Section 5.3; pinned by
+  an ancient-`created_at` test); only the process-local fencing grant
+  lapses past the configured refresh interval, and revalidation renews
+  it. Grants are never persisted or replicated.
+- CAS IDEMPOTENCY: a retry names its pre-commit basis, so the replay
+  check re-mints against that basis (not the head) and answers the
+  persisted successor; this fixed a real bug found by the idempotency
+  test where head-minted retries minted epoch+2 and tripped token reuse.
+- CRASH: injector arms (`safe_retry` pre-write, `recoverable_parked`
+  post-commit with replay) plus real SIGKILL child drills at the
+  stage-then-rename seam for create and CAS, with fresh-handle reopen,
+  orphaned-temp tolerance, and exact-epoch retry assertions.
+- MUTANTS: the shipped `internal/sessrepo/testdata/mutate.py` battery
+  reports 27/27 applied plants killed (26 narrowing — one per new
+  `refuse` site — plus 1 token-preserving timestamp mutant); the
+  harmless control is `SURVIVED`,
+  `NOT_APPLIED`/`COMPILE_OR_HARNESS_FAILURE` stay separate. The refusal
+  census grows to 61 sites (26 lease) and the equality census to three
+  ledgered sites.
+- COVERAGE: 8 of 8 shared-library AC rows driven by named production
+  entries; public CLI coverage is 0 of 8 by stated ownership bound.
+  Candidate left uncommitted in the managed Story worktree for handoff.
 
 ### TASK-260830-21gygk — rev16 rework: normalize Go aliases in the sealed-capability census
 - REVIEW FINDING CLOSED (CR15 P2-A): the package-wide `go/types` census
