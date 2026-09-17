@@ -5,6 +5,12 @@
 
 ## 2026-09-17
 
+### TASK-260917-3lt2xv — release-agnostic cataloggen check via -adopted
+- CONTRACT: validation command 21 was pinned to explicit v0.6.0 inputs, so a Story re-pointing the catalog at a new revision failed construction at its own gate. The fix declares the adopted release once (`catalog.Adopted`, consumed by `Current()`) and adds a cataloggen `-adopted` mode deriving `internal/catalog/catalog.<adopted>.json` and `internal/specpin/<adopted>.lock.json` relative to `-root` (default "."). Mixed `-adopted` with explicit `-metadata`/`-contracts`, a missing derived input (message names the derived path), and a lock whose source release differs from adopted are refused before generation; otherwise the same Generate call and `-check`/`-output` semantics run byte-identically to the explicit form.
+- GATE: command 21 is now `go run ./internal/catalog/cmd/cataloggen -adopted -output internal/catalog/catalog_gen.go -check`; every other validation command unchanged. No catalog content, metadata, lock, or generated-output change.
+- TESTS: adopted positives, byte-identity (adopted vs explicit v0.6.0 vs committed), and all refusals driven through the production `run` entry; the configured-command test asserts the `-adopted` shape and runs it rooted at the repo. Narrowing mutants per refusal plus a byte-identity derivation mutant, all killed; harmless control SURVIVED. Both the candidate `-adopted` command and trunk's explicit command are green on the tree.
+- DOCS: README regenerate block and tool row document the `-adopted` form and the explicit equivalent. No behavior or availability claims added.
+
 ### TASK-260830-21gygk — rev16 rework: normalize Go aliases in the sealed-capability census
 - REVIEW FINDING CLOSED (CR15 P2-A): the package-wide `go/types` census
   compared lexical `*types.TypeName` objects, so a Go alias could bypass the

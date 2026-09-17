@@ -889,6 +889,24 @@ func assertOperationEffectNames(t *testing.T, catalogValue catalog.Catalog, effe
 	assertFamilyNames(t, got, want)
 }
 
+// TestCurrentIsPinnedToAdoptedRelease pins the Current entry point to the
+// single code-level adopted release: Current serves Adopted, and Adopted
+// stays a represented release of the generated definition.
+func TestCurrentIsPinnedToAdoptedRelease(t *testing.T) {
+	t.Parallel()
+
+	if catalog.Current().Release != catalog.Adopted {
+		t.Fatalf("Current().Release = %q, want Adopted %q", catalog.Current().Release, catalog.Adopted)
+	}
+	adopted, err := catalog.ForRelease(catalog.Adopted)
+	if err != nil {
+		t.Fatalf("ForRelease(Adopted) error = %v", err)
+	}
+	if adopted.Release != catalog.Adopted {
+		t.Fatalf("ForRelease(Adopted).Release = %q, want %q", adopted.Release, catalog.Adopted)
+	}
+}
+
 func assertFamilyNames(t *testing.T, got, want map[string][]string) {
 	t.Helper()
 	if reflect.DeepEqual(got, want) {
