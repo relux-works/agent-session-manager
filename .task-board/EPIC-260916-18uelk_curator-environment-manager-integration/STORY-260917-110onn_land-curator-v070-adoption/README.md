@@ -1,0 +1,10 @@
+# STORY-260917-110onn: land-curator-v070-adoption
+
+## Description
+Land the complete, already-reviewed v0.7.0 adoption delta on current trunk after STORY-260916-3uqbwq became unlandable: its accepted CR-TASK-260916-n9r71p-2 cannot integrate (validation_suite_changed once trunk grew a validation command), cannot refresh (accepted is not a rework revision), cannot converge (the Story carries its own checkpoint commit) and cannot be withdrawn (accepted admits no abort), and an accepted sibling CR blocks every further producer in that Story. The content itself is reviewed and verified: the pin leaf TASK-260916-2yzf5d rev1 was accepted (verdict on that task) and checkpointed as 9cb5dd4; the registry leaf TASK-260916-n9r71p rev2 was accepted and its rev3 refresh was re-validated green in an overlay of trunk 7efe385 by RUN-260917-7d0bd5. This Story reconstructs that exact delta on a fresh managed worktree from current trunk and lands it through one reviewed story_final Change Request.
+
+## Scope
+internal/specpin, internal/specdoc, internal/catalog, internal/cataloggen, internal/cigate, internal/traceability, README, LOGBOOK — exactly the union of the two accepted revisions plus the verification tests this Story adds. Exported inputs: .temp/v070-carry/checkpoint-2yzf5d.patch, .temp/v070-carry/uncommitted-n9r71p.patch, .temp/v070-carry/files/ (three untracked files).
+
+## Acceptance Criteria
+The landed tree carries the v0.7.0 pin (specpin lock/readers, specdoc document), catalog v0.7.0 with the launch-plan-request row and regenerated catalog_gen.go, ownership.v0.7.0.json derived from the FINAL trunk v0.6.0 registry with re-measured SPEC.v0.7.0.md clause lines, adoption-v0.7.0.md, cigate/traceability re-point, historical v0.5.0/v0.6.0 artifacts byte-identical, README measured-coverage subsection equal to tracecheck output and pinned by a test, no runtime capability claimed; full configured suite green; story_final CR accepted by an independent reviewer and landed by fast-forward.
