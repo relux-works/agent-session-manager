@@ -1,0 +1,3649 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 8946348..442885d 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,49 @@
+ 
+ ## 2026-09-17
+ 
++### TASK-260830-3g12yp — implement provider and pane fencing gates
++- SCOPE (`internal/fencing`): winning lease plus exact epoch before
++  provider activation/launch, provider input, owner-authored mutation,
++  checkpoint capture, and terminal restore/wrapper first start, with
++  terminate-stale gated on explicit force recovery. Sections 2.2, 5.3,
++  13.6-13.10, the Section 4 wrapper rule, and the Section 7.5
++  `LeaseToken` (v0.6.0).
++- DESIGN: no second lease model — the winner loads through the
++  `sessrepo` owner, expiry reuses `CheckFencingExpiry`, and the gates
++  compare one presented token for exact equality without ordering two
++  leases. Launch entries park with the `session.parked` vocabulary
++  (remote/ambiguous/unverified/absent); all other entries refuse
++  outright. Every refusal carries a Section 15 registered code only
++  (proven by constructing each through `axerror`). The sealed
++  `LeaseToken` has no exported field or constructor; an AST census
++  pins the single mint site. Takeover/fork/stop/resume are modeled
++  as callers; no transaction, backend, or plugin process is built.
++- PRECEDENCE (pinned by test): malformed calls die first, then
++  foreign sessions, then presence/verifiability, then the grant,
++  then direction (a stale token under a remote winner parks
++  remote), then the exact tuple match.
++- MUTANTS: the shipped `internal/fencing/testdata/mutate.py` battery
++  reports 31/31 applied plants killed (30 narrowing — epoch `==` to
++  `>=`/`<=`, lease/session/holder prefix confusion, expiry widening,
++  park/refuse swaps — plus 1 token-preserving census-alias mutant
++  executed against the full behavioral suite); the harmless control
++  is `SURVIVED`, `NOT_APPLIED`/`COMPILE_OR_HARNESS_FAILURE` stay
++  separate. Per-plant logs live under `.temp/TASK-260830-3g12yp/`.
++- TRACEABILITY: Section 5.3 binding moved to the real
++  `CompareAndSwapLease` owner at 7/8 partial (only the caller-side
++  union-maximum clause stays open); Section 2.2 moved from unowned
++  to a 4/22 sliver bound to `Authorize`; 9 lease acceptance cases
++  registered; the tuple-agreement test grew from 6 pairs to an
++  exhaustive 144-pair enumeration. Pin re-derived: 110 cases, 57
++  bindings, 28/485 clauses.
++- PURITY: the gates perform no durable writes, so crash evidence is
++  the no-write test (byte-identical tree plus identical verdicts
++  across two runs), not a seam drill.
++- COVERAGE: 18 of 18 shared-library AC rows driven by named
++  production entries; public CLI coverage is 0 of 18 by stated
++  ownership bound. Candidate left uncommitted in the managed Story
++  worktree for handoff.
++
+ ### TASK-260830-2f5393 — implement Lease Record validation and CAS lifecycle
+ - SCOPE (`internal/sessrepo/lease_store.go`): epoch-1 `create` leases from
+   the durable bootstrap inputs, successor leases through compare-and-swap,
+diff --git a/README.md b/README.md
+index 0bc6a80..3e023ba 100644
+--- a/README.md
++++ b/README.md
+@@ -1861,6 +1861,61 @@ on the normal package suite and adds compiler/subprocess time. Task validation
+ logs and mutation artifacts are attached to `TASK-260830-1r9wrr`; scratch
+ outputs live under `.temp/TASK-260830-1r9wrr/`.
+ 
++## Provider and pane fencing gates
++
++[`internal/fencing`](internal/fencing) gates every activation-class action on
++the winning lease and the exact fencing epoch (pinned v0.6.0 Sections 2.2,
++5.3, and 13.6-13.10, the Section 4 terminal wrapper rule, and the Section 7.5
++`LeaseToken`). `Observe` loads the winning lease through the `sessrepo` owner
++and combines it with the caller's sync, handoff, grant, and clock facts;
++`AuthorizeActivation`, `AuthorizeInput`, `AuthorizeMutation`,
++`AuthorizeCheckpoint`, and `AuthorizeRestore` decide over that observation
++through one core, and `AuthorizeTerminateStale` gates stale-process
++termination. A passed gate mints a sealed `LeaseToken` that binds the exact
++`{session_id, lease_epoch, lease_id}` triple to the `quiesce`, `capture`, and
++`materialize` provider operations; a failed gate refuses with a Section 15
++registered code and nothing else (`lease_conflict`, `not_owner`, `stale_owner`
++at exit 10, `invalid_arguments` at exit 2, `local_precondition_failed` at
++exit 3, proven by constructing each through `internal/axerror`). Launch-class
++entries park instead of refusing when ownership is remote, ambiguous,
++unverified, or absent, carrying the Section 5.2 `session.parked` vocabulary
++(`remote_owner`, `stale_owner`, `restore_policy`, `failed_handoff`) with the
++winning lease ID; every other entry refuses outright. Takeover, fork, stop,
++and resume transactions are modeled as callers, not members: the gates own
++their entry points only, and terminal backends and provider plugin processes
++stay outside the package.
++
++The gates are pure over durable inputs: they perform no writes, hold no
++cache, and read no clock except the caller-supplied reading, so there is no
++crash seam and repeated evaluation decides identically. The sealed token has
++no exported field or constructor — only the gate mints it — and an AST census
++pins that boundary with comment/string controls plus an alias-backdoor plant
++that preserves the searched-for token while changing the construction path.
++
++Run the focused tests and coverage with:
++
++```bash
++go test ./internal/fencing -count=1
++go test ./internal/fencing -cover -count=1
++```
++
++Run the narrowing battery (30 narrowing mutants plus one token-preserving
++census mutant and three controls) with:
++
++```bash
++python3 internal/fencing/testdata/mutate.py /absolute/path/to/new/evidence-dir
++```
++
++The harness copies the tree, applies each plant, runs the named behavioral
++tests (the full suite for the census mutant), and writes per-mutant logs with
++real exits to `mutants.json`; it restores its copied sources and never
++mutates the managed worktree. Task validation logs and mutation artifacts are
++attached to `TASK-260830-3g12yp`; scratch outputs live under
++`.temp/TASK-260830-3g12yp/`. The package adds no `ax` command, no `doctor`
++result, and no runtime capability claim; the clause-to-test matrix with its
++stated bounds lives in
++[the task evidence map](internal/fencing/TRACEABILITY.md).
++
+ ## Session selector, read summaries, and selection plans
+ 
+ `internal/sessquery` is the single shared selector API over the persisted
+@@ -2627,9 +2682,9 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.6.0.json`](internal/traceability/ownership.v0.6.0.json)
+ registry independently enumerates implementation owners for all 63 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 101
+-executable acceptance cases, 56 exact section bindings with their declared
+-coverage, 12 disclosed unowned sections, and 32 exact fixture identities or
++contract rows, 36 pinned or catalog-referenced normative section keys, 110
++executable acceptance cases, 57 exact section bindings with their declared
++coverage, 11 disclosed unowned sections, and 32 exact fixture identities or
+ Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
+ and the superseded v0.5.0 registry is checked as an owned legacy projection.
+ The generated v0.6.0 catalog also carries the reviewed schema/version/self-field
+@@ -2729,18 +2784,21 @@ useful is admitted, and the gate cannot decide otherwise.
+ `tracecheck` prints the ratio it measured rather than a sentence about it:
+ 
+ ```text
+-section coverage: bindings=56 full=1 partial=3 sliver=1 unevidenced=48 unmeasured=3 unowned=12 clauses_discharged=17/463
++section coverage: bindings=57 full=1 partial=4 sliver=2 unevidenced=47 unmeasured=3 unowned=11 clauses_discharged=28/485
+ ```
+ 
+-Fifty-six section bindings discharge 17 of the 463 normative clauses their
++Fifty-seven section bindings discharge 28 of the 485 normative clauses their
+ sections carry. One binding is `full` (Section 6.2, whose single clause is the
+ native-Windows `conpty` requirement, discharged by the positive
+ `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
+ with the negative `TestDecodeRefusesNonConptyBackendOnNativeWindows` legacy
+-refusal arm), three are
++refusal arm), four are
+ `partial` (Section 14.2 at 8/9, bound to
+ [`internal/cliresult`](internal/cliresult), whose undischarged clause `14.2#6`
+-is the process exit status this repository has no binary to produce; and
++is the process exit status this repository has no binary to produce; Section
++5.3 at 7/8, bound to
++[`internal/sessrepo`](internal/sessrepo), whose undischarged clause `5.3#5`
++is the initiator-union maximum no takeover flow computes yet; and
+ Section 15.1 at 5/7 and Section 15.3 at 2/3, both bound to
+ [`internal/axerror`](internal/axerror); the three undischarged clauses there are
+ the RPC hello obligation `15.1#5`, the bootstrap-row sentence `15.1#6` that
+@@ -2758,12 +2816,17 @@ AST-derived refusal-arm inventory (`refusal_arm_inventory_test.go`) that
+ requires every production refusal arm to be declared with a resolving named
+ asserting test in both directions; behavioral proof stays with each row's
+ named test, which the inventory resolves textually),
+-one is
++two are
+ `sliver` (Section 10.3, whose chunk offset invariant is
+ enforced by `validateBlobDescriptor` while its two receiver clauses have no
+-implementation), three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of
++implementation; and Section 2.2 at 4/22, bound to
++[`internal/fencing`](internal/fencing), whose discharged clauses are the
++single-owner, replica-restraint, winning-epoch-carriage, and
++losing-event-rejection invariants while the replication, secret, store,
++and directory invariants have no implementation), three are `unmeasured`
++(Sections 7.3, 13.14.5 and 15.2, each of
+ which carries a gap saying why the scanner measures zero and what is missing),
+-and forty-eight are `unevidenced`. Twelve sections are recorded unowned.
++and forty-seven are `unevidenced`. Eleven sections are recorded unowned.
+ All 13 sections added by v0.6.0 name pending task owners in the reviewed
+ registry gaps; these assignments grant no runtime admission. The
+ [adoption ownership map](internal/traceability/adoption-v0.6.0.md) separates
+@@ -2774,7 +2837,7 @@ nothing else; every other assignment is refused with its ratio and its gap.
+ A `partial` binding is refused by assigned-scope admission exactly like an
+ `unevidenced` one: admission requires `full`.
+ 
+-One admitted binding out of fifty-six covers a single clause, and it is
++One admitted binding out of fifty-seven covers a single clause, and it is
+ disclosed here rather than hidden: without Section 6.2 the admit path would only
+ ever be exercised synthetically. Its discharge is no longer positive-only: the
+ native-Windows lanes carry the positive arm and
+@@ -2908,6 +2971,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
+ | --- | --- | --- | --- |
+ | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
+ | `sessquery` mutation harness | Run isolated selector, plan, summary, and admission narrowing/order mutants with exact replacement and real test-exit classification | `python3 internal/sessquery/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
++| `fencing` mutation harness | Run isolated fencing-gate narrowing mutants, one token-preserving census mutant, and three controls with real test-exit classification | `python3 internal/fencing/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
+ | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
+ | Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6.0.json -contracts internal/specpin/v0.6.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+ | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
+diff --git a/internal/fencing/TRACEABILITY.md b/internal/fencing/TRACEABILITY.md
+new file mode 100644
+index 0000000..a6953c8
+--- /dev/null
++++ b/internal/fencing/TRACEABILITY.md
+@@ -0,0 +1,137 @@
++# TASK-260830-3g12yp: implementation evidence
++
++Authority: relux-works/agent-session-manager-spec v0.6.0, commit
++`0cbdf100dbf84df50c64f792b1f940e3a67859a6`. Primary scope is Sections
++2.2, 5.3, and 13.6-13.10 (winning lease and exact epoch before
++provider activation, input, mutation, checkpoint, or terminal
++restore), the Section 4 terminal wrapper rule, and the Section 7.5
++`LeaseToken`. This file records implementation evidence; it changes no
++normative ownership and claims no public CLI delivery.
++
++The fencing gates (`internal/fencing`) require the winning lease and
++the exact epoch before every activation-class action. They mint no
++second lease model: the Lease Record lifecycle stays owned by
++`sessrepo` (`Observe` loads the winner through `ListLeases`, the
++expiry arm calls `CheckFencingExpiry`); the winning-tuple rule stays
++owned by `sessstate` (the gates compare one presented token for exact
++equality with the one winning summary and never order two leases);
++takeover, fork, stop, and resume transactions, terminal backends, and
++provider plugin processes are modeled as callers, not members.
++
++## Acceptance rows
++
++18 of 18 AC rows are driven at the production entries named below; 0
++of 18 are delivered as a public CLI surface, which is an explicit
++caller-integration bound (no `ax` session command exists in this
++tree), not a gap in the assigned shared behavior. Takeover/fork/stop/
++resume orchestration belongs to its owning leaves, which invoke these
++entries at every required boundary.
++
++| AC row | Production call site | Named test(s) | Evidence and bound |
++| --- | --- | --- | --- |
++| Provider activation requires winner + exact epoch | `AuthorizeActivation` | `TestAuthorizeAdmitsWinnerExactEpochAllOperations`, `TestAuthorizeEndToEndOverRepository`, `TestLifecycleCallersPassTheGate/fork_epoch_one_activation` | Driven: the winning lease with the exact epoch mints through the activation entry over pure and repository-backed observations, including the fork epoch-1 lease; a rival succession parks or refuses the old token. |
++| Provider input requires winner + exact epoch | `AuthorizeInput` | `TestAuthorizeAdmitsWinnerExactEpochAllOperations`, `TestOldOwnerReconnectRejectedAfterForceTakeover/new_owner_rejects_old_token_as_stale`, `TestConcurrentForceTakeoversDeterministicWinner` | Driven: exact input authorizes; the old token after a force takeover refuses `stale_owner`; the losing same-epoch token refuses `lease_conflict` once the union winner is known. |
++| Owner-authored mutation requires winner + exact epoch | `AuthorizeMutation` | `TestAuthorizeAdmitsWinnerExactEpochAllOperations`, `TestLifecycleCallersPassTheGate/graceful_takeover_commit`, `TestAuthorizeEndToEndOverRepository` | Driven: the modeled graceful-takeover commit authorizes its mutation with the new winning tuple; the source token refuses after the succession. |
++| Checkpoint capture requires winner + exact epoch | `AuthorizeCheckpoint` | `TestAuthorizeAdmitsWinnerExactEpochAllOperations`, `TestLifecycleCallersPassTheGate/stop_checkpoint` | Driven: the modeled stop checkpoint authorizes with the exact tuple and refuses `stale_owner` for a superseded token. No second checkpoint admission exists in this tree (the brief's `sessckpt` package is absent), so the gate is the capture admission (stated bound). |
++| Terminal restore requires winner + exact epoch | `AuthorizeRestore` | `TestAuthorizeAdmitsWinnerExactEpochAllOperations`, `TestLifecycleCallersPassTheGate/owner_resume_and_replica_park` | Driven: the owner resume authorizes; the replica restore parks `remote_owner` with the `not_owner` cause instead of starting a runtime. |
++| Lower epoch refused | `Authorize` via all five entries | `TestAuthorizeRefusesLowerEpoch` | Driven: a superseded epoch refuses `stale_owner` on input/mutation/checkpoint and parks `stale_owner` on activation/restore, for the standard old-lease vector and the winner-lease-at-lower-epoch vector. |
++| Same-epoch loser refused | `Authorize` via all five entries | `TestAuthorizeRefusesSameEpochLoser` | Driven: a losing lease at the winning epoch refuses `lease_conflict` on input/mutation/checkpoint and parks `stale_owner` on activation/restore, for the standard and prefix-sharing losers. |
++| Foreign session refused | `Authorize` via all five entries | `TestAuthorizeRefusesForeignSession` | Driven: a token for another session refuses `lease_conflict` on every entry, for the prefix-sharing and fully foreign sessions. |
++| Expired grant refused | `Authorize` via all five entries → `sessrepo.CheckFencingExpiry` | `TestAuthorizeRefusesExpiredGrant` | Driven: a lapsed grant refuses `lease_conflict` on every entry so the holder revalidates; a grant at exactly the boundary stays current; an unusable policy refuses `invalid_arguments`. Expiry logic is reused from the `sessrepo` owner, never restated. |
++| Absent lease parks or refuses | `Authorize` via all five entries; `Observe` | `TestAuthorizeParksAndRefusesAbsentWinner`, `TestObserveLoadsWinningLease/no_leases_yields_no_winner` | Driven: with no winning lease, launch entries park `restore_policy` with an empty winning lease ID while the other entries refuse `lease_conflict`; `Observe` reports absence as data, never an error. |
++| Ambiguous ownership parks or refuses | `Authorize` via all five entries | `TestAuthorizeParksAndRefusesAmbiguous` | Driven: conflicting union observations park `restore_policy` under the winner on launch entries and refuse `lease_conflict` elsewhere. |
++| Remote ownership parks or refuses | `Authorize` via all five entries | `TestAuthorizeParksAndRefusesRemote` | Driven: a remote winning holder parks `remote_owner` under the winner on launch entries and refuses `not_owner` elsewhere, for prefix-sharing and fully remote holders. |
++| Unverified sync parks or refuses | `Authorize` via all five entries | `TestAuthorizeParksAndRefusesUnverified` | Driven: without a proving lease refresh, launch entries park `restore_policy` under the winner and the other entries refuse `lease_conflict`. |
++| Old-owner reconnect rejected, divergent history preserved | `AuthorizeInput`, `AuthorizeMutation`, `AuthorizeRestore`, `AuthorizeActivation`, `Repository.AppendEvent`, `sessstate.Projector.Project` | `TestOldOwnerReconnectRejectedAfterForceTakeover` | Driven: after a force takeover the old token refuses `stale_owner` from input/mutation/checkpoint on the new owner and parks `remote_owner` on the old wrapper; the losing event refuses stale with its bytes preserved and the chain untouched; the union projection reports `losing_branch_preserved` and `union_supersedes_chain` with authoritative state standing and the old-owner view stale. |
++| Concurrent force takeovers resolve deterministically | `sessrepo.CompareLeaseTuple`, `sessstate.Compare`, `AuthorizeInput`, `AuthorizeMutation`, `AuthorizeActivation` | `TestConcurrentForceTakeoversDeterministicWinner` | Driven: two same-epoch force leases from one base resolve to the greater lease ID in either union order under both tuple rules; the winner authorizes and the loser stops accepting input with `lease_conflict`. |
++| Token forgery refused | `LeaseToken.Bind`; constructor census | `TestBindRefusesForgedToken`, `TestLeaseTokenConstructorCensus`, `TestLeaseTokenCensusPlants`, `TestLeaseTokenUnforgeableOutsidePackage` | Driven: zero and field-assembled tokens refuse `lease_conflict` on every provider operation; only `token.go` names the seal types or assembles a non-empty token; comment/string mentions are not references while alias, direct, and shadowing forgeries are rejected; an outside package assembling the token by field name fails to build while the public-surface fixture builds. |
++| Terminate-stale outside force recovery refused | `AuthorizeTerminateStale` | `TestTerminateStaleAuthorizesFencedTarget`, `TestTerminateStaleRefusesWithoutForce`, `TestTerminateStaleRefusesWithoutDiagnostics`, `TestTerminateStaleRefusesWithoutWinner`, `TestTerminateStaleRefusesLiveOwner`, `TestTerminateStaleRefusesForeignSession`, `TestTerminateStaleRefusesMalformedTarget`, `TestTerminateStaleRefusesGarbageWinner` | Driven: a fenced target (lower epoch, divergent, or beyond the winner) authorizes under explicit force recovery with preserved diagnostics; missing force, diagnostics, or winner, a live-owner target, a foreign session, and malformed members refuse their classes. |
++| LeaseToken bound to provider operations from a passed gate only | `LeaseToken.Bind` | `TestBindProjectsMintedToken`, `TestBindRefusesUnknownOperation`, `TestMintedTokenIsStableAcrossEntries` | Driven: a token minted by a passed gate projects the exact triple onto `quiesce`, `capture`, and `materialize` identically from every entry; unknown operations refuse `invalid_arguments`. Resume, stop, materialize-commit, and native-store-plan carry the same triple on the wire but have no gate entry here (stated bound). |
++
++## Refusal and recovery coverage
++
++Every `N-` row is a genuine narrowing mutant: the gate stays present
++and is weakened to admit exactly one member of the class it must
++reject, and the named behavioral test fails through the delivered
++harness (`internal/fencing/testdata/mutate.py`, run as
++`python3 internal/fencing/testdata/mutate.py <evidence-dir>`).
++Whole-clause disables are not accepted as narrowing. The `T-` row
++preserves the searched-for `leaseSeal` token while constructing
++through an alias, and its harness run executes the full behavioral
++suite (263 passing assertions alongside the census failure), not only
++the static checker. Controls: `C-harmless-comment` is applied and
++survives, `C-not-applied` is not a kill, and `C-compile-failure`
++produces no named behavioral failure.
++
++| Gate | Named test | Narrowing mutant |
++| --- | --- | --- |
++| Operation enum | `TestAuthorizeRefusesUnknownOperation` | N-op admits exactly the bogus operation; the token authorizes and the negative fails by success. |
++| Presented session grammar | `TestAuthorizeRefusesMalformedPresented/session_not_uuid` | N-presented-session admits exactly `not-a-uuid`; the refusal degrades to the foreign-session class. |
++| Presented epoch grammar | `TestAuthorizeRefusesMalformedPresented/epoch_zero` | N-presented-epoch admits exactly the epoch-zero winner-lease vector; the refusal degrades to the stale class. |
++| Presented lease grammar | `TestAuthorizeRefusesMalformedPresented/lease_not_uuid` | N-presented-lease admits exactly `zzz`; the refusal degrades to the loser class. |
++| Winner grammar | `TestAuthorizeRefusesGarbageWinner/epoch_zero_lease` | N-winner admits exactly the epoch-zero `zzz` winner; the refusal degrades to the ahead class. |
++| Session binding | `TestAuthorizeRefusesForeignSession/prefix_sharing` | N-session-prefix compares first UUID segments only; the prefix-sharing session authorizes while the fully foreign session still refuses. |
++| Winner absence | `TestAuthorizeParksAndRefusesAbsentWinner/verified` | N-absent admits exactly the verified absence; the refusal degrades to the malformed-observation class. |
++| Sync verification | `TestAuthorizeParksAndRefusesUnverified/unambiguous` | N-verified admits exactly the unambiguous unverified observation; the token authorizes and the negative fails by success. |
++| Ambiguity | `TestAuthorizeParksAndRefusesAmbiguous/verified` | N-ambiguous admits exactly the verified ambiguity; the token authorizes and the negative fails by success. |
++| Handoff outcome | `TestAuthorizeParksAndRefusesFailedHandoff/verified` | N-handoff admits exactly the verified failed handoff; the token authorizes and the negative fails by success. |
++| Grant presence | `TestAuthorizeRefusesMissingGrant/verified` | N-grant admits exactly the verified grantless call; the refusal degrades to the lapsed-grant class. |
++| Clock presence | `TestAuthorizeRefusesMissingClock/zero_validated` | N-clock admits exactly the clockless never-validated grant; the token authorizes and the negative fails by success. |
++| Grant expiry | `TestAuthorizeRefusesExpiredGrant/lapsed` | N-expiry extends the interval by an hour; the lapsed-by-seconds grant authorizes while the never-validated grant still refuses. |
++| Expiry classification | `TestAuthorizeRefusesExpiredGrant` | N-expiry-map swaps the lapsed/unusable classes; both vectors change class. |
++| Ownership direction | `TestAuthorizeParksAndRefusesRemote/prefix_sharing` | N-remote-prefix compares first UUID segments only; the prefix-sharing remote holder authorizes while the fully remote holder still refuses. |
++| Epoch equality, ahead side | `TestAuthorizeRefusesEpochBeyondWinner/exact_lease` | N-epoch-gte weakens `==` to `>=`; the ahead token authorizes while the lower-epoch vectors still refuse stale in the same run. |
++| Epoch equality, lower side | `TestAuthorizeRefusesLowerEpoch/exact_lease` | N-epoch-lte weakens `==` to `<=`; the lower token authorizes past the epoch arm while the ahead vectors still refuse in the same run. |
++| Lease equality | `TestAuthorizeRefusesSameEpochLoser/standard` | N-lease-vector admits exactly the standard loser; the prefix-sharing loser still refuses. |
++| Lease equality, prefix confusion | `TestAuthorizeRefusesSameEpochLoser/prefix_sharing` | N-lease-prefix compares first UUID segments only; the prefix-sharing loser authorizes while the standard loser still refuses. |
++| Launch classification, input side | `TestAuthorizeParksAndRefusesRemote/input` | N-launch-add-input parks input instead of refusing; the hard-refusal assertion fails. |
++| Launch classification, restore side | `TestAuthorizeParksAndRefusesRemote/restore` | N-launch-drop-restore refuses restore instead of parking; the park assertion fails. |
++| Capability seal | `TestBindRefusesForgedToken` | N-bind-seal admits exactly the field-assembled seal; the zero token still refuses. |
++| Provider operation enum | `TestBindRefusesUnknownOperation` | N-bind-op admits exactly the bogus operation; the projection mints and the negative fails by success. |
++| Terminate target grammar | `TestTerminateStaleRefusesMalformedTarget/lease_not_uuid` | N-term-presented admits exactly `zzz`; the termination authorizes and the negative fails by success. |
++| Terminate winner grammar | `TestTerminateStaleRefusesGarbageWinner/epoch_zero_lease` | N-term-winner admits exactly the epoch-zero `zzz` winner; the termination authorizes and the negative fails by success. |
++| Terminate winner presence | `TestTerminateStaleRefusesWithoutWinner/force` | N-term-absent admits exactly the forced winnerless call; the refusal degrades to the malformed-observation class. |
++| Terminate force confirmation | `TestTerminateStaleRefusesWithoutForce/diagnostics` | N-term-force admits exactly the unforced diagnosed call; the termination authorizes and the negative fails by success. |
++| Terminate diagnostics | `TestTerminateStaleRefusesWithoutDiagnostics/force` | N-term-diag admits exactly the undiagnosed forced call; the termination authorizes and the negative fails by success. |
++| Terminate session binding | `TestTerminateStaleRefusesForeignSession/prefix_sharing` | N-term-session admits exactly the prefix-sharing foreign target; the refusal degrades to the live-owner class. |
++| Terminate live-owner guard | `TestTerminateStaleRefusesLiveOwner/epoch_one` | N-term-live admits exactly the epoch-1 live owner; the epoch-2 owner still refuses. |
++| Seal construction census | `TestLeaseTokenConstructorCensus` | T-census-alias adds an alias-backdoor plant preserving `leaseSeal`; the census rejects it while the full suite runs. |
++
++Crash/idempotency matrix: the gates perform no durable writes, so
++there is no crash seam. `TestGatesPerformNoDurableWrites` hashes the
++repository tree, evaluates every entry (passing and failing) with
++`Bind` and `AuthorizeTerminateStale`, and requires byte-identical
++trees and identical verdicts across two runs.
++
++Refusal classes are proven registered, never invented:
++`TestGateRefusalsUseRegisteredCodes` constructs each sentinel through
++`internal/axerror` with its exact exit (`lease_conflict`, `not_owner`,
++`stale_owner` at 10; `invalid_arguments` at 2;
++`local_precondition_failed` at 3), and every park decision unwraps to
++its underlying Section 15 cause.
++
++## Bounds (not silent gaps)
++
++- No public CLI: 0 of 18 rows are delivered as an `ax` command. The
++  shared-library entries above are the deliverable; orchestration
++  leaves invoke them.
++- No takeover/fork/stop/resume transactions: lifecycle flows are
++  modeled as gate callers in `TestLifecycleCallersPassTheGate`; their
++  orchestration belongs to the owning leaves.
++- No terminal backend or provider plugin process: the gates own the
++  wrapper and provider-operation entry points only.
++- No `sessckpt` capture admission to reuse: no such package exists in
++  this tree, so `AuthorizeCheckpoint` is the capture admission and its
++  tests drive it directly.
++- No `resume`, `stop`, `materialize-commit`, or `native-store-plan`
++  provider binding: the wire triple is identical, but binding those
++  operations here without their callers would be an untestable claim.
++- No wall-clock lease expiry and no persisted grants: expiry retires
++  only the process-local authorization through the `sessrepo` owner;
++  the lease stays authoritative.
++- Clause 5.3#5 (`max_observed_epoch + 1`) is caller-side input: the
++  store mints head plus one, and the initiator's union maximum arrives
++  with the synced store the gate reads.
++- Precedence is decided and pinned: malformed calls die first, then
++  foreign sessions, then presence and verifiability, then the grant,
++  then direction, then the exact tuple match (`TestAuthorizePrecedence`).
+diff --git a/internal/fencing/census_test.go b/internal/fencing/census_test.go
+new file mode 100644
+index 0000000..e0d22a1
+--- /dev/null
++++ b/internal/fencing/census_test.go
+@@ -0,0 +1,166 @@
++package fencing
++
++import (
++	"go/ast"
++	"go/token"
++	"os/exec"
++	"path/filepath"
++	"runtime"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/invcore"
++)
++
++// sealConstructorFile is the only production file that may name the
++// seal types or assemble a non-empty LeaseToken.
++const sealConstructorFile = "token.go"
++
++// auditSealBoundary derives every seal-construction reference outside
++// the constructor file: any occurrence of the seal idents, and any
++// non-empty LeaseToken composite literal. The walk is over AST
++// idents, so comments and string literals that mention the seal are
++// not references. A display name and parsed file let the same audit
++// run over control plants.
++func auditSealBoundary(display string, syntax *ast.File, fileSet *token.FileSet) []string {
++	var violations []string
++	position := func(node ast.Node) string {
++		place := fileSet.Position(node.Pos())
++		return display + ":" + strconv.Itoa(place.Line)
++	}
++	ast.Inspect(syntax, func(node ast.Node) bool {
++		ident, ok := node.(*ast.Ident)
++		if ok && (ident.Name == "leaseSeal" || ident.Name == "leaseSealToken") {
++			violations = append(violations, "seal type reference outside "+sealConstructorFile+": "+position(ident))
++			return true
++		}
++		literal, ok := node.(*ast.CompositeLit)
++		if !ok || len(literal.Elts) == 0 {
++			return true
++		}
++		if ident, ok := literal.Type.(*ast.Ident); ok && ident.Name == "LeaseToken" {
++			violations = append(violations, "non-empty LeaseToken literal outside "+sealConstructorFile+": "+position(literal))
++		}
++		return true
++	})
++	return violations
++}
++
++// TestLeaseTokenConstructorCensus pins the sealed-capability
++// construction boundary: only token.go names the seal types or
++// assembles a non-empty LeaseToken, and token.go carries exactly one
++// mint site. gate.go's empty LeaseToken{} refusals are not authority
++// and stay allowed.
++func TestLeaseTokenConstructorCensus(t *testing.T) {
++	files, fileSet := invcore.MustScanProduction(t, ".")
++	var violations []string
++	mints := 0
++	for _, file := range files {
++		if file.Name == sealConstructorFile {
++			mints += strings.Count(string(file.Source), "&leaseSealToken{}")
++			continue
++		}
++		violations = append(violations, auditSealBoundary(file.Name, file.Syntax, fileSet)...)
++	}
++	for _, violation := range violations {
++		t.Error(violation)
++	}
++	if mints != 1 {
++		t.Errorf("mint sites = %d, want exactly one &leaseSealToken{} in %s", mints, sealConstructorFile)
++	}
++}
++
++// sealPlants rosters the control plants the census must accept or
++// reject. The alias plant preserves the searched-for token
++// (leaseSeal) while constructing through a renamed spelling: a
++// text search for the construction shape would miss it, so the
++// ident-based audit must still reject it.
++func sealPlants() map[string]struct {
++	source string
++	reject bool
++} {
++	return map[string]struct {
++		source string
++		reject bool
++	}{
++		"comment_mentions_seal": {
++			source: "package fencing\n\n// leaseSeal and leaseSealToken are constructor-only; LeaseToken{seal: x} never appears here.\nfunc plantComment() {}\n",
++			reject: false,
++		},
++		"string_mentions_seal": {
++			source: "package fencing\n\nvar plantString = \"leaseSeal{token: &leaseSealToken{}}\"\n\nfunc plantUse() string { return plantString }\n",
++			reject: false,
++		},
++		"alias_backdoor": {
++			source: "package fencing\n\ntype plantBackdoor = leaseSeal\n\nfunc plantAlias() LeaseToken { return LeaseToken{seal: &plantBackdoor{}} }\n",
++			reject: true,
++		},
++		"direct_forgery": {
++			source: "package fencing\n\nfunc plantDirect() LeaseToken { return LeaseToken{seal: &leaseSeal{token: &leaseSealToken{}}} }\n",
++			reject: true,
++		},
++		"shadowed_seal": {
++			source: "package fencing\n\ntype leaseSeal struct{ note string }\n\nfunc plantShadow() string { return leaseSeal{note: \"x\"}.note }\n",
++			reject: true,
++		},
++	}
++}
++
++// TestLeaseTokenCensusPlants executes the control plants through the
++// same audit the production census runs: comment and string mentions
++// of the seal are not references, while alias, direct, and shadowing
++// forgeries are rejected.
++func TestLeaseTokenCensusPlants(t *testing.T) {
++	for name, plant := range sealPlants() {
++		t.Run(name, func(t *testing.T) {
++			syntax, fileSet, failure := invcore.ParseSource("plant.go", []byte(plant.source))
++			if failure != "" {
++				t.Fatalf("parse plant: %s", failure)
++			}
++			violations := auditSealBoundary("plant.go", syntax, fileSet)
++			if plant.reject && len(violations) == 0 {
++				t.Fatalf("plant %s accepted, want rejection", name)
++			}
++			if !plant.reject && len(violations) != 0 {
++				t.Fatalf("plant %s rejected: %v", name, violations)
++			}
++		})
++	}
++}
++
++// TestLeaseTokenUnforgeableOutsidePackage proves the seal cannot be
++// spelled from outside: a fixture package that assembles a LeaseToken
++// by field name fails to build, while a fixture that uses only the
++// public Authorize/Bind surface builds cleanly.
++func TestLeaseTokenUnforgeableOutsidePackage(t *testing.T) {
++	_, file, _, ok := runtime.Caller(0)
++	if !ok {
++		t.Fatal("cannot locate test file")
++	}
++	dir := filepath.Dir(file)
++	build := func(t *testing.T, target string) (int, string) {
++		t.Helper()
++		command := exec.Command("go", "build", target)
++		command.Dir = filepath.Join(dir, "..", "..")
++		output, err := command.CombinedOutput()
++		if err == nil {
++			return 0, string(output)
++		}
++		exit, ok := err.(*exec.ExitError)
++		if !ok {
++			t.Fatalf("go build %s: %v", target, err)
++		}
++		return exit.ExitCode(), string(output)
++	}
++	if code, output := build(t, "./internal/fencing/testdata/use"); code != 0 {
++		t.Fatalf("public-surface fixture fails to build (exit %d): %s", code, output)
++	}
++	code, output := build(t, "./internal/fencing/testdata/forge")
++	if code == 0 {
++		t.Fatal("forgery fixture builds, want a compile failure on the unexported seal")
++	}
++	if !strings.Contains(output, "seal") && !strings.Contains(output, "unknown field") {
++		t.Fatalf("forgery build fails without naming the seal (exit %d): %s", code, output)
++	}
++}
+diff --git a/internal/fencing/codes_test.go b/internal/fencing/codes_test.go
+new file mode 100644
+index 0000000..d065392
+--- /dev/null
++++ b/internal/fencing/codes_test.go
+@@ -0,0 +1,68 @@
++package fencing
++
++import (
++	"errors"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++)
++
++// TestGateRefusalsUseRegisteredCodes proves every fencing refusal
++// carries a Section 15 registered code and nothing else: each
++// sentinel message constructs a Structured Error with its exact
++// pinned exit. A gate that invented a code outside the taxonomy
++// fails here.
++func TestGateRefusalsUseRegisteredCodes(t *testing.T) {
++	vectors := map[string]struct {
++		sentinel error
++		exit     int
++	}{
++		"lease_conflict":            {ErrLeaseConflict, 10},
++		"not_owner":                 {ErrNotOwner, 10},
++		"stale_owner":               {ErrStaleOwner, 10},
++		"invalid_arguments":         {ErrInvalidArguments, 2},
++		"local_precondition_failed": {ErrLocalPreconditionFailed, 3},
++	}
++	for name, vector := range vectors {
++		t.Run(name, func(t *testing.T) {
++			failure, err := axerror.New(axerror.Spec{
++				Version: axerror.Version100,
++				Code:    axerror.Code(vector.sentinel.Error()),
++				Message: "fencing refusal registration probe",
++				IDs:     axerror.NoIDs(),
++				Details: axerror.Details{},
++			})
++			if err != nil {
++				t.Fatalf("axerror.New(%s) error = %v, want a registered code", name, err)
++			}
++			if failure.ExitCode() != vector.exit {
++				t.Fatalf("axerror.New(%s) exit = %d, want %d", name, failure.ExitCode(), vector.exit)
++			}
++		})
++	}
++}
++
++// TestParkDecisionCarriesSection15Cause proves a park decision is not
++// a new error class: every parked refusal unwraps to its underlying
++// registered cause alongside the parked marker.
++func TestParkDecisionCarriesSection15Cause(t *testing.T) {
++	observation := fenceObservation()
++	observation.Winner.HolderHostID = fenceHostC
++	_, err := AuthorizeActivation(fencePresented(), observation)
++	if !IsParked(err) {
++		t.Fatalf("remote activation error = %v, want a park decision", err)
++	}
++	mustRefuseCause(t, err, ErrNotOwner)
++}
++
++// mustRefuseCause fails unless err carries the sentinel through
++// errors.Is (park decisions included).
++func mustRefuseCause(t *testing.T, err error, sentinel error) {
++	t.Helper()
++	if err == nil {
++		t.Fatalf("succeeded, want cause %v", sentinel)
++	}
++	if !errors.Is(err, sentinel) {
++		t.Fatalf("error = %v, want errors.Is %v", err, sentinel)
++	}
++}
+diff --git a/internal/fencing/doc.go b/internal/fencing/doc.go
+new file mode 100644
+index 0000000..0eeb900
+--- /dev/null
++++ b/internal/fencing/doc.go
+@@ -0,0 +1,48 @@
++// Package fencing gates every activation-class action on the winning
++// lease and the exact fencing epoch.
++//
++// Normative scope: AX v0.6.0 Section 2.2 global invariants (the winning
++// committed lease is the only authority that may create a destination
++// runtime; a fencing token is the winning lease_id + epoch pair carried
++// by every owner-authored event and mutation; force takeover fences the
++// prior owner logically), Section 5.3 Lease Record (epoch, predecessor,
++// holder, fencing token, revalidation before input, turn, checkpoint,
++// push, and resume), Sections 13.6-13.10 (graceful takeover, force
++// takeover, fork, stop, resume: which steps require the winning lease
++// and the exact epoch), the Section 4 terminal wrapper rule (compare the
++// local fencing token before launching a provider; park safely when
++// ownership is remote, ambiguous, or unverified), and the Section 7.5
++// Provider Protocol LeaseToken carried by quiesce, capture, and
++// materialize operations.
++//
++// Division of authority (no second lease model):
++//
++//   - The Lease Record shape, identity, and lifecycle (CreateLease,
++//     CompareAndSwapLease, WinningLease, VerifyFencingToken,
++//     CheckFencingExpiry, CompareLeaseTuple) are owned by
++//     internal/sessrepo. This package never mints, persists, orders, or
++//     revalidates a lease itself: Observe loads the winning summary
++//     through ListLeases, and the expiry arm calls CheckFencingExpiry.
++//   - The winning-tuple rule is owned by internal/sessstate (Compare).
++//     This package never compares two leases against each other; it
++//     compares one presented token for exact equality with the one
++//     winning summary the store reports.
++//   - Takeover, fork, stop, and resume transactions, terminal backends,
++//     and provider plugin processes are callers, not members: the gates
++//     model their entry points (AuthorizeActivation, AuthorizeInput,
++//     AuthorizeMutation, AuthorizeCheckpoint, AuthorizeRestore,
++//     AuthorizeTerminateStale) and the callers report their own sync,
++//     handoff, and grant facts through Observation.
++//
++// The gates are pure over durable inputs: they perform no writes, hold
++// no cache, and read no clock except the Now the caller supplies, so
++// there is no crash seam and no idempotency hazard to evidence beyond
++// the no-write test. Every refusal carries a Section 15 registered code
++// and nothing else: lease_conflict, not_owner, and stale_owner at exit
++// 10, invalid_arguments at exit 2, and local_precondition_failed at exit
++// 3. Launch-class entries (activation, restore) park instead of refusing
++// when ownership is remote, ambiguous, unverified, or absent, carrying
++// the Section 5.2 session.parked vocabulary
++// (remote_owner|stale_owner|restore_policy|failed_handoff) with the
++// winning lease ID; every other entry refuses outright.
++package fencing
+diff --git a/internal/fencing/fixtures_test.go b/internal/fencing/fixtures_test.go
+new file mode 100644
+index 0000000..00aa959
+--- /dev/null
++++ b/internal/fencing/fixtures_test.go
+@@ -0,0 +1,248 @@
++package fencing
++
++import (
++	"encoding/json"
++	"errors"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++)
++
++// Fixed fencing-test identities. Every UUIDv7 keeps the version nibble
++// 7 and an RFC 4122 variant; every UUIDv4 keeps nibble 4. The B/C
++// variants share the first segment with the A identity (the
++// prefix-confusion vector the prefix mutants admit) or differ in it
++// (the fully foreign vector that still refuses under those mutants).
++const (
++	fenceSessionA = "0198f4c8-3e70-7a11-8a2b-1234567890ab"
++	fenceSessionB = "0198f4c8-3e70-7a11-8a2b-1234567890ac"
++	fenceSessionC = "0199f4c8-3e70-7a11-8a2b-1234567890ab"
++	fenceHostA    = "0198f4c8-4a10-7b22-8b3c-1234567890ab"
++	fenceHostB    = "0198f4c8-4a10-7b22-8b3c-1234567890ac"
++	fenceHostC    = "0199f4c8-4a10-7b22-8b3c-1234567890ab"
++	fenceLeaseA   = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
++	fenceLeaseOld = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
++	fenceLeaseC   = "cccccccc-dddd-4eee-8fff-111111111111"
++	fenceLeaseC2  = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeef"
++	fenceCreated  = "2026-08-19T04:00:00.000Z"
++	fenceLeaseAt  = "2026-08-19T04:09:00.000Z"
++)
++
++const fenceZeroDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
++
++var (
++	fenceValidatedAt = time.Date(2026, 8, 19, 4, 9, 0, 0, time.UTC)
++	fencePolicy      = sessrepo.FencingPolicy{RefreshInterval: time.Minute}
++)
++
++// specRecordExample is the verbatim SPEC.md Section 5.1 normative
++// example, the session-creation fixture.
++const specRecordExample = `{
++  "schema": "urn:ax:schema:session-record",
++  "schema_version": "1.0.0",
++  "record_id": "sha256:d61701066a7f5dd37bf35fea0e85e7f154251355ad24a49976532d7f79ddc772",
++  "subject_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "session_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "name": "payments-api",
++  "kind": "direct",
++  "created_at": "2026-08-19T04:00:00.000Z",
++  "created_by_host_id": "0198f4c8-4a10-7b22-8b3c-1234567890ab",
++  "provider_id": "codex",
++  "workspace_group_id": "0198f4c8-5b20-7c33-8c4d-1234567890ab",
++  "execution_profile": "yolo",
++  "launch_plan": {
++    "argv": ["codex"],
++    "cwd_workspace_id": "0198f4c8-6c30-7d44-8d5e-1234567890ab",
++    "cwd_relative": "src",
++    "env_names": ["OPENAI_API_KEY"],
++    "env_literals": {},
++    "contains_secrets": false,
++    "extensions": {}
++  },
++  "task_board": null,
++  "fork_provenance": null,
++  "extensions": {}
++}`
++
++// fenceObservation returns the valid observation every positive test
++// authorizes against: session A, winning lease A at epoch 2 held by
++// the local host A, verified and unambiguous sync, a fresh grant, and
++// the caller's clock reading.
++func fenceObservation() Observation {
++	return Observation{
++		SessionID:     fenceSessionA,
++		Winner:        sessrepo.LeaseSummary{SessionID: fenceSessionA, LeaseID: fenceLeaseA, Epoch: 2, HolderHostID: fenceHostA},
++		HasWinner:     true,
++		LocalHostID:   fenceHostA,
++		Verified:      true,
++		Ambiguous:     false,
++		HandoffFailed: false,
++		Grant:         sessrepo.FencingGrant{SessionID: fenceSessionA, ValidatedAt: fenceValidatedAt},
++		HasGrant:      true,
++		Policy:        fencePolicy,
++		Now:           fenceValidatedAt,
++	}
++}
++
++// fencePresented returns the exact winning token for fenceObservation.
++func fencePresented() PresentedToken {
++	return PresentedToken{SessionID: fenceSessionA, Epoch: 2, LeaseID: fenceLeaseA}
++}
++
++// fenceEntries rosters every production gate entry with its launch
++// class, so each refusal table drives all five through the same
++// vectors.
++func fenceEntries() map[string]struct {
++	authorize func(PresentedToken, Observation) (LeaseToken, error)
++	launch    bool
++} {
++	return map[string]struct {
++		authorize func(PresentedToken, Observation) (LeaseToken, error)
++		launch    bool
++	}{
++		"activation": {AuthorizeActivation, true},
++		"input":      {AuthorizeInput, false},
++		"mutation":   {AuthorizeMutation, false},
++		"checkpoint": {AuthorizeCheckpoint, false},
++		"restore":    {AuthorizeRestore, true},
++	}
++}
++
++// mustMint fails unless the gate authorizes and the minted token binds
++// to every provider operation with the exact winning triple.
++func mustMint(t *testing.T, token LeaseToken, err error, what string) {
++	t.Helper()
++	if err != nil {
++		t.Fatalf("%s error = %v, want a minted token", what, err)
++	}
++	for _, operation := range []ProviderOperation{ProviderQuiesce, ProviderCapture, ProviderMaterialize} {
++		bound, err := token.Bind(operation)
++		if err != nil {
++			t.Fatalf("%s Bind(%s) error = %v", what, operation, err)
++		}
++		if bound.SessionID != fenceSessionA || bound.Epoch != 2 || bound.LeaseID != fenceLeaseA || bound.Operation != operation {
++			t.Fatalf("%s Bind(%s) = %+v, want the winning triple", what, operation, bound)
++		}
++	}
++}
++
++// mustRefuse fails unless err carries the sentinel and is not a park
++// decision. A gate that parks where it must refuse, or mints, fails.
++func mustRefuse(t *testing.T, err error, sentinel error, what string) {
++	t.Helper()
++	if err == nil {
++		t.Fatalf("%s succeeded, want refusal %v", what, sentinel)
++	}
++	if IsParked(err) {
++		t.Fatalf("%s parked, want hard refusal %v: %v", what, sentinel, err)
++	}
++	if !errors.Is(err, sentinel) {
++		t.Fatalf("%s error = %v, want errors.Is %v", what, err, sentinel)
++	}
++}
++
++// mustPark fails unless err is a park decision with the exact reason,
++// winning lease ID, and underlying Section 15 cause. A gate that
++// refuses hard or mints where it must park fails here.
++func mustPark(t *testing.T, err error, reason ParkReason, winningLeaseID string, cause error, what string) {
++	t.Helper()
++	if err == nil {
++		t.Fatalf("%s succeeded, want park %s", what, reason)
++	}
++	if !IsParked(err) {
++		t.Fatalf("%s error = %v, want park %s", what, err, reason)
++	}
++	gotReason, gotLease, ok := ParkDetails(err)
++	if !ok {
++		t.Fatalf("%s parks without vocabulary: %v", what, err)
++	}
++	if gotReason != reason || gotLease != winningLeaseID {
++		t.Fatalf("%s park = (%s, %s), want (%s, %s)", what, gotReason, gotLease, reason, winningLeaseID)
++	}
++	if !errors.Is(err, cause) {
++		t.Fatalf("%s park cause = %v, want errors.Is %v", what, err, cause)
++	}
++}
++
++// openFenceRepository opens a repository under a test-temporary root
++// and returns the data root alongside it, so tests can address the
++// sessions layout without guessing.
++func openFenceRepository(t *testing.T) (*sessrepo.Repository, string) {
++	t.Helper()
++	root := t.TempDir()
++	repository, err := sessrepo.Open(root)
++	if err != nil {
++		t.Fatalf("Open(test root) error = %v", err)
++	}
++	return repository, root
++}
++
++// createFenceSession persists the SPEC record example.
++func createFenceSession(t *testing.T, repository *sessrepo.Repository) sessrepo.SessionRef {
++	t.Helper()
++	reference, err := repository.CreateSession([]byte(specRecordExample))
++	if err != nil {
++		t.Fatalf("CreateSession(SPEC record) error = %v", err)
++	}
++	return reference
++}
++
++// identifyFenceObject recomputes the canonical digest of a built
++// record or event through the production identity entry.
++func identifyFenceObject(t *testing.T, object map[string]any, field string) []byte {
++	t.Helper()
++	object[field] = fenceZeroDigest
++	staged, err := json.Marshal(object)
++	if err != nil {
++		t.Fatalf("marshal staged object: %v", err)
++	}
++	digest, _, err := canonicaljson.CalculateObjectIdentity(staged)
++	if err != nil {
++		t.Fatalf("CalculateObjectIdentity error = %v", err)
++	}
++	object[field] = digest.String()
++	out, err := json.Marshal(object)
++	if err != nil {
++		t.Fatalf("marshal object: %v", err)
++	}
++	if _, _, err := canonicaljson.VerifyObjectIdentity(out); err != nil {
++		t.Fatalf("VerifyObjectIdentity error = %v", err)
++	}
++	return out
++}
++
++// buildFenceEvent derives a valid Session Event for the given chain
++// position and authoring host.
++func buildFenceEvent(t *testing.T, sessionID string, predecessors []string, epoch uint64, leaseID string, sequence uint64, hostID, eventType string, payload map[string]any) []byte {
++	t.Helper()
++	return identifyFenceObject(t, map[string]any{
++		"schema": "urn:ax:schema:session-event", "schema_version": "1.0.0",
++		"event_id": fenceZeroDigest, "subject_id": sessionID, "session_id": sessionID,
++		"event_type": eventType, "created_by_host_id": hostID,
++		"lease_epoch": epoch, "lease_id": leaseID, "lease_sequence": sequence,
++		"predecessors": predecessors, "created_at": fenceCreated,
++		"payload": payload, "extensions": map[string]any{},
++	}, "event_id")
++}
++
++// mustCreateFenceLease creates the epoch-1 lease or fails the test.
++func mustCreateFenceLease(t *testing.T, repository *sessrepo.Repository, sessionID string, input sessrepo.CreateLeaseInput) sessrepo.LeaseRef {
++	t.Helper()
++	reference, err := repository.CreateLease(sessionID, input)
++	if err != nil {
++		t.Fatalf("CreateLease error = %v", err)
++	}
++	return reference
++}
++
++// mustSwapFenceLease advances the lease head or fails the test.
++func mustSwapFenceLease(t *testing.T, repository *sessrepo.Repository, sessionID string, expected sessrepo.LeaseExpectation, input sessrepo.SuccessorLeaseInput) sessrepo.LeaseRef {
++	t.Helper()
++	reference, err := repository.CompareAndSwapLease(sessionID, expected, input)
++	if err != nil {
++		t.Fatalf("CompareAndSwapLease error = %v", err)
++	}
++	return reference
++}
+diff --git a/internal/fencing/gate.go b/internal/fencing/gate.go
+new file mode 100644
+index 0000000..cd8f551
+--- /dev/null
++++ b/internal/fencing/gate.go
+@@ -0,0 +1,392 @@
++package fencing
++
++import (
++	"errors"
++	"fmt"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++)
++
++var (
++	// ErrLeaseConflict is the Section 15 lease_conflict refusal at exit
++	// 10: the presented fencing proof is not the winning authority for
++	// this session (same-epoch loser, epoch beyond the winner, foreign
++	// session, lapsed grant, or absent/ambiguous/unverified ownership on
++	// a non-launch entry), or a forged capability reached a consumer.
++	ErrLeaseConflict = errors.New("lease_conflict")
++	// ErrNotOwner is the Section 15 not_owner refusal at exit 10: the
++	// winning lease holder is a remote host and this entry is not a
++	// launch, so there is no parked direction to take.
++	ErrNotOwner = errors.New("not_owner")
++	// ErrStaleOwner is the Section 15 stale_owner refusal at exit 10:
++	// the presented epoch precedes the winning epoch on a non-launch
++	// entry. Launch entries park with the stale_owner reason instead.
++	ErrStaleOwner = errors.New("stale_owner")
++	// ErrParked marks a park decision: the launch is refused and the
++	// session must park carrying the session.parked reason and winning
++	// lease ID. It always wraps the underlying Section 15 cause as
++	// well, so errors.Is reports both the decision and the class.
++	ErrParked = errors.New("parked")
++	// ErrInvalidArguments is the Section 15 invalid_arguments refusal
++	// at exit 2: the gate call itself is malformed (unknown operation,
++	// malformed presented token or winning summary, missing grant,
++	// missing clock reading, unusable policy, or unknown provider
++	// operation). The caller fixes the call, not the ownership.
++	ErrInvalidArguments = errors.New("invalid_arguments")
++	// ErrLocalPreconditionFailed is the Section 15
++	// local_precondition_failed refusal at exit 3, the class the
++	// Section 4.C terminate-stale row names: terminate-stale without
++	// explicit force recovery, without preserved diagnostics, without
++	// an established winner, or against the live winning owner.
++	ErrLocalPreconditionFailed = errors.New("local_precondition_failed")
++)
++
++// refuse is the single refusal funnel every fencing rejection flows
++// through. No production path wraps a sentinel with fmt.Errorf directly.
++var refuse = func(sentinel error, format string, arguments ...any) error {
++	return fmt.Errorf("%w: %s", sentinel, fmt.Sprintf(format, arguments...))
++}
++
++// ParkReason is one Section 5.2 session.parked reason: the exact
++// vocabulary a park decision carries.
++type ParkReason string
++
++const (
++	// ParkRemoteOwner parks because the winning lease holder is remote.
++	ParkRemoteOwner ParkReason = "remote_owner"
++	// ParkStaleOwner parks because the local fencing proof loses to the
++	// winning lease while the winner is local (a stale cache).
++	ParkStaleOwner ParkReason = "stale_owner"
++	// ParkRestorePolicy parks because ownership cannot be verified:
++	// no winning lease, unverified sync, ambiguous observations, or a
++	// token from an epoch beyond the winner.
++	ParkRestorePolicy ParkReason = "restore_policy"
++	// ParkFailedHandoff parks because the caller's handoff already
++	// failed: a losing force lease must never activate.
++	ParkFailedHandoff ParkReason = "failed_handoff"
++)
++
++// parkRefusal carries a park decision: the session.parked reason, the
++// winning lease ID the parked event repeats (empty when no winner is
++// established), and the underlying Section 15 cause. It unwraps to both
++// ErrParked and the cause.
++type parkRefusal struct {
++	reason         ParkReason
++	winningLeaseID string
++	cause          error
++}
++
++func (refusal *parkRefusal) Error() string {
++	if refusal.winningLeaseID == "" {
++		return fmt.Sprintf("%s: park (%s); no winning lease is established", ErrParked, refusal.reason)
++	}
++	return fmt.Sprintf("%s: park (%s) under winning lease %s: %v", ErrParked, refusal.reason, refusal.winningLeaseID, refusal.cause)
++}
++
++func (refusal *parkRefusal) Unwrap() []error {
++	return []error{ErrParked, refusal.cause}
++}
++
++// IsParked reports whether err is a park decision rather than a hard
++// refusal. A parked launch must emit the session.parked vocabulary,
++// never start a runtime.
++func IsParked(err error) bool {
++	return errors.Is(err, ErrParked)
++}
++
++// ParkDetails extracts the session.parked vocabulary from a park
++// decision: the reason and the winning lease ID (empty when no winner
++// is established). It reports false for a hard refusal.
++func ParkDetails(err error) (ParkReason, string, bool) {
++	var parked *parkRefusal
++	if !errors.As(err, &parked) {
++		return "", "", false
++	}
++	return parked.reason, parked.winningLeaseID, true
++}
++
++// park builds the launch-class refusal for one ownership condition: the
++// parked reason with the Section 15 cause the same condition refuses
++// on a non-launch entry.
++func park(reason ParkReason, winningLeaseID string, cause error) error {
++	return &parkRefusal{reason: reason, winningLeaseID: winningLeaseID, cause: cause}
++}
++
++// Operation is one activation-class action the gate authorizes.
++type Operation string
++
++const (
++	// OperationActivation gates provider activation and launch: only
++	// the winning committed lease may create a destination runtime.
++	OperationActivation Operation = "activation"
++	// OperationInput gates provider input after attach (the
++	// quiesce-input and attach direction): the owner revalidates
++	// before accepting operator input.
++	OperationInput Operation = "input"
++	// OperationMutation gates owner-authored mutation: event append
++	// and compare-and-swap succession carry the winning epoch.
++	OperationMutation Operation = "mutation"
++	// OperationCheckpoint gates checkpoint capture admission: a fresh
++	// checkpoint is published under the current lease only.
++	OperationCheckpoint Operation = "checkpoint"
++	// OperationRestore gates terminal restore and the wrapper's first
++	// start: ownership is compared before any provider resume.
++	OperationRestore Operation = "restore"
++)
++
++// validOperation reports whether op names a gated action. Anything
++// else is a malformed gate call, never an authorized action.
++func validOperation(op Operation) bool {
++	switch op {
++	case OperationActivation, OperationInput, OperationMutation, OperationCheckpoint, OperationRestore:
++		return true
++	}
++	return false
++}
++
++// launchClass reports whether op is a launch-class entry: activation
++// and restore park when ownership is remote, ambiguous, unverified,
++// or absent, while input, mutation, and checkpoint refuse outright.
++func launchClass(op Operation) bool {
++	return op == OperationActivation || op == OperationRestore
++}
++
++// PresentedToken is the caller's claimed fencing authority: the local
++// fencing token the wrapper compares, or the token a takeover, input,
++// mutation, or checkpoint caller holds. It is untrusted input: every
++// member is grammar-checked before any comparison runs.
++type PresentedToken struct {
++	SessionID string
++	Epoch     uint64
++	LeaseID   string
++}
++
++// Observation carries the verified durable and sync facts the gate
++// decides over. Observe builds it from the repository; callers that
++// build it by hand (tests, modeled flows) must supply the same facts.
++// The winner is trusted only through its grammar: a malformed winning
++// summary refuses rather than authorizing against garbage.
++type Observation struct {
++	SessionID string
++	// Winner is the winning lease summary with its holder. It is
++	// meaningful only when HasWinner is set.
++	Winner    sessrepo.LeaseSummary
++	HasWinner bool
++	// LocalHostID is the host asking for authorization. An unknown or
++	// empty local identity never equals the winning holder, so it
++	// fails closed to the remote arm without a grammar check.
++	LocalHostID string
++	// Verified reports that a mesh lease refresh proved current
++	// lease knowledge. Unverified ownership parks or refuses.
++	Verified bool
++	// Ambiguous reports conflicting ownership observations (a union
++	// rival the local store cannot order). Ambiguity parks or refuses.
++	Ambiguous bool
++	// HandoffFailed reports that the caller's own handoff already
++	// failed (a losing force lease before activation). A failed
++	// handoff parks with failed_handoff instead of activating.
++	HandoffFailed bool
++	// Grant is the process-local authorization derived from a winning
++	// lease, meaningful only when HasGrant is set. The gate re-checks
++	// its expiry through the sessrepo owner on every call.
++	Grant    sessrepo.FencingGrant
++	HasGrant bool
++	// Policy carries the configured lease refresh interval the
++	// expiry arm enforces.
++	Policy sessrepo.FencingPolicy
++	// Now is the caller's clock reading for the expiry arm. A grant
++	// without a clock reading refuses rather than bypassing expiry.
++	Now time.Time
++}
++
++// ObserveInput carries the caller-reported facts Observe combines with
++// the durable winning lease: sync state, handoff outcome, the
++// process-local fencing grant with its policy, and the clock reading.
++type ObserveInput struct {
++	LocalHostID   string
++	Verified      bool
++	Ambiguous     bool
++	HandoffFailed bool
++	Grant         sessrepo.FencingGrant
++	HasGrant      bool
++	Policy        sessrepo.FencingPolicy
++	Now           time.Time
++}
++
++// Observe loads the winning lease for sessionID and combines it with
++// the caller's sync, handoff, grant, and clock facts into the
++// Observation Authorize decides over. The winner is the last summary
++// of the tuple-ordered ListLeases read, the same derivation
++// WinningLease returns, so no second winner rule exists here. A
++// session with no leases yet yields HasWinner false without an error:
++// absence is data the gate parks or refuses on. A repository failure
++// (including an unknown session) propagates unchanged.
++func Observe(repository *sessrepo.Repository, sessionID string, input ObserveInput) (Observation, error) {
++	leases, err := repository.ListLeases(sessionID)
++	if err != nil {
++		return Observation{}, err
++	}
++	observation := Observation{
++		SessionID:     sessionID,
++		LocalHostID:   input.LocalHostID,
++		Verified:      input.Verified,
++		Ambiguous:     input.Ambiguous,
++		HandoffFailed: input.HandoffFailed,
++		Grant:         input.Grant,
++		HasGrant:      input.HasGrant,
++		Policy:        input.Policy,
++		Now:           input.Now,
++	}
++	if len(leases) > 0 {
++		observation.Winner = leases[len(leases)-1]
++		observation.HasWinner = true
++	}
++	return observation, nil
++}
++
++// AuthorizeActivation gates provider activation and launch through the
++// fencing core.
++func AuthorizeActivation(presented PresentedToken, observation Observation) (LeaseToken, error) {
++	return Authorize(OperationActivation, presented, observation)
++}
++
++// AuthorizeInput gates provider input after attach through the fencing
++// core.
++func AuthorizeInput(presented PresentedToken, observation Observation) (LeaseToken, error) {
++	return Authorize(OperationInput, presented, observation)
++}
++
++// AuthorizeMutation gates owner-authored mutation through the fencing
++// core.
++func AuthorizeMutation(presented PresentedToken, observation Observation) (LeaseToken, error) {
++	return Authorize(OperationMutation, presented, observation)
++}
++
++// AuthorizeCheckpoint gates checkpoint capture admission through the
++// fencing core.
++func AuthorizeCheckpoint(presented PresentedToken, observation Observation) (LeaseToken, error) {
++	return Authorize(OperationCheckpoint, presented, observation)
++}
++
++// AuthorizeRestore gates terminal restore and the wrapper's first
++// start through the fencing core.
++func AuthorizeRestore(presented PresentedToken, observation Observation) (LeaseToken, error) {
++	return Authorize(OperationRestore, presented, observation)
++}
++
++// Authorize is the fencing core: every activation-class action passes
++// here. The presented token must name this session and equal the
++// winning (epoch, lease_id) tuple exactly; the fencing grant must be
++// present and unexpired; ownership must be verified, unambiguous, and
++// local. Launch-class entries (activation, restore) park with the
++// session.parked vocabulary when ownership is remote, ambiguous,
++// unverified, or absent; every other entry refuses outright. A passed
++// gate mints the sealed LeaseToken the provider operations bind; a
++// failed gate refuses with a Section 15 registered code and mints
++// nothing.
++//
++// Arm order is precedence: malformed calls die first, then foreign
++// sessions, then ownership presence and verifiability, then the
++// fencing grant, then ownership direction (the operative fact beats
++// the credential: a stale token under a remote winner parks remote,
++// it does not report stale), then the exact tuple match.
++func Authorize(operation Operation, presented PresentedToken, observation Observation) (LeaseToken, error) {
++	if !validOperation(operation) {
++		return LeaseToken{}, refuse(ErrInvalidArguments, "unknown fencing operation %q", string(operation))
++	}
++	if _, err := scalar.ParseUUIDv7(presented.SessionID); err != nil {
++		return LeaseToken{}, refuse(ErrInvalidArguments, "presented fencing token session %q is not a UUIDv7: %v", presented.SessionID, err)
++	}
++	if presented.Epoch == 0 {
++		return LeaseToken{}, refuse(ErrInvalidArguments, "presented fencing token carries epoch 0, want an epoch at or above 1")
++	}
++	if _, err := scalar.ParseUUIDv4(presented.LeaseID); err != nil {
++		return LeaseToken{}, refuse(ErrInvalidArguments, "presented fencing token lease %q is not a UUIDv4: %v", presented.LeaseID, err)
++	}
++	if presented.SessionID != observation.SessionID {
++		return LeaseToken{}, refuse(ErrLeaseConflict, "presented fencing token for session %s does not authorize session %s", presented.SessionID, observation.SessionID)
++	}
++	if !observation.HasWinner {
++		if launchClass(operation) {
++			return LeaseToken{}, park(ParkRestorePolicy, "", ErrLeaseConflict)
++		}
++		return LeaseToken{}, refuse(ErrLeaseConflict, "no winning lease is established for session %s", observation.SessionID)
++	}
++	if observation.Winner.Epoch == 0 || !validLeaseID(observation.Winner.LeaseID) || !validHostID(observation.Winner.HolderHostID) {
++		return LeaseToken{}, refuse(ErrInvalidArguments, "fencing observation for session %s carries no well-formed winning lease", observation.SessionID)
++	}
++	if !observation.Verified {
++		if launchClass(operation) {
++			return LeaseToken{}, park(ParkRestorePolicy, observation.Winner.LeaseID, ErrLeaseConflict)
++		}
++		return LeaseToken{}, refuse(ErrLeaseConflict, "ownership of session %s is unverified; refresh lease knowledge first", observation.SessionID)
++	}
++	if observation.Ambiguous {
++		if launchClass(operation) {
++			return LeaseToken{}, park(ParkRestorePolicy, observation.Winner.LeaseID, ErrLeaseConflict)
++		}
++		return LeaseToken{}, refuse(ErrLeaseConflict, "ownership of session %s is ambiguous; resolve the union rival first", observation.SessionID)
++	}
++	if observation.HandoffFailed {
++		if launchClass(operation) {
++			return LeaseToken{}, park(ParkFailedHandoff, observation.Winner.LeaseID, ErrLeaseConflict)
++		}
++		return LeaseToken{}, refuse(ErrLeaseConflict, "handoff for session %s already failed; a losing lease must never activate", observation.SessionID)
++	}
++	if !observation.HasGrant {
++		return LeaseToken{}, refuse(ErrInvalidArguments, "fencing observation for session %s carries no grant; validate the winning token first", observation.SessionID)
++	}
++	if observation.Now.IsZero() {
++		return LeaseToken{}, refuse(ErrInvalidArguments, "fencing observation for session %s carries no clock reading; expiry cannot be checked", observation.SessionID)
++	}
++	if err := sessrepo.CheckFencingExpiry(observation.Grant, observation.Policy, observation.Now); err != nil {
++		if errors.Is(err, sessrepo.ErrFencingExpired) {
++			return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
++		}
++		return LeaseToken{}, refuse(ErrInvalidArguments, "fencing observation for session %s carries an unusable refresh policy", observation.SessionID)
++	}
++	if observation.Winner.HolderHostID != observation.LocalHostID {
++		if launchClass(operation) {
++			return LeaseToken{}, park(ParkRemoteOwner, observation.Winner.LeaseID, ErrNotOwner)
++		}
++		return LeaseToken{}, refuse(ErrNotOwner, "session %s is owned by remote host %s", observation.SessionID, observation.Winner.HolderHostID)
++	}
++	epochsEqual := presented.Epoch == observation.Winner.Epoch
++	if !epochsEqual {
++		if presented.Epoch < observation.Winner.Epoch {
++			if launchClass(operation) {
++				return LeaseToken{}, park(ParkStaleOwner, observation.Winner.LeaseID, ErrStaleOwner)
++			}
++			return LeaseToken{}, refuse(ErrStaleOwner, "presented epoch %d precedes winning epoch %d for session %s", presented.Epoch, observation.Winner.Epoch, observation.SessionID)
++		}
++		if launchClass(operation) {
++			return LeaseToken{}, park(ParkRestorePolicy, observation.Winner.LeaseID, ErrLeaseConflict)
++		}
++		return LeaseToken{}, refuse(ErrLeaseConflict, "presented epoch %d names no known lease for session %s", presented.Epoch, observation.SessionID)
++	}
++	if presented.LeaseID != observation.Winner.LeaseID {
++		if launchClass(operation) {
++			return LeaseToken{}, park(ParkStaleOwner, observation.Winner.LeaseID, ErrLeaseConflict)
++		}
++		return LeaseToken{}, refuse(ErrLeaseConflict, "presented lease %s loses to winning lease %s at epoch %d", presented.LeaseID, observation.Winner.LeaseID, observation.Winner.Epoch)
++	}
++	return mintLeaseToken(observation.SessionID, observation.Winner.Epoch, observation.Winner.LeaseID), nil
++}
++
++// validLeaseID reports whether id parses as a fencing token UUID. The
++// scalar owner holds the grammar; this is only the boolean access the
++// combined winner arm needs.
++func validLeaseID(id string) bool {
++	_, err := scalar.ParseUUIDv4(id)
++	return err == nil
++}
++
++// validHostID reports whether id parses as a host UUID. The scalar
++// owner holds the grammar; this is only the boolean access the
++// combined winner arm needs.
++func validHostID(id string) bool {
++	_, err := scalar.ParseUUIDv7(id)
++	return err == nil
++}
+diff --git a/internal/fencing/gate_test.go b/internal/fencing/gate_test.go
+new file mode 100644
+index 0000000..0078c0d
+--- /dev/null
++++ b/internal/fencing/gate_test.go
+@@ -0,0 +1,479 @@
++package fencing
++
++import (
++	"errors"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++)
++
++// TestAuthorizeAdmitsWinnerExactEpochAllOperations drives the positive
++// row of every gate: the winning lease with the exact epoch mints a
++// sealed token through each of the five production entries, and the
++// token binds the exact triple to quiesce, capture, and materialize.
++func TestAuthorizeAdmitsWinnerExactEpochAllOperations(t *testing.T) {
++	for name, entry := range fenceEntries() {
++		t.Run(name, func(t *testing.T) {
++			token, err := entry.authorize(fencePresented(), fenceObservation())
++			mustMint(t, token, err, name)
++		})
++	}
++}
++
++// TestAuthorizeRefusesUnknownOperation proves the operation enum is
++// closed: an action outside the five gated entries refuses
++// invalid_arguments instead of authorizing.
++func TestAuthorizeRefusesUnknownOperation(t *testing.T) {
++	_, err := Authorize("bogus", fencePresented(), fenceObservation())
++	mustRefuse(t, err, ErrInvalidArguments, "Authorize(bogus)")
++}
++
++// TestAuthorizeRefusesMalformedPresented drives every malformed
++// presented-token vector through a launch and a non-launch entry:
++// malformed claims refuse invalid_arguments on both, never a fencing
++// class and never a park. The epoch-zero vectors pair the winner
++// lease (which the epoch gate would stale-report past the grammar)
++// with a malformed lease (which refuses at grammar under mutants).
++func TestAuthorizeRefusesMalformedPresented(t *testing.T) {
++	vectors := map[string]PresentedToken{
++		"session_not_uuid": {SessionID: "not-a-uuid", Epoch: 2, LeaseID: fenceLeaseA},
++		"session_empty":    {SessionID: "", Epoch: 2, LeaseID: fenceLeaseA},
++		"epoch_zero":       {SessionID: fenceSessionA, Epoch: 0, LeaseID: fenceLeaseA},
++		"epoch_zero_lease": {SessionID: fenceSessionA, Epoch: 0, LeaseID: "zzz"},
++		"lease_not_uuid":   {SessionID: fenceSessionA, Epoch: 2, LeaseID: "zzz"},
++		"lease_empty":      {SessionID: fenceSessionA, Epoch: 2, LeaseID: ""},
++	}
++	for name, entry := range fenceEntries() {
++		for vector, presented := range vectors {
++			t.Run(name+"/"+vector, func(t *testing.T) {
++				_, err := entry.authorize(presented, fenceObservation())
++				mustRefuse(t, err, ErrInvalidArguments, name+"/"+vector)
++			})
++		}
++	}
++}
++
++// TestAuthorizeRefusesGarbageWinner proves the winner is not trusted
++// past its grammar: a caller-built observation with a malformed
++// winning summary refuses invalid_arguments instead of authorizing
++// against garbage.
++func TestAuthorizeRefusesGarbageWinner(t *testing.T) {
++	vectors := map[string]sessrepo.LeaseSummary{
++		// The narrowing vector the winner mutant admits past the arm.
++		"epoch_zero_lease": {SessionID: fenceSessionA, LeaseID: "zzz", Epoch: 0, HolderHostID: fenceHostA},
++		// A second garbage shape that still refuses under the mutant.
++		"holder_malformed": {SessionID: fenceSessionA, LeaseID: fenceLeaseA, Epoch: 2, HolderHostID: "zzz"},
++	}
++	for name, entry := range fenceEntries() {
++		for vector, winner := range vectors {
++			t.Run(name+"/"+vector, func(t *testing.T) {
++				observation := fenceObservation()
++				observation.Winner = winner
++				_, err := entry.authorize(fencePresented(), observation)
++				mustRefuse(t, err, ErrInvalidArguments, name+"/"+vector)
++			})
++		}
++	}
++}
++
++// TestAuthorizeRefusesForeignSession drives the foreign-session row:
++// a token minted for another session never authorizes here. The B
++// session shares the first UUID segment with A (the vector the
++// prefix mutant admits); the C session shares nothing.
++func TestAuthorizeRefusesForeignSession(t *testing.T) {
++	vectors := map[string]string{
++		"prefix_sharing": fenceSessionB,
++		"fully_foreign":  fenceSessionC,
++	}
++	for name, entry := range fenceEntries() {
++		for vector, session := range vectors {
++			t.Run(name+"/"+vector, func(t *testing.T) {
++				presented := fencePresented()
++				presented.SessionID = session
++				_, err := entry.authorize(presented, fenceObservation())
++				mustRefuse(t, err, ErrLeaseConflict, name+"/"+vector)
++			})
++		}
++	}
++}
++
++// TestAuthorizeParksAndRefusesAbsentWinner drives the absent-lease
++// row: with no winning lease established, launch entries park with
++// restore_policy and an empty winning lease ID, while input,
++// mutation, and checkpoint refuse lease_conflict.
++func TestAuthorizeParksAndRefusesAbsentWinner(t *testing.T) {
++	vectors := map[string]bool{"verified": true, "unverified": false}
++	for name, entry := range fenceEntries() {
++		for vector, verified := range vectors {
++			t.Run(name+"/"+vector, func(t *testing.T) {
++				observation := fenceObservation()
++				observation.HasWinner = false
++				observation.Winner = sessrepo.LeaseSummary{}
++				observation.Verified = verified
++				_, err := entry.authorize(fencePresented(), observation)
++				if entry.launch {
++					mustPark(t, err, ParkRestorePolicy, "", ErrLeaseConflict, name+"/"+vector)
++				} else {
++					mustRefuse(t, err, ErrLeaseConflict, name+"/"+vector)
++				}
++			})
++		}
++	}
++}
++
++// TestAuthorizeParksAndRefusesUnverified drives the unverified-sync
++// row: without a mesh lease refresh proving current knowledge,
++// launch entries park with restore_policy under the winner, while
++// the other entries refuse lease_conflict.
++func TestAuthorizeParksAndRefusesUnverified(t *testing.T) {
++	vectors := map[string]bool{"unambiguous": false, "ambiguous": true}
++	for name, entry := range fenceEntries() {
++		for vector, ambiguous := range vectors {
++			t.Run(name+"/"+vector, func(t *testing.T) {
++				observation := fenceObservation()
++				observation.Verified = false
++				observation.Ambiguous = ambiguous
++				_, err := entry.authorize(fencePresented(), observation)
++				if entry.launch {
++					mustPark(t, err, ParkRestorePolicy, fenceLeaseA, ErrLeaseConflict, name+"/"+vector)
++				} else {
++					mustRefuse(t, err, ErrLeaseConflict, name+"/"+vector)
++				}
++			})
++		}
++	}
++}
++
++// TestAuthorizeParksAndRefusesAmbiguous drives the ambiguous-ownership
++// row: conflicting union observations park or refuse exactly like
++// unverified sync, naming the winner the park stands under.
++func TestAuthorizeParksAndRefusesAmbiguous(t *testing.T) {
++	vectors := map[string]bool{"verified": true, "unverified": false}
++	for name, entry := range fenceEntries() {
++		for vector, verified := range vectors {
++			t.Run(name+"/"+vector, func(t *testing.T) {
++				observation := fenceObservation()
++				observation.Ambiguous = true
++				observation.Verified = verified
++				_, err := entry.authorize(fencePresented(), observation)
++				if entry.launch {
++					mustPark(t, err, ParkRestorePolicy, fenceLeaseA, ErrLeaseConflict, name+"/"+vector)
++				} else {
++					mustRefuse(t, err, ErrLeaseConflict, name+"/"+vector)
++				}
++			})
++		}
++	}
++}
++
++// TestAuthorizeParksAndRefusesFailedHandoff drives the failed-handoff
++// row: a caller whose own handoff already failed parks with
++// failed_handoff on launch entries instead of activating its losing
++// lease, and refuses lease_conflict elsewhere. The unverified vector
++// dies at the earlier verifiability arm instead, pinning the
++// precedence.
++func TestAuthorizeParksAndRefusesFailedHandoff(t *testing.T) {
++	for name, entry := range fenceEntries() {
++		t.Run(name+"/verified", func(t *testing.T) {
++			observation := fenceObservation()
++			observation.HandoffFailed = true
++			_, err := entry.authorize(fencePresented(), observation)
++			if entry.launch {
++				mustPark(t, err, ParkFailedHandoff, fenceLeaseA, ErrLeaseConflict, name+"/verified")
++			} else {
++				mustRefuse(t, err, ErrLeaseConflict, name+"/verified")
++			}
++		})
++		t.Run(name+"/unverified", func(t *testing.T) {
++			observation := fenceObservation()
++			observation.HandoffFailed = true
++			observation.Verified = false
++			_, err := entry.authorize(fencePresented(), observation)
++			if entry.launch {
++				mustPark(t, err, ParkRestorePolicy, fenceLeaseA, ErrLeaseConflict, name+"/unverified")
++			} else {
++				mustRefuse(t, err, ErrLeaseConflict, name+"/unverified")
++			}
++		})
++	}
++}
++
++// TestAuthorizeRefusesMissingGrant proves a gate call without the
++// process-local fencing grant is malformed: the caller validates the
++// winning token first. The unverified vector dies at the earlier
++// verifiability arm instead, pinning the precedence.
++func TestAuthorizeRefusesMissingGrant(t *testing.T) {
++	for name, entry := range fenceEntries() {
++		t.Run(name+"/verified", func(t *testing.T) {
++			observation := fenceObservation()
++			observation.HasGrant = false
++			observation.Grant = sessrepo.FencingGrant{}
++			_, err := entry.authorize(fencePresented(), observation)
++			mustRefuse(t, err, ErrInvalidArguments, name+"/verified")
++		})
++		t.Run(name+"/unverified", func(t *testing.T) {
++			observation := fenceObservation()
++			observation.HasGrant = false
++			observation.Grant = sessrepo.FencingGrant{}
++			observation.Verified = false
++			_, err := entry.authorize(fencePresented(), observation)
++			if entry.launch {
++				mustPark(t, err, ParkRestorePolicy, fenceLeaseA, ErrLeaseConflict, name+"/unverified")
++			} else {
++				mustRefuse(t, err, ErrLeaseConflict, name+"/unverified")
++			}
++		})
++	}
++}
++
++// TestAuthorizeRefusesMissingClock proves expiry cannot be bypassed
++// with a missing clock reading: a grant without Now refuses
++// invalid_arguments instead of reading as fresh.
++func TestAuthorizeRefusesMissingClock(t *testing.T) {
++	vectors := map[string]time.Time{
++		"zero_validated": {},
++		"set_validated":  fenceValidatedAt,
++	}
++	for name, entry := range fenceEntries() {
++		for vector, validated := range vectors {
++			t.Run(name+"/"+vector, func(t *testing.T) {
++				observation := fenceObservation()
++				observation.Now = time.Time{}
++				observation.Grant.ValidatedAt = validated
++				_, err := entry.authorize(fencePresented(), observation)
++				mustRefuse(t, err, ErrInvalidArguments, name+"/"+vector)
++			})
++		}
++	}
++}
++
++// TestAuthorizeRefusesExpiredGrant drives the expired-grant row
++// through the sessrepo expiry owner: a lapsed grant refuses
++// lease_conflict on every entry so the holder revalidates, a grant
++// validated exactly at the interval boundary is still current, and
++// an unusable refresh policy refuses invalid_arguments.
++func TestAuthorizeRefusesExpiredGrant(t *testing.T) {
++	t.Run("lapsed", func(t *testing.T) {
++		for name, entry := range fenceEntries() {
++			t.Run(name, func(t *testing.T) {
++				observation := fenceObservation()
++				observation.Now = fenceValidatedAt.Add(time.Minute + time.Second)
++				_, err := entry.authorize(fencePresented(), observation)
++				mustRefuse(t, err, ErrLeaseConflict, name+"/lapsed")
++			})
++		}
++	})
++	t.Run("never_validated", func(t *testing.T) {
++		for name, entry := range fenceEntries() {
++			t.Run(name, func(t *testing.T) {
++				observation := fenceObservation()
++				observation.Grant.ValidatedAt = time.Time{}
++				_, err := entry.authorize(fencePresented(), observation)
++				mustRefuse(t, err, ErrLeaseConflict, name+"/never_validated")
++			})
++		}
++	})
++	t.Run("boundary_fresh", func(t *testing.T) {
++		for name, entry := range fenceEntries() {
++			t.Run(name, func(t *testing.T) {
++				observation := fenceObservation()
++				observation.Now = fenceValidatedAt.Add(time.Minute)
++				token, err := entry.authorize(fencePresented(), observation)
++				mustMint(t, token, err, name+"/boundary_fresh")
++			})
++		}
++	})
++	t.Run("zero_policy", func(t *testing.T) {
++		for name, entry := range fenceEntries() {
++			t.Run(name, func(t *testing.T) {
++				observation := fenceObservation()
++				observation.Policy = sessrepo.FencingPolicy{}
++				_, err := entry.authorize(fencePresented(), observation)
++				mustRefuse(t, err, ErrInvalidArguments, name+"/zero_policy")
++			})
++		}
++	})
++}
++
++// TestAuthorizeParksAndRefusesRemote drives the remote-ownership row:
++// when the winning holder is not local, launch entries park with
++// remote_owner under the winner, while the other entries refuse
++// not_owner. Host B shares the first UUID segment with the local
++// host (the vector the prefix mutant admits); host C shares nothing.
++func TestAuthorizeParksAndRefusesRemote(t *testing.T) {
++	vectors := map[string]string{"prefix_sharing": fenceHostB, "fully_remote": fenceHostC}
++	for name, entry := range fenceEntries() {
++		for vector, holder := range vectors {
++			t.Run(name+"/"+vector, func(t *testing.T) {
++				observation := fenceObservation()
++				observation.Winner.HolderHostID = holder
++				_, err := entry.authorize(fencePresented(), observation)
++				if entry.launch {
++					mustPark(t, err, ParkRemoteOwner, fenceLeaseA, ErrNotOwner, name+"/"+vector)
++				} else {
++					mustRefuse(t, err, ErrNotOwner, name+"/"+vector)
++				}
++			})
++		}
++	}
++}
++
++// TestAuthorizeRefusesLowerEpoch drives the lower-epoch row: a token
++// from a superseded epoch refuses stale_owner on input, mutation,
++// and checkpoint, and parks with stale_owner on launch entries. The
++// exact-lease vector carries the winning lease at the lower epoch
++// (which the weakened epoch gate would mint); the standard vector
++// carries the old superseded lease.
++func TestAuthorizeRefusesLowerEpoch(t *testing.T) {
++	vectors := map[string]PresentedToken{
++		"standard":    {SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld},
++		"exact_lease": {SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseA},
++	}
++	for name, entry := range fenceEntries() {
++		for vector, presented := range vectors {
++			t.Run(name+"/"+vector, func(t *testing.T) {
++				_, err := entry.authorize(presented, fenceObservation())
++				if entry.launch {
++					mustPark(t, err, ParkStaleOwner, fenceLeaseA, ErrStaleOwner, name+"/"+vector)
++				} else {
++					mustRefuse(t, err, ErrStaleOwner, name+"/"+vector)
++				}
++			})
++		}
++	}
++}
++
++// TestAuthorizeRefusesEpochBeyondWinner drives the epoch-ahead row: a
++// token from an epoch beyond the winner names no known lease. Launch
++// entries park with restore_policy because the future token is
++// unverifiable; the other entries refuse lease_conflict.
++func TestAuthorizeRefusesEpochBeyondWinner(t *testing.T) {
++	vectors := map[string]PresentedToken{
++		"exact_lease": {SessionID: fenceSessionA, Epoch: 9, LeaseID: fenceLeaseA},
++		"other_lease": {SessionID: fenceSessionA, Epoch: 9, LeaseID: fenceLeaseC},
++	}
++	for name, entry := range fenceEntries() {
++		for vector, presented := range vectors {
++			t.Run(name+"/"+vector, func(t *testing.T) {
++				_, err := entry.authorize(presented, fenceObservation())
++				if entry.launch {
++					mustPark(t, err, ParkRestorePolicy, fenceLeaseA, ErrLeaseConflict, name+"/"+vector)
++				} else {
++					mustRefuse(t, err, ErrLeaseConflict, name+"/"+vector)
++				}
++			})
++		}
++	}
++}
++
++// TestAuthorizeRefusesSameEpochLoser drives the same-epoch-loser row:
++// a token that loses the lease tie at the winning epoch refuses
++// lease_conflict on input, mutation, and checkpoint, and parks with
++// stale_owner on launch entries. Lease C2 shares the first UUID
++// segment with the winner (the vector the prefix mutant admits);
++// lease C shares nothing (the vector the carve-out mutant admits).
++func TestAuthorizeRefusesSameEpochLoser(t *testing.T) {
++	vectors := map[string]string{"standard": fenceLeaseC, "prefix_sharing": fenceLeaseC2}
++	for name, entry := range fenceEntries() {
++		for vector, lease := range vectors {
++			t.Run(name+"/"+vector, func(t *testing.T) {
++				presented := fencePresented()
++				presented.LeaseID = lease
++				_, err := entry.authorize(presented, fenceObservation())
++				if entry.launch {
++					mustPark(t, err, ParkStaleOwner, fenceLeaseA, ErrLeaseConflict, name+"/"+vector)
++				} else {
++					mustRefuse(t, err, ErrLeaseConflict, name+"/"+vector)
++				}
++			})
++		}
++	}
++}
++
++// TestAuthorizePrecedence pins the arm order where two arms could
++// fire: the operative ownership fact beats the presented credential,
++// and malformed calls die before any ownership question is asked.
++func TestAuthorizePrecedence(t *testing.T) {
++	stale := PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}
++	t.Run("direction_beats_credential", func(t *testing.T) {
++		observation := fenceObservation()
++		observation.Winner.HolderHostID = fenceHostC
++		_, err := AuthorizeActivation(stale, observation)
++		mustPark(t, err, ParkRemoteOwner, fenceLeaseA, ErrNotOwner, "activation/direction_beats_credential")
++		_, err = AuthorizeMutation(stale, observation)
++		mustRefuse(t, err, ErrNotOwner, "mutation/direction_beats_credential")
++	})
++	t.Run("verifiability_beats_credential", func(t *testing.T) {
++		observation := fenceObservation()
++		observation.Verified = false
++		_, err := AuthorizeRestore(stale, observation)
++		mustPark(t, err, ParkRestorePolicy, fenceLeaseA, ErrLeaseConflict, "restore/verifiability_beats_credential")
++		_, err = AuthorizeInput(stale, observation)
++		mustRefuse(t, err, ErrLeaseConflict, "input/verifiability_beats_credential")
++	})
++	t.Run("grammar_beats_ownership", func(t *testing.T) {
++		observation := fenceObservation()
++		observation.Winner.HolderHostID = fenceHostC
++		malformed := PresentedToken{SessionID: "not-a-uuid", Epoch: 2, LeaseID: fenceLeaseA}
++		_, err := AuthorizeActivation(malformed, observation)
++		mustRefuse(t, err, ErrInvalidArguments, "activation/grammar_beats_ownership")
++	})
++	t.Run("absence_beats_stale_token", func(t *testing.T) {
++		observation := fenceObservation()
++		observation.HasWinner = false
++		observation.Winner = sessrepo.LeaseSummary{}
++		_, err := AuthorizeActivation(stale, observation)
++		mustPark(t, err, ParkRestorePolicy, "", ErrLeaseConflict, "activation/absence_beats_stale_token")
++	})
++}
++
++// TestObserveLoadsWinningLease drives the repository-backed
++// observation entry: the winner is the store head, a session with no
++// leases yields no winner without an error, and an unknown session
++// propagates the repository refusal.
++func TestObserveLoadsWinningLease(t *testing.T) {
++	t.Run("winner_is_store_head", func(t *testing.T) {
++		repository, _ := openFenceRepository(t)
++		createFenceSession(t, repository)
++		first := mustCreateFenceLease(t, repository, fenceSessionA, sessrepo.CreateLeaseInput{LeaseID: fenceLeaseOld, HolderHostID: fenceHostA, IssuedByHostID: fenceHostA, CreatedAt: fenceLeaseAt})
++		second := mustSwapFenceLease(t, repository, fenceSessionA, sessrepo.LeaseExpectation{RecordID: first.RecordID}, sessrepo.SuccessorLeaseInput{
++			CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: fenceLeaseA, HolderHostID: fenceHostA, IssuedByHostID: fenceHostA, CreatedAt: fenceLeaseAt},
++			Reason:           "graceful_takeover",
++			CheckpointID:     fenceZeroDigest,
++		})
++		observation, err := Observe(repository, fenceSessionA, ObserveInput{LocalHostID: fenceHostA, Verified: true, HasGrant: true, Grant: sessrepo.FencingGrant{SessionID: fenceSessionA, ValidatedAt: fenceValidatedAt}, Policy: fencePolicy, Now: fenceValidatedAt})
++		if err != nil {
++			t.Fatalf("Observe error = %v", err)
++		}
++		if !observation.HasWinner {
++			t.Fatal("Observe reports no winner past a succession")
++		}
++		if observation.Winner.Epoch != 2 || observation.Winner.LeaseID != fenceLeaseA || observation.Winner.HolderHostID != fenceHostA || observation.Winner.RecordID != second.RecordID {
++			t.Fatalf("Observe winner = %+v, want the store head %+v", observation.Winner, second)
++		}
++		token, err := AuthorizeMutation(fencePresented(), observation)
++		mustMint(t, token, err, "Observe/AuthorizeMutation")
++	})
++	t.Run("no_leases_yields_no_winner", func(t *testing.T) {
++		repository, _ := openFenceRepository(t)
++		createFenceSession(t, repository)
++		observation, err := Observe(repository, fenceSessionA, ObserveInput{LocalHostID: fenceHostA, Verified: true})
++		if err != nil {
++			t.Fatalf("Observe error = %v", err)
++		}
++		if observation.HasWinner {
++			t.Fatalf("Observe winner = %+v, want no winner", observation.Winner)
++		}
++	})
++	t.Run("unknown_session_propagates", func(t *testing.T) {
++		repository, _ := openFenceRepository(t)
++		_, err := Observe(repository, fenceSessionA, ObserveInput{LocalHostID: fenceHostA, Verified: true})
++		if err == nil {
++			t.Fatal("Observe(unknown session) succeeded")
++		}
++		if !errors.Is(err, sessrepo.ErrUnknownSession) {
++			t.Fatalf("Observe(unknown session) error = %v, want the repository refusal", err)
++		}
++	})
++}
+diff --git a/internal/fencing/scenarios_test.go b/internal/fencing/scenarios_test.go
+new file mode 100644
+index 0000000..dfdfaad
+--- /dev/null
++++ b/internal/fencing/scenarios_test.go
+@@ -0,0 +1,488 @@
++package fencing
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++	"github.com/relux-works/agent-session-manager/internal/sessstate"
++)
++
++// buildFenceRecord derives a valid Session Record from the SPEC
++// example with the caller's session identity and name.
++func buildFenceRecord(t *testing.T, sessionID, name string) []byte {
++	t.Helper()
++	var object map[string]any
++	if err := json.Unmarshal([]byte(specRecordExample), &object); err != nil {
++		t.Fatalf("unmarshal SPEC record example: %v", err)
++	}
++	object["session_id"], object["subject_id"], object["name"] = sessionID, sessionID, name
++	return identifyFenceObject(t, object, "record_id")
++}
++
++func createdFencePayload(recordID string) map[string]any {
++	return map[string]any{"session_record_id": recordID, "bootstrap_operation_id": "0198f4c8-7d40-7e55-8e6f-1234567890ab", "first_checkpoint_operation_id": "0198f4c8-7d40-7e55-8e6f-1234567890ac"}
++}
++
++func idleFencePayload() map[string]any {
++	return map[string]any{"boundary_ref": "turn-1", "foreground_idle": true, "background_idle": true}
++}
++
++func resumedFencePayload() map[string]any {
++	return map[string]any{"checkpoint_id": fenceZeroDigest, "execution_profile": "yolo", "profile_source_event_id": nil, "terminal_backend": "tmux", "native_session_id": "pane-1"}
++}
++
++// appendFenceEvent appends one valid event at the given chain position
++// and returns its reference and bytes.
++func appendFenceEvent(t *testing.T, repository *sessrepo.Repository, sessionID string, predecessors []string, epoch uint64, leaseID string, sequence uint64, hostID, eventType string, payload map[string]any) (sessrepo.EventRef, []byte) {
++	t.Helper()
++	raw := buildFenceEvent(t, sessionID, predecessors, epoch, leaseID, sequence, hostID, eventType, payload)
++	reference, err := repository.AppendEvent(sessionID, raw)
++	if err != nil {
++		t.Fatalf("AppendEvent(seq %d) error = %v", sequence, err)
++	}
++	return reference, raw
++}
++
++// observeFence builds the Observe input for a verified local grant.
++func observeFence(localHostID string) ObserveInput {
++	return ObserveInput{LocalHostID: localHostID, Verified: true, HasGrant: true, Grant: sessrepo.FencingGrant{SessionID: fenceSessionA, ValidatedAt: fenceValidatedAt}, Policy: fencePolicy, Now: fenceValidatedAt}
++}
++
++// plantForceTakeover builds the two-replica force-takeover fixture:
++// repoOld holds session A with the epoch-1 lease and its two-event
++// chain, repoNew holds the byte-identical base plus the epoch-2 force
++// lease and the resumed event under it. It returns both repositories
++// with the new replica's data root for blob assertions.
++func plantForceTakeover(t *testing.T) (repoOld, repoNew *sessrepo.Repository, rootNew string) {
++	t.Helper()
++	var rootOld string
++	repoOld, rootOld = openFenceRepository(t)
++	_ = rootOld
++	repoNew, rootNew = openFenceRepository(t)
++	record := createFenceSession(t, repoOld)
++	if _, err := repoNew.CreateSession([]byte(specRecordExample)); err != nil {
++		t.Fatalf("CreateSession(new) error = %v", err)
++	}
++	base := sessrepo.CreateLeaseInput{LeaseID: fenceLeaseOld, HolderHostID: fenceHostA, IssuedByHostID: fenceHostA, CreatedAt: fenceLeaseAt}
++	oldHead := mustCreateFenceLease(t, repoOld, fenceSessionA, base)
++	newHead := mustCreateFenceLease(t, repoNew, fenceSessionA, base)
++	if oldHead.RecordID != newHead.RecordID {
++		t.Fatalf("epoch-1 bases differ: %s vs %s", oldHead.RecordID, newHead.RecordID)
++	}
++	created, _ := appendFenceEvent(t, repoOld, fenceSessionA, []string{record.RecordID}, 1, fenceLeaseOld, 1, fenceHostA, "session.created", createdFencePayload(record.RecordID))
++	idle, _ := appendFenceEvent(t, repoOld, fenceSessionA, []string{created.EventID}, 1, fenceLeaseOld, 2, fenceHostA, "session.idle", idleFencePayload())
++	if _, err := repoNew.AppendEvent(fenceSessionA, buildFenceEvent(t, fenceSessionA, []string{record.RecordID}, 1, fenceLeaseOld, 1, fenceHostA, "session.created", createdFencePayload(record.RecordID))); err != nil {
++		t.Fatalf("AppendEvent(new created) error = %v", err)
++	}
++	if _, err := repoNew.AppendEvent(fenceSessionA, buildFenceEvent(t, fenceSessionA, []string{created.EventID}, 1, fenceLeaseOld, 2, fenceHostA, "session.idle", idleFencePayload())); err != nil {
++		t.Fatalf("AppendEvent(new idle) error = %v", err)
++	}
++	mustSwapFenceLease(t, repoNew, fenceSessionA, sessrepo.LeaseExpectation{RecordID: newHead.RecordID}, sessrepo.SuccessorLeaseInput{
++		CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: fenceLeaseA, HolderHostID: fenceHostB, IssuedByHostID: fenceHostB, CreatedAt: fenceLeaseAt},
++		Reason:           "force_takeover",
++		CheckpointID:     fenceZeroDigest,
++	})
++	appendFenceEvent(t, repoNew, fenceSessionA, []string{idle.EventID}, 2, fenceLeaseA, 1, fenceHostB, "session.resumed", resumedFencePayload())
++	return repoOld, repoNew, rootNew
++}
++
++// TestOldOwnerReconnectRejectedAfterForceTakeover drives the
++// old-owner-reconnect row through production entries: after a force
++// takeover, the old token is rejected from input, mutation, and
++// restore, the old wrapper parks remote, the losing events stay
++// preserved without application, and the sessstate union reports the
++// losing branch preserved while authoritative state stands.
++func TestOldOwnerReconnectRejectedAfterForceTakeover(t *testing.T) {
++	_, repoNew, rootNew := plantForceTakeover(t)
++	old := PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}
++
++	t.Run("new_owner_rejects_old_token_as_stale", func(t *testing.T) {
++		observation, err := Observe(repoNew, fenceSessionA, observeFence(fenceHostB))
++		if err != nil {
++			t.Fatalf("Observe error = %v", err)
++		}
++		_, err = AuthorizeInput(old, observation)
++		mustRefuse(t, err, ErrStaleOwner, "reconnect/input")
++		_, err = AuthorizeMutation(old, observation)
++		mustRefuse(t, err, ErrStaleOwner, "reconnect/mutation")
++		_, err = AuthorizeCheckpoint(old, observation)
++		mustRefuse(t, err, ErrStaleOwner, "reconnect/checkpoint")
++	})
++
++	t.Run("old_wrapper_parks_remote", func(t *testing.T) {
++		observation, err := Observe(repoNew, fenceSessionA, observeFence(fenceHostA))
++		if err != nil {
++			t.Fatalf("Observe error = %v", err)
++		}
++		_, err = AuthorizeRestore(old, observation)
++		mustPark(t, err, ParkRemoteOwner, fenceLeaseA, ErrNotOwner, "reconnect/restore")
++		_, err = AuthorizeActivation(old, observation)
++		mustPark(t, err, ParkRemoteOwner, fenceLeaseA, ErrNotOwner, "reconnect/activation")
++	})
++
++	t.Run("losing_events_preserved_without_application", func(t *testing.T) {
++		before, err := repoNew.ListEvents(fenceSessionA)
++		if err != nil {
++			t.Fatalf("ListEvents error = %v", err)
++		}
++		divergent := buildFenceEvent(t, fenceSessionA, []string{before[len(before)-1].EventID}, 1, fenceLeaseOld, 3, fenceHostA, "session.idle", idleFencePayload())
++		_, err = repoNew.AppendEvent(fenceSessionA, divergent)
++		if !errors.Is(err, sessrepo.ErrStaleLease) {
++			t.Fatalf("AppendEvent(divergent) error = %v, want stale lease", err)
++		}
++		after, err := repoNew.ListEvents(fenceSessionA)
++		if err != nil {
++			t.Fatalf("ListEvents error = %v", err)
++		}
++		if len(after) != len(before) || after[len(after)-1].EventID != before[len(before)-1].EventID {
++			t.Fatalf("chain moved under a losing append: %d events, tail %s", len(after), after[len(after)-1].EventID)
++		}
++		var decoded map[string]any
++		if err := json.Unmarshal(divergent, &decoded); err != nil {
++			t.Fatalf("unmarshal divergent event: %v", err)
++		}
++		eventID, _ := decoded["event_id"].(string)
++		blobPath := filepath.Join(rootNew, "sessions", fenceSessionA, "events", strings.TrimPrefix(eventID, "sha256:")+".json")
++		stored, err := os.ReadFile(blobPath)
++		if err != nil {
++			t.Fatalf("read preserved divergent blob: %v", err)
++		}
++		if !bytes.Equal(stored, divergent) {
++			t.Fatal("preserved divergent blob differs from the refused bytes")
++		}
++	})
++
++	t.Run("union_preserves_losing_branch", func(t *testing.T) {
++		repoOld, _ := openFenceRepository(t)
++		record := createFenceSession(t, repoOld)
++		base := sessrepo.CreateLeaseInput{LeaseID: fenceLeaseOld, HolderHostID: fenceHostA, IssuedByHostID: fenceHostA, CreatedAt: fenceLeaseAt}
++		mustCreateFenceLease(t, repoOld, fenceSessionA, base)
++		created, _ := appendFenceEvent(t, repoOld, fenceSessionA, []string{record.RecordID}, 1, fenceLeaseOld, 1, fenceHostA, "session.created", createdFencePayload(record.RecordID))
++		appendFenceEvent(t, repoOld, fenceSessionA, []string{created.EventID}, 1, fenceLeaseOld, 2, fenceHostA, "session.idle", idleFencePayload())
++
++		plain, err := (&sessstate.Projector{Repo: repoOld}).Project(fenceSessionA)
++		if err != nil {
++			t.Fatalf("Project(chain) error = %v", err)
++		}
++		if plain.State != sessstate.StateIdle {
++			t.Fatalf("chain projection state = %s, want idle", plain.State)
++		}
++		union := []sessstate.LeaseHead{{Epoch: 2, LeaseID: fenceLeaseA}, {Epoch: 1, LeaseID: fenceLeaseOld}}
++		withUnion, err := (&sessstate.Projector{Repo: repoOld, Union: union}).Project(fenceSessionA)
++		if err != nil {
++			t.Fatalf("Project(union) error = %v", err)
++		}
++		if withUnion.Winner.Epoch != 2 || withUnion.Winner.LeaseID != fenceLeaseA {
++			t.Fatalf("union winner = %+v, want the force lease", withUnion.Winner)
++		}
++		if withUnion.State != sessstate.StateIdle {
++			t.Fatalf("union projection state = %s, want idle: authoritative state must stand", withUnion.State)
++		}
++		staleView, err := (&sessstate.Projector{Repo: repoOld, Union: union, Local: sessstate.LeaseHead{Epoch: 1, LeaseID: fenceLeaseOld}, LocalHostID: fenceHostA}).Project(fenceSessionA)
++		if err != nil {
++			t.Fatalf("Project(union+local) error = %v", err)
++		}
++		if staleView.State != sessstate.StateStale {
++			t.Fatalf("old-owner projection state = %s, want stale", staleView.State)
++		}
++		assertConflict(t, staleView, sessstate.ConflictLosingBranchPreserved)
++		assertConflict(t, staleView, sessstate.ConflictUnionSupersedesChain)
++	})
++}
++
++func assertConflict(t *testing.T, projection sessstate.Projection, kind string) {
++	t.Helper()
++	for _, conflict := range projection.Conflicts {
++		if conflict.Kind == kind {
++			return
++		}
++	}
++	t.Fatalf("projection conflicts %v lack %s", projection.Conflicts, kind)
++}
++
++// TestConcurrentForceTakeoversDeterministicWinner drives the
++// concurrent-takeover row: two force leases at the same epoch from
++// one base resolve to the bytewise-greater lease ID in either union
++// order under both tuple rules, the winner authorizes, and the loser
++// stops accepting input.
++func TestConcurrentForceTakeoversDeterministicWinner(t *testing.T) {
++	build := func(t *testing.T, leaseID, holder string) *sessrepo.Repository {
++		t.Helper()
++		repository, _ := openFenceRepository(t)
++		createFenceSession(t, repository)
++		base := mustCreateFenceLease(t, repository, fenceSessionA, sessrepo.CreateLeaseInput{LeaseID: fenceLeaseOld, HolderHostID: fenceHostA, IssuedByHostID: fenceHostA, CreatedAt: fenceLeaseAt})
++		mustSwapFenceLease(t, repository, fenceSessionA, sessrepo.LeaseExpectation{RecordID: base.RecordID}, sessrepo.SuccessorLeaseInput{
++			CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: leaseID, HolderHostID: holder, IssuedByHostID: holder, CreatedAt: fenceLeaseAt},
++			Reason:           "force_takeover",
++			CheckpointID:     fenceZeroDigest,
++		})
++		return repository
++	}
++	repoX := build(t, fenceLeaseA, fenceHostB)
++	repoY := build(t, fenceLeaseC2, fenceHostC)
++	headX, err := repoX.WinningLease(fenceSessionA)
++	if err != nil {
++		t.Fatalf("WinningLease(X) error = %v", err)
++	}
++	headY, err := repoY.WinningLease(fenceSessionA)
++	if err != nil {
++		t.Fatalf("WinningLease(Y) error = %v", err)
++	}
++	for _, order := range [][2]sessrepo.LeaseSummary{{headX, headY}, {headY, headX}} {
++		winner := order[0]
++		if sessrepo.CompareLeaseTuple(order[1], winner) > 0 {
++			winner = order[1]
++		}
++		if winner.LeaseID != fenceLeaseC2 {
++			t.Fatalf("union winner = %s, want the greater lease %s", winner.LeaseID, fenceLeaseC2)
++		}
++		stateWinner := sessstate.LeaseHead{Epoch: order[0].Epoch, LeaseID: order[0].LeaseID}
++		other := sessstate.LeaseHead{Epoch: order[1].Epoch, LeaseID: order[1].LeaseID}
++		if sessstate.Compare(other, stateWinner) > 0 {
++			stateWinner = other
++		}
++		if stateWinner.LeaseID != winner.LeaseID {
++			t.Fatalf("sessstate winner %s disagrees with store winner %s", stateWinner.LeaseID, winner.LeaseID)
++		}
++	}
++	// The loser stops accepting input once it learns the union
++	// winner: its same-epoch token loses the tie on the winning host.
++	loser := PresentedToken{SessionID: fenceSessionA, Epoch: 2, LeaseID: fenceLeaseA}
++	union := ObserveInput{LocalHostID: fenceHostC, Verified: true, HasGrant: true, Grant: sessrepo.FencingGrant{SessionID: fenceSessionA, ValidatedAt: fenceValidatedAt}, Policy: fencePolicy, Now: fenceValidatedAt}
++	observation, err := Observe(repoY, fenceSessionA, union)
++	if err != nil {
++		t.Fatalf("Observe error = %v", err)
++	}
++	_, err = AuthorizeInput(loser, observation)
++	mustRefuse(t, err, ErrLeaseConflict, "loser/input")
++	_, err = AuthorizeMutation(loser, observation)
++	mustRefuse(t, err, ErrLeaseConflict, "loser/mutation")
++	champion := PresentedToken{SessionID: fenceSessionA, Epoch: 2, LeaseID: fenceLeaseC2}
++	token, err := AuthorizeActivation(champion, observation)
++	mustMintUnion(t, token, err, fenceLeaseC2)
++}
++
++// mustMintUnion is mustMint for a non-default winning lease: the
++// minted token binds the exact expected triple.
++func mustMintUnion(t *testing.T, token LeaseToken, err error, leaseID string) {
++	t.Helper()
++	if err != nil {
++		t.Fatalf("union authorize error = %v, want a minted token", err)
++	}
++	bound, err := token.Bind(ProviderCapture)
++	if err != nil {
++		t.Fatalf("Bind(capture) error = %v", err)
++	}
++	if bound.SessionID != fenceSessionA || bound.Epoch != 2 || bound.LeaseID != leaseID {
++		t.Fatalf("Bind(capture) = %+v, want the union winner", bound)
++	}
++}
++
++// TestLifecycleCallersPassTheGate models graceful takeover, fork,
++// stop, and resume as gate callers: each authorizes its entry point
++// with the winning lease and the exact epoch, and the replica resume
++// parks remote instead of starting a runtime.
++func TestLifecycleCallersPassTheGate(t *testing.T) {
++	t.Run("graceful_takeover_commit", func(t *testing.T) {
++		repository, _ := openFenceRepository(t)
++		createFenceSession(t, repository)
++		first := mustCreateFenceLease(t, repository, fenceSessionA, sessrepo.CreateLeaseInput{LeaseID: fenceLeaseOld, HolderHostID: fenceHostA, IssuedByHostID: fenceHostA, CreatedAt: fenceLeaseAt})
++		mustSwapFenceLease(t, repository, fenceSessionA, sessrepo.LeaseExpectation{RecordID: first.RecordID}, sessrepo.SuccessorLeaseInput{
++			CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: fenceLeaseA, HolderHostID: fenceHostB, IssuedByHostID: fenceHostB, CreatedAt: fenceLeaseAt},
++			Reason:           "graceful_takeover",
++			CheckpointID:     fenceZeroDigest,
++		})
++		destination, err := Observe(repository, fenceSessionA, observeFence(fenceHostB))
++		if err != nil {
++			t.Fatalf("Observe error = %v", err)
++		}
++		token, err := AuthorizeMutation(PresentedToken{SessionID: fenceSessionA, Epoch: 2, LeaseID: fenceLeaseA}, destination)
++		mustMint(t, token, err, "takeover/commit")
++		source, err := Observe(repository, fenceSessionA, observeFence(fenceHostA))
++		if err != nil {
++			t.Fatalf("Observe(source) error = %v", err)
++		}
++		_, err = AuthorizeMutation(PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}, source)
++		mustRefuse(t, err, ErrNotOwner, "takeover/source")
++	})
++
++	t.Run("fork_epoch_one_activation", func(t *testing.T) {
++		repository, _ := openFenceRepository(t)
++		if _, err := repository.CreateSession(buildFenceRecord(t, fenceSessionB, "payments-api-experiment")); err != nil {
++			t.Fatalf("CreateSession(fork) error = %v", err)
++		}
++		mustCreateFenceLease(t, repository, fenceSessionB, sessrepo.CreateLeaseInput{LeaseID: fenceLeaseC, HolderHostID: fenceHostB, IssuedByHostID: fenceHostB, CreatedAt: fenceLeaseAt})
++		input := observeFence(fenceHostB)
++		input.Grant.SessionID = fenceSessionB
++		observation, err := Observe(repository, fenceSessionB, input)
++		if err != nil {
++			t.Fatalf("Observe error = %v", err)
++		}
++		token, err := AuthorizeActivation(PresentedToken{SessionID: fenceSessionB, Epoch: 1, LeaseID: fenceLeaseC}, observation)
++		if err != nil {
++			t.Fatalf("fork activation error = %v", err)
++		}
++		bound, err := token.Bind(ProviderCapture)
++		if err != nil {
++			t.Fatalf("Bind(capture) error = %v", err)
++		}
++		if bound.SessionID != fenceSessionB || bound.Epoch != 1 || bound.LeaseID != fenceLeaseC {
++			t.Fatalf("Bind(capture) = %+v, want the fork epoch-1 triple", bound)
++		}
++		_, err = AuthorizeActivation(PresentedToken{SessionID: fenceSessionB, Epoch: 2, LeaseID: fenceLeaseC}, observation)
++		mustPark(t, err, ParkRestorePolicy, fenceLeaseC, ErrLeaseConflict, "fork/future_epoch")
++	})
++
++	t.Run("stop_checkpoint", func(t *testing.T) {
++		observation := fenceObservation()
++		token, err := AuthorizeCheckpoint(fencePresented(), observation)
++		mustMint(t, token, err, "stop/checkpoint")
++		_, err = AuthorizeCheckpoint(PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}, observation)
++		mustRefuse(t, err, ErrStaleOwner, "stop/stale")
++	})
++
++	t.Run("owner_resume_and_replica_park", func(t *testing.T) {
++		observation := fenceObservation()
++		token, err := AuthorizeRestore(fencePresented(), observation)
++		mustMint(t, token, err, "resume/owner")
++		replica := fenceObservation()
++		replica.LocalHostID = fenceHostC
++		_, err = AuthorizeRestore(fencePresented(), replica)
++		mustPark(t, err, ParkRemoteOwner, fenceLeaseA, ErrNotOwner, "resume/replica")
++	})
++}
++
++// TestGatesPerformNoDurableWrites proves the crash/idempotency bound:
++// gates are pure over durable inputs, so authorizing (passing and
++// failing) through every entry changes no repository byte and decides
++// identically on every run.
++func TestGatesPerformNoDurableWrites(t *testing.T) {
++	repository, root := openFenceRepository(t)
++	createFenceSession(t, repository)
++	first := mustCreateFenceLease(t, repository, fenceSessionA, sessrepo.CreateLeaseInput{LeaseID: fenceLeaseOld, HolderHostID: fenceHostA, IssuedByHostID: fenceHostA, CreatedAt: fenceLeaseAt})
++	mustSwapFenceLease(t, repository, fenceSessionA, sessrepo.LeaseExpectation{RecordID: first.RecordID}, sessrepo.SuccessorLeaseInput{
++		CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: fenceLeaseA, HolderHostID: fenceHostA, IssuedByHostID: fenceHostA, CreatedAt: fenceLeaseAt},
++		Reason:           "graceful_takeover",
++		CheckpointID:     fenceZeroDigest,
++	})
++	snapshot := snapshotTree(t, root)
++	decide := func() []string {
++		observation, err := Observe(repository, fenceSessionA, observeFence(fenceHostA))
++		if err != nil {
++			t.Fatalf("Observe error = %v", err)
++		}
++		var verdicts []string
++		record := func(name string, err error) {
++			if err == nil {
++				verdicts = append(verdicts, name+":allow")
++			} else {
++				verdicts = append(verdicts, name+":"+classOf(err))
++			}
++		}
++		entries := fenceEntries()
++		var names []string
++		for name := range entries {
++			names = append(names, name)
++		}
++		sort.Strings(names)
++		for _, name := range names {
++			entry := entries[name]
++			token, err := entry.authorize(fencePresented(), observation)
++			record(name+"/exact", err)
++			if err == nil {
++				if _, err := token.Bind(ProviderQuiesce); err != nil {
++					t.Fatalf("%s Bind error = %v", name, err)
++				}
++			}
++			_, err = entry.authorize(PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}, observation)
++			record(name+"/stale", err)
++		}
++		_, err = LeaseToken{}.Bind(ProviderCapture)
++		record("bind/forged", err)
++		record("terminate/stale", AuthorizeTerminateStale(PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}, observation.Winner, true, true, true))
++		record("terminate/live", AuthorizeTerminateStale(fencePresented(), observation.Winner, true, true, true))
++		return verdicts
++	}
++	firstRun := decide()
++	if !equalSnapshot(t, snapshotTree(t, root), snapshot) {
++		t.Fatal("repository bytes moved under gate evaluation")
++	}
++	secondRun := decide()
++	if strings.Join(firstRun, "\n") != strings.Join(secondRun, "\n") {
++		t.Fatalf("verdicts differ across runs:\n%s\nvs\n%s", strings.Join(firstRun, "\n"), strings.Join(secondRun, "\n"))
++	}
++	if !equalSnapshot(t, snapshotTree(t, root), snapshot) {
++		t.Fatal("repository bytes moved under repeated gate evaluation")
++	}
++}
++
++// classOf renders the Section 15 class of a gate refusal for the
++// determinism comparison: park decisions render with their reason.
++func classOf(err error) string {
++	if reason, _, ok := ParkDetails(err); ok {
++		return "park:" + string(reason)
++	}
++	for _, sentinel := range []error{ErrLeaseConflict, ErrNotOwner, ErrStaleOwner, ErrInvalidArguments, ErrLocalPreconditionFailed} {
++		if errors.Is(err, sentinel) {
++			return sentinel.Error()
++		}
++	}
++	return "unknown:" + err.Error()
++}
++
++// snapshotTree hashes every file under the data root the repository
++// was opened on.
++func snapshotTree(t *testing.T, root string) map[string]string {
++	t.Helper()
++	out := map[string]string{}
++	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
++		if err != nil || entry.IsDir() {
++			return err
++		}
++		raw, err := os.ReadFile(path)
++		if err != nil {
++			return err
++		}
++		digest := sha256.Sum256(raw)
++		rel, err := filepath.Rel(root, path)
++		if err != nil {
++			return err
++		}
++		out[rel] = hex.EncodeToString(digest[:])
++		return nil
++	})
++	if err != nil {
++		t.Fatalf("walk sessions root: %v", err)
++	}
++	return out
++}
++
++func equalSnapshot(t *testing.T, got, want map[string]string) bool {
++	t.Helper()
++	if len(got) != len(want) {
++		t.Logf("snapshot sizes differ: %d vs %d", len(got), len(want))
++		return false
++	}
++	var keys []string
++	for key := range want {
++		keys = append(keys, key)
++	}
++	sort.Strings(keys)
++	for _, key := range keys {
++		if got[key] != want[key] {
++			t.Logf("snapshot differs at %s", key)
++			return false
++		}
++	}
++	return true
++}
+diff --git a/internal/fencing/terminate.go b/internal/fencing/terminate.go
+new file mode 100644
+index 0000000..43c214e
+--- /dev/null
++++ b/internal/fencing/terminate.go
+@@ -0,0 +1,50 @@
++package fencing
++
++import (
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++)
++
++// AuthorizeTerminateStale gates the terminal backend terminate-stale
++// operation: terminate a process only for explicit force recovery
++// after preserving diagnostics, and only when the target is fenced
++// (its token is not the winning tuple). The caller needs no winning
++// grant of its own: the stale-process host runs this during force
++// recovery. A nil error authorizes the termination; any refusal names
++// the Section 4.C terminate-stale row class
++// (local_precondition_failed) or the fencing class that applies.
++//
++// Arm order is precedence: malformed calls die first, then the
++// authority to judge staleness (an established, well-formed winner),
++// then the explicit force recovery confirmation with its preserved
++// diagnostics, then the target binding, then the live-owner guard.
++func AuthorizeTerminateStale(presented PresentedToken, winner sessrepo.LeaseSummary, hasWinner bool, forceRecovery bool, diagnosticsPreserved bool) error {
++	if _, err := scalar.ParseUUIDv7(presented.SessionID); err != nil {
++		return refuse(ErrInvalidArguments, "terminate-stale target session %q is not a UUIDv7: %v", presented.SessionID, err)
++	}
++	if presented.Epoch == 0 {
++		return refuse(ErrInvalidArguments, "terminate-stale target carries epoch 0, want an epoch at or above 1")
++	}
++	if _, err := scalar.ParseUUIDv4(presented.LeaseID); err != nil {
++		return refuse(ErrInvalidArguments, "terminate-stale target lease %q is not a UUIDv4: %v", presented.LeaseID, err)
++	}
++	if !hasWinner {
++		return refuse(ErrLocalPreconditionFailed, "terminate-stale cannot prove its target is fenced without an established winning lease")
++	}
++	if winner.Epoch == 0 || !validLeaseID(winner.LeaseID) {
++		return refuse(ErrInvalidArguments, "terminate-stale observation carries no well-formed winning lease")
++	}
++	if !forceRecovery {
++		return refuse(ErrLocalPreconditionFailed, "terminate-stale requires explicit force recovery")
++	}
++	if !diagnosticsPreserved {
++		return refuse(ErrLocalPreconditionFailed, "terminate-stale requires preserved diagnostics before termination")
++	}
++	if presented.SessionID != winner.SessionID {
++		return refuse(ErrLeaseConflict, "terminate-stale target for session %s is not fenced by the winning lease for session %s", presented.SessionID, winner.SessionID)
++	}
++	if presented.Epoch == winner.Epoch && presented.LeaseID == winner.LeaseID {
++		return refuse(ErrLocalPreconditionFailed, "terminate-stale must not terminate the live winning owner at epoch %d", winner.Epoch)
++	}
++	return nil
++}
+diff --git a/internal/fencing/terminate_test.go b/internal/fencing/terminate_test.go
+new file mode 100644
+index 0000000..fe7b163
+--- /dev/null
++++ b/internal/fencing/terminate_test.go
+@@ -0,0 +1,149 @@
++package fencing
++
++import (
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++)
++
++// fenceWinner returns the epoch-2 winning summary the terminate tests
++// judge staleness against.
++func fenceWinner() sessrepo.LeaseSummary {
++	return sessrepo.LeaseSummary{SessionID: fenceSessionA, LeaseID: fenceLeaseA, Epoch: 2, HolderHostID: fenceHostA}
++}
++
++// TestTerminateStaleAuthorizesFencedTarget proves explicit force
++// recovery with preserved diagnostics authorizes terminating a
++// fenced process: a lower-epoch target, a same-epoch divergent
++// target, and a target from an epoch beyond the winner are all not
++// the live owner.
++func TestTerminateStaleAuthorizesFencedTarget(t *testing.T) {
++	winner := fenceWinner()
++	targets := map[string]PresentedToken{
++		"lower_epoch":    {SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld},
++		"divergent":      {SessionID: fenceSessionA, Epoch: 2, LeaseID: fenceLeaseC},
++		"beyond_winner":  {SessionID: fenceSessionA, Epoch: 9, LeaseID: fenceLeaseC},
++		"prefix_sharing": {SessionID: fenceSessionA, Epoch: 2, LeaseID: fenceLeaseC2},
++	}
++	for name, target := range targets {
++		t.Run(name, func(t *testing.T) {
++			if err := AuthorizeTerminateStale(target, winner, true, true, true); err != nil {
++				t.Fatalf("AuthorizeTerminateStale(%s) error = %v, want authorization", name, err)
++			}
++		})
++	}
++}
++
++// TestTerminateStaleRefusesWithoutForce proves terminate-stale
++// without explicit force recovery refuses local_precondition_failed,
++// even with diagnostics preserved.
++func TestTerminateStaleRefusesWithoutForce(t *testing.T) {
++	winner := fenceWinner()
++	stale := PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}
++	vectors := map[string]bool{"diagnostics": true, "no_diagnostics": false}
++	for name, diagnostics := range vectors {
++		t.Run(name, func(t *testing.T) {
++			err := AuthorizeTerminateStale(stale, winner, true, false, diagnostics)
++			mustRefuse(t, err, ErrLocalPreconditionFailed, "no_force/"+name)
++		})
++	}
++}
++
++// TestTerminateStaleRefusesWithoutDiagnostics proves terminate-stale
++// before diagnostics are preserved refuses
++// local_precondition_failed, even under explicit force recovery.
++func TestTerminateStaleRefusesWithoutDiagnostics(t *testing.T) {
++	winner := fenceWinner()
++	stale := PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}
++	vectors := map[string]bool{"force": true, "no_force": false}
++	for name, force := range vectors {
++		t.Run(name, func(t *testing.T) {
++			err := AuthorizeTerminateStale(stale, winner, true, force, false)
++			mustRefuse(t, err, ErrLocalPreconditionFailed, "no_diagnostics/"+name)
++		})
++	}
++}
++
++// TestTerminateStaleRefusesWithoutWinner proves staleness cannot be
++// judged without an established winner: terminate-stale refuses
++// local_precondition_failed.
++func TestTerminateStaleRefusesWithoutWinner(t *testing.T) {
++	stale := PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}
++	vectors := map[string]bool{"force": true, "no_force": false}
++	for name, force := range vectors {
++		t.Run(name, func(t *testing.T) {
++			err := AuthorizeTerminateStale(stale, sessrepo.LeaseSummary{}, false, force, true)
++			mustRefuse(t, err, ErrLocalPreconditionFailed, "no_winner/"+name)
++		})
++	}
++}
++
++// TestTerminateStaleRefusesLiveOwner proves terminate-stale must
++// never terminate the live winning owner: an exact winning target
++// refuses local_precondition_failed at both epoch 1 and epoch 2.
++func TestTerminateStaleRefusesLiveOwner(t *testing.T) {
++	t.Run("epoch_two", func(t *testing.T) {
++		winner := fenceWinner()
++		live := PresentedToken{SessionID: fenceSessionA, Epoch: 2, LeaseID: fenceLeaseA}
++		err := AuthorizeTerminateStale(live, winner, true, true, true)
++		mustRefuse(t, err, ErrLocalPreconditionFailed, "live_owner/epoch_two")
++	})
++	t.Run("epoch_one", func(t *testing.T) {
++		winner := sessrepo.LeaseSummary{SessionID: fenceSessionA, LeaseID: fenceLeaseOld, Epoch: 1, HolderHostID: fenceHostA}
++		live := PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}
++		err := AuthorizeTerminateStale(live, winner, true, true, true)
++		mustRefuse(t, err, ErrLocalPreconditionFailed, "live_owner/epoch_one")
++	})
++}
++
++// TestTerminateStaleRefusesForeignSession proves a target bound to
++// another session is not fenced by this winner: terminate-stale
++// refuses lease_conflict.
++func TestTerminateStaleRefusesForeignSession(t *testing.T) {
++	winner := fenceWinner()
++	vectors := map[string]PresentedToken{
++		"prefix_sharing": {SessionID: fenceSessionB, Epoch: 2, LeaseID: fenceLeaseA},
++		"fully_foreign":  {SessionID: fenceSessionC, Epoch: 9, LeaseID: fenceLeaseC},
++	}
++	for name, target := range vectors {
++		t.Run(name, func(t *testing.T) {
++			err := AuthorizeTerminateStale(target, winner, true, true, true)
++			mustRefuse(t, err, ErrLeaseConflict, "foreign/"+name)
++		})
++	}
++}
++
++// TestTerminateStaleRefusesMalformedTarget proves malformed targets
++// refuse invalid_arguments before any force or staleness question.
++func TestTerminateStaleRefusesMalformedTarget(t *testing.T) {
++	winner := fenceWinner()
++	vectors := map[string]PresentedToken{
++		"session_not_uuid": {SessionID: "not-a-uuid", Epoch: 2, LeaseID: fenceLeaseA},
++		"epoch_zero":       {SessionID: fenceSessionA, Epoch: 0, LeaseID: fenceLeaseA},
++		"lease_not_uuid":   {SessionID: fenceSessionA, Epoch: 2, LeaseID: "zzz"},
++		"lease_empty":      {SessionID: fenceSessionA, Epoch: 2, LeaseID: ""},
++	}
++	for name, target := range vectors {
++		t.Run(name, func(t *testing.T) {
++			err := AuthorizeTerminateStale(target, winner, true, true, true)
++			mustRefuse(t, err, ErrInvalidArguments, "malformed/"+name)
++		})
++	}
++}
++
++// TestTerminateStaleRefusesGarbageWinner proves staleness is never
++// judged against a malformed winner: garbage authority refuses
++// invalid_arguments.
++func TestTerminateStaleRefusesGarbageWinner(t *testing.T) {
++	stale := PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}
++	vectors := map[string]sessrepo.LeaseSummary{
++		"epoch_zero_lease": {SessionID: fenceSessionA, LeaseID: "zzz", Epoch: 0, HolderHostID: fenceHostA},
++		"lease_malformed":  {SessionID: fenceSessionA, LeaseID: "zzz", Epoch: 2, HolderHostID: fenceHostA},
++	}
++	for name, winner := range vectors {
++		t.Run(name, func(t *testing.T) {
++			err := AuthorizeTerminateStale(stale, winner, true, true, true)
++			mustRefuse(t, err, ErrInvalidArguments, "garbage_winner/"+name)
++		})
++	}
++}
+diff --git a/internal/fencing/testdata/forge/forge.go b/internal/fencing/testdata/forge/forge.go
+new file mode 100644
+index 0000000..9d847cd
+--- /dev/null
++++ b/internal/fencing/testdata/forge/forge.go
+@@ -0,0 +1,15 @@
++// Package forge attempts to assemble a fencing LeaseToken by field
++// name from outside the package. It must NOT compile: the seal is
++// unexported. The census test builds this fixture expecting failure
++// and builds the sibling use fixture expecting success.
++package forge
++
++import (
++	"github.com/relux-works/agent-session-manager/internal/fencing"
++)
++
++// Forge assembles a LeaseToken the only way an outsider can spell,
++// which the compiler refuses.
++func Forge() fencing.LeaseToken {
++	return fencing.LeaseToken{seal: nil}
++}
+diff --git a/internal/fencing/testdata/mutate.py b/internal/fencing/testdata/mutate.py
+new file mode 100644
+index 0000000..7d7e082
+--- /dev/null
++++ b/internal/fencing/testdata/mutate.py
+@@ -0,0 +1,299 @@
++#!/usr/bin/env python3
++"""Run isolated behavioral mutants for the fencing gates; never modify the managed Story checkout.
++Usage: python3 internal/fencing/testdata/mutate.py /absolute/evidence/directory [name-filter]
++Every subprocess runs directly, logs its real exit, and has a bounded timeout.
++The battery proves each fencing gate by narrowing, never by deletion:
++every N-mutant keeps its gate present and weakens it to admit exactly one
++member of the class the gate must reject, and a named behavioral test must
++fail. The T-mutant preserves the searched-for leaseSeal token while
++constructing through an alias, and the harness executes the full behavioral
++suite for it, not only the static census. An optional name-filter runs a
++subset (substring match); results merge by concatenating mutants JSON rows.
++"""
++import hashlib
++import json
++from pathlib import Path
++import re
++import shutil
++import subprocess
++import sys
++
++root = Path(__file__).resolve().parents[3]
++output = Path(sys.argv[1]).resolve()
++output.mkdir(parents=True, exist_ok=True)
++name_filter = sys.argv[2] if len(sys.argv) > 2 else ""
++tag = re.sub(r"[^a-z0-9]+", "-", name_filter.lower()).strip("-") or "full"
++copy = output / ("mutation-source-" + tag)
++if copy.exists():
++    raise SystemExit("refusing to overwrite an existing mutation source")
++copy.mkdir()
++shutil.copytree(root / "internal", copy / "internal")
++for name in ("go.mod", "go.sum", "README.md", "LOGBOOK.md"):
++    shutil.copy2(root / name, copy / name)
++results = []
++
++LEASEA = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
++LEASEC = "cccccccc-dddd-4eee-8fff-111111111111"
++SESSIONB = "0198f4c8-3e70-7a11-8a2b-1234567890ac"
++
++GATE_IMPORT = '\t"errors"\n\t"fmt"\n\t"time"'
++GATE_IMPORT_STRINGS = '\t"errors"\n\t"fmt"\n\t"strings"\n\t"time"'
++
++# Each mutant: (name, kind, file, edits|add-path+content, command, bound).
++# kind edit: [(old, new)] applied to file, each anchored exactly once.
++# kind add: writes path with content for the run, then removes it.
++MUTANTS = [
++    ("N-op", "edit", "internal/fencing/gate.go",
++     [("case OperationActivation, OperationInput, OperationMutation, OperationCheckpoint, OperationRestore:",
++        'case OperationActivation, OperationInput, OperationMutation, OperationCheckpoint, OperationRestore, "bogus":')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesUnknownOperation$", "-count=1", "-v"],
++     "Admit exactly the bogus operation past the enum; the token authorizes and the negative fails by success."),
++    ("N-presented-session", "edit", "internal/fencing/gate.go",
++     [("if _, err := scalar.ParseUUIDv7(presented.SessionID); err != nil {",
++        'if _, err := scalar.ParseUUIDv7(presented.SessionID); err != nil && presented.SessionID != "not-a-uuid" {')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesMalformedPresented$", "-count=1", "-v"],
++     "Admit exactly the not-a-uuid session; the refusal degrades to the foreign-session class."),
++    ("N-presented-epoch", "edit", "internal/fencing/gate.go",
++     [("if presented.Epoch == 0 {",
++        'if presented.Epoch == 0 && presented.LeaseID != "' + LEASEA + '" {')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesMalformedPresented$", "-count=1", "-v"],
++     "Admit exactly the epoch-zero winner-lease vector; the refusal degrades to the stale class."),
++    ("N-presented-lease", "edit", "internal/fencing/gate.go",
++     [("if _, err := scalar.ParseUUIDv4(presented.LeaseID); err != nil {",
++        'if _, err := scalar.ParseUUIDv4(presented.LeaseID); err != nil && presented.LeaseID != "zzz" {')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesMalformedPresented$", "-count=1", "-v"],
++     "Admit exactly the zzz token lease; the refusal degrades to the loser class."),
++    ("N-winner", "edit", "internal/fencing/gate.go",
++     [("if observation.Winner.Epoch == 0 || !validLeaseID(observation.Winner.LeaseID) || !validHostID(observation.Winner.HolderHostID) {",
++        'if (observation.Winner.Epoch == 0 || !validLeaseID(observation.Winner.LeaseID) || !validHostID(observation.Winner.HolderHostID)) && !(observation.Winner.Epoch == 0 && observation.Winner.LeaseID == "zzz") {')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesGarbageWinner$", "-count=1", "-v"],
++     "Admit exactly the epoch-zero zzz winner; the refusal degrades to the ahead class."),
++    ("N-session-prefix", "edit", "internal/fencing/gate.go",
++     [(GATE_IMPORT, GATE_IMPORT_STRINGS),
++      ("if presented.SessionID != observation.SessionID {",
++        'if strings.SplitN(presented.SessionID, "-", 2)[0] != strings.SplitN(observation.SessionID, "-", 2)[0] {')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesForeignSession$", "-count=1", "-v"],
++     "Compare first UUID segments only; the prefix-sharing session authorizes while the fully foreign session still refuses."),
++    ("N-absent", "edit", "internal/fencing/gate.go",
++     [("if !observation.HasWinner {",
++        "if !observation.HasWinner && !observation.Verified {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeParksAndRefusesAbsentWinner$", "-count=1", "-v"],
++     "Admit exactly the verified absence; the refusal degrades to the malformed-observation class."),
++    ("N-verified", "edit", "internal/fencing/gate.go",
++     [("if !observation.Verified {",
++        "if !observation.Verified && observation.Ambiguous {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeParksAndRefusesUnverified$", "-count=1", "-v"],
++     "Admit exactly the unambiguous unverified observation; the token authorizes and the negative fails by success."),
++    ("N-ambiguous", "edit", "internal/fencing/gate.go",
++     [("if observation.Ambiguous {",
++        "if observation.Ambiguous && !observation.Verified {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeParksAndRefusesAmbiguous$", "-count=1", "-v"],
++     "Admit exactly the verified ambiguity; the token authorizes and the negative fails by success."),
++    ("N-handoff", "edit", "internal/fencing/gate.go",
++     [("if observation.HandoffFailed {",
++        "if observation.HandoffFailed && !observation.Verified {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeParksAndRefusesFailedHandoff$", "-count=1", "-v"],
++     "Admit exactly the verified failed handoff; the token authorizes and the negative fails by success."),
++    ("N-grant", "edit", "internal/fencing/gate.go",
++     [("if !observation.HasGrant {",
++        "if !observation.HasGrant && !observation.Verified {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesMissingGrant$", "-count=1", "-v"],
++     "Admit exactly the verified grantless call; the refusal degrades to the lapsed-grant class."),
++    ("N-clock", "edit", "internal/fencing/gate.go",
++     [("if observation.Now.IsZero() {",
++        "if observation.Now.IsZero() && !observation.Grant.ValidatedAt.IsZero() {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesMissingClock$", "-count=1", "-v"],
++     "Admit exactly the clockless never-validated grant; the token authorizes and the negative fails by success."),
++    ("N-expiry", "edit", "internal/fencing/gate.go",
++     [("sessrepo.CheckFencingExpiry(observation.Grant, observation.Policy, observation.Now)",
++        "sessrepo.CheckFencingExpiry(observation.Grant, sessrepo.FencingPolicy{RefreshInterval: observation.Policy.RefreshInterval + time.Hour}, observation.Now)")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesExpiredGrant$", "-count=1", "-v"],
++     "Extend the refresh interval by an hour; the lapsed-by-seconds grant authorizes while the never-validated grant still refuses."),
++    ("N-expiry-map", "edit", "internal/fencing/gate.go",
++     [("if errors.Is(err, sessrepo.ErrFencingExpired) {",
++        "if errors.Is(err, sessrepo.ErrInvalidLease) {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesExpiredGrant$", "-count=1", "-v"],
++     "Swap the lapsed/unusable classes; both vectors change class and the test fails."),
++    ("N-remote-prefix", "edit", "internal/fencing/gate.go",
++     [(GATE_IMPORT, GATE_IMPORT_STRINGS),
++      ("if observation.Winner.HolderHostID != observation.LocalHostID {",
++        'if strings.SplitN(observation.Winner.HolderHostID, "-", 2)[0] != strings.SplitN(observation.LocalHostID, "-", 2)[0] {')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeParksAndRefusesRemote$", "-count=1", "-v"],
++     "Compare first UUID segments only; the prefix-sharing remote holder authorizes while the fully remote holder still refuses."),
++    ("N-epoch-gte", "edit", "internal/fencing/gate.go",
++     [("epochsEqual := presented.Epoch == observation.Winner.Epoch",
++        "epochsEqual := presented.Epoch >= observation.Winner.Epoch")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesEpochBeyondWinner$|^TestAuthorizeRefusesLowerEpoch$", "-count=1", "-v"],
++     "Admit exactly the ahead epoch past the epoch arm; the lower-epoch vectors still refuse stale in the same run."),
++    ("N-epoch-lte", "edit", "internal/fencing/gate.go",
++     [("epochsEqual := presented.Epoch == observation.Winner.Epoch",
++        "epochsEqual := presented.Epoch <= observation.Winner.Epoch")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesEpochBeyondWinner$|^TestAuthorizeRefusesLowerEpoch$", "-count=1", "-v"],
++     "Admit exactly the lower epoch past the epoch arm; the ahead-epoch vectors still refuse in the same run."),
++    ("N-lease-vector", "edit", "internal/fencing/gate.go",
++     [("if presented.LeaseID != observation.Winner.LeaseID {",
++        'if presented.LeaseID != observation.Winner.LeaseID && presented.LeaseID != "' + LEASEC + '" {')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesSameEpochLoser$", "-count=1", "-v"],
++     "Admit exactly the standard loser; the prefix-sharing loser still refuses."),
++    ("N-lease-prefix", "edit", "internal/fencing/gate.go",
++     [(GATE_IMPORT, GATE_IMPORT_STRINGS),
++      ("if presented.LeaseID != observation.Winner.LeaseID {",
++        'if strings.SplitN(presented.LeaseID, "-", 2)[0] != strings.SplitN(observation.Winner.LeaseID, "-", 2)[0] {')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesSameEpochLoser$", "-count=1", "-v"],
++     "Compare first UUID segments only; the prefix-sharing loser authorizes while the standard loser still refuses."),
++    ("N-launch-add-input", "edit", "internal/fencing/gate.go",
++     [("return op == OperationActivation || op == OperationRestore",
++        "return op == OperationActivation || op == OperationRestore || op == OperationInput")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeParksAndRefusesRemote$", "-count=1", "-v"],
++     "Park input instead of refusing: the remote input vector parks and the hard-refusal assertion fails."),
++    ("N-launch-drop-restore", "edit", "internal/fencing/gate.go",
++     [("return op == OperationActivation || op == OperationRestore",
++        "return op == OperationActivation")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeParksAndRefusesRemote$", "-count=1", "-v"],
++     "Refuse restore instead of parking: the remote restore vector refuses hard and the park assertion fails."),
++    ("N-bind-seal", "edit", "internal/fencing/token.go",
++     [("if token.seal == nil || token.seal.token == nil {",
++        "if token.seal == nil {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestBindRefusesForgedToken$", "-count=1", "-v"],
++     "Admit exactly the field-assembled seal; the zero token still refuses."),
++    ("N-bind-op", "edit", "internal/fencing/token.go",
++     [("case ProviderQuiesce, ProviderCapture, ProviderMaterialize:",
++        'case ProviderQuiesce, ProviderCapture, ProviderMaterialize, "bogus":')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestBindRefusesUnknownOperation$", "-count=1", "-v"],
++     "Admit exactly the bogus provider operation; the projection mints and the negative fails by success."),
++    ("N-term-presented", "edit", "internal/fencing/terminate.go",
++     [("if _, err := scalar.ParseUUIDv4(presented.LeaseID); err != nil {",
++        'if _, err := scalar.ParseUUIDv4(presented.LeaseID); err != nil && presented.LeaseID != "zzz" {')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestTerminateStaleRefusesMalformedTarget$", "-count=1", "-v"],
++     "Admit exactly the zzz target lease; the termination authorizes and the negative fails by success."),
++    ("N-term-winner", "edit", "internal/fencing/terminate.go",
++     [("if winner.Epoch == 0 || !validLeaseID(winner.LeaseID) {",
++        'if (winner.Epoch == 0 || !validLeaseID(winner.LeaseID)) && !(winner.Epoch == 0 && winner.LeaseID == "zzz") {')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestTerminateStaleRefusesGarbageWinner$", "-count=1", "-v"],
++     "Admit exactly the epoch-zero zzz winner; the termination authorizes and the negative fails by success."),
++    ("N-term-absent", "edit", "internal/fencing/terminate.go",
++     [("if !hasWinner {",
++        "if !hasWinner && !forceRecovery {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestTerminateStaleRefusesWithoutWinner$", "-count=1", "-v"],
++     "Admit exactly the forced winnerless call; the refusal degrades to the malformed-observation class."),
++    ("N-term-force", "edit", "internal/fencing/terminate.go",
++     [("if !forceRecovery {",
++        "if !forceRecovery && !diagnosticsPreserved {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestTerminateStaleRefusesWithoutForce$", "-count=1", "-v"],
++     "Admit exactly the unforced diagnosed call; the termination authorizes and the negative fails by success."),
++    ("N-term-diag", "edit", "internal/fencing/terminate.go",
++     [("if !diagnosticsPreserved {",
++        "if !diagnosticsPreserved && !forceRecovery {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestTerminateStaleRefusesWithoutDiagnostics$", "-count=1", "-v"],
++     "Admit exactly the undiagnosed forced call; the termination authorizes and the negative fails by success."),
++    ("N-term-session", "edit", "internal/fencing/terminate.go",
++     [("if presented.SessionID != winner.SessionID {",
++        'if presented.SessionID != winner.SessionID && presented.SessionID != "' + SESSIONB + '" {')],
++     ["go", "test", "./internal/fencing", "-run", r"^TestTerminateStaleRefusesForeignSession$", "-count=1", "-v"],
++     "Admit exactly the prefix-sharing foreign target; the refusal degrades to the live-owner class."),
++    ("N-term-live", "edit", "internal/fencing/terminate.go",
++     [("if presented.Epoch == winner.Epoch && presented.LeaseID == winner.LeaseID {",
++        "if presented.Epoch == winner.Epoch && presented.LeaseID == winner.LeaseID && winner.Epoch != 1 {")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestTerminateStaleRefusesLiveOwner$", "-count=1", "-v"],
++     "Admit exactly the epoch-1 live owner; the epoch-2 owner still refuses."),
++    ("T-census-alias", "add", "internal/fencing/zzplant.go",
++     "package fencing\n\ntype plantBackdoor = leaseSeal\n\nfunc plantAlias() LeaseToken { return LeaseToken{seal: &plantBackdoor{}} }\n",
++     ["go", "test", "./internal/fencing", "-count=1", "-v"],
++     "Preserve the leaseSeal token while constructing through an alias; the census rejects the plant and the full behavioral suite runs."),
++    ("C-harmless-comment", "edit", "internal/fencing/gate.go",
++     [("// Arm order is precedence: malformed calls die first, then foreign",
++        "// Arm order is precedence: malformed calls die first, then foreign\n// classifier control: comment only, no behavior change.")],
++     ["go", "test", "./internal/fencing", "-count=1"],
++     "Applied control: a behavior-preserving plant survives through the same instrument."),
++    ("C-not-applied", "edit", "internal/fencing/gate.go",
++     [("TOKEN_THAT_IS_NOT_PRESENT", "replacement")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeAdmitsWinnerExactEpochAllOperations$", "-count=1", "-v"],
++     "Application control: missing patch is not a killed mutant."),
++    ("C-compile-failure", "edit", "internal/fencing/gate.go",
++     [("package fencing", "package fencing\nthis is invalid Go")],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeAdmitsWinnerExactEpochAllOperations$", "-count=1", "-v"],
++     "Compilation control: no named failed behavioral test is not a kill."),
++]
++
++selected = [row for row in MUTANTS if name_filter in row[0]] if name_filter else MUTANTS
++if name_filter and not selected:
++    raise SystemExit(f"no mutants match filter {name_filter!r}")
++
++
++def run_command(label, command, log_name):
++    with (output / log_name).open("w") as log:
++        process = subprocess.run(command, cwd=copy, stdout=log, stderr=subprocess.STDOUT, timeout=300)
++    return process.returncode
++
++
++with (output / f"control-before-{tag}.log").open("w") as log:
++    before = subprocess.run(["go", "test", "./internal/fencing", "-count=1"], cwd=copy, stdout=log, stderr=subprocess.STDOUT, timeout=300)
++results.append(dict(mutant=f"control-before-{tag}", classification="CONTROL", exit=before.returncode))
++if before.returncode:
++    raise SystemExit("baseline failed")
++
++
++def classify(name, command, bound):
++    try:
++        with (output / (name + ".log")).open("w") as log:
++            process = subprocess.run(command, cwd=copy, stdout=log, stderr=subprocess.STDOUT, timeout=300)
++        text = (output / (name + ".log")).read_text()
++        failures = re.findall(r"^\s*--- FAIL: ([^ ]+)", text, re.M)
++        ran_tests = re.findall(r"^=== RUN ", text, re.M)
++        # Non-verbose full-suite runs report failures as "^--- FAIL:" and
++        # "FAIL\tpackage" lines without === RUN markers; accept either.
++        if not ran_tests:
++            ran_tests = re.findall(r"^(ok|FAIL)\s", text, re.M)
++        classification = "COMPILE_OR_HARNESS_FAILURE" if not ran_tests else ("SURVIVED" if process.returncode == 0 else ("KILLED" if failures else "COMPILE_OR_HARNESS_FAILURE"))
++        results.append(dict(mutant=name, classification=classification, exit=process.returncode, failed_tests=failures, bound=bound, command=command))
++        print(name, classification, process.returncode, ", ".join(failures), flush=True)
++    except subprocess.TimeoutExpired:
++        results.append(dict(mutant=name, classification="TIMEOUT", bound=bound, command=command))
++        print(name, "TIMEOUT", flush=True)
++
++
++def run_edit(name, path, edits, command, bound):
++    source = copy / path
++    original = source.read_text()
++    for old, _ in edits:
++        if original.count(old) != 1:
++            results.append(dict(mutant=name, classification="NOT_APPLIED", count=original.count(old), bound=bound))
++            print(name, "NOT_APPLIED", original.count(old), flush=True)
++            return
++    changed = original
++    for old, new in edits:
++        changed = changed.replace(old, new)
++    source.write_text(changed)
++    try:
++        classify(name, command, bound)
++    finally:
++        source.write_text(original)
++        assert hashlib.sha256(source.read_bytes()).digest() == hashlib.sha256(original.encode()).digest()
++
++
++def run_add(name, path, content, command, bound):
++    target = copy / path
++    if target.exists():
++        results.append(dict(mutant=name, classification="NOT_APPLIED", count=-1, bound=bound))
++        print(name, "NOT_APPLIED exists", flush=True)
++        return
++    target.write_text(content)
++    try:
++        classify(name, command, bound)
++    finally:
++        target.unlink(missing_ok=True)
++        assert not target.exists()
++
++
++for name, kind, path, payload, command, bound in selected:
++    if kind == "edit":
++        run_edit(name, path, payload, command, bound)
++    else:
++        run_add(name, path, payload, command, bound)
++
++with (output / f"control-after-{tag}.log").open("w") as log:
++    after = subprocess.run(["go", "test", "./internal/fencing", "-count=1"], cwd=copy, stdout=log, stderr=subprocess.STDOUT, timeout=300)
++results.append(dict(mutant=f"control-after-{tag}", classification="CONTROL", exit=after.returncode))
++(output / f"mutants-{tag}.json").write_text(json.dumps(results, indent=2) + "\n")
++bad = [row for row in results if (row["mutant"].startswith("N-") or row["mutant"].startswith("T-")) and row["classification"] != "KILLED"]
++raise SystemExit(1 if bad or after.returncode else 0)
+diff --git a/internal/fencing/testdata/use/use.go b/internal/fencing/testdata/use/use.go
+new file mode 100644
+index 0000000..9e97601
+--- /dev/null
++++ b/internal/fencing/testdata/use/use.go
+@@ -0,0 +1,18 @@
++// Package use exercises only the public fencing surface: authorize
++// through a production entry, then bind the minted token. It must
++// compile: the positive control for the forgery fixture.
++package use
++
++import (
++	"github.com/relux-works/agent-session-manager/internal/fencing"
++)
++
++// BindQuiesce authorizes a caller-supplied observation and binds the
++// minted token to quiesce. It is the compile control, not a gate.
++func BindQuiesce(presented fencing.PresentedToken, observation fencing.Observation) (fencing.ProviderLease, error) {
++	token, err := fencing.AuthorizeMutation(presented, observation)
++	if err != nil {
++		return fencing.ProviderLease{}, err
++	}
++	return token.Bind(fencing.ProviderQuiesce)
++}
+diff --git a/internal/fencing/token.go b/internal/fencing/token.go
+new file mode 100644
+index 0000000..69f97e4
+--- /dev/null
++++ b/internal/fencing/token.go
+@@ -0,0 +1,99 @@
++package fencing
++
++// leaseSealToken is deliberately unexported and is minted only by the
++// free mintLeaseToken constructor below. The type-level census pins
++// that construction boundary across every production source file; the
++// token then makes a zero or field-assembled LeaseToken unusable at
++// runtime. There is no exported constructor and no exported field: a
++// caller outside this package cannot spell a live token.
++type leaseSealToken struct{}
++
++// leaseSeal holds the fenced authority a passed gate established: the
++// session with the exact winning (epoch, lease_id) tuple. Its fields
++// are private so callers cannot treat the minted projection as a
++// public record-shaped DTO.
++type leaseSeal struct {
++	token   *leaseSealToken
++	session string
++	epoch   uint64
++	leaseID string
++}
++
++// LeaseToken is the sealed fencing capability Authorize mints for a
++// passed gate: the Section 7.5 LeaseToken projection
++// {session_id, lease_epoch, lease_id} for provider operations. A zero
++// value or a value assembled without the constructor-only seal token
++// is not authority, even when a caller fills the outer struct.
++type LeaseToken struct {
++	seal *leaseSeal
++}
++
++// mintLeaseToken is the single constructor for a live LeaseToken. It
++// runs only at the end of Authorize, after every ownership, grant,
++// and tuple arm has passed.
++func mintLeaseToken(session string, epoch uint64, leaseID string) LeaseToken {
++	return LeaseToken{seal: &leaseSeal{token: &leaseSealToken{}, session: session, epoch: epoch, leaseID: leaseID}}
++}
++
++// authority opens the seal for the capability consumers. A missing
++// seal or seal token refuses lease_conflict before any other check,
++// so forgery can never degrade into a different class.
++func (token LeaseToken) authority() (*leaseSeal, error) {
++	if token.seal == nil || token.seal.token == nil {
++		return nil, refuse(ErrLeaseConflict, "fencing capability seal is missing")
++	}
++	return token.seal, nil
++}
++
++// ProviderOperation is one Section 7.5 provider operation that carries
++// the LeaseToken. Resume, stop, materialize-commit, and
++// native-store-plan carry the same triple on the wire; their callers
++// have no gate entry in this package yet, so binding them here would
++// be an untestable claim and stays a stated bound.
++type ProviderOperation string
++
++const (
++	// ProviderQuiesce binds the token to a quiesce operation.
++	ProviderQuiesce ProviderOperation = "quiesce"
++	// ProviderCapture binds the token to a capture operation.
++	ProviderCapture ProviderOperation = "capture"
++	// ProviderMaterialize binds the token to a materialize operation.
++	ProviderMaterialize ProviderOperation = "materialize"
++)
++
++// validProviderOperation reports whether op is a bound provider
++// operation. Anything else is a malformed bind call.
++func validProviderOperation(op ProviderOperation) bool {
++	switch op {
++	case ProviderQuiesce, ProviderCapture, ProviderMaterialize:
++		return true
++	}
++	return false
++}
++
++// ProviderLease is the wire projection of a bound capability: the
++// Section 7.5 LeaseToken triple with the operation it authorizes. It
++// carries no seal because it is evidence of one past authorization,
++// not authority for another; only Bind mints it, and only from a live
++// sealed token.
++type ProviderLease struct {
++	SessionID string
++	Epoch     uint64
++	LeaseID   string
++	Operation ProviderOperation
++}
++
++// Bind projects a live LeaseToken onto one provider operation. A zero
++// or forged token refuses lease_conflict; an unknown operation refuses
++// invalid_arguments. Only a token minted by a passed Authorize gate
++// reaches the projection.
++func (token LeaseToken) Bind(operation ProviderOperation) (ProviderLease, error) {
++	seal, err := token.authority()
++	if err != nil {
++		return ProviderLease{}, err
++	}
++	if !validProviderOperation(operation) {
++		return ProviderLease{}, refuse(ErrInvalidArguments, "unknown provider operation %q", string(operation))
++	}
++	return ProviderLease{SessionID: seal.session, Epoch: seal.epoch, LeaseID: seal.leaseID, Operation: operation}, nil
++}
+diff --git a/internal/fencing/token_test.go b/internal/fencing/token_test.go
+new file mode 100644
+index 0000000..6881739
+--- /dev/null
++++ b/internal/fencing/token_test.go
+@@ -0,0 +1,117 @@
++package fencing
++
++import (
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++)
++
++// TestBindProjectsMintedToken proves the provider projection carries
++// the exact winning triple: only a token minted by a passed gate
++// binds to quiesce, capture, and materialize.
++func TestBindProjectsMintedToken(t *testing.T) {
++	token, err := AuthorizeMutation(fencePresented(), fenceObservation())
++	if err != nil {
++		t.Fatalf("AuthorizeMutation error = %v", err)
++	}
++	for _, operation := range []ProviderOperation{ProviderQuiesce, ProviderCapture, ProviderMaterialize} {
++		bound, err := token.Bind(operation)
++		if err != nil {
++			t.Fatalf("Bind(%s) error = %v", operation, err)
++		}
++		if bound.SessionID != fenceSessionA || bound.Epoch != 2 || bound.LeaseID != fenceLeaseA || bound.Operation != operation {
++			t.Fatalf("Bind(%s) = %+v, want the winning triple", operation, bound)
++		}
++	}
++}
++
++// TestBindRefusesUnknownOperation proves the provider operation enum
++// is closed: resume, stop, and bogus names refuse invalid_arguments
++// even with a live token.
++func TestBindRefusesUnknownOperation(t *testing.T) {
++	token, err := AuthorizeMutation(fencePresented(), fenceObservation())
++	if err != nil {
++		t.Fatalf("AuthorizeMutation error = %v", err)
++	}
++	for _, operation := range []ProviderOperation{"bogus", "resume", "stop"} {
++		_, err := token.Bind(operation)
++		mustRefuse(t, err, ErrInvalidArguments, "Bind("+string(operation)+")")
++	}
++}
++
++// TestBindRefusesForgedToken proves the sealed capability cannot be
++// assembled by hand: a zero token and a token whose seal carries
++// every field but the constructor-only seal token refuse
++// lease_conflict on every provider operation before any other check.
++func TestBindRefusesForgedToken(t *testing.T) {
++	forged := LeaseToken{seal: &leaseSeal{session: fenceSessionA, epoch: 2, leaseID: fenceLeaseA}}
++	for _, operation := range []ProviderOperation{ProviderQuiesce, ProviderCapture, ProviderMaterialize} {
++		_, err := LeaseToken{}.Bind(operation)
++		mustRefuse(t, err, ErrLeaseConflict, "zero/Bind("+string(operation)+")")
++		_, err = forged.Bind(operation)
++		mustRefuse(t, err, ErrLeaseConflict, "forged/Bind("+string(operation)+")")
++	}
++}
++
++// TestMintedTokenIsStableAcrossEntries proves every production entry
++// mints the same projection for the same observation: the capability
++// carries the authority, not the entry that admitted it.
++func TestMintedTokenIsStableAcrossEntries(t *testing.T) {
++	var first ProviderLease
++	for name, entry := range fenceEntries() {
++		token, err := entry.authorize(fencePresented(), fenceObservation())
++		if err != nil {
++			t.Fatalf("%s error = %v", name, err)
++		}
++		bound, err := token.Bind(ProviderCapture)
++		if err != nil {
++			t.Fatalf("%s Bind(capture) error = %v", name, err)
++		}
++		if first.SessionID == "" {
++			first = bound
++			continue
++		}
++		if bound != first {
++			t.Fatalf("%s Bind(capture) = %+v, want %+v", name, bound, first)
++		}
++	}
++}
++
++// TestAuthorizeEndToEndOverRepository drives the full production path
++// against a real store: observe, authorize, lose the lease to a rival
++// succession, re-observe, and prove the old token is now stale while
++// the rival token authorizes.
++func TestAuthorizeEndToEndOverRepository(t *testing.T) {
++	repository, _ := openFenceRepository(t)
++	createFenceSession(t, repository)
++	first := mustCreateFenceLease(t, repository, fenceSessionA, sessrepo.CreateLeaseInput{LeaseID: fenceLeaseOld, HolderHostID: fenceHostA, IssuedByHostID: fenceHostA, CreatedAt: fenceLeaseAt})
++	input := ObserveInput{LocalHostID: fenceHostA, Verified: true, HasGrant: true, Grant: sessrepo.FencingGrant{SessionID: fenceSessionA, ValidatedAt: fenceValidatedAt}, Policy: fencePolicy, Now: fenceValidatedAt}
++	observation, err := Observe(repository, fenceSessionA, input)
++	if err != nil {
++		t.Fatalf("Observe error = %v", err)
++	}
++	old := PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}
++	if _, err := AuthorizeMutation(old, observation); err != nil {
++		t.Fatalf("AuthorizeMutation(epoch 1) error = %v", err)
++	}
++	mustSwapFenceLease(t, repository, fenceSessionA, sessrepo.LeaseExpectation{RecordID: first.RecordID}, sessrepo.SuccessorLeaseInput{
++		CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: fenceLeaseA, HolderHostID: fenceHostB, IssuedByHostID: fenceHostB, CreatedAt: fenceLeaseAt},
++		Reason:           "force_takeover",
++		CheckpointID:     fenceZeroDigest,
++	})
++	observation, err = Observe(repository, fenceSessionA, input)
++	if err != nil {
++		t.Fatalf("Observe after succession error = %v", err)
++	}
++	_, err = AuthorizeMutation(old, observation)
++	mustRefuse(t, err, ErrNotOwner, "old token after succession is remote before it is stale")
++	rival := PresentedToken{SessionID: fenceSessionA, Epoch: 2, LeaseID: fenceLeaseA}
++	rivalInput := input
++	rivalInput.LocalHostID = fenceHostB
++	rivalObservation, err := Observe(repository, fenceSessionA, rivalInput)
++	if err != nil {
++		t.Fatalf("Observe(rival) error = %v", err)
++	}
++	token, err := AuthorizeActivation(rival, rivalObservation)
++	mustMint(t, token, err, "rival token after succession")
++}
+diff --git a/internal/sessquery/lease_store_adopt_test.go b/internal/sessquery/lease_store_adopt_test.go
+index d4abcb1..06e4881 100644
+--- a/internal/sessquery/lease_store_adopt_test.go
++++ b/internal/sessquery/lease_store_adopt_test.go
+@@ -61,16 +61,18 @@ func TestLeaseStoreRecordsAdmitWithoutBehavioralChange(t *testing.T) {
+ 
+ // TestLeaseTupleOrderAgreesWithSessstateCompare pins the cross-package
+ // tuple rule: sessrepo.CompareLeaseTuple (which cannot import sessstate)
+-// must order every corpus pair exactly like sessstate.Compare.
++// must order every corpus pair exactly like sessstate.Compare. The
++// enumeration is exhaustive over a small alphabet: epochs {1,2,3} by
++// lease IDs {x,y} on each side, with the holder drawn from {a,b} and
++// the remaining summary members varied to prove they never affect the
++// order. Neither comparator takes a created_at member (the Section 5.3
++// timestamp is diagnostic only), so created_at orderings are covered
++// by varying every other non-key member instead: holder, record,
++// predecessor, checkpoint, and reason.
+ func TestLeaseTupleOrderAgreesWithSessstateCompare(t *testing.T) {
+-	pairs := [][4]any{
+-		{uint64(1), lease, uint64(2), lease},
+-		{uint64(2), lease, uint64(1), leaseB},
+-		{uint64(2), lease, uint64(2), leaseB},
+-		{uint64(2), leaseB, uint64(2), lease},
+-		{uint64(3), leaseB, uint64(3), leaseB},
+-		{uint64(1), leaseB, uint64(1), lease},
+-	}
++	epochs := []uint64{1, 2, 3}
++	leases := []string{lease, leaseB}
++	holders := []string{hostA, hostB}
+ 	sign := func(value int) int {
+ 		switch {
+ 		case value < 0:
+@@ -80,21 +82,39 @@ func TestLeaseTupleOrderAgreesWithSessstateCompare(t *testing.T) {
+ 		}
+ 		return 0
+ 	}
+-	for _, pair := range pairs {
+-		epochA := pair[0].(uint64)
+-		leaseA := pair[1].(string)
+-		epochB := pair[2].(uint64)
+-		leaseB := pair[3].(string)
+-		got := sign(sessrepo.CompareLeaseTuple(
+-			sessrepo.LeaseSummary{Epoch: epochA, LeaseID: leaseA},
+-			sessrepo.LeaseSummary{Epoch: epochB, LeaseID: leaseB},
+-		))
+-		want := sign(sessstate.Compare(
+-			sessstate.LeaseHead{Epoch: epochA, LeaseID: leaseA},
+-			sessstate.LeaseHead{Epoch: epochB, LeaseID: leaseB},
+-		))
+-		if got != want {
+-			t.Fatalf("tuple (%d %s) vs (%d %s): sessrepo = %d, sessstate = %d", epochA, leaseA, epochB, leaseB, got, want)
++	checked := 0
++	for _, epochA := range epochs {
++		for _, leaseA := range leases {
++			for _, holderA := range holders {
++				for _, epochB := range epochs {
++					for _, leaseB := range leases {
++						for _, holderB := range holders {
++							summaryA := sessrepo.LeaseSummary{
++								RecordID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", SessionID: idA,
++								LeaseID: leaseA, Epoch: epochA, HolderHostID: holderA,
++								Predecessor: lease, HasPredecessor: true, Checkpoint: zeroDigest, HasCheckpoint: true, Reason: "force_takeover",
++							}
++							summaryB := sessrepo.LeaseSummary{
++								RecordID: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", SessionID: idB,
++								LeaseID: leaseB, Epoch: epochB, HolderHostID: holderB,
++								Predecessor: leaseB, HasPredecessor: false, Checkpoint: zeroDigest, HasCheckpoint: true, Reason: "create",
++							}
++							got := sign(sessrepo.CompareLeaseTuple(summaryA, summaryB))
++							want := sign(sessstate.Compare(
++								sessstate.LeaseHead{Epoch: epochA, LeaseID: leaseA},
++								sessstate.LeaseHead{Epoch: epochB, LeaseID: leaseB},
++							))
++							if got != want {
++								t.Fatalf("tuple (%d %s) vs (%d %s): sessrepo = %d, sessstate = %d", epochA, leaseA, epochB, leaseB, got, want)
++							}
++							checked++
++						}
++					}
++				}
++			}
+ 		}
+ 	}
++	if checked != 144 {
++		t.Fatalf("checked %d pairs, want the full 144-pair enumeration", checked)
++	}
+ }
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index c3c2dd1..90c1c3f 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,8 +22,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=63 normative_sections=36 acceptance_cases=101 fixtures=32 compatibility_contracts=55 assigned_scopes=0\n" +
+-		"section coverage: bindings=56 full=1 partial=3 sliver=1 unevidenced=48 unmeasured=3 unowned=12 clauses_discharged=17/463\n"
++	want := "traceability ok: contracts=63 normative_sections=36 acceptance_cases=110 fixtures=32 compatibility_contracts=55 assigned_scopes=0\n" +
++		"section coverage: bindings=57 full=1 partial=4 sliver=2 unevidenced=47 unmeasured=3 unowned=11 clauses_discharged=28/485\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+ 	}
+@@ -55,8 +55,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=63 normative_sections=36 acceptance_cases=101 fixtures=32 compatibility_contracts=55 assigned_scopes=1\n" +
+-		"section coverage: bindings=56 full=1 partial=3 sliver=1 unevidenced=48 unmeasured=3 unowned=12 clauses_discharged=17/463\n"
++	want = "traceability ok: contracts=63 normative_sections=36 acceptance_cases=110 fixtures=32 compatibility_contracts=55 assigned_scopes=1\n" +
++		"section coverage: bindings=57 full=1 partial=4 sliver=2 unevidenced=47 unmeasured=3 unowned=11 clauses_discharged=28/485\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+ 	}
+@@ -121,7 +121,7 @@ func TestRunRefusesEveryAssignedSectionThatOnlySlivers(t *testing.T) {
+ 	}{
+ 		{"1.6", "discharges 0/31 normative clauses, which is unevidenced coverage"},
+ 		{"2.1", "discharges 0/1 normative clauses, which is unevidenced coverage"},
+-		{"2.2", `binding "section:2.2" is recorded unowned:`},
++		{"2.2", `binding "section:2.2" discharges 4/22 normative clauses, which is sliver coverage`},
+ 		{"2.3", "discharges 0/7 normative clauses, which is unevidenced coverage"},
+ 		{"2.4", "discharges 0/4 normative clauses, which is unevidenced coverage"},
+ 		{"3.2", "discharges 0/13 normative clauses, which is unevidenced coverage"},
+diff --git a/internal/traceability/ownership.v0.6.0.json b/internal/traceability/ownership.v0.6.0.json
+index 4d01fab..3873390 100644
+--- a/internal/traceability/ownership.v0.6.0.json
++++ b/internal/traceability/ownership.v0.6.0.json
+@@ -2841,6 +2841,223 @@
+           "declaration": "TestCurrentMatchesReviewedV060Catalog"
+         }
+       ]
++    },
++    {
++      "id": "lease-record-lifecycle",
++      "production": {
++        "path": "internal/sessrepo/lease_store.go",
++        "declaration": "CompareAndSwapLease"
++      },
++      "tests": [
++        {
++          "path": "internal/sessrepo/lease_store_test.go",
++          "declaration": "TestCompareAndSwapPersistsSuccessor"
++        },
++        {
++          "path": "internal/sessrepo/lease_store_test.go",
++          "declaration": "TestEpochMonotonicityAcrossSuccessors"
++        },
++        {
++          "path": "internal/sessrepo/lease_store_test.go",
++          "declaration": "TestCreateLeasePersistsEpochOneCreate"
++        },
++        {
++          "path": "internal/sessrepo/lease_store_test.go",
++          "declaration": "TestNormativeLeaseRecordExampleAttests"
++        }
++      ]
++    },
++    {
++      "id": "lease-fencing-revalidation",
++      "production": {
++        "path": "internal/sessrepo/lease_store.go",
++        "declaration": "VerifyFencingToken"
++      },
++      "tests": [
++        {
++          "path": "internal/sessrepo/lease_store_test.go",
++          "declaration": "TestVerifyFencingTokenAcceptsWinner"
++        },
++        {
++          "path": "internal/sessrepo/lease_store_test.go",
++          "declaration": "TestVerifyFencingTokenRefusals"
++        },
++        {
++          "path": "internal/sessrepo/lease_store_test.go",
++          "declaration": "TestCheckFencingExpiry"
++        },
++        {
++          "path": "internal/sessrepo/lease_store_test.go",
++          "declaration": "TestLeaseNeverExpiresWithAge"
++        }
++      ]
++    },
++    {
++      "id": "lease-checkpoint-admission",
++      "production": {
++        "path": "internal/sessquery/lease.go",
++        "declaration": "winningLeaseFor"
++      },
++      "tests": [
++        {
++          "path": "internal/sessquery/succession_test.go",
++          "declaration": "TestValidSuccessorBuildsAndRevalidates"
++        },
++        {
++          "path": "internal/sessquery/succession_test.go",
++          "declaration": "TestDanglingPredecessorMustRefuse"
++        },
++        {
++          "path": "internal/sessquery/succession_test.go",
++          "declaration": "TestWrongPredecessorCheckpointMustRefuse"
++        },
++        {
++          "path": "internal/sessquery/succession_test.go",
++          "declaration": "TestWrongSessionCheckpointMustRefuse"
++        }
++      ]
++    },
++    {
++      "id": "lease-divergent-preservation",
++      "production": {
++        "path": "internal/sessrepo/sessrepo.go",
++        "declaration": "AppendEvent"
++      },
++      "tests": [
++        {
++          "path": "internal/sessrepo/sessrepo_test.go",
++          "declaration": "TestAppendEventPreservesDivergentBranchWithoutApplying"
++        },
++        {
++          "path": "internal/sessrepo/sessrepo_test.go",
++          "declaration": "TestAppendEventRefusesStaleLeaseEpoch"
++        },
++        {
++          "path": "internal/fencing/scenarios_test.go",
++          "declaration": "TestOldOwnerReconnectRejectedAfterForceTakeover"
++        }
++      ]
++    },
++    {
++      "id": "lease-union-resolution",
++      "production": {
++        "path": "internal/sessstate/sessstate.go",
++        "declaration": "Reduce"
++      },
++      "tests": [
++        {
++          "path": "internal/sessstate/winner_test.go",
++          "declaration": "TestWinnerResolutionLosingBranchPreserved"
++        },
++        {
++          "path": "internal/sessstate/winner_test.go",
++          "declaration": "TestWinnerResolutionUnionSupersedesChain"
++        },
++        {
++          "path": "internal/sessstate/winner_test.go",
++          "declaration": "TestWinnerResolutionTie"
++        }
++      ]
++    },
++    {
++      "id": "lease-fencing-gates",
++      "production": {
++        "path": "internal/fencing/gate.go",
++        "declaration": "Authorize"
++      },
++      "tests": [
++        {
++          "path": "internal/fencing/gate_test.go",
++          "declaration": "TestAuthorizeAdmitsWinnerExactEpochAllOperations"
++        },
++        {
++          "path": "internal/fencing/gate_test.go",
++          "declaration": "TestAuthorizeRefusesLowerEpoch"
++        },
++        {
++          "path": "internal/fencing/gate_test.go",
++          "declaration": "TestAuthorizeRefusesSameEpochLoser"
++        },
++        {
++          "path": "internal/fencing/gate_test.go",
++          "declaration": "TestAuthorizeRefusesForeignSession"
++        },
++        {
++          "path": "internal/fencing/gate_test.go",
++          "declaration": "TestAuthorizeRefusesExpiredGrant"
++        },
++        {
++          "path": "internal/fencing/gate_test.go",
++          "declaration": "TestObserveLoadsWinningLease"
++        }
++      ]
++    },
++    {
++      "id": "lease-fencing-park",
++      "production": {
++        "path": "internal/fencing/gate.go",
++        "declaration": "AuthorizeActivation"
++      },
++      "tests": [
++        {
++          "path": "internal/fencing/gate_test.go",
++          "declaration": "TestAuthorizeParksAndRefusesRemote"
++        },
++        {
++          "path": "internal/fencing/gate_test.go",
++          "declaration": "TestAuthorizeParksAndRefusesUnverified"
++        },
++        {
++          "path": "internal/fencing/gate_test.go",
++          "declaration": "TestAuthorizeParksAndRefusesAmbiguous"
++        },
++        {
++          "path": "internal/fencing/gate_test.go",
++          "declaration": "TestAuthorizeParksAndRefusesAbsentWinner"
++        }
++      ]
++    },
++    {
++      "id": "lease-terminate-stale",
++      "production": {
++        "path": "internal/fencing/terminate.go",
++        "declaration": "AuthorizeTerminateStale"
++      },
++      "tests": [
++        {
++          "path": "internal/fencing/terminate_test.go",
++          "declaration": "TestTerminateStaleAuthorizesFencedTarget"
++        },
++        {
++          "path": "internal/fencing/terminate_test.go",
++          "declaration": "TestTerminateStaleRefusesWithoutForce"
++        },
++        {
++          "path": "internal/fencing/terminate_test.go",
++          "declaration": "TestTerminateStaleRefusesLiveOwner"
++        }
++      ]
++    },
++    {
++      "id": "lease-token-capability",
++      "production": {
++        "path": "internal/fencing/token.go",
++        "declaration": "Bind"
++      },
++      "tests": [
++        {
++          "path": "internal/fencing/token_test.go",
++          "declaration": "TestBindProjectsMintedToken"
++        },
++        {
++          "path": "internal/fencing/token_test.go",
++          "declaration": "TestBindRefusesForgedToken"
++        },
++        {
++          "path": "internal/fencing/census_test.go",
++          "declaration": "TestLeaseTokenConstructorCensus"
++        }
++      ]
+     }
+   ],
+   "ownership": [
+@@ -3284,14 +3501,83 @@
+         "section:5.3"
+       ],
+       "production": {
+-        "path": "internal/canonicaljson/core_records.go",
+-        "declaration": "validateLeaseRecord"
++        "path": "internal/sessrepo/lease_store.go",
++        "declaration": "CompareAndSwapLease"
+       },
+       "acceptance_cases": [
++        "lease-record-lifecycle",
++        "lease-fencing-revalidation",
++        "lease-checkpoint-admission",
++        "lease-divergent-preservation",
++        "lease-union-resolution",
++        "lease-fencing-gates",
+         "core-record-identity-validation"
+       ],
+-      "coverage": "unevidenced",
+-      "gap": "validateLeaseRecord validates the Section 5.3 Lease Record shape; lease acquisition, renewal, expiry and fencing are not implemented and no clause of Section 5.3 is enumerated."
++      "coverage": "partial",
++      "gap": "CompareAndSwapLease with the fencing gates discharges 7 of the 8 Section 5.3 clauses; clause 5.3#5 (every new takeover lease MUST use max_observed_epoch + 1 from the initiator's union) stays unimplemented because the union maximum is caller-side input and no takeover flow exists in this repository yet.",
++      "clauses": [
++        {
++          "id": "5.3#1",
++          "line": 1927,
++          "excerpt": "| <code>created_by_host_id</code> | UUIDv7 | MUST equal <code>issued_by_host_id</code> |",
++          "acceptance_cases": [
++            "core-record-identity-validation"
++          ]
++        },
++        {
++          "id": "5.3#2",
++          "line": 1957,
++          "excerpt": "tie-break. A valid epoch greater than 1 MUST name a known predecessor for the",
++          "acceptance_cases": [
++            "lease-record-lifecycle",
++            "lease-checkpoint-admission"
++          ]
++        },
++        {
++          "id": "5.3#3",
++          "line": 1958,
++          "excerpt": "same session, MUST equal that predecessor's epoch plus one, and MUST reference",
++          "acceptance_cases": [
++            "lease-record-lifecycle",
++            "lease-checkpoint-admission"
++          ]
++        },
++        {
++          "id": "5.3#4",
++          "line": 1960,
++          "excerpt": "<code>create</code> lease MUST have a null predecessor and MAY have a null",
++          "acceptance_cases": [
++            "lease-record-lifecycle"
++          ]
++        },
++        {
++          "id": "5.3#6",
++          "line": 1967,
++          "excerpt": "lease wins. Events under the losing same-epoch lease and all lower epochs MUST",
++          "acceptance_cases": [
++            "lease-divergent-preservation",
++            "lease-union-resolution"
++          ]
++        },
++        {
++          "id": "5.3#7",
++          "line": 1968,
++          "excerpt": "be preserved in a divergent branch and MUST NOT affect authoritative state.",
++          "acceptance_cases": [
++            "lease-divergent-preservation",
++            "lease-union-resolution"
++          ]
++        },
++        {
++          "id": "5.3#8",
++          "line": 1970,
++          "excerpt": "An owner process MUST revalidate its fencing token before:",
++          "acceptance_cases": [
++            "lease-fencing-revalidation",
++            "lease-fencing-gates"
++          ]
++        }
++      ]
+     },
+     {
+       "kind": "section_binding",
+@@ -4130,14 +4416,63 @@
+       ],
+       "coverage": "unevidenced",
+       "gap": "Emit formats historical CLI result envelopes only; the Section 14.7 literal first-at source-qualified selector resolution and the CLI Result 5.0.0 envelope are unimplemented. Pending implementation owner: TASK-260830-21gygk."
++    },
++    {
++      "kind": "section_binding",
++      "keys": [
++        "section:2.2"
++      ],
++      "production": {
++        "path": "internal/fencing/gate.go",
++        "declaration": "Authorize"
++      },
++      "acceptance_cases": [
++        "lease-fencing-gates",
++        "lease-fencing-park",
++        "lease-divergent-preservation",
++        "lease-union-resolution"
++      ],
++      "coverage": "sliver",
++      "gap": "Authorize with the lease store discharges 4 of the 22 Section 2.2 clauses (one winning owner, replica restraint, winning-epoch carriage, losing-event rejection); clauses 2.2#5 through 2.2#22 stay unimplemented here: the replication, secret, SQLite, materialization, tombstone, profile, capability, bridge, sync, continuation, readiness, and exclusion invariants plus the directory-merge preamble have no implementation in this ownership story.",
++      "clauses": [
++        {
++          "id": "2.2#1",
++          "line": 408,
++          "excerpt": "1. Every non-tombstoned logical session MUST have exactly one winning lease and",
++          "acceptance_cases": [
++            "lease-fencing-gates"
++          ]
++        },
++        {
++          "id": "2.2#2",
++          "line": 410,
++          "excerpt": "2. A replica MUST NOT launch, resume, accept input for, or publish authoritative",
++          "acceptance_cases": [
++            "lease-fencing-gates",
++            "lease-fencing-park"
++          ]
++        },
++        {
++          "id": "2.2#3",
++          "line": 412,
++          "excerpt": "3. Every owner-authored event MUST carry the winning lease epoch and lease ID.",
++          "acceptance_cases": [
++            "lease-fencing-gates"
++          ]
++        },
++        {
++          "id": "2.2#4",
++          "line": 413,
++          "excerpt": "A peer MUST reject lower-epoch or losing same-epoch events from the",
++          "acceptance_cases": [
++            "lease-divergent-preservation",
++            "lease-union-resolution"
++          ]
++        }
++      ]
+     }
+   ],
+   "unowned_sections": [
+-    {
+-      "key": "section:2.2",
+-      "gap": "Section 2.2 states the unconditional lease, replica, replication, tombstone and capability invariants of the product, and none of them is implemented here. The binding this entry replaces named validateSessionRecordCommon, which validates Session Record shape and the execution-profile enum value only.",
+-      "evidence": "The repository contains no lease, epoch, replica, takeover, tombstone or replication implementation: internal/canonicaljson validates record shape, internal/localstore stores immutable objects and rebuilds a local index, and the two acceptance cases the replaced binding named are canonical-identity cases."
+-    },
+     {
+       "key": "section:18.4",
+       "gap": "Section 18.4 requires audit retention - the exact Section 5.2 event types for lease change, force confirmation, managed replacement, task-board launch and adoption and tombstone issuance and resolution, and retention of the event and every referenced immutable object for as long as the Session Record. No retention, expiry or garbage-collection rule is implemented.",
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index bbb43df..ab9f7f4 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "a1ab29139bbf53259f6b76b4095a71531be6c2e7197979a598ffb6d54f3b130d"
++	reviewedOwnershipCanonicalSHA256 = "94e589c880a263a61fe3e4e12ed836e076dd7e5bc074b6f6596de35231a53417"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 6777954..7426031 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -29,18 +29,18 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              63,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        101,
++		AcceptanceCases:        110,
+ 		Fixtures:               32,
+ 		CompatibilityContracts: 55,
+-		SectionBindings:        56,
++		SectionBindings:        57,
+ 		FullCoverage:           1,
+-		PartialCoverage:        3,
+-		SliverCoverage:         1,
+-		UnevidencedCoverage:    48,
++		PartialCoverage:        4,
++		SliverCoverage:         2,
++		UnevidencedCoverage:    47,
+ 		UnmeasuredCoverage:     3,
+-		UnownedSections:        12,
+-		NormativeClauses:       463,
+-		DischargedClauses:      17,
++		UnownedSections:        11,
++		NormativeClauses:       485,
++		DischargedClauses:      28,
+ 	}
+ 	if !reflect.DeepEqual(report, want) {
+ 		t.Fatalf("VerifyRepository() report = %#v, want %#v", report, want)
+@@ -660,7 +660,7 @@ func TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers(t *testing.T)
+ 	}{
+ 		{"1.6", `binding "section:1.6" discharges 0/31 normative clauses, which is unevidenced coverage`},
+ 		{"2.1", `binding "section:2.1" discharges 0/1 normative clauses, which is unevidenced coverage`},
+-		{"2.2", `binding "section:2.2" is recorded unowned:`},
++		{"2.2", `binding "section:2.2" discharges 4/22 normative clauses, which is sliver coverage`},
+ 		{"2.3", `binding "section:2.3" discharges 0/7 normative clauses, which is unevidenced coverage`},
+ 		{"2.4", `binding "section:2.4" discharges 0/4 normative clauses, which is unevidenced coverage`},
+ 		{"3.2", `binding "section:3.2" discharges 0/13 normative clauses, which is unevidenced coverage`},
+@@ -935,9 +935,9 @@ func TestPlantedSliverRedensTheProductionEntryPoints(t *testing.T) {
+ 			name: "an unowned entry pads its gap with a neighbouring identifier",
+ 			mutate: func(registry *ownershipRegistry) {
+ 				registry.UnownedSections[0].Gap =
+-					"Section 2.22 lease and replica invariants are not implemented in this repository at all."
++					"Section 18.44 audit retention is not implemented in this repository at all."
+ 			},
+-			contains: `unowned section "section:2.2" does not name what 2.2 leaves unimplemented: gap does not name section 2.2 as a whole identifier`,
++			contains: `unowned section "section:18.4" does not name what 18.4 leaves unimplemented: gap does not name section 18.4 as a whole identifier`,
+ 		},
+ 		{
+ 			name: "a contract owner claims section coverage",
+@@ -974,14 +974,14 @@ func TestPlantedSliverRedensTheProductionEntryPoints(t *testing.T) {
+ 			mutate: func(registry *ownershipRegistry) {
+ 				registry.UnownedSections[0].Gap = "todo"
+ 			},
+-			contains: `unowned section "section:2.2" does not name what 2.2 leaves unimplemented`,
++			contains: `unowned section "section:18.4" does not name what 18.4 leaves unimplemented`,
+ 		},
+ 		{
+ 			name: "an unowned entry discloses no evidence",
+ 			mutate: func(registry *ownershipRegistry) {
+ 				registry.UnownedSections[0].Evidence = ""
+ 			},
+-			contains: `unowned section "section:2.2" states no evidence for its gap`,
++			contains: `unowned section "section:18.4" states no evidence for its gap`,
+ 		},
+ 		{
+ 			name: "an unowned entry is self-minted for a section that does not exist",

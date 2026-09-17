@@ -1,0 +1,2569 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 5789e5b..8946348 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,44 @@
+ 
+ ## 2026-09-17
+ 
++### TASK-260830-2f5393 — implement Lease Record validation and CAS lifecycle
++- SCOPE (`internal/sessrepo/lease_store.go`): epoch-1 `create` leases from
++  the durable bootstrap inputs, successor leases through compare-and-swap,
++  fencing-token renewal, the operational grant-expiry policy, epoch
++  monotonicity (head plus one, never from input), host-UUIDv7 holder
++  identity, and tuple-ordered reads over content-addressed blobs with no
++  lease index to skew. Sections 2.2, 5.3, 13.6-13.10 (v0.6.0).
++- DESIGN: no second lease model — closed shape/identity stay with
++  `canonicaljson`, the tuple rule stays with `sessstate.Compare`
++  (restated as `CompareLeaseTuple` across the import cycle, pinned by a
++  cross-package agreement test), and `sessquery.winningLeaseFor` is
++  unchanged (an adoption test proves store-minted records admit there).
++  Mint failures are plain operational errors, never refusals, so a
++  weakened grammar gate fails closed at mint with a changed class —
++  which is what kills its narrowing mutant.
++- EXPIRY POLICY: the lease itself never expires (Section 5.3; pinned by
++  an ancient-`created_at` test); only the process-local fencing grant
++  lapses past the configured refresh interval, and revalidation renews
++  it. Grants are never persisted or replicated.
++- CAS IDEMPOTENCY: a retry names its pre-commit basis, so the replay
++  check re-mints against that basis (not the head) and answers the
++  persisted successor; this fixed a real bug found by the idempotency
++  test where head-minted retries minted epoch+2 and tripped token reuse.
++- CRASH: injector arms (`safe_retry` pre-write, `recoverable_parked`
++  post-commit with replay) plus real SIGKILL child drills at the
++  stage-then-rename seam for create and CAS, with fresh-handle reopen,
++  orphaned-temp tolerance, and exact-epoch retry assertions.
++- MUTANTS: the shipped `internal/sessrepo/testdata/mutate.py` battery
++  reports 27/27 applied plants killed (26 narrowing — one per new
++  `refuse` site — plus 1 token-preserving timestamp mutant); the
++  harmless control is `SURVIVED`,
++  `NOT_APPLIED`/`COMPILE_OR_HARNESS_FAILURE` stay separate. The refusal
++  census grows to 61 sites (26 lease) and the equality census to three
++  ledgered sites.
++- COVERAGE: 8 of 8 shared-library AC rows driven by named production
++  entries; public CLI coverage is 0 of 8 by stated ownership bound.
++  Candidate left uncommitted in the managed Story worktree for handoff.
++
+ ### TASK-260830-21gygk — rev16 rework: normalize Go aliases in the sealed-capability census
+ - REVIEW FINDING CLOSED (CR15 P2-A): the package-wide `go/types` census
+   compared lexical `*types.TypeName` objects, so a Go alias could bypass the
+diff --git a/README.md b/README.md
+index fa908d4..0bc6a80 100644
+--- a/README.md
++++ b/README.md
+@@ -1623,9 +1623,11 @@ to a prefix admits exactly the near miss.
+ 
+ ## Session Repository and Append-Only Event Chain
+ 
+-[`internal/sessrepo`](internal/sessrepo) persists and validates Session Records
+-and per-session event chains with source sequence continuity (pinned v0.5.0
+-Sections 2.3, 5.1-5.2, 5.7, 14.4). `Open` binds a repository to the sessions
++[`internal/sessrepo`](internal/sessrepo) persists and validates Session Records,
++per-session event chains with source sequence continuity, and the Lease Record
++lifecycle with compare-and-swap succession (pinned v0.5.0 Sections 2.3,
++5.1-5.2, 5.7, 14.4, plus the v0.6.0 lease lifecycle in Sections 2.2, 5.3,
++13.6-13.10). `Open` binds a repository to the sessions
+ namespace beneath a data root. `CreateSession` validates one Session Record
+ through `canonicaljson.VerifyObjectIdentity` and stores its bytes verbatim;
+ `AppendEvent` validates one Session Event the same way and links it onto the
+@@ -1674,16 +1676,36 @@ ID, a record without a chain retries the byte-identical record (full-content
+ equality, not length-only), and a torn store past the create window has no
+ healing retry — the operator removes
+ `<data-root>/sessions/<session-id>` after confirming no host will retry, and
+-the listing heals. The two content-equality comparisons (resume in
+-`sessrepo.go`, blob install in `chain.go`) each ship a same-length differing
+-vector and a length-only narrowing mutant.
+-
+-The package derives no lifecycle state, renders no list/status output, learns
+-no peer names, and takes no lease-arbitration decision: the Section 5.7
+-reducer, the full Section 2.3 order with interactive choice, Section 14.4
+-rendering, and cross-partition lease convergence belong to the sibling leaves
+-that build on these entries. It adds no `ax` command, no `doctor` result, and
+-no runtime capability claim.
++the listing heals. The three content-equality comparisons (resume in
++`sessrepo.go`, blob install in `chain.go`, lease install in `lease_store.go`)
++each ship a same-length differing vector and a length-only narrowing mutant.
++
++The lease lifecycle mints epoch-1 `create` leases from the durable bootstrap
++inputs (`CreateLease`), persists successors through compare-and-swap
++(`CompareAndSwapLease`), and revalidates fencing tokens (`VerifyFencingToken`)
++with the operational grant-expiry policy (`CheckFencingExpiry`). Lease blobs
++are immutable content-addressed files installed stage-then-rename beneath the
++session directory — there is no lease index to skew — and the winner is the
++greatest `(epoch, lease_id)` tuple derived from the blobs on every read. A
++successor always extends the head (epoch head plus one, predecessor the head
++fencing token); an expectation naming nothing known refuses `lease_conflict`,
++a superseded expectation refuses stale (or replays the persisted successor
++when the input already applied as its successor, so a retry after a crashed
++commit names its pre-commit basis and still succeeds), and a reused fencing
++token refuses. Fencing renewal accepts the winning token and refuses stale,
++future, losing, and foreign-holder tokens each in its own class; grants lapse
++past the refresh interval while the lease itself never expires — liveness is
++not authority, and grants are never persisted. A real SIGKILL drill at the
++rename seam proves no torn final and a safe identical retry. Query-layer
++admission is unchanged and admits store-minted records without behavioral
++change.
++
++The package derives no lifecycle state, renders no list/status output, and
++learns no peer names: the Section 5.7 reducer, the full Section 2.3 order with
++interactive choice, and Section 14.4 rendering belong to the sibling leaves
++that build on these entries, as do checkpoint admission on the write path and
++cross-partition union convergence. It adds no `ax` command, no `doctor`
++result, and no runtime capability claim.
+ 
+ Run the focused tests and coverage with:
+ 
+@@ -1692,11 +1714,13 @@ go test ./internal/sessrepo -count=1
+ go test ./internal/sessrepo -cover -count=1
+ ```
+ 
+-The unfiltered package run derives the 35-site refusal inventory from the
++The unfiltered package run derives the 61-site refusal inventory from the
+ production source through `internal/invcore` (5 in `sessrepo.go`, 25 in
+-`chain.go`, 5 in `store.go`): every `refuse` call site must
++`chain.go`, 5 in `store.go`, 26 in `lease_store.go`): every `refuse` call site must
+ have a boundary-driven negative path (`Open`, `CreateSession`, `AppendEvent`,
+-`GetRecord`, `GetEvent`, `ListEvents`, `ListSessions`, `Resolve`), every
++`GetRecord`, `GetEvent`, `ListEvents`, `ListSessions`, `Resolve`,
++`CreateLease`, `CompareAndSwapLease`, `GetLease`, `ListLeases`,
++`WinningLease`, `VerifyFencingToken`, `CheckFencingExpiry`), every
+ exercised site must derive, sentinel wraps outside the funnel fail, and the
+ observed sentinel set must equal the derived roster. The load re-verification
+ holds three separate rows — verify failure, non-`event_id` self field, and
+@@ -1705,9 +1729,10 @@ audit keeps the funnel and the watched owner delegations
+ (`VerifyObjectIdentity`, `DecodeStrictObject`, `CheckUUIDv7`,
+ `CheckUint53Bounds`, `ParseDigest`, `ParseUUIDv7`, `ParseUUIDv4`) in
+ direct-call position, proved by plants that include an import alias and a var
+-binding in both directions. A second derived census covers the two
+-content-equality comparisons (`bytes.Equal` in `sessrepo.go` resume and
+-`chain.go` blob install, plus the `string(...) ==` spelling form): every
++binding in both directions. A second derived census covers the three
++content-equality comparisons (`bytes.Equal` in `sessrepo.go` resume,
++`chain.go` blob install, and `lease_store.go` lease install, plus the
++`string(...) ==` spelling form): every
+ derived site needs a registered same-length vector, an unregistered site, an
+ orphan row, or an unclassifiable spelling fails the gate, and the static
+ census runs on every full package run whether the suite is green or red, so a
+@@ -1715,7 +1740,13 @@ red test masks no plant. The mutation battery (33 applied, 33 killed, 0
+ survivors; 16 narrowing, 10 arm-deletion, 4 census-only, 3 audit-only; plus
+ NOT_APPLIED and COMPILE_FAIL controls) covers the write, load, and recovery
+ paths — including the per-session parked channel and both content-equality
+-comparisons — and is recorded on the owning task board item.
++comparisons — and is recorded on the owning task board item. The lease
++lifecycle ships its own battery through
++`internal/sessrepo/testdata/mutate.py` (27 applied — 26 narrowing, one per
++refusal site, plus one token-preserving timestamp mutant — 27 killed, 0
++survivors; plus SURVIVED, NOT_APPLIED, and COMPILE_OR_HARNESS_FAILURE
++controls reported separately),
++covering every lease gate at its production entry with per-plant raw logs.
+ 
+ ## Session State Reducer
+ 
+diff --git a/internal/sessquery/lease_store_adopt_test.go b/internal/sessquery/lease_store_adopt_test.go
+new file mode 100644
+index 0000000..d4abcb1
+--- /dev/null
++++ b/internal/sessquery/lease_store_adopt_test.go
+@@ -0,0 +1,100 @@
++// Lease-store adoption tests for TASK-260830-2f5393: records minted and
++// persisted through the sessrepo lease lifecycle must admit through the
++// unchanged query-layer admission (winningLeaseFor/BuildPlan) with the
++// same digest, epoch, lease ID, and holder the store reports. This is the
++// no-second-lease-model proof: the store and the selector share one
++// record shape and one tuple rule.
++package sessquery
++
++import (
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++	"github.com/relux-works/agent-session-manager/internal/sessstate"
++)
++
++func TestLeaseStoreRecordsAdmitWithoutBehavioralChange(t *testing.T) {
++	reader := successorFixture(t)
++	first, err := reader.Local.CreateLease(idA, sessrepo.CreateLeaseInput{LeaseID: lease, HolderHostID: hostA, IssuedByHostID: hostA, CreatedAt: "2026-08-19T04:09:00.000Z"})
++	if err != nil {
++		t.Fatalf("CreateLease error = %v", err)
++	}
++	checkpoint := checkpointWithHeads(t, checkpointRecordBytes(t, idA, 1, lease, hostA), headAtOrBefore(t, reader, idA, 1))
++	withCheckpoints(reader, checkpoint)
++	second, err := reader.Local.CompareAndSwapLease(idA, sessrepo.LeaseExpectation{RecordID: first.RecordID}, sessrepo.SuccessorLeaseInput{
++		CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: leaseB, HolderHostID: hostA, IssuedByHostID: hostA, CreatedAt: "2026-08-19T04:09:00.000Z"},
++		Reason:           "graceful_takeover",
++		CheckpointID:     checkpointDigestOf(t, checkpoint),
++	})
++	if err != nil {
++		t.Fatalf("CompareAndSwapLease error = %v", err)
++	}
++	firstBytes, err := reader.Local.GetLease(idA, first.RecordID)
++	if err != nil {
++		t.Fatalf("GetLease(first) error = %v", err)
++	}
++	secondBytes, err := reader.Local.GetLease(idA, second.RecordID)
++	if err != nil {
++		t.Fatalf("GetLease(second) error = %v", err)
++	}
++	reader.LeaseRecords = nil
++	withLeases(reader, firstBytes, secondBytes)
++	plan := mustBuild(t, reader, PlanArgs{Selector: "alpha", Action: ActionStatus})
++	if plan.LeaseEpoch != 2 || plan.LeaseID != leaseB || plan.OwnerHostID != hostA || plan.LeaseRecordID != second.RecordID {
++		t.Fatalf("store-minted succession plan = %+v, want epoch 2 %s %s %s", plan, leaseB, hostA, second.RecordID)
++	}
++	winner, err := reader.winningLeaseFor(idA, "direct", reader.Local)
++	if err != nil {
++		t.Fatal(err)
++	}
++	storeWinner, err := reader.Local.WinningLease(idA)
++	if err != nil {
++		t.Fatalf("WinningLease error = %v", err)
++	}
++	if winner.Digest != storeWinner.RecordID || winner.Epoch != storeWinner.Epoch || winner.LeaseID != storeWinner.LeaseID || winner.HolderHostID != storeWinner.HolderHostID {
++		t.Fatalf("admitted winner %+v disagrees with store winner %+v", winner, storeWinner)
++	}
++	if err := reader.Revalidate(plan); err != nil {
++		t.Fatalf("store-minted succession plan is not current: %v", err)
++	}
++}
++
++// TestLeaseTupleOrderAgreesWithSessstateCompare pins the cross-package
++// tuple rule: sessrepo.CompareLeaseTuple (which cannot import sessstate)
++// must order every corpus pair exactly like sessstate.Compare.
++func TestLeaseTupleOrderAgreesWithSessstateCompare(t *testing.T) {
++	pairs := [][4]any{
++		{uint64(1), lease, uint64(2), lease},
++		{uint64(2), lease, uint64(1), leaseB},
++		{uint64(2), lease, uint64(2), leaseB},
++		{uint64(2), leaseB, uint64(2), lease},
++		{uint64(3), leaseB, uint64(3), leaseB},
++		{uint64(1), leaseB, uint64(1), lease},
++	}
++	sign := func(value int) int {
++		switch {
++		case value < 0:
++			return -1
++		case value > 0:
++			return 1
++		}
++		return 0
++	}
++	for _, pair := range pairs {
++		epochA := pair[0].(uint64)
++		leaseA := pair[1].(string)
++		epochB := pair[2].(uint64)
++		leaseB := pair[3].(string)
++		got := sign(sessrepo.CompareLeaseTuple(
++			sessrepo.LeaseSummary{Epoch: epochA, LeaseID: leaseA},
++			sessrepo.LeaseSummary{Epoch: epochB, LeaseID: leaseB},
++		))
++		want := sign(sessstate.Compare(
++			sessstate.LeaseHead{Epoch: epochA, LeaseID: leaseA},
++			sessstate.LeaseHead{Epoch: epochB, LeaseID: leaseB},
++		))
++		if got != want {
++			t.Fatalf("tuple (%d %s) vs (%d %s): sessrepo = %d, sessstate = %d", epochA, leaseA, epochB, leaseB, got, want)
++		}
++	}
++}
+diff --git a/internal/sessrepo/TRACEABILITY.md b/internal/sessrepo/TRACEABILITY.md
+new file mode 100644
+index 0000000..88abab9
+--- /dev/null
++++ b/internal/sessrepo/TRACEABILITY.md
+@@ -0,0 +1,111 @@
++# TASK-260830-2f5393: implementation evidence
++
++Authority: relux-works/agent-session-manager-spec v0.6.0, commit
++`0cbdf100dbf84df50c64f792b1f940e3a67859a6`. Primary scope is Sections
++2.2, 5.3, and 13.6-13.10 (lease creation, renewal, expiry policy, epoch
++monotonicity, holder identity, compare-and-swap writes). Historical
++scope is retained without weakening: v0.5.0 (commit
++`28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c`), Sections 2.3, 5.1-5.2,
++5.7, 14.4. This file records implementation evidence; it changes no
++normative ownership and claims no public CLI delivery.
++
++The lease store (`lease_store.go`) extends this package with the durable
++Lease Record 1.0.0 lifecycle. It mints no second lease model: closed
++shape, self identity, and the three Section 5.3 couplings stay owned by
++`canonicaljson`; the winning-tuple rule stays owned by `sessstate`
++(`CompareLeaseTuple` restates it because `sessstate` imports this
++package, and a cross-package agreement test pins identical order); and
++query-layer admission (`sessquery` `winningLeaseFor`) is unchanged — an
++adoption test proves store-minted records admit there with the same
++digest, epoch, lease ID, and holder.
++
++## Acceptance rows
++
++8 of 8 AC rows are driven at the production entries named below; 0 of 8
++are delivered as a public CLI surface, which is an explicit
++caller-integration bound (no `ax` session command exists in this tree),
++not a gap in the assigned shared behavior. Takeover/fork/stop/resume
++orchestration, checkpoint admission, and cross-partition union
++convergence belong to their owning leaves, which invoke this API at
++every required boundary.
++
++| AC row | Production call site | Named test(s) | Evidence and bound |
++| --- | --- | --- | --- |
++| Lease creation | `Repository.CreateLease` | `TestCreateLeasePersistsEpochOneCreate`, `TestCreateLeaseRequiresExistingSession`, `TestCreateLeaseRefusesInvalidIdentity`, `TestCreateLeaseIsIdempotentOnByteIdenticalRetry`, `TestCreateLeaseRefusesSecondCreateWithDifferingBytes`, `TestNormativeLeaseRecordExampleAttests` | Driven: epoch-1 `create` minted from the durable bootstrap inputs (existing session record plus caller fencing token, holder, issuer, timestamp), attested through the canonical owner with null predecessor/checkpoint; unknown session refuses; malformed members refuse `invalid lease record`; byte-identical retry replays the same reference; a differing second create refuses `lease already exists` with the persisted lease undisturbed. The verbatim Section 5.3 example attests to its pinned digest. |
++| Renewal | `Repository.VerifyFencingToken` | `TestVerifyFencingTokenAcceptsWinner`, `TestVerifyFencingTokenRefusals` | Driven: a token matching the winning tuple and holder revalidates (nil); epoch 0, malformed lease/holder refuse `invalid lease record`; a superseded epoch refuses `stale lease epoch`; a beyond-head epoch (including any token on an empty store) refuses `unknown lease`; a same-epoch foreign lease refuses `lease_conflict`; a foreign holder refuses `lease_holder_mismatch`. Renewal mints no lease and mutates no durable state. |
++| Expiry policy | `CheckFencingExpiry`; `Repository.VerifyFencingToken` + `Repository.WinningLease` | `TestCheckFencingExpiry`, `TestLeaseNeverExpiresWithAge` | Driven: a grant older than the refresh interval refuses `fencing_grant_expired` with revalidation as the remedy; a grant at exactly the boundary stays current; a non-positive interval refuses `invalid lease record`. The lease itself never expires: an ancient `created_at` still verifies and still wins (Section 5.3 "no time-expiring ownership lease"; liveness is not authority). Grants are process-local and never persisted. |
++| Epoch monotonicity | `Repository.CompareAndSwapLease` → head+1 derivation; `Repository.ListLeases` order | `TestCompareAndSwapPersistsSuccessor`, `TestEpochMonotonicityAcrossSuccessors`, `TestCompareAndSwapIsIdempotentOnByteIdenticalRetry` | Driven: every successor lands at exactly head epoch plus one with the head fencing token as predecessor — the epoch is never taken from input, so it can neither skip nor decrease; three successions pin epochs 2-4 with a linked predecessor chain; list order is ascending tuple order. A superseded expectation refuses stale (or replays the persisted successor on a byte-identical retry). Epoch gaps and cycles cannot be minted here; out-of-band ones still refuse at query admission. |
++| Holder identity | `Repository.CreateLease`, `Repository.CompareAndSwapLease`, `Repository.VerifyFencingToken` | Holder arms of `TestCreateLeaseRefusesInvalidIdentity`, `TestCompareAndSwapRefusesInvalidSuccessor`, `TestVerifyFencingTokenRefusals` (`holder mismatch`), `TestCompareAndSwapPersistsSuccessor` | Driven: holder and issuer must be UUIDv7 host identities; the successor binds its holder; a token from a non-holder refuses `lease_holder_mismatch`. Process binding is machine-local and never persisted cross-host (Section 2.2 invariants 4-5). |
++| Compare-and-swap writes | `Repository.CompareAndSwapLease` | `TestCompareAndSwapPersistsSuccessor`, `TestCompareAndSwapRequiresExistingLease`, `TestCompareAndSwapRefusesInvalidSuccessor`, `TestCompareAndSwapRefusesFencingTokenReuse`, `TestCompareAndSwapRefusesStaleExpectation`, `TestCompareAndSwapRefusesUnknownExpectation`, `TestCompareAndSwapIsIdempotentOnByteIdenticalRetry` | Driven: an expectation naming the head persists the successor; an expectation naming nothing known (malformed, empty, foreign) refuses `lease_conflict`; a superseded expectation refuses `stale lease epoch`; CAS on an empty store refuses `unknown lease`; a reused fencing token refuses `invalid lease record`; a non-enum reason or absent/malformed checkpoint refuses `invalid lease record`; a byte-identical retry re-mints against its pre-commit basis and replays the persisted successor. Full checkpoint-record admission stays with the query layer (stated bound). |
++| Contract fixtures and negative/refusal cases | All gates below; `AttestLeaseRecord` | Every `Test*` arm above plus `TestStoredLeaseCorruptionRefuses`, `TestInstallDisagreeingBytesRefuses`, `TestGetLeaseRefusals`, `TestWinningLeaseRefusesEmptyStore`, `TestLeaseStageTempsAreIgnored`, `TestLeaseTupleOrderAgreesWithSessstateCompare`, `TestLeaseStoreRecordsAdmitWithoutBehavioralChange` | Driven: the normative example attests; torn blobs (unparseable names, undecodable/truncated bytes, cross-session plants, digest-name disagreement) refuse chain corruption through both funnels; disagreeing bytes at install refuse (same- and different-length arms); malformed/unknown reads refuse their classes; orphaned stage temps are ignored; the tuple rule agrees with `sessstate.Compare` on a pinned corpus; store-minted records admit through unchanged `winningLeaseFor`/`BuildPlan`/`Revalidate`. |
++| Crash/idempotency evidence | `Repository.CreateLease`, `Repository.CompareAndSwapLease` + `BeforeWrite`/`AfterCommit`/`AfterLeaseStage` | `TestCrashBeforeLeaseWriteIsSafeRetry`, `TestCrashAfterLeaseCommitCountsAsCommitted`, `TestLeaseKillAtRenameSeam/create`, `TestLeaseKillAtRenameSeam/cas` | Driven: an injected pre-write fault carries `safe_retry` with nothing mutated and the retry succeeding; an injected post-commit fault carries `recoverable_parked_state` with the commit durable and the byte-identical retry replaying the same reference. A real SIGKILLed child at the stage-then-rename seam leaves no torn final (create: zero finals plus one ignored temp; CAS: the prior final plus one ignored temp); a fresh handle reopens cleanly and the byte-identical retry lands the exact epoch. See the recovery table below. |
++
++## Refusal and recovery coverage
++
++Every `N-` row is a genuine narrowing mutant: the gate stays present
++and is weakened to admit exactly one member of the class it must
++reject, and the named behavioral test fails through the delivered
++harness (`internal/sessrepo/testdata/mutate.py`, run as
++`python3 internal/sessrepo/testdata/mutate.py <evidence-dir>`).
++Whole-clause disables are not accepted as narrowing. The `T-` row
++preserves the searched-for timestamp token while changing behavior.
++Controls are reported separately and never counted as kills.
++
++Final battery (`mutants-03`, on the exact final source): 26 narrowing
++(one per `refuse` site) + 1 token-preserving, all `KILLED`; the applied
++harmless control is `SURVIVED`, while the not-applied and
++compile-failure controls are classified separately. Battery exit 0.
++
++| Gate | Real entry test | Narrowing attack (all killed) |
++| --- | --- | --- |
++| Create fencing-token grammar | `TestCreateLeaseRefusesInvalidIdentity/lease_token` | N-create-token admits exactly `not-a-uuid`; mint then fails closed with a plain error and the refusal class changes. |
++| Create holder grammar | `TestCreateLeaseRefusesInvalidIdentity/holder` | N-create-holder admits exactly `not-a-uuid`; same closed mint failure. |
++| Create issuer grammar | `TestCreateLeaseRefusesInvalidIdentity/issuer` | N-create-issuer admits exactly the Q-suffixed issuer; same closed mint failure. |
++| Create timestamp grammar | `TestCreateLeaseRefusesInvalidIdentity/created_at`, `/created_at_padded` | N-create-time admits exactly `not-a-timestamp` (mint succeeds: no downstream check); T-create-time-pad parses the same token whitespace-tolerantly and admits the padded value. |
++| Successor reason enum | `TestCompareAndSwapRefusesInvalidSuccessor/reason` | N-successor-reason admits exactly `bogus_reason`; mint fails closed and the refusal class changes. |
++| Successor checkpoint grammar | `TestCompareAndSwapRefusesInvalidSuccessor/checkpoint_malformed` | N-successor-checkpoint admits exactly `not-a-digest`; absent and other malformed values still refuse. |
++| Create-once | `TestCreateLeaseRefusesSecondCreateWithDifferingBytes` | N-create-once admits exactly a depth-one second create; a third create past a succession still refuses. |
++| Fencing-token uniqueness | `TestCompareAndSwapRefusesFencingTokenReuse` | N-cas-token-reuse admits exactly the epoch-1 token reuse; the CAS succeeds and the negative fails. |
++| CAS conflict | `TestCompareAndSwapRefusesUnknownExpectation/foreign` | N-cas-conflict admits exactly the foreign digest; replay minting fails closed and the refusal class changes. |
++| CAS stale basis | `TestCompareAndSwapRefusesStaleExpectation` | N-cas-stale admits exactly epoch-1 stale bases; the epoch-2 arm still refuses. |
++| CAS empty store | `TestCompareAndSwapRequiresExistingLease` | N-cas-empty admits exactly the empty-expectation CAS; a named expectation on an empty store still refuses. |
++| Fencing token grammar (epoch/lease/holder) | `TestVerifyFencingTokenRefusals/epoch_zero`, `/lease_malformed`, `/holder_malformed` | N-fence-token-epoch/lease/holder admit exactly the suite vectors; each refusal degrades to its downstream class (stale/conflict/mismatch). |
++| Fencing stale epoch | `TestVerifyFencingTokenRefusals/stale_epoch` | N-fence-stale admits exactly the epoch-1 token; the refusal degrades to conflict. |
++| Fencing future epoch | `TestVerifyFencingTokenRefusals/future_epoch` | N-fence-future admits exactly epoch 9; the empty-store epoch-1 token still refuses unknown. |
++| Fencing same-epoch tie | `TestVerifyFencingTokenRefusals/losing_lease` | N-fence-loser admits exactly the leaseC loser; the token verifies and the negative fails by success. |
++| Fencing holder binding | `TestVerifyFencingTokenRefusals/holder_mismatch` | N-fence-holder admits exactly the hostA non-holder; the token verifies and the negative fails by success. |
++| Grant-expiry policy shape | `TestCheckFencingExpiry` | N-expiry-policy admits exactly the zero interval; a negative interval still refuses. |
++| Grant-expiry lapse | `TestCheckFencingExpiry` | N-expiry-lapsed admits exactly the suite lapsed grant; the grant verifies and the negative fails by success. |
++| Lease load funnel | `TestStoredLeaseCorruptionRefuses/unparseable_name` | N-load-funnel admits exactly the garbage-name vector; truncated, cross-session, misnamed, and undecodable vectors still refuse. |
++| GetLease funnel | `TestStoredLeaseCorruptionRefuses/undecodable_bytes` | N-get-funnel admits exactly the undecodable vector; the misnamed vector still refuses. |
++| Install content equality | `TestInstallDisagreeingBytesRefuses/same_length` | N-install-length compares length only at the ledgered site; the same-length garbage arm reuses while the different-length arm still refuses. |
++| GetLease malformed reference | `TestGetLeaseRefusals` | N-get-malformed admits exactly `not-a-digest`; the refusal degrades to unknown. |
++| GetLease unknown reference | `TestGetLeaseRefusals` | N-get-unknown admits exactly the foreign digest; the refusal degrades to corruption. |
++| Winning-lease absence | `TestWinningLeaseRefusesEmptyStore` | N-winning-empty admits exactly the suite empty store with a zero summary; the negative fails by success. |
++
++Crash/idempotency matrix (Section 13.13 outcomes):
++
++| Boundary | Required recovery | Evidence |
++| --- | --- | --- |
++| Before first lease byte (`CR-MAT-prepare-enter`) | `safe_retry`: nothing mutated, identical retry succeeds | Injector arms on create and CAS; kill drill shows zero premature finals. |
++| After staged fsync, before rename (`AfterLeaseStage`) | `safe_retry`: only an orphaned ignored temp, identical retry lands the exact epoch | Real SIGKILL child drills for create and CAS with fresh-handle reopen and temp-tolerance assertions. |
++| After install (`CR-MAT-commit-apply`) | Committed: the lease reads back, the byte-identical retry replays the same reference (CAS re-mints against its pre-commit basis) | Injector arms on create and CAS. |
++| Disagreeing bytes at a digest path | Torn store: no retry heals; operator removes the session directory | Same- and different-length plant arms; post-plant reads funnel chain corruption. |
++
++## Bounds (not silent gaps)
++
++- No public CLI: 0 of 8 rows are delivered as an `ax` command. The
++  shared-library entries above are the deliverable; orchestration leaves
++  invoke them.
++- No checkpoint admission on the write path: CAS requires a well-formed
++  checkpoint digest, but validating the referenced Checkpoint Record
++  stays with `sessquery` admission.
++- No cross-partition union convergence: same-epoch concurrent leases
++  from partitioned writers reconcile in the sibling ownership leaves;
++  this store orders whatever blobs exist by the shared tuple rule.
++- No wall-clock lease expiry and no persisted grants: expiry retires
++  only the process-local authorization; the lease stays authoritative.
++- Mint failures are plain operational errors, never refusals: entry
++  validation already admitted the inputs, so a mint failure is an
++  internal inconsistency. The narrowing batteries rely on this: a
++  weakened grammar gate fails closed at mint with a changed class.
+diff --git a/internal/sessrepo/census_test.go b/internal/sessrepo/census_test.go
+index b040f04..a25efd8 100644
+--- a/internal/sessrepo/census_test.go
++++ b/internal/sessrepo/census_test.go
+@@ -46,6 +46,7 @@ var sessrepoBoundarySites = map[string]struct{}{}
+ 
+ var sessrepoBoundaryMarkers = []string{
+ 	"sessrepo.Open",
++	"sessrepo.CheckFencingExpiry",
+ 	").CreateSession",
+ 	").AppendEvent",
+ 	").GetRecord",
+@@ -53,6 +54,12 @@ var sessrepoBoundaryMarkers = []string{
+ 	").ListEvents",
+ 	").ListSessions",
+ 	").Resolve",
++	").CreateLease",
++	").CompareAndSwapLease",
++	").GetLease",
++	").ListLeases",
++	").WinningLease",
++	").VerifyFencingToken",
+ }
+ 
+ func TestMain(main *testing.M) {
+@@ -649,8 +656,9 @@ func unclassifiableEqualitySpellings(syntax *ast.File, fileSet *token.FileSet, d
+ // without a site is a witness without a guard.
+ func sessrepoEqualityLedger() map[string]string {
+ 	return map[string]string{
+-		"sessrepo.go:258": "TestCreateSessionRefusesResumeWithDifferingBytes // N10 length-only",
+-		"chain.go:426":    "TestAppendEventRefusesSameLengthDisagreeingBytes // N13 length-only",
++		"sessrepo.go:262":    "TestCreateSessionRefusesResumeWithDifferingBytes // N10 length-only",
++		"chain.go:426":       "TestAppendEventRefusesSameLengthDisagreeingBytes // N13 length-only",
++		"lease_store.go:650": "TestInstallDisagreeingBytesRefuses/same_length // N length-only",
+ 	}
+ }
+ 
+diff --git a/internal/sessrepo/doc.go b/internal/sessrepo/doc.go
+index f94a559..71382a7 100644
+--- a/internal/sessrepo/doc.go
++++ b/internal/sessrepo/doc.go
+@@ -1,27 +1,34 @@
+-// Package sessrepo persists and validates AX Session Records and the
+-// append-only per-session event chain with source sequence continuity.
++// Package sessrepo persists and validates AX Session Records, the
++// append-only per-session event chain with source sequence continuity, and
++// the Lease Record lifecycle with compare-and-swap succession.
+ //
+ // Normative scope: AX v0.5.0 sections 2.3 (session name resolution), 5.1
+ // (Session Record), 5.2 (Session Event), 5.7 (derived session states), and
+-// 14.4 (list and status fields). This package owns durable session state:
+-// the immutable record, the ordered event chain beneath it, and the stored
++// 14.4 (list and status fields), plus the v0.6.0 lease lifecycle in
++// sections 2.2 (global invariants), 5.3 (Lease Record and ownership), and
++// 13.6-13.10 (takeover, fork, stop, resume). This package owns durable
++// session state: the immutable record, the ordered event chain beneath it,
++// the immutable lease blobs with their winning head, and the stored
+ // identity fields that later leaves project into lifecycle state, resolved
+ // names, and list/status rows.
+ //
+ // Division of authority inside this story:
+ //
+-//   - Validation of record and event closed shapes and of every self-identity
+-//     digest is owned by internal/canonicaljson and reached only through its
+-//     production VerifyObjectIdentity entry. Entry decodes refuse a foreign
+-//     schema before Verify; the load path re-verifies stored blobs through
+-//     Verify — recomputing whatever digest the bytes claim — and refuses a
+-//     non-event_id self field or an index-disagreeing digest at its named
+-//     arms. This package never re-decodes a frame, never recomputes a
+-//     bound, and never selects a self field.
++//   - Validation of record, event, and lease closed shapes and of every
++//     self-identity digest is owned by internal/canonicaljson and reached
++//     only through its production entries (VerifyObjectIdentity for
++//     attestation, CalculateObjectIdentity for minting identity). Entry
++//     decodes refuse a foreign schema before Verify; the load path
++//     re-verifies stored blobs through Verify — recomputing whatever
++//     digest the bytes claim — and refuses a non-event_id self field or
++//     an index-disagreeing digest at its named arms, or a torn lease blob
++//     through the lease load funnel. This package never re-decodes a
++//     frame, never recomputes a bound, and never selects a self field.
+ //   - Strict frame decoding and scalar bound checks on the members this
+ //     package must read (session and lease identifiers, lease_sequence,
+-//     predecessor digests, names) are owned by internal/environ and
+-//     internal/scalar and reached only through their production checks.
++//     predecessor digests, names, fencing tokens, timestamps) are owned by
++//     internal/environ and internal/scalar and reached only through their
++//     production checks.
+ //   - Crash-point vocabulary and outcomes are owned by
+ //     internal/secconftest. The repository fires the owner's own points
+ //     through the owner's Injector: a fault before the durable write carries
+@@ -29,6 +36,11 @@
+ //     crashed commit counts as committed.
+ //   - The refusal census denominator is derived from production through
+ //     internal/invcore; see census_test.go.
++//   - The winning-tuple rule is owned by internal/sessstate (Compare).
++//     The lease store restates it as CompareLeaseTuple because sessstate
++//     imports this package, and a cross-package agreement test pins
++//     identical order. Query-layer admission (internal/sessquery
++//     winningLeaseFor) is unchanged and admits store-minted records.
+ //
+ // Per-session parked reporting (SPEC.md:9082, Section 13.13
+ // recoverable_parked_state; Section 14.4 per-session warnings).
+@@ -67,6 +79,18 @@
+ //     verifies): no CreateSession retry heals it. A byte-identical
+ //     retry is refused as an existing session and a differing retry is
+ //     refused the same way; the store stays parked.
++//   - Missing lease after a killed install: retry CreateLease or
++//     CompareAndSwapLease with the byte-identical input. The install is
++//     stage-then-rename, so a kill leaves at most an orphaned staged
++//     temp (ignored on load, never a torn final); the retry replays to
++//     the same digest, and a duplicate install of identical bytes is
++//     reused. A CAS retry still names its pre-commit expectation: the
++//     replay check re-mints against that basis and answers the persisted
++//     successor.
++//   - Torn lease blob (disagreeing bytes at a digest path, or a blob
++//     that no longer attests): no retry heals it. The colliding write is
++//     refused with ErrChainCorrupt and every lease read funnels the same
++//     class; the operator remedy below applies to the leases namespace.
+ //
+ // Operator remedy. There is no delete, prune, or quarantine entry by
+ // design: records and events are append-only and no production path
+@@ -87,8 +111,17 @@
+ //   - Single authoritative branch. The repository tracks one ordered chain
+ //     per session in arrival order. A same-epoch event under a different
+ //     lease is preserved as an immutable blob but refused from the chain
+-//     with ErrDivergentBranch; lease arbitration across partitions belongs
+-//     to the ownership-leases story, not to this leaf.
++//     with ErrDivergentBranch; converging lease histories across
++//     partitions (union and divergent-branch reconciliation) belongs to
++//     the sibling ownership leaves, not to this record lifecycle.
++//   - No checkpoint admission on the write path. CAS requires a
++//     well-formed checkpoint digest for every successor, but validating
++//     that the digest names an admitted checkpoint for the predecessor
++//     lease stays with the query-layer admission this store feeds.
++//   - No wall-clock lease expiry. The lease never expires (Section 5.3);
++//     only the process-local fencing grant lapses past the refresh
++//     interval, and revalidation renews it. Grants are never persisted
++//     and never replicated.
+ //   - No lifecycle derivation. Section 5.7 SessionState reduction and the
+ //     full Section 2.3 four-step resolution order (peer-learned names,
+ //     interactive choice) belong to the sibling reducer and name-resolution
+diff --git a/internal/sessrepo/lease.go b/internal/sessrepo/lease.go
+index 7d73297..ccac605 100644
+--- a/internal/sessrepo/lease.go
++++ b/internal/sessrepo/lease.go
+@@ -5,7 +5,9 @@
+ // canonical identity attestation through the canonicaljson owner, so
+ // query-layer admission (internal/sessquery) never attests the binding
+ // itself: it calls AttestLeaseRecord and then extracts the already
+-// validated members. The provhost identity bound allowlists this site
++// validated members. The lease store's mint path confirms through the
++// same funnel, keeping this file the leaf's only direct Verify caller
++// for lease objects. The provhost identity bound allowlists this site
+ // with the three session record/event sites.
+ package sessrepo
+ 
+diff --git a/internal/sessrepo/lease_crash_test.go b/internal/sessrepo/lease_crash_test.go
+new file mode 100644
+index 0000000..4146fb0
+--- /dev/null
++++ b/internal/sessrepo/lease_crash_test.go
+@@ -0,0 +1,207 @@
++package sessrepo
++
++import (
++	"os"
++	"os/exec"
++	"path/filepath"
++	"testing"
++	"time"
++)
++
++// Lease crash drills kill a real child process at the install rename seam:
++// the child stages and fsyncs a lease blob, signals readiness from the
++// AfterLeaseStage hook, and blocks; the parent SIGKILLs it, reopens the
++// repository in a fresh handle (restart recovery), and proves the lease is
++// absent, the orphaned stage temp is ignored, and the byte-identical retry
++// succeeds. Coordination travels through environment variables and the
++// ready file; nothing travels through the crashed process's memory.
++const (
++	leaseCrashChildEnv   = "AX_SESSREPO_LEASE_CRASH_CHILD"
++	leaseCrashRootEnv    = "AX_SESSREPO_CRASH_ROOT"
++	leaseCrashSessionEnv = "AX_SESSREPO_CRASH_SESSION"
++	leaseCrashModeEnv    = "AX_SESSREPO_CRASH_MODE"
++	leaseCrashReadyEnv   = "AX_SESSREPO_CRASH_READY"
++	leaseCrashExpectEnv  = "AX_SESSREPO_CRASH_EXPECTED"
++)
++
++func TestLeaseKillAtRenameSeam(t *testing.T) {
++	if os.Getenv(leaseCrashChildEnv) == "1" {
++		runLeaseCrashChild()
++		return
++	}
++	t.Run("create", func(t *testing.T) { driveLeaseKill(t, "create") })
++	t.Run("cas", func(t *testing.T) { driveLeaseKill(t, "cas") })
++}
++
++// runLeaseCrashChild opens the parent-prepared repository and starts the
++// lease write. The AfterLeaseStage hook signals the parent and blocks
++// forever, so this function only returns when the seam is never reached —
++// itself a drill failure the parent reports.
++func runLeaseCrashChild() {
++	root := os.Getenv(leaseCrashRootEnv)
++	sessionID := os.Getenv(leaseCrashSessionEnv)
++	mode := os.Getenv(leaseCrashModeEnv)
++	ready := os.Getenv(leaseCrashReadyEnv)
++	repository, err := Open(root)
++	if err != nil {
++		os.Exit(11)
++	}
++	repository.AfterLeaseStage = func() error {
++		if err := os.WriteFile(ready, []byte("staged"), 0o600); err != nil {
++			os.Exit(12)
++		}
++		select {}
++	}
++	switch mode {
++	case "create":
++		_, _ = repository.CreateLease(sessionID, CreateLeaseInput{LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testLeaseAt})
++	case "cas":
++		_, _ = repository.CompareAndSwapLease(sessionID, LeaseExpectation{RecordID: os.Getenv(leaseCrashExpectEnv)}, SuccessorLeaseInput{
++			CreateLeaseInput: CreateLeaseInput{LeaseID: testLeaseIDB, HolderHostID: testHostIDB, IssuedByHostID: testHostIDB, CreatedAt: testLeaseAt},
++			Reason:           "graceful_takeover",
++			CheckpointID:     zeroDigest,
++		})
++	default:
++		os.Exit(13)
++	}
++	os.Exit(14)
++}
++
++// driveLeaseKill prepares the session, runs the child to the seam, kills
++// it, and proves restart recovery plus the safe retry.
++func driveLeaseKill(t *testing.T, mode string) {
++	t.Helper()
++	root := t.TempDir()
++	repository, err := Open(root)
++	if err != nil {
++		t.Fatalf("Open(crash root) error = %v", err)
++	}
++	if _, err := repository.CreateSession([]byte(specRecordExample)); err != nil {
++		t.Fatalf("CreateSession error = %v", err)
++	}
++	var expected string
++	if mode == "cas" {
++		first, err := repository.CreateLease(testSessionID, CreateLeaseInput{LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testLeaseAt})
++		if err != nil {
++			t.Fatalf("CreateLease(epoch 1) error = %v", err)
++		}
++		expected = first.RecordID
++	}
++	ready := filepath.Join(root, "ready-"+mode)
++	child := exec.Command(os.Args[0], "-test.run=^TestLeaseKillAtRenameSeam$", "-test.count=1")
++	child.Env = append(os.Environ(),
++		leaseCrashChildEnv+"=1",
++		leaseCrashRootEnv+"="+root,
++		leaseCrashSessionEnv+"="+testSessionID,
++		leaseCrashModeEnv+"="+mode,
++		leaseCrashReadyEnv+"="+ready,
++		leaseCrashExpectEnv+"="+expected,
++	)
++	if err := child.Start(); err != nil {
++		t.Fatalf("start crash child: %v", err)
++	}
++	killed := false
++	defer func() {
++		if !killed {
++			_ = child.Process.Kill()
++		}
++		_ = child.Wait()
++	}()
++	deadline := time.Now().Add(30 * time.Second)
++	for {
++		if _, err := os.Stat(ready); err == nil {
++			break
++		}
++		if time.Now().After(deadline) {
++			t.Fatalf("crash child never reached the rename seam (mode %s)", mode)
++		}
++		time.Sleep(50 * time.Millisecond)
++	}
++	if err := child.Process.Kill(); err != nil {
++		t.Fatalf("kill crash child: %v", err)
++	}
++	killed = true
++	if err := child.Wait(); err == nil {
++		t.Fatalf("crash child exited cleanly after SIGKILL (mode %s)", mode)
++	}
++	// Restart recovery: a fresh handle over the killed child's bytes.
++	reopened, err := Open(root)
++	if err != nil {
++		t.Fatalf("Open(after kill) error = %v", err)
++	}
++	entries, err := os.ReadDir(filepath.Join(root, "sessions", testSessionID, "leases"))
++	if err != nil {
++		t.Fatalf("ReadDir(leases) error = %v", err)
++	}
++	var finals, temps int
++	for _, entry := range entries {
++		if entry.Name()[0] == '.' {
++			temps++
++		} else {
++			finals++
++		}
++	}
++	// Create mode stages the first blob: no final may exist. CAS mode
++	// stages the second: exactly the pre-existing epoch-1 final stands.
++	wantFinals := 0
++	if mode == "cas" {
++		wantFinals = 1
++	}
++	if finals != wantFinals || temps != 1 {
++		t.Fatalf("leases dir after kill holds %d finals and %d temps, want %d and 1 (mode %s)", finals, temps, wantFinals, mode)
++	}
++	leases, err := reopened.ListLeases(testSessionID)
++	if err != nil {
++		t.Fatalf("ListLeases(after kill) error = %v", err)
++	}
++	wantCount := 0
++	if mode == "cas" {
++		wantCount = 1
++	}
++	if len(leases) != wantCount {
++		t.Fatalf("leases after kill = %d, want %d (mode %s)", len(leases), wantCount, mode)
++	}
++	// The byte-identical retry succeeds despite the orphaned temp.
++	switch mode {
++	case "create":
++		reference, err := reopened.CreateLease(testSessionID, CreateLeaseInput{LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testLeaseAt})
++		if err != nil {
++			t.Fatalf("retry CreateLease error = %v", err)
++		}
++		if reference.Epoch != 1 {
++			t.Fatalf("retry ref = %+v", reference)
++		}
++	case "cas":
++		reference, err := reopened.CompareAndSwapLease(testSessionID, LeaseExpectation{RecordID: expected}, SuccessorLeaseInput{
++			CreateLeaseInput: CreateLeaseInput{LeaseID: testLeaseIDB, HolderHostID: testHostIDB, IssuedByHostID: testHostIDB, CreatedAt: testLeaseAt},
++			Reason:           "graceful_takeover",
++			CheckpointID:     zeroDigest,
++		})
++		if err != nil {
++			t.Fatalf("retry CAS error = %v", err)
++		}
++		if reference.Epoch != 2 {
++			t.Fatalf("retry ref = %+v", reference)
++		}
++	}
++	winner, err := reopened.WinningLease(testSessionID)
++	if err != nil {
++		t.Fatalf("WinningLease(after retry) error = %v", err)
++	}
++	if winner.Epoch != uint64(wantCount+1) {
++		t.Fatalf("winner after retry = %+v", winner)
++	}
++	if _, _, err := mustAttestLeaseBytes(t, reopened, testSessionID, winner.RecordID); err != nil {
++		t.Fatalf("attest retried lease: %v", err)
++	}
++}
++
++// mustAttestLeaseBytes reads one lease back and verifies its identity.
++func mustAttestLeaseBytes(t *testing.T, repository *Repository, sessionID, recordID string) ([]byte, string, error) {
++	t.Helper()
++	raw, err := repository.GetLease(sessionID, recordID)
++	if err != nil {
++		return nil, "", err
++	}
++	return raw, mustAttestLease(t, raw, "retried lease"), nil
++}
+diff --git a/internal/sessrepo/lease_store.go b/internal/sessrepo/lease_store.go
+new file mode 100644
+index 0000000..7158475
+--- /dev/null
++++ b/internal/sessrepo/lease_store.go
+@@ -0,0 +1,803 @@
++// Lease lifecycle: creation, compare-and-swap succession, fencing
++// revalidation, and the operational grant-expiry policy.
++//
++// Normative scope: AX v0.6.0 Sections 2.2 (global invariants), 5.3 (Lease
++// Record and ownership), and 13.6-13.10 (takeover, fork, stop, resume).
++// This file owns the durable Lease Record 1.0.0 lifecycle inside
++// sessrepo: minting epoch-1 create leases from the durable bootstrap
++// inputs, persisting successor leases through compare-and-swap writes,
++// reading the winning lease by the greatest (epoch, lease_id) tuple,
++// and revalidating presented fencing tokens.
++//
++// Division of authority (no second lease model):
++//
++//   - Closed shape, self identity, and the three Section 5.3 couplings
++//     (predecessor presence, epoch-1-create predecessor/checkpoint rules)
++//     are owned by internal/canonicaljson. Minting computes record_id
++//     through CalculateObjectIdentity and confirms through
++//     VerifyObjectIdentity; loading re-verifies every blob the same way.
++//     This file never re-decodes a frame, never recomputes a bound, and
++//     never selects a self field.
++//   - The winning-tuple rule is owned by internal/sessstate (Compare).
++//     This package cannot import sessstate (sessstate/project.go imports
++//     sessrepo), so CompareLeaseTuple restates the rule for stored
++//     summaries and a cross-package agreement test pins identical order.
++//     Query-layer admission (internal/sessquery winningLeaseFor) is
++//     unchanged; an adoption test proves records minted here admit there.
++//   - Checkpoint-record admission stays with sessquery. CAS requires a
++//     well-formed checkpoint digest for every successor (Section 5.3
++//     "otherwise the validated materialized handoff base"); validating
++//     that the digest names an admitted checkpoint for the predecessor
++//     lease belongs to the query layer, not to this write path.
++//
++// Expiry policy (Section 5.3: "There is no time-expiring ownership
++// lease"; liveness is not authority). The lease itself never expires:
++// only a takeover or fork advances ownership, and created_at is
++// diagnostic only. What lapses is the operational fencing grant — the
++// process-local authorization derived from a winning lease — after the
++// configured lease refresh interval without revalidation. CheckFencingExpiry
++// refuses a lapsed grant so the holder revalidates; it never retires the
++// lease. Holder identity is the host UUIDv7 bound in holder_host_id; any
++// process binding is machine-local and never persisted cross-host
++// (Section 2.2 invariants 4-5).
++package sessrepo
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/environ"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++var (
++	// ErrInvalidLease refuses a lease input or fencing token whose grammar
++	// or semantics the Section 5.3 record shape cannot carry.
++	ErrInvalidLease = errors.New("invalid lease record")
++	// ErrLeaseExists refuses a second epoch-1 create carrying bytes that
++	// differ from the persisted lease.
++	ErrLeaseExists = errors.New("lease already exists")
++	// ErrUnknownLease refuses a well-formed lease reference that names no
++	// persisted lease, including a fencing token from an epoch beyond the
++	// winner and a CAS against a session with no lease yet.
++	ErrUnknownLease = errors.New("unknown lease")
++	// ErrLeaseConflict is the Section 13.7 lease_conflict refusal: a CAS
++	// expectation that does not name the current head, or a fencing token
++	// whose lease ID loses the same-epoch tie.
++	ErrLeaseConflict = errors.New("lease_conflict")
++	// ErrStaleLeaseEpoch refuses a CAS expectation or fencing token from a
++	// superseded epoch.
++	ErrStaleLeaseEpoch = errors.New("stale lease epoch")
++	// ErrLeaseHolderMismatch refuses a fencing token presented by a host
++	// other than the winning lease holder.
++	ErrLeaseHolderMismatch = errors.New("lease_holder_mismatch")
++	// ErrFencingExpired refuses an operational fencing grant that lapsed
++	// past the refresh interval. The underlying lease stays authoritative;
++	// the holder revalidates and continues.
++	ErrFencingExpired = errors.New("fencing_grant_expired")
++)
++
++// leaseRecordSchema is the exact Lease Record schema this store mints.
++const leaseRecordSchema = "urn:ax:schema:lease"
++
++// leaseIdentityPlaceholder fills record_id while the canonical owner
++// computes the omit-self digest. The value is never persisted: minting
++// replaces it with the calculated identity before Verify.
++const leaseIdentityPlaceholder = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
++
++// leaseStagePrefix marks staged lease blobs. The loader ignores these
++// names: a kill between stage and rename leaves only an orphaned temp,
++// never a torn final.
++const leaseStagePrefix = ".ax-lease-stage-"
++
++// CreateLeaseInput carries the durable bootstrap inputs for an epoch-1
++// create lease: the session must already exist (its record is the
++// bootstrap fact), and the caller supplies the fencing token, the
++// proposed owner, the initiator, and the diagnostic timestamp. Reason is
++// fixed to create: creation never mints a takeover lease.
++type CreateLeaseInput struct {
++	LeaseID        string
++	HolderHostID   string
++	IssuedByHostID string
++	CreatedAt      string
++}
++
++// SuccessorLeaseInput extends the bootstrap inputs with the two members
++// a successor lease must carry: a reason and the validated materialized
++// handoff base. Any of the four Section 5.3 reasons is admitted: the
++// specification never declares a create-implies-epoch-1 direction, so
++// where it is silent this writer stays permissive like the canonical
++// owner, and the epoch-1-create couplings stay enforced by attestation.
++type SuccessorLeaseInput struct {
++	CreateLeaseInput
++	Reason       string
++	CheckpointID string
++}
++
++// LeaseExpectation is the CAS compare value: the record digest the caller
++// believes is the current head.
++type LeaseExpectation struct {
++	RecordID string
++}
++
++// LeaseRef names one persisted lease: its session, record digest, fencing
++// token, epoch, and holder.
++type LeaseRef struct {
++	SessionID    string
++	RecordID     string
++	LeaseID      string
++	Epoch        uint64
++	HolderHostID string
++}
++
++// LeaseSummary is the read projection of one stored lease.
++type LeaseSummary struct {
++	RecordID       string
++	SessionID      string
++	LeaseID        string
++	Epoch          uint64
++	HolderHostID   string
++	Predecessor    string
++	HasPredecessor bool
++	Checkpoint     string
++	HasCheckpoint  bool
++	Reason         string
++}
++
++// FencingToken is a presented ownership proof: the epoch, lease ID, and
++// holder the presenter claims.
++type FencingToken struct {
++	Epoch        uint64
++	LeaseID      string
++	HolderHostID string
++}
++
++// FencingGrant is the process-local authorization derived from a winning
++// lease at ValidatedAt. Grants are machine-local transient state: they are
++// never persisted and never replicated.
++type FencingGrant struct {
++	SessionID   string
++	RecordID    string
++	Token       FencingToken
++	ValidatedAt time.Time
++}
++
++// FencingPolicy carries the configured lease refresh interval: the maximum
++// age of a fencing grant before the holder must revalidate.
++type FencingPolicy struct {
++	RefreshInterval time.Duration
++}
++
++// CompareLeaseTuple orders two stored lease summaries by the Section 5.3
++// rule: the greatest (epoch, lease_id) wins, where lease_id uses bytewise
++// UUID order. Lease IDs are canonical lowercase UUIDv4, so string order is
++// bytewise order. This restates sessstate.Compare for stored summaries
++// (sessstate imports sessrepo, so the rule cannot be shared by import);
++// the cross-package agreement test pins identical order.
++func CompareLeaseTuple(a, b LeaseSummary) int {
++	if a.Epoch != b.Epoch {
++		if a.Epoch < b.Epoch {
++			return -1
++		}
++		return 1
++	}
++	switch {
++	case a.LeaseID < b.LeaseID:
++		return -1
++	case a.LeaseID > b.LeaseID:
++		return 1
++	}
++	return 0
++}
++
++// leasesDir joins the per-session leases namespace. It is created on the
++// first lease write; a session without it simply has no leases.
++func (repository *Repository) leasesDir(sessionID string) string {
++	return filepath.Join(repository.sessionDir(sessionID), "leases")
++}
++
++// checkLeaseIdentityInput validates the grammar shared by creation and
++// succession: fencing-token, holder, issuer, and diagnostic timestamp.
++// Attestation re-checks the token and host members at mint time, so each
++// gate below is the last line of defense only for its refusal class, not
++// for the bytes: weakening one still fails closed at mint with a plain
++// (non-refusal) error, which is what kills that gate's narrowing mutant.
++func checkLeaseIdentityInput(input CreateLeaseInput) error {
++	if _, err := scalar.ParseUUIDv4(input.LeaseID); err != nil {
++		return refuse(ErrInvalidLease, "lease fencing token %q is not a UUIDv4: %v", input.LeaseID, err)
++	}
++	if _, err := scalar.ParseUUIDv7(input.HolderHostID); err != nil {
++		return refuse(ErrInvalidLease, "lease holder %q is not a UUIDv7: %v", input.HolderHostID, err)
++	}
++	if _, err := scalar.ParseUUIDv7(input.IssuedByHostID); err != nil {
++		return refuse(ErrInvalidLease, "lease issuer %q is not a UUIDv7: %v", input.IssuedByHostID, err)
++	}
++	if _, err := scalar.ParseTimestamp(input.CreatedAt); err != nil {
++		return refuse(ErrInvalidLease, "lease created_at %q is not a timestamp: %v", input.CreatedAt, err)
++	}
++	return nil
++}
++
++// checkSuccessorInput validates the two members only a successor carries.
++// Absent and malformed checkpoints refuse identically: both fail digest
++// grammar, and a successor without a handoff base is not expressible.
++func checkSuccessorInput(input SuccessorLeaseInput) error {
++	switch input.Reason {
++	case "create", "graceful_takeover", "force_takeover", "recovery":
++	default:
++		return refuse(ErrInvalidLease, "successor lease reason %q is outside the Section 5.3 enum", input.Reason)
++	}
++	if _, err := scalar.ParseDigest(input.CheckpointID); err != nil {
++		return refuse(ErrInvalidLease, "successor lease checkpoint %q is not a digest: %v", input.CheckpointID, err)
++	}
++	return nil
++}
++
++// CreateLease mints and persists the epoch-1 create lease for a session
++// whose record already exists. A byte-identical retry returns the existing
++// reference without duplicating the lease, so a retry after a crashed
++// commit is safe; a differing second create is refused and the persisted
++// lease survives.
++func (repository *Repository) CreateLease(sessionID string, input CreateLeaseInput) (LeaseRef, error) {
++	if err := checkLeaseIdentityInput(input); err != nil {
++		return LeaseRef{}, err
++	}
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	view, err := repository.loadSessionLocked(sessionID)
++	if err != nil {
++		return LeaseRef{}, err
++	}
++	stored, err := repository.loadLeasesLocked(view.directory, view.record.sessionID)
++	if err != nil {
++		return LeaseRef{}, err
++	}
++	candidate, digest, err := mintLeaseRecord(view.record.sessionID, 1, input.LeaseID, input.HolderHostID, input.IssuedByHostID, "", false, "create", "", false, input.CreatedAt)
++	if err != nil {
++		return LeaseRef{}, err
++	}
++	if identical, ref := findIdenticalLease(stored, digest); identical {
++		return ref, nil
++	}
++	if len(stored) > 0 {
++		return LeaseRef{}, refuse(ErrLeaseExists, "session %s already holds lease %s at epoch %d", sessionID, stored[len(stored)-1].RecordID, stored[len(stored)-1].Epoch)
++	}
++	if repository.BeforeWrite != nil {
++		if err := repository.BeforeWrite(); err != nil {
++			return LeaseRef{}, err
++		}
++	}
++	if err := repository.installLeaseBlobLocked(view.directory, digest, candidate); err != nil {
++		return LeaseRef{}, err
++	}
++	if repository.AfterCommit != nil {
++		if err := repository.AfterCommit(); err != nil {
++			return LeaseRef{}, err
++		}
++	}
++	return LeaseRef{SessionID: view.record.sessionID, RecordID: digest, LeaseID: input.LeaseID, Epoch: 1, HolderHostID: input.HolderHostID}, nil
++}
++
++// CompareAndSwapLease persists the successor of the current head when the
++// expectation names it. The new lease always extends the head: epoch is
++// head epoch plus one (never derived from input, so it can neither skip
++// nor decrease) and the predecessor is the head fencing token. An
++// expectation naming a superseded lease is stale; one naming nothing
++// known — malformed, empty, or foreign — is a conflict. A byte-identical
++// retry of an already persisted successor returns its existing reference,
++// so a retry after a crashed commit is safe without re-reading the head.
++func (repository *Repository) CompareAndSwapLease(sessionID string, expected LeaseExpectation, input SuccessorLeaseInput) (LeaseRef, error) {
++	if err := checkLeaseIdentityInput(input.CreateLeaseInput); err != nil {
++		return LeaseRef{}, err
++	}
++	if err := checkSuccessorInput(input); err != nil {
++		return LeaseRef{}, err
++	}
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	view, err := repository.loadSessionLocked(sessionID)
++	if err != nil {
++		return LeaseRef{}, err
++	}
++	stored, err := repository.loadLeasesLocked(view.directory, view.record.sessionID)
++	if err != nil {
++		return LeaseRef{}, err
++	}
++	if len(stored) == 0 {
++		return LeaseRef{}, refuse(ErrUnknownLease, "no lease is persisted for session %s; create the epoch-1 lease first", sessionID)
++	}
++	head := stored[len(stored)-1]
++	basis, known := findExpectedLease(stored, expected.RecordID)
++	if !known {
++		return LeaseRef{}, refuse(ErrLeaseConflict, "expected lease %q is not the current head %s for session %s", expected.RecordID, head.RecordID, sessionID)
++	}
++	if basis.RecordID != head.RecordID {
++		// A superseded expectation is either a crashed-commit retry —
++		// the input already applied as this basis's successor — or a
++		// genuinely stale caller. Re-minting against the basis (not the
++		// head) reproduces the retry's original bytes: a digest hit
++		// answers the retry, a miss refuses stale. The stale class wins
++		// over token reuse here: the caller re-reads the head first.
++		_, replayed, err := mintLeaseRecord(view.record.sessionID, basis.Epoch+1, input.LeaseID, input.HolderHostID, input.IssuedByHostID, basis.LeaseID, true, input.Reason, input.CheckpointID, true, input.CreatedAt)
++		if err != nil {
++			return LeaseRef{}, err
++		}
++		if identical, ref := findIdenticalLease(stored, replayed); identical {
++			return ref, nil
++		}
++		return LeaseRef{}, refuse(ErrStaleLeaseEpoch, "expected lease %s at epoch %d is superseded by head %s at epoch %d", expected.RecordID, basis.Epoch, head.RecordID, head.Epoch)
++	}
++	candidate, digest, err := mintLeaseRecord(view.record.sessionID, head.Epoch+1, input.LeaseID, input.HolderHostID, input.IssuedByHostID, head.LeaseID, true, input.Reason, input.CheckpointID, true, input.CreatedAt)
++	if err != nil {
++		return LeaseRef{}, err
++	}
++	for _, known := range stored {
++		if known.LeaseID == input.LeaseID {
++			return LeaseRef{}, refuse(ErrInvalidLease, "fencing token %s is already bound to lease %s for session %s", input.LeaseID, known.RecordID, sessionID)
++		}
++	}
++	if repository.BeforeWrite != nil {
++		if err := repository.BeforeWrite(); err != nil {
++			return LeaseRef{}, err
++		}
++	}
++	if err := repository.installLeaseBlobLocked(view.directory, digest, candidate); err != nil {
++		return LeaseRef{}, err
++	}
++	if repository.AfterCommit != nil {
++		if err := repository.AfterCommit(); err != nil {
++			return LeaseRef{}, err
++		}
++	}
++	return LeaseRef{SessionID: view.record.sessionID, RecordID: digest, LeaseID: input.LeaseID, Epoch: head.Epoch + 1, HolderHostID: input.HolderHostID}, nil
++}
++
++// GetLease returns the byte-identical stored Lease Record for its digest,
++// re-verified through the canonical owner on every read.
++func (repository *Repository) GetLease(sessionID, recordID string) ([]byte, error) {
++	if _, err := scalar.ParseDigest(recordID); err != nil {
++		return nil, refuse(ErrInvalidLease, "malformed lease record id %q", recordID)
++	}
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	view, err := repository.loadSessionLocked(sessionID)
++	if err != nil {
++		return nil, err
++	}
++	blob, err := os.ReadFile(filepath.Join(view.directory, "leases", blobFileName(recordID)))
++	if err != nil {
++		return nil, refuse(ErrUnknownLease, "unknown lease %q in session %s", recordID, sessionID)
++	}
++	if err := verifyLeaseBlob(view.record.sessionID, recordID, blob); err != nil {
++		return nil, refuse(ErrChainCorrupt, "stored lease %s for session %s: %v", blobFileName(recordID), sessionID, err)
++	}
++	return blob, nil
++}
++
++// ListLeases returns every stored lease in tuple order (ascending epoch,
++// then bytewise lease ID), each re-verified through the canonical owner.
++// A session with no leases yields an empty slice, never an error.
++func (repository *Repository) ListLeases(sessionID string) ([]LeaseSummary, error) {
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	view, err := repository.loadSessionLocked(sessionID)
++	if err != nil {
++		return nil, err
++	}
++	stored, err := repository.loadLeasesLocked(view.directory, view.record.sessionID)
++	if err != nil {
++		return nil, err
++	}
++	return stored, nil
++}
++
++// WinningLease returns the current head: the greatest (epoch, lease_id)
++// tuple. The head is derived from the blobs on every read, never cached,
++// so a second process installing a greater lease is visible immediately.
++func (repository *Repository) WinningLease(sessionID string) (LeaseSummary, error) {
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	view, err := repository.loadSessionLocked(sessionID)
++	if err != nil {
++		return LeaseSummary{}, err
++	}
++	stored, err := repository.loadLeasesLocked(view.directory, view.record.sessionID)
++	if err != nil {
++		return LeaseSummary{}, err
++	}
++	if len(stored) == 0 {
++		return LeaseSummary{}, refuse(ErrUnknownLease, "no winning lease is established for session %s", sessionID)
++	}
++	return stored[len(stored)-1], nil
++}
++
++// VerifyFencingToken revalidates a presented fencing token against the
++// current head: the renewal step an owner repeats before accepting input,
++// starting a provider turn, publishing a checkpoint, pushing records, and
++// resuming after an interruption past the refresh interval (Section 5.3).
++// A token below the winning epoch is stale, one beyond it names no known
++// lease, a same-epoch token under another fencing ID loses the tie, and a
++// token from another holder is not the owner. A nil error renews the
++// authorization the token carries; it mints no new lease and mutates no
++// durable state.
++func (repository *Repository) VerifyFencingToken(sessionID string, token FencingToken) error {
++	if token.Epoch == 0 {
++		return refuse(ErrInvalidLease, "fencing token carries epoch 0, want an epoch at or above 1")
++	}
++	if _, err := scalar.ParseUUIDv4(token.LeaseID); err != nil {
++		return refuse(ErrInvalidLease, "fencing token lease %q is not a UUIDv4: %v", token.LeaseID, err)
++	}
++	if _, err := scalar.ParseUUIDv7(token.HolderHostID); err != nil {
++		return refuse(ErrInvalidLease, "fencing token holder %q is not a UUIDv7: %v", token.HolderHostID, err)
++	}
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	view, err := repository.loadSessionLocked(sessionID)
++	if err != nil {
++		return err
++	}
++	stored, err := repository.loadLeasesLocked(view.directory, view.record.sessionID)
++	if err != nil {
++		return err
++	}
++	winner := LeaseSummary{}
++	if len(stored) > 0 {
++		winner = stored[len(stored)-1]
++	}
++	if token.Epoch < winner.Epoch {
++		return refuse(ErrStaleLeaseEpoch, "fencing token epoch %d precedes winning epoch %d for session %s", token.Epoch, winner.Epoch, sessionID)
++	}
++	if token.Epoch > winner.Epoch {
++		return refuse(ErrUnknownLease, "fencing token epoch %d names no known lease for session %s", token.Epoch, sessionID)
++	}
++	if token.LeaseID != winner.LeaseID {
++		return refuse(ErrLeaseConflict, "fencing token lease %s loses to winning lease %s at epoch %d", token.LeaseID, winner.LeaseID, winner.Epoch)
++	}
++	if token.HolderHostID != winner.HolderHostID {
++		return refuse(ErrLeaseHolderMismatch, "fencing token holder %s is not winning holder %s for session %s", token.HolderHostID, winner.HolderHostID, sessionID)
++	}
++	return nil
++}
++
++// CheckFencingExpiry enforces the operational grant-expiry policy: a grant
++// older than the refresh interval lapses and its holder must revalidate
++// through VerifyFencingToken. The lease named by a lapsed grant stays
++// authoritative — expiry retires the cached authorization, never the
++// ownership — and a grant validated exactly at the interval boundary is
++// still current. A non-positive interval is not a policy: it refuses.
++func CheckFencingExpiry(grant FencingGrant, policy FencingPolicy, now time.Time) error {
++	if policy.RefreshInterval <= 0 {
++		return refuse(ErrInvalidLease, "fencing policy refresh interval must be positive")
++	}
++	if now.Sub(grant.ValidatedAt) > policy.RefreshInterval {
++		return refuse(ErrFencingExpired, "fencing grant for session %s lapsed; revalidate the fencing token", grant.SessionID)
++	}
++	return nil
++}
++
++// loadLeasesLocked reads every stored lease for one session directory in
++// tuple order. The blobs are truth: there is no lease index to skew, so a
++// crash can only leave a blob stored or not. Staged temps are ignored; any
++// other entry that fails to read, decode, attest, bind to the session, or
++// agree with its digest name is torn store, refused through the one funnel
++// site with the cause carried in the message. Callers hold the mutex.
++func (repository *Repository) loadLeasesLocked(directory, sessionID string) ([]LeaseSummary, error) {
++	stored, err := scanLeaseBlobs(directory, sessionID)
++	if err != nil {
++		return nil, refuse(ErrChainCorrupt, "stored leases for session %s: %v", sessionID, err)
++	}
++	return stored, nil
++}
++
++// scanLeaseBlobs collects and orders the verified lease summaries. Every
++// failure is a plain error; loadLeasesLocked attributes it through its one
++// refusal site.
++func scanLeaseBlobs(directory, sessionID string) ([]LeaseSummary, error) {
++	entries, err := os.ReadDir(filepath.Join(directory, "leases"))
++	if err != nil {
++		if os.IsNotExist(err) {
++			return nil, nil
++		}
++		return nil, fmt.Errorf("read leases namespace: %w", err)
++	}
++	var stored []LeaseSummary
++	for _, entry := range entries {
++		name := entry.Name()
++		if strings.HasPrefix(name, ".") {
++			continue
++		}
++		expected, err := leaseDigestForName(name)
++		if err != nil {
++			return nil, err
++		}
++		blob, err := os.ReadFile(filepath.Join(directory, "leases", name))
++		if err != nil {
++			return nil, fmt.Errorf("read lease %s: %w", name, err)
++		}
++		summary, err := decodeStoredLease(sessionID, blob)
++		if err != nil {
++			return nil, fmt.Errorf("lease %s: %v", name, err)
++		}
++		if summary.RecordID != expected {
++			return nil, fmt.Errorf("lease %s attests %s", name, summary.RecordID)
++		}
++		stored = append(stored, summary)
++	}
++	sort.Slice(stored, func(i, j int) bool { return CompareLeaseTuple(stored[i], stored[j]) < 0 })
++	return stored, nil
++}
++
++// verifyLeaseBlob decodes one blob and binds it to its expected session
++// and digest name. Failures are plain errors; the caller attributes them
++// through its own refusal site.
++func verifyLeaseBlob(sessionID, expected string, blob []byte) error {
++	summary, err := decodeStoredLease(sessionID, blob)
++	if err != nil {
++		return err
++	}
++	if summary.RecordID != expected {
++		return fmt.Errorf("blob attests %s, want %s", summary.RecordID, expected)
++	}
++	return nil
++}
++
++// leaseDigestForName renders a leases-namespace file name back to the
++// digest it must hold. Anything outside hex.json is torn store, never a
++// skipped entry: only staged temps are ignorable.
++func leaseDigestForName(name string) (string, error) {
++	trimmed := strings.TrimSuffix(name, ".json")
++	digest, err := scalar.ParseDigest("sha256:" + trimmed)
++	if err != nil {
++		return "", fmt.Errorf("lease file %q is not a digest path: %v", name, err)
++	}
++	return digest.String(), nil
++}
++
++// installLeaseBlobLocked installs one minted lease blob atomically: staged
++// bytes fsync before the rename, the directory fsyncs after. A second
++// install of identical bytes is reused; disagreeing bytes at a digest path
++// are torn store. AfterLeaseStage fires after the staged fsync and before
++// the rename — the kill seam the crash tests drive — and is nil in normal
++// operation. Callers hold the repository mutex.
++func (repository *Repository) installLeaseBlobLocked(directory, recordID string, data []byte) error {
++	leases := filepath.Join(directory, "leases")
++	if err := os.MkdirAll(leases, 0o700); err != nil {
++		return fmt.Errorf("create leases namespace: %w", err)
++	}
++	path := filepath.Join(leases, blobFileName(recordID))
++	if existing, err := os.ReadFile(path); err == nil {
++		if leaseBytesEqual(existing, data) {
++			return nil
++		}
++		return refuse(ErrChainCorrupt, "digest path holds disagreeing bytes for lease")
++	} else if !os.IsNotExist(err) {
++		return fmt.Errorf("read installed lease blob: %w", err)
++	}
++	staged, err := os.CreateTemp(leases, leaseStagePrefix)
++	if err != nil {
++		return fmt.Errorf("stage lease blob: %w", err)
++	}
++	stagedPath := staged.Name()
++	finished := false
++	defer func() {
++		if !finished {
++			_ = staged.Close()
++			_ = os.Remove(stagedPath)
++		}
++	}()
++	if err := staged.Chmod(0o600); err != nil {
++		return fmt.Errorf("mode staged lease blob: %w", err)
++	}
++	if _, err := staged.Write(data); err != nil {
++		return fmt.Errorf("write staged lease blob: %w", err)
++	}
++	if err := staged.Sync(); err != nil {
++		return fmt.Errorf("fsync staged lease blob: %w", err)
++	}
++	if err := staged.Close(); err != nil {
++		return fmt.Errorf("close staged lease blob: %w", err)
++	}
++	if repository.AfterLeaseStage != nil {
++		if err := repository.AfterLeaseStage(); err != nil {
++			return err
++		}
++	}
++	finished = true
++	if err := os.Rename(stagedPath, path); err != nil {
++		return fmt.Errorf("install lease blob: %w", err)
++	}
++	return syncDirectory(leases)
++}
++
++// findExpectedLease resolves a CAS expectation to the stored lease it names.
++// An empty or unknown digest resolves nothing: only a persisted record_id
++// can be a compare basis.
++func findExpectedLease(stored []LeaseSummary, recordID string) (LeaseSummary, bool) {
++	for _, known := range stored {
++		if known.RecordID == recordID {
++			return known, true
++		}
++	}
++	return LeaseSummary{}, false
++}
++
++// findIdenticalLease reports the stored lease whose digest equals the minted
++// candidate's, so a byte-identical retry returns its reference instead of
++// minting a duplicate. The digest is the canonical content identity, so
++// digest equality is full-content equality under the same collision
++// resistance the content-addressed layout already assumes; the load path
++// re-verified every stored blob before this comparison runs.
++func findIdenticalLease(stored []LeaseSummary, digest string) (bool, LeaseRef) {
++	for _, known := range stored {
++		if known.RecordID == digest {
++			return true, LeaseRef{SessionID: known.SessionID, RecordID: known.RecordID, LeaseID: known.LeaseID, Epoch: known.Epoch, HolderHostID: known.HolderHostID}
++		}
++	}
++	return false, LeaseRef{}
++}
++
++// leaseBytesEqual is the one content-equality site of the lease store,
++// registered in the census ledger with its same-length vector.
++func leaseBytesEqual(left, right []byte) bool {
++	return bytes.Equal(left, right)
++}
++
++// mintLeaseRecord builds one canonical Lease Record and returns its bytes
++// with the attested record_id. Identity is computed by the canonicaljson
++// owner over the placeholder, then confirmed by Verify after the digest is
++// bound, so minted bytes always attest. Failures are plain operational
++// errors, never refusals: entry validation already admitted the inputs,
++// so a mint failure is an internal inconsistency, not a rejected input.
++func mintLeaseRecord(sessionID string, epoch uint64, leaseID, holder, issuer, predecessor string, hasPredecessor bool, reason, checkpoint string, hasCheckpoint bool, createdAt string) ([]byte, string, error) {
++	var predecessorValue any
++	if hasPredecessor {
++		predecessorValue = predecessor
++	}
++	var checkpointValue any
++	if hasCheckpoint {
++		checkpointValue = checkpoint
++	}
++	object := map[string]any{
++		"schema":               leaseRecordSchema,
++		"schema_version":       "1.0.0",
++		"record_id":            leaseIdentityPlaceholder,
++		"subject_id":           sessionID,
++		"session_id":           sessionID,
++		"lease_id":             leaseID,
++		"epoch":                epoch,
++		"holder_host_id":       holder,
++		"predecessor_lease_id": predecessorValue,
++		"reason":               reason,
++		"checkpoint_id":        checkpointValue,
++		"issued_by_host_id":    issuer,
++		"created_by_host_id":   issuer,
++		"created_at":           createdAt,
++		"extensions":           map[string]any{},
++	}
++	staged, err := json.Marshal(object)
++	if err != nil {
++		return nil, "", fmt.Errorf("encode lease record: %w", err)
++	}
++	digest, _, err := canonicaljson.CalculateObjectIdentity(staged)
++	if err != nil {
++		return nil, "", fmt.Errorf("identify lease record: %w", err)
++	}
++	object["record_id"] = digest.String()
++	raw, err := json.Marshal(object)
++	if err != nil {
++		return nil, "", fmt.Errorf("encode identified lease record: %w", err)
++	}
++	if _, _, err := AttestLeaseRecord(raw); err != nil {
++		return nil, "", fmt.Errorf("attest minted lease record: %w", err)
++	}
++	return raw, digest.String(), nil
++}
++
++// decodeStoredLease validates one stored Lease Record through the
++// canonicaljson owner and extracts the bound members. Closed-shape,
++// coupling, and identity failures are plain errors for the caller to
++// attribute; member extraction re-checks grammar through the environ and
++// scalar owners, matching the query-layer admission without forking it.
++func decodeStoredLease(sessionID string, raw []byte) (LeaseSummary, error) {
++	var summary LeaseSummary
++	members, fault := environ.DecodeStrictObject(raw)
++	if fault != nil {
++		return summary, fmt.Errorf("decode lease record frame: %v", fault)
++	}
++	schema, err := stringMember(members, "schema")
++	if err != nil || schema != leaseRecordSchema {
++		return summary, fmt.Errorf("lease record schema %q, want %q", schema, leaseRecordSchema)
++	}
++	digest, field, err := AttestLeaseRecord(raw)
++	if err != nil {
++		return summary, fmt.Errorf("verify lease record identity: %v", err)
++	}
++	if field != canonicaljson.SelfRecordID {
++		return summary, fmt.Errorf("lease record identity field %q, want record_id", string(field))
++	}
++	recordSession, ok := environ.CheckUUIDv7(members["session_id"])
++	if !ok {
++		return summary, fmt.Errorf("lease record carries no valid session_id member")
++	}
++	if recordSession.String() != sessionID {
++		return summary, fmt.Errorf("lease record session %s does not match stored session %s", recordSession.String(), sessionID)
++	}
++	leaseID, err := stringMember(members, "lease_id")
++	if err != nil {
++		return summary, fmt.Errorf("lease record carries no lease_id member: %v", err)
++	}
++	if _, err := scalar.ParseUUIDv4(leaseID); err != nil {
++		return summary, fmt.Errorf("lease record lease_id: %v", err)
++	}
++	epoch, ok := environ.CheckUint53Bounds(members["epoch"], 1, uint53Max)
++	if !ok {
++		return summary, fmt.Errorf("lease record carries no epoch at or above 1")
++	}
++	holder, ok := environ.CheckUUIDv7(members["holder_host_id"])
++	if !ok {
++		return summary, fmt.Errorf("lease record carries no valid holder_host_id member")
++	}
++	predecessor, hasPredecessor, err := nullableUUIDv4Member(members, "predecessor_lease_id")
++	if err != nil {
++		return summary, fmt.Errorf("lease record predecessor_lease_id: %v", err)
++	}
++	checkpoint, hasCheckpoint, err := nullableDigestMember(members, "checkpoint_id")
++	if err != nil {
++		return summary, fmt.Errorf("lease record checkpoint_id: %v", err)
++	}
++	reason, err := stringMember(members, "reason")
++	if err != nil {
++		return summary, fmt.Errorf("lease record carries no reason member: %v", err)
++	}
++	summary = LeaseSummary{RecordID: digest.String(), SessionID: recordSession.String(), LeaseID: leaseID, Epoch: epoch, HolderHostID: holder.String(), Predecessor: predecessor, HasPredecessor: hasPredecessor, Checkpoint: checkpoint, HasCheckpoint: hasCheckpoint, Reason: reason}
++	return summary, nil
++}
++
++// nullableUUIDv4Member reads a member that is null or a UUIDv4 string. A
++// nil pointer binds JSON null without any text comparison.
++func nullableUUIDv4Member(members map[string]json.RawMessage, name string) (string, bool, error) {
++	raw, ok := members[name]
++	if !ok {
++		return "", false, fmt.Errorf("member %q is absent", name)
++	}
++	var value *string
++	if err := json.Unmarshal(raw, &value); err != nil {
++		return "", false, fmt.Errorf("member %q is neither a UUID nor null", name)
++	}
++	if value == nil {
++		return "", false, nil
++	}
++	if _, err := scalar.ParseUUIDv4(*value); err != nil {
++		return "", false, err
++	}
++	return *value, true, nil
++}
++
++// nullableDigestMember reads a member that is null or a digest string. A
++// nil pointer binds JSON null without any text comparison.
++func nullableDigestMember(members map[string]json.RawMessage, name string) (string, bool, error) {
++	raw, ok := members[name]
++	if !ok {
++		return "", false, fmt.Errorf("member %q is absent", name)
++	}
++	var value *string
++	if err := json.Unmarshal(raw, &value); err != nil {
++		return "", false, fmt.Errorf("member %q is neither a digest nor null", name)
++	}
++	if value == nil {
++		return "", false, nil
++	}
++	digest, err := scalar.ParseDigest(*value)
++	if err != nil {
++		return "", false, err
++	}
++	return digest.String(), true, nil
++}
+diff --git a/internal/sessrepo/lease_store_test.go b/internal/sessrepo/lease_store_test.go
+new file mode 100644
+index 0000000..3b374b2
+--- /dev/null
++++ b/internal/sessrepo/lease_store_test.go
+@@ -0,0 +1,835 @@
++package sessrepo
++
++import (
++	"encoding/json"
++	"errors"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/secconftest"
++)
++
++// Lease-test identities. testLeaseIDC is the third fencing token; testHostIDB
++// is the normative Section 5.3 example holder.
++const (
++	testHostIDB  = "0198f4c8-7d40-7e55-8e6f-1234567890ab"
++	testLeaseIDC = "cccccccc-dddd-4eee-8fff-111111111111"
++	testLeaseAt  = "2026-08-19T04:09:00.000Z"
++)
++
++// specLeaseExample is the verbatim SPEC.md Section 5.3 normative example.
++// Its record_id is the computed canonical digest, verified by
++// TestNormativeLeaseRecordExampleAttests below.
++const specLeaseExample = `{
++  "schema": "urn:ax:schema:lease",
++  "schema_version": "1.0.0",
++  "record_id": "sha256:8ead987abed8c7c05175b447c9a0e2b3a521f12e5a989acb8abe132576852d63",
++  "subject_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "session_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "lease_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
++  "epoch": 4,
++  "holder_host_id": "0198f4c8-7d40-7e55-8e6f-1234567890ab",
++  "predecessor_lease_id": "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff",
++  "reason": "graceful_takeover",
++  "checkpoint_id": "sha256:e051996f51f13ace4f5cdebe1e30fd26fd5fe104cfd6e6a7f9f1206ba3819656",
++  "issued_by_host_id": "0198f4c8-7d40-7e55-8e6f-1234567890ab",
++  "created_by_host_id": "0198f4c8-7d40-7e55-8e6f-1234567890ab",
++  "created_at": "2026-08-19T04:09:00.000Z",
++  "extensions": {}
++}`
++
++// createLeaseFixture returns the epoch-1 create input: fencing token A,
++// holder and issuer host A, and the fixed diagnostic timestamp.
++func createLeaseFixture() CreateLeaseInput {
++	return CreateLeaseInput{LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testLeaseAt}
++}
++
++// successorLeaseFixture returns a successor input: fencing token B, holder
++// and issuer host B, graceful_takeover over the zero checkpoint.
++func successorLeaseFixture() SuccessorLeaseInput {
++	return SuccessorLeaseInput{
++		CreateLeaseInput: CreateLeaseInput{LeaseID: testLeaseIDB, HolderHostID: testHostIDB, IssuedByHostID: testHostIDB, CreatedAt: testLeaseAt},
++		Reason:           "graceful_takeover",
++		CheckpointID:     zeroDigest,
++	}
++}
++
++// mustCreateLease creates the epoch-1 lease or fails the test.
++func mustCreateLease(t *testing.T, repository *Repository, sessionID string, input CreateLeaseInput) LeaseRef {
++	t.Helper()
++	reference, err := repository.CreateLease(sessionID, input)
++	if err != nil {
++		t.Fatalf("CreateLease error = %v", err)
++	}
++	return reference
++}
++
++// mustCompareAndSwap advances the head or fails the test.
++func mustCompareAndSwap(t *testing.T, repository *Repository, sessionID string, expected LeaseExpectation, input SuccessorLeaseInput) LeaseRef {
++	t.Helper()
++	reference, err := repository.CompareAndSwapLease(sessionID, expected, input)
++	if err != nil {
++		t.Fatalf("CompareAndSwapLease error = %v", err)
++	}
++	return reference
++}
++
++// mustAttestLease fails unless raw verifies through the canonical owner
++// with the record_id self field.
++func mustAttestLease(t *testing.T, raw []byte, what string) string {
++	t.Helper()
++	digest, field, err := canonicaljson.VerifyObjectIdentity(raw)
++	if err != nil {
++		t.Fatalf("%s VerifyObjectIdentity error = %v", what, err)
++	}
++	if field != canonicaljson.SelfRecordID {
++		t.Fatalf("%s self field = %q, want record_id", what, string(field))
++	}
++	return digest.String()
++}
++
++func TestNormativeLeaseRecordExampleAttests(t *testing.T) {
++	digest := mustAttestLease(t, []byte(specLeaseExample), "SPEC 5.3 example")
++	if digest != "sha256:8ead987abed8c7c05175b447c9a0e2b3a521f12e5a989acb8abe132576852d63" {
++		t.Fatalf("SPEC 5.3 example digest = %s", digest)
++	}
++}
++
++func TestCreateLeasePersistsEpochOneCreate(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	reference := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	if reference.SessionID != testSessionID || reference.Epoch != 1 || reference.LeaseID != testLeaseID || reference.HolderHostID != testHostID {
++		t.Fatalf("CreateLease ref = %+v", reference)
++	}
++	raw := mustGetLease(t, repository, testSessionID, reference.RecordID)
++	if digest := mustAttestLease(t, raw, "created lease"); digest != reference.RecordID {
++		t.Fatalf("created lease attests %s, ref carries %s", digest, reference.RecordID)
++	}
++	var object map[string]any
++	if err := json.Unmarshal(raw, &object); err != nil {
++		t.Fatalf("unmarshal created lease: %v", err)
++	}
++	if object["schema"] != "urn:ax:schema:lease" || object["epoch"] != 1.0 || object["reason"] != "create" {
++		t.Fatalf("created lease shape = %v", object)
++	}
++	if object["predecessor_lease_id"] != nil || object["checkpoint_id"] != nil {
++		t.Fatalf("epoch-1 create carries non-null predecessor/checkpoint: %v", object)
++	}
++	if object["subject_id"] != testSessionID || object["session_id"] != testSessionID {
++		t.Fatalf("created lease scope = %v", object)
++	}
++	if object["issued_by_host_id"] != testHostID || object["created_by_host_id"] != testHostID {
++		t.Fatalf("created lease issuer = %v", object)
++	}
++	leases, err := repository.ListLeases(testSessionID)
++	if err != nil {
++		t.Fatalf("ListLeases error = %v", err)
++	}
++	if len(leases) != 1 || leases[0].RecordID != reference.RecordID || leases[0].Reason != "create" || leases[0].HasPredecessor || leases[0].HasCheckpoint {
++		t.Fatalf("ListLeases = %+v", leases)
++	}
++	winner, err := repository.WinningLease(testSessionID)
++	if err != nil {
++		t.Fatalf("WinningLease error = %v", err)
++	}
++	if winner.RecordID != reference.RecordID || winner.Epoch != 1 {
++		t.Fatalf("WinningLease = %+v", winner)
++	}
++}
++
++// mustGetLease reads one lease or fails the test.
++func mustGetLease(t *testing.T, repository *Repository, sessionID, recordID string) []byte {
++	t.Helper()
++	raw, err := repository.GetLease(sessionID, recordID)
++	if err != nil {
++		t.Fatalf("GetLease(%s) error = %v", recordID, err)
++	}
++	return raw
++}
++
++func TestCreateLeaseRequiresExistingSession(t *testing.T) {
++	repository := openTestRepository(t)
++	_, err := repository.CreateLease(testSessionID, createLeaseFixture())
++	mustErrorIs(t, err, ErrUnknownSession, "CreateLease(unknown session)")
++}
++
++func TestCreateLeaseRefusesInvalidIdentity(t *testing.T) {
++	cases := []struct {
++		name   string
++		mutate func(*CreateLeaseInput)
++	}{
++		{"lease token", func(input *CreateLeaseInput) { input.LeaseID = "not-a-uuid" }},
++		{"holder", func(input *CreateLeaseInput) { input.HolderHostID = "not-a-uuid" }},
++		{"issuer", func(input *CreateLeaseInput) { input.IssuedByHostID = "0198f4c8-4a10-7b22-8b3c-1234567890aQ" }},
++		{"created at", func(input *CreateLeaseInput) { input.CreatedAt = "not-a-timestamp" }},
++		{"created at padded", func(input *CreateLeaseInput) { input.CreatedAt = " 2026-08-19T04:09:00.000Z" }},
++	}
++	for _, kase := range cases {
++		t.Run(kase.name, func(t *testing.T) {
++			repository := openTestRepository(t)
++			createTestSession(t, repository)
++			input := createLeaseFixture()
++			kase.mutate(&input)
++			_, err := repository.CreateLease(testSessionID, input)
++			mustErrorIs(t, err, ErrInvalidLease, "CreateLease("+kase.name+")")
++			leases, listErr := repository.ListLeases(testSessionID)
++			if listErr != nil {
++				t.Fatalf("ListLeases error = %v", listErr)
++			}
++			if len(leases) != 0 {
++				t.Fatalf("refused create persisted %d leases", len(leases))
++			}
++		})
++	}
++}
++
++func TestCreateLeaseIsIdempotentOnByteIdenticalRetry(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	second := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	if first != second {
++		t.Fatalf("retry ref = %+v, want %+v", second, first)
++	}
++	leases, err := repository.ListLeases(testSessionID)
++	if err != nil {
++		t.Fatalf("ListLeases error = %v", err)
++	}
++	if len(leases) != 1 {
++		t.Fatalf("retry persisted %d leases, want 1", len(leases))
++	}
++}
++
++func TestCreateLeaseRefusesSecondCreateWithDifferingBytes(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	second := createLeaseFixture()
++	second.LeaseID = testLeaseIDB
++	_, err := repository.CreateLease(testSessionID, second)
++	mustErrorIs(t, err, ErrLeaseExists, "CreateLease(second create)")
++	leases, listErr := repository.ListLeases(testSessionID)
++	if listErr != nil {
++		t.Fatalf("ListLeases error = %v", listErr)
++	}
++	if len(leases) != 1 || leases[0].RecordID != first.RecordID {
++		t.Fatalf("second create disturbed the persisted lease: %+v", leases)
++	}
++	// A third create past a succession still refuses: the gate admits no
++	// depth, so a mutant that admits only the len==1 retry still fails the
++	// arm above while this arm proves the narrowing.
++	mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: first.RecordID}, successorLeaseFixture())
++	later := createLeaseFixture()
++	later.LeaseID = testLeaseIDC
++	_, err = repository.CreateLease(testSessionID, later)
++	mustErrorIs(t, err, ErrLeaseExists, "CreateLease(third create)")
++}
++
++// TestLeaseDedupComparesFullContent is the equality-census vector for the
++// lease store's one content-equality site: two create candidates of the
++// same length but disagreeing bytes must refuse as a second create, never
++// deduplicate. A length-only comparison admits the retry and fails here.
++func TestLeaseDedupComparesFullContent(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	first := createLeaseFixture()
++	mustCreateLease(t, repository, testSessionID, first)
++	second := createLeaseFixture()
++	second.LeaseID = testLeaseIDB
++	firstBytes, _, err := mintLeaseRecord(testSessionID, 1, first.LeaseID, first.HolderHostID, first.IssuedByHostID, "", false, "create", "", false, first.CreatedAt)
++	if err != nil {
++		t.Fatalf("mint first candidate: %v", err)
++	}
++	secondBytes, _, err := mintLeaseRecord(testSessionID, 1, second.LeaseID, second.HolderHostID, second.IssuedByHostID, "", false, "create", "", false, second.CreatedAt)
++	if err != nil {
++		t.Fatalf("mint second candidate: %v", err)
++	}
++	if len(firstBytes) != len(secondBytes) {
++		t.Fatalf("candidate lengths = %d vs %d, want equal for the same-length vector", len(firstBytes), len(secondBytes))
++	}
++	_, err = repository.CreateLease(testSessionID, second)
++	mustErrorIs(t, err, ErrLeaseExists, "CreateLease(same-length disagreeing bytes)")
++}
++
++func TestCompareAndSwapPersistsSuccessor(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	second := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: first.RecordID}, successorLeaseFixture())
++	if second.Epoch != 2 || second.LeaseID != testLeaseIDB || second.HolderHostID != testHostIDB {
++		t.Fatalf("CAS ref = %+v", second)
++	}
++	raw := mustGetLease(t, repository, testSessionID, second.RecordID)
++	if digest := mustAttestLease(t, raw, "successor lease"); digest != second.RecordID {
++		t.Fatalf("successor attests %s, ref carries %s", digest, second.RecordID)
++	}
++	var object map[string]any
++	if err := json.Unmarshal(raw, &object); err != nil {
++		t.Fatalf("unmarshal successor lease: %v", err)
++	}
++	if object["epoch"] != 2.0 || object["predecessor_lease_id"] != testLeaseID || object["reason"] != "graceful_takeover" || object["checkpoint_id"] != zeroDigest {
++		t.Fatalf("successor shape = %v", object)
++	}
++	leases, err := repository.ListLeases(testSessionID)
++	if err != nil {
++		t.Fatalf("ListLeases error = %v", err)
++	}
++	if len(leases) != 2 || leases[0].RecordID != first.RecordID || leases[1].RecordID != second.RecordID {
++		t.Fatalf("ListLeases order = %+v", leases)
++	}
++	if !leases[1].HasPredecessor || leases[1].Predecessor != testLeaseID || !leases[1].HasCheckpoint || leases[1].Checkpoint != zeroDigest {
++		t.Fatalf("successor summary = %+v", leases[1])
++	}
++	winner, err := repository.WinningLease(testSessionID)
++	if err != nil {
++		t.Fatalf("WinningLease error = %v", err)
++	}
++	if winner.RecordID != second.RecordID {
++		t.Fatalf("WinningLease = %+v, want %s", winner, second.RecordID)
++	}
++}
++
++func TestCompareAndSwapRequiresExistingLease(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	_, err := repository.CompareAndSwapLease(testSessionID, LeaseExpectation{}, successorLeaseFixture())
++	mustErrorIs(t, err, ErrUnknownLease, "CAS(empty store)")
++	_, err = repository.CompareAndSwapLease(testSessionID, LeaseExpectation{RecordID: "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}, successorLeaseFixture())
++	mustErrorIs(t, err, ErrUnknownLease, "CAS(empty store with named expectation)")
++	_, err = repository.CompareAndSwapLease(testSessionIDB, LeaseExpectation{RecordID: zeroDigest}, successorLeaseFixture())
++	mustErrorIs(t, err, ErrUnknownSession, "CAS(unknown session)")
++}
++
++func TestCompareAndSwapRefusesInvalidSuccessor(t *testing.T) {
++	cases := []struct {
++		name   string
++		mutate func(*SuccessorLeaseInput)
++	}{
++		{"reason", func(input *SuccessorLeaseInput) { input.Reason = "bogus_reason" }},
++		{"reason case", func(input *SuccessorLeaseInput) { input.Reason = "CREATE" }},
++		{"checkpoint malformed", func(input *SuccessorLeaseInput) { input.CheckpointID = "not-a-digest" }},
++		{"checkpoint absent", func(input *SuccessorLeaseInput) { input.CheckpointID = "" }},
++		{"lease token", func(input *SuccessorLeaseInput) { input.LeaseID = "zzz" }},
++		{"holder", func(input *SuccessorLeaseInput) { input.HolderHostID = "zzz" }},
++	}
++	for _, kase := range cases {
++		t.Run(kase.name, func(t *testing.T) {
++			repository := openTestRepository(t)
++			createTestSession(t, repository)
++			first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++			input := successorLeaseFixture()
++			kase.mutate(&input)
++			_, err := repository.CompareAndSwapLease(testSessionID, LeaseExpectation{RecordID: first.RecordID}, input)
++			mustErrorIs(t, err, ErrInvalidLease, "CAS("+kase.name+")")
++			winner, winnerErr := repository.WinningLease(testSessionID)
++			if winnerErr != nil {
++				t.Fatalf("WinningLease error = %v", winnerErr)
++			}
++			if winner.RecordID != first.RecordID {
++				t.Fatalf("refused CAS moved the winner to %+v", winner)
++			}
++		})
++	}
++}
++
++func TestCompareAndSwapRefusesFencingTokenReuse(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	reused := successorLeaseFixture()
++	reused.LeaseID = testLeaseID
++	_, err := repository.CompareAndSwapLease(testSessionID, LeaseExpectation{RecordID: first.RecordID}, reused)
++	mustErrorIs(t, err, ErrInvalidLease, "CAS(reused fencing token)")
++}
++
++func TestCompareAndSwapRefusesStaleExpectation(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	second := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: first.RecordID}, successorLeaseFixture())
++	advance := successorLeaseFixture()
++	advance.LeaseID = testLeaseIDC
++	head := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: second.RecordID}, advance)
++	// Both superseded bases refuse: the epoch-1 and the epoch-2 arm. A
++	// narrowing mutant that admits one basis still refuses the other.
++	stale := []struct {
++		name   string
++		record string
++		token  string
++	}{
++		{"epoch-1 basis", first.RecordID, "eeeeeeee-ffff-4aaa-8000-333333333333"},
++		{"epoch-2 basis", second.RecordID, "ffffffff-0000-4111-8111-444444444444"},
++	}
++	for _, vector := range stale {
++		input := successorLeaseFixture()
++		input.LeaseID = vector.token
++		_, err := repository.CompareAndSwapLease(testSessionID, LeaseExpectation{RecordID: vector.record}, input)
++		mustErrorIs(t, err, ErrStaleLeaseEpoch, "CAS("+vector.name+")")
++	}
++	winner, winnerErr := repository.WinningLease(testSessionID)
++	if winnerErr != nil {
++		t.Fatalf("WinningLease error = %v", winnerErr)
++	}
++	if winner.RecordID != head.RecordID {
++		t.Fatalf("stale CAS moved the winner to %+v", winner)
++	}
++}
++
++func TestCompareAndSwapRefusesUnknownExpectation(t *testing.T) {
++	cases := []struct {
++		name     string
++		recordID string
++	}{
++		{"malformed", "not-a-digest"},
++		{"empty", ""},
++		{"foreign", "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
++	}
++	for _, kase := range cases {
++		t.Run(kase.name, func(t *testing.T) {
++			repository := openTestRepository(t)
++			createTestSession(t, repository)
++			first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++			_, err := repository.CompareAndSwapLease(testSessionID, LeaseExpectation{RecordID: kase.recordID}, successorLeaseFixture())
++			mustErrorIs(t, err, ErrLeaseConflict, "CAS("+kase.name+" expectation)")
++			winner, winnerErr := repository.WinningLease(testSessionID)
++			if winnerErr != nil {
++				t.Fatalf("WinningLease error = %v", winnerErr)
++			}
++			if winner.RecordID != first.RecordID {
++				t.Fatalf("conflicting CAS moved the winner to %+v", winner)
++			}
++		})
++	}
++}
++
++// TestCompareAndSwapIsIdempotentOnByteIdenticalRetry replays the crashed-
++// commit shape: the retry still names the pre-commit head, and the
++// persisted successor answers without comparing the stale expectation.
++func TestCompareAndSwapIsIdempotentOnByteIdenticalRetry(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	input := successorLeaseFixture()
++	second := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: first.RecordID}, input)
++	replayed := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: first.RecordID}, input)
++	if replayed != second {
++		t.Fatalf("retry ref = %+v, want %+v", replayed, second)
++	}
++	leases, err := repository.ListLeases(testSessionID)
++	if err != nil {
++		t.Fatalf("ListLeases error = %v", err)
++	}
++	if len(leases) != 2 {
++		t.Fatalf("retry persisted %d leases, want 2", len(leases))
++	}
++}
++
++func TestEpochMonotonicityAcrossSuccessors(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	head := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	tokens := []string{testLeaseIDB, testLeaseIDC, "dddddddd-eeee-4fff-8000-222222222222"}
++	previous := testLeaseID
++	for epoch, token := range tokens {
++		input := successorLeaseFixture()
++		input.LeaseID = token
++		head = mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: head.RecordID}, input)
++		if head.Epoch != uint64(epoch+2) {
++			t.Fatalf("successor %d epoch = %d", epoch, head.Epoch)
++		}
++		summary, err := repository.WinningLease(testSessionID)
++		if err != nil {
++			t.Fatalf("WinningLease error = %v", err)
++		}
++		if !summary.HasPredecessor || summary.Predecessor != previous {
++			t.Fatalf("epoch %d predecessor = %+v, want %s", head.Epoch, summary, previous)
++		}
++		previous = token
++	}
++	leases, err := repository.ListLeases(testSessionID)
++	if err != nil {
++		t.Fatalf("ListLeases error = %v", err)
++	}
++	for index, lease := range leases {
++		if lease.Epoch != uint64(index+1) {
++			t.Fatalf("stored lease %d epoch = %d", index, lease.Epoch)
++		}
++	}
++}
++
++func TestGetLeaseRefusals(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	reference := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	if _, err := repository.GetLease(testSessionID, "not-a-digest"); !errors.Is(err, ErrInvalidLease) {
++		t.Fatalf("GetLease(malformed) error = %v, want invalid lease", err)
++	}
++	if _, err := repository.GetLease(testSessionID, "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); !errors.Is(err, ErrUnknownLease) {
++		t.Fatalf("GetLease(unknown) error = %v, want unknown lease", err)
++	}
++	if _, err := repository.GetLease(testSessionIDB, reference.RecordID); !errors.Is(err, ErrUnknownSession) {
++		t.Fatalf("GetLease(unknown session) error = %v, want unknown session", err)
++	}
++}
++
++func TestWinningLeaseRefusesEmptyStore(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	if _, err := repository.WinningLease(testSessionID); !errors.Is(err, ErrUnknownLease) {
++		t.Fatalf("WinningLease(empty) error = %v, want unknown lease", err)
++	}
++	leases, err := repository.ListLeases(testSessionID)
++	if err != nil {
++		t.Fatalf("ListLeases(empty) error = %v", err)
++	}
++	if len(leases) != 0 {
++		t.Fatalf("ListLeases(empty) = %+v, want none", leases)
++	}
++}
++
++func TestVerifyFencingTokenAcceptsWinner(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	if err := repository.VerifyFencingToken(testSessionID, FencingToken{Epoch: 1, LeaseID: testLeaseID, HolderHostID: testHostID}); err != nil {
++		t.Fatalf("VerifyFencingToken(epoch-1 winner) error = %v", err)
++	}
++	second := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: first.RecordID}, successorLeaseFixture())
++	if err := repository.VerifyFencingToken(testSessionID, FencingToken{Epoch: 2, LeaseID: second.LeaseID, HolderHostID: second.HolderHostID}); err != nil {
++		t.Fatalf("VerifyFencingToken(successor winner) error = %v", err)
++	}
++}
++
++func TestVerifyFencingTokenRefusals(t *testing.T) {
++	setup := func(t *testing.T) *Repository {
++		t.Helper()
++		repository := openTestRepository(t)
++		createTestSession(t, repository)
++		first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++		mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: first.RecordID}, successorLeaseFixture())
++		return repository
++	}
++	cases := []struct {
++		name    string
++		token   FencingToken
++		session string
++		want    error
++	}{
++		{"epoch zero", FencingToken{Epoch: 0, LeaseID: testLeaseIDB, HolderHostID: testHostIDB}, testSessionID, ErrInvalidLease},
++		{"lease malformed", FencingToken{Epoch: 2, LeaseID: "zzz", HolderHostID: testHostIDB}, testSessionID, ErrInvalidLease},
++		{"holder malformed", FencingToken{Epoch: 2, LeaseID: testLeaseIDB, HolderHostID: "zzz"}, testSessionID, ErrInvalidLease},
++		{"stale epoch", FencingToken{Epoch: 1, LeaseID: testLeaseID, HolderHostID: testHostID}, testSessionID, ErrStaleLeaseEpoch},
++		{"future epoch", FencingToken{Epoch: 9, LeaseID: testLeaseIDC, HolderHostID: testHostIDB}, testSessionID, ErrUnknownLease},
++		{"losing lease", FencingToken{Epoch: 2, LeaseID: testLeaseIDC, HolderHostID: testHostIDB}, testSessionID, ErrLeaseConflict},
++		{"holder mismatch", FencingToken{Epoch: 2, LeaseID: testLeaseIDB, HolderHostID: testHostID}, testSessionID, ErrLeaseHolderMismatch},
++	}
++	for _, kase := range cases {
++		t.Run(kase.name, func(t *testing.T) {
++			repository := setup(t)
++			mustErrorIs(t, repository.VerifyFencingToken(kase.session, kase.token), kase.want, "VerifyFencingToken("+kase.name+")")
++		})
++	}
++	t.Run("empty store", func(t *testing.T) {
++		repository := openTestRepository(t)
++		createTestSession(t, repository)
++		mustErrorIs(t, repository.VerifyFencingToken(testSessionID, FencingToken{Epoch: 1, LeaseID: testLeaseID, HolderHostID: testHostID}), ErrUnknownLease, "VerifyFencingToken(empty store)")
++	})
++	t.Run("unknown session", func(t *testing.T) {
++		repository := setup(t)
++		mustErrorIs(t, repository.VerifyFencingToken(testSessionIDB, FencingToken{Epoch: 2, LeaseID: testLeaseIDB, HolderHostID: testHostIDB}), ErrUnknownSession, "VerifyFencingToken(unknown session)")
++	})
++}
++
++// TestLeaseNeverExpiresWithAge pins the Section 5.3 non-expiry policy: a
++// lease minted with an ancient diagnostic timestamp stays authoritative
++// and its fencing token still verifies. Liveness is not authority.
++func TestLeaseNeverExpiresWithAge(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	input := createLeaseFixture()
++	input.CreatedAt = "2020-01-01T00:00:00.000Z"
++	reference := mustCreateLease(t, repository, testSessionID, input)
++	if err := repository.VerifyFencingToken(testSessionID, FencingToken{Epoch: 1, LeaseID: reference.LeaseID, HolderHostID: reference.HolderHostID}); err != nil {
++		t.Fatalf("VerifyFencingToken(ancient lease) error = %v", err)
++	}
++	winner, err := repository.WinningLease(testSessionID)
++	if err != nil {
++		t.Fatalf("WinningLease error = %v", err)
++	}
++	if winner.RecordID != reference.RecordID {
++		t.Fatalf("WinningLease = %+v, want %+v", winner, reference)
++	}
++}
++
++func TestCheckFencingExpiry(t *testing.T) {
++	validated := time.Date(2026, 8, 19, 4, 9, 0, 0, time.UTC)
++	grant := FencingGrant{SessionID: testSessionID, RecordID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Token: FencingToken{Epoch: 1, LeaseID: testLeaseID, HolderHostID: testHostID}, ValidatedAt: validated}
++	policy := FencingPolicy{RefreshInterval: time.Minute}
++	if err := CheckFencingExpiry(grant, policy, validated); err != nil {
++		t.Fatalf("CheckFencingExpiry(fresh) error = %v", err)
++	}
++	if err := CheckFencingExpiry(grant, policy, validated.Add(time.Minute)); err != nil {
++		t.Fatalf("CheckFencingExpiry(boundary) error = %v", err)
++	}
++	mustErrorIs(t, CheckFencingExpiry(grant, policy, validated.Add(time.Minute+time.Nanosecond)), ErrFencingExpired, "CheckFencingExpiry(lapsed)")
++	mustErrorIs(t, CheckFencingExpiry(grant, FencingPolicy{}, validated), ErrInvalidLease, "CheckFencingExpiry(zero interval)")
++	mustErrorIs(t, CheckFencingExpiry(grant, FencingPolicy{RefreshInterval: -time.Second}, validated), ErrInvalidLease, "CheckFencingExpiry(negative interval)")
++}
++
++func TestCompareLeaseTupleOrdersByGreatestTuple(t *testing.T) {
++	low := LeaseSummary{Epoch: 1, LeaseID: testLeaseIDB}
++	high := LeaseSummary{Epoch: 2, LeaseID: testLeaseID}
++	if CompareLeaseTuple(low, high) != -1 || CompareLeaseTuple(high, low) != 1 {
++		t.Fatal("epoch does not dominate the tuple order")
++	}
++	tieLow := LeaseSummary{Epoch: 2, LeaseID: testLeaseID}
++	tieHigh := LeaseSummary{Epoch: 2, LeaseID: testLeaseIDB}
++	if CompareLeaseTuple(tieLow, tieHigh) != -1 || CompareLeaseTuple(tieHigh, tieLow) != 1 {
++		t.Fatal("same-epoch tie does not resolve bytewise")
++	}
++	if CompareLeaseTuple(tieHigh, tieHigh) != 0 {
++		t.Fatal("identical tuples do not compare equal")
++	}
++}
++
++func TestLeaseStageTempsAreIgnored(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	reference := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	leasesDir := filepath.Join(repository.root, testSessionID, "leases")
++	if err := os.WriteFile(filepath.Join(leasesDir, ".ax-lease-stage-orphan"), []byte("torn stage"), 0o600); err != nil {
++		t.Fatalf("plant stage temp: %v", err)
++	}
++	leases, err := repository.ListLeases(testSessionID)
++	if err != nil {
++		t.Fatalf("ListLeases error = %v", err)
++	}
++	if len(leases) != 1 || leases[0].RecordID != reference.RecordID {
++		t.Fatalf("ListLeases with orphaned temp = %+v", leases)
++	}
++	winner, err := repository.WinningLease(testSessionID)
++	if err != nil {
++		t.Fatalf("WinningLease error = %v", err)
++	}
++	if winner.RecordID != reference.RecordID {
++		t.Fatalf("WinningLease with orphaned temp = %+v", winner)
++	}
++}
++
++// TestStoredLeaseCorruptionRefuses drives every torn-store vector through
++// the load funnel and the GetLease funnel: unparseable names, undecodable
++// bytes, cross-session blobs, truncated blobs, and digest-name
++// disagreement each refuse chain corruption.
++func TestStoredLeaseCorruptionRefuses(t *testing.T) {
++	plant := func(t *testing.T) (*Repository, string) {
++		t.Helper()
++		repository := openTestRepository(t)
++		createTestSession(t, repository)
++		mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++		return repository, filepath.Join(repository.root, testSessionID, "leases")
++	}
++	t.Run("unparseable name", func(t *testing.T) {
++		repository, dir := plant(t)
++		if err := os.WriteFile(filepath.Join(dir, "garbage.json"), []byte("{broken"), 0o600); err != nil {
++			t.Fatalf("plant garbage name: %v", err)
++		}
++		_, err := repository.ListLeases(testSessionID)
++		mustErrorIs(t, err, ErrChainCorrupt, "ListLeases(unparseable name)")
++	})
++	t.Run("undecodable bytes", func(t *testing.T) {
++		repository, dir := plant(t)
++		name := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json"
++		if err := os.WriteFile(filepath.Join(dir, name), []byte("{broken lease"), 0o600); err != nil {
++			t.Fatalf("plant garbage bytes: %v", err)
++		}
++		_, err := repository.ListLeases(testSessionID)
++		mustErrorIs(t, err, ErrChainCorrupt, "ListLeases(undecodable bytes)")
++		_, err = repository.GetLease(testSessionID, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
++		mustErrorIs(t, err, ErrChainCorrupt, "GetLease(undecodable bytes)")
++	})
++	t.Run("truncated blob", func(t *testing.T) {
++		repository, dir := plant(t)
++		winner, err := repository.WinningLease(testSessionID)
++		if err != nil {
++			t.Fatalf("WinningLease error = %v", err)
++		}
++		raw := mustGetLease(t, repository, testSessionID, winner.RecordID)
++		if err := os.WriteFile(filepath.Join(dir, blobFileName(winner.RecordID)), raw[:len(raw)/2], 0o600); err != nil {
++			t.Fatalf("truncate lease blob: %v", err)
++		}
++		_, err = repository.ListLeases(testSessionID)
++		mustErrorIs(t, err, ErrChainCorrupt, "ListLeases(truncated blob)")
++	})
++	t.Run("cross session blob", func(t *testing.T) {
++		repository, dir := plant(t)
++		other := buildRecord(t, func(object map[string]any) {
++			object["session_id"] = testSessionIDB
++			object["subject_id"] = testSessionIDB
++			object["name"] = "other-session"
++		})
++		if _, err := repository.CreateSession(other); err != nil {
++			t.Fatalf("CreateSession(other) error = %v", err)
++		}
++		foreign := mustCreateLease(t, repository, testSessionIDB, createLeaseFixture())
++		foreignRaw := mustGetLease(t, repository, testSessionIDB, foreign.RecordID)
++		if err := os.WriteFile(filepath.Join(dir, blobFileName(foreign.RecordID)), foreignRaw, 0o600); err != nil {
++			t.Fatalf("plant cross-session blob: %v", err)
++		}
++		_, err := repository.ListLeases(testSessionID)
++		mustErrorIs(t, err, ErrChainCorrupt, "ListLeases(cross-session blob)")
++	})
++	t.Run("digest name disagreement", func(t *testing.T) {
++		repository, dir := plant(t)
++		winner, err := repository.WinningLease(testSessionID)
++		if err != nil {
++			t.Fatalf("WinningLease error = %v", err)
++		}
++		raw := mustGetLease(t, repository, testSessionID, winner.RecordID)
++		alias := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.json"
++		if err := os.WriteFile(filepath.Join(dir, alias), raw, 0o600); err != nil {
++			t.Fatalf("plant misnamed blob: %v", err)
++		}
++		_, err = repository.ListLeases(testSessionID)
++		mustErrorIs(t, err, ErrChainCorrupt, "ListLeases(name disagreement)")
++		_, err = repository.GetLease(testSessionID, "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
++		mustErrorIs(t, err, ErrChainCorrupt, "GetLease(name disagreement)")
++	})
++}
++
++// TestInstallDisagreeingBytesRefuses plants garbage at the computed install
++// path between verification and install through the BeforeWrite hook — the
++// single-process shape of a cross-process race — and requires the torn
++// refusal. The same-length arm is the install-site half of the
++// content-equality story: a length-only comparison reuses the garbage and
++// fails here.
++func TestInstallDisagreeingBytesRefuses(t *testing.T) {
++	cases := []struct {
++		name       string
++		sameLength bool
++	}{
++		{"same length", true},
++		{"different length", false},
++	}
++	for _, kase := range cases {
++		t.Run(kase.name, func(t *testing.T) {
++			repository := openTestRepository(t)
++			createTestSession(t, repository)
++			input := createLeaseFixture()
++			candidate, digest, err := mintLeaseRecord(testSessionID, 1, input.LeaseID, input.HolderHostID, input.IssuedByHostID, "", false, "create", "", false, input.CreatedAt)
++			if err != nil {
++				t.Fatalf("mint candidate: %v", err)
++			}
++			garbage := []byte(strings.Repeat("X", len(candidate)))
++			if !kase.sameLength {
++				garbage = []byte("short")
++			}
++			target := filepath.Join(repository.root, testSessionID, "leases", blobFileName(digest))
++			repository.BeforeWrite = func() error {
++				if err := os.MkdirAll(filepath.Join(repository.root, testSessionID, "leases"), 0o700); err != nil {
++					return err
++				}
++				return os.WriteFile(target, garbage, 0o600)
++			}
++			_, err = repository.CreateLease(testSessionID, input)
++			mustErrorIs(t, err, ErrChainCorrupt, "CreateLease("+kase.name+" disagreeing bytes)")
++			repository.BeforeWrite = nil
++			_, err = repository.WinningLease(testSessionID)
++			mustErrorIs(t, err, ErrChainCorrupt, "WinningLease(after plant)")
++		})
++	}
++}
++
++func TestCrashBeforeLeaseWriteIsSafeRetry(t *testing.T) {
++	t.Run("create", func(t *testing.T) {
++		repository := openTestRepository(t)
++		createTestSession(t, repository)
++		injector := &secconftest.Injector{}
++		wireCrashPoints(repository, injector)
++		injector.Arm(secconftest.PointPrepareEnter)
++		_, err := repository.CreateLease(testSessionID, createLeaseFixture())
++		mustCrashFault(t, err, secconftest.PointPrepareEnter, secconftest.OutcomeSafeRetry, "CreateLease(prepare fault)")
++		leases, listErr := repository.ListLeases(testSessionID)
++		if listErr != nil {
++			t.Fatalf("ListLeases error = %v", listErr)
++		}
++		if len(leases) != 0 {
++			t.Fatalf("prepare fault persisted %d leases", len(leases))
++		}
++		reference := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++		if reference.Epoch != 1 {
++			t.Fatalf("retry ref = %+v", reference)
++		}
++	})
++	t.Run("cas", func(t *testing.T) {
++		repository := openTestRepository(t)
++		createTestSession(t, repository)
++		first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++		injector := &secconftest.Injector{}
++		wireCrashPoints(repository, injector)
++		injector.Arm(secconftest.PointPrepareEnter)
++		_, err := repository.CompareAndSwapLease(testSessionID, LeaseExpectation{RecordID: first.RecordID}, successorLeaseFixture())
++		mustCrashFault(t, err, secconftest.PointPrepareEnter, secconftest.OutcomeSafeRetry, "CAS(prepare fault)")
++		winner, winnerErr := repository.WinningLease(testSessionID)
++		if winnerErr != nil {
++			t.Fatalf("WinningLease error = %v", winnerErr)
++		}
++		if winner.RecordID != first.RecordID {
++			t.Fatalf("prepare fault moved the winner to %+v", winner)
++		}
++		second := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: first.RecordID}, successorLeaseFixture())
++		if second.Epoch != 2 {
++			t.Fatalf("retry ref = %+v", second)
++		}
++	})
++}
++
++func TestCrashAfterLeaseCommitCountsAsCommitted(t *testing.T) {
++	t.Run("create", func(t *testing.T) {
++		repository := openTestRepository(t)
++		createTestSession(t, repository)
++		injector := &secconftest.Injector{}
++		wireCrashPoints(repository, injector)
++		injector.Arm(secconftest.PointCommitApply)
++		input := createLeaseFixture()
++		_, err := repository.CreateLease(testSessionID, input)
++		mustCrashFault(t, err, secconftest.PointCommitApply, secconftest.OutcomeRecoverableParked, "CreateLease(commit fault)")
++		stored, listErr := repository.ListLeases(testSessionID)
++		if listErr != nil {
++			t.Fatalf("ListLeases error = %v", listErr)
++		}
++		if len(stored) != 1 {
++			t.Fatalf("crashed commit persisted %d leases, want 1", len(stored))
++		}
++		replayed := mustCreateLease(t, repository, testSessionID, input)
++		if replayed.RecordID != stored[0].RecordID {
++			t.Fatalf("retry ref = %+v, want %s", replayed, stored[0].RecordID)
++		}
++	})
++	t.Run("cas", func(t *testing.T) {
++		repository := openTestRepository(t)
++		createTestSession(t, repository)
++		first := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++		injector := &secconftest.Injector{}
++		wireCrashPoints(repository, injector)
++		injector.Arm(secconftest.PointCommitApply)
++		input := successorLeaseFixture()
++		_, err := repository.CompareAndSwapLease(testSessionID, LeaseExpectation{RecordID: first.RecordID}, input)
++		mustCrashFault(t, err, secconftest.PointCommitApply, secconftest.OutcomeRecoverableParked, "CAS(commit fault)")
++		winner, winnerErr := repository.WinningLease(testSessionID)
++		if winnerErr != nil {
++			t.Fatalf("WinningLease error = %v", winnerErr)
++		}
++		if winner.Epoch != 2 {
++			t.Fatalf("crashed CAS winner = %+v, want epoch 2", winner)
++		}
++		replayed := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: first.RecordID}, input)
++		if replayed.RecordID != winner.RecordID {
++			t.Fatalf("retry ref = %+v, want %s", replayed, winner.RecordID)
++		}
++	})
++}
+diff --git a/internal/sessrepo/sessrepo.go b/internal/sessrepo/sessrepo.go
+index a20379d..5baeea6 100644
+--- a/internal/sessrepo/sessrepo.go
++++ b/internal/sessrepo/sessrepo.go
+@@ -137,6 +137,10 @@ type Repository struct {
+ 	BeforeWrite     func() error
+ 	AfterCommit     func() error
+ 	AfterCreateStep func(CreateStep) error
++	// AfterLeaseStage fires after a lease blob stages and fsyncs and
++	// before the install rename. It is nil in normal operation; crash
++	// tests drive the rename seam through it.
++	AfterLeaseStage func() error
+ }
+ 
+ // Open binds a repository to the sessions namespace beneath dataRoot,
+diff --git a/internal/sessrepo/testdata/mutate.py b/internal/sessrepo/testdata/mutate.py
+new file mode 100644
+index 0000000..718012d
+--- /dev/null
++++ b/internal/sessrepo/testdata/mutate.py
+@@ -0,0 +1,145 @@
++#!/usr/bin/env python3
++"""Run isolated behavioral mutants; never modify the managed Story checkout.
++Usage: python3 internal/sessrepo/testdata/mutate.py /absolute/evidence/directory
++Every subprocess runs directly, logs its real exit, and has a bounded timeout.
++The battery proves each lease-store gate by narrowing, never by deletion:
++every N-mutant keeps its gate present and weakens it to admit exactly one
++member of the class the gate must reject, and a named behavioral test must
++fail. The T-mutant preserves the searched-for timestamp token while changing
++behavior, and the harness always executes the behavioral suites.
++"""
++import hashlib
++import json
++from pathlib import Path
++import re
++import shutil
++import subprocess
++import sys
++
++root = Path(__file__).resolve().parents[3]
++output = Path(sys.argv[1]).resolve()
++output.mkdir(parents=True, exist_ok=True)
++copy = output / 'mutation-source'
++if copy.exists():
++    raise SystemExit('refusing to overwrite an existing mutation source')
++copy.mkdir()
++shutil.copytree(root / 'internal', copy / 'internal')
++for name in ('go.mod', 'go.sum', 'README.md', 'LOGBOOK.md'):
++    shutil.copy2(root / name, copy / name)
++source = copy / 'internal/sessrepo/lease_store.go'
++base = source.read_text()
++results = []
++
++FOREIGN = 'sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
++HOSTA = '0198f4c8-4a10-7b22-8b3c-1234567890ab'
++LEASEA = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
++LEASEC = 'cccccccc-dddd-4eee-8fff-111111111111'
++
++# Keep each mutant bounded to the smallest named behavioral suite that can
++# observe its gate. This is still the same subprocess instrument and every
++# selected test drives a production entry point; the control rows below run
++# the complete package. A missing mapping is a harness error, never an
++# accidental empty test selection.
++TEST_PATTERNS = {
++    'N-create-token': r'^TestCreateLeaseRefusesInvalidIdentity$',
++    'N-create-holder': r'^TestCreateLeaseRefusesInvalidIdentity$',
++    'N-create-issuer': r'^TestCreateLeaseRefusesInvalidIdentity$',
++    'N-create-time': r'^TestCreateLeaseRefusesInvalidIdentity$',
++    'T-create-time-pad': r'^TestCreateLeaseRefusesInvalidIdentity$',
++    'N-successor-reason': r'^TestCompareAndSwapRefusesInvalidSuccessor$',
++    'N-successor-checkpoint': r'^TestCompareAndSwapRefusesInvalidSuccessor$',
++    'N-create-once': r'^TestCreateLeaseRefusesSecondCreateWithDifferingBytes$',
++    'N-cas-token-reuse': r'^TestCompareAndSwapRefusesFencingTokenReuse$',
++    'N-cas-conflict': r'^TestCompareAndSwapRefusesUnknownExpectation$',
++    'N-cas-stale': r'^TestCompareAndSwapRefusesStaleExpectation$',
++    'N-cas-empty': r'^TestCompareAndSwapRequiresExistingLease$',
++    'N-fence-token-epoch': r'^TestVerifyFencingTokenRefusals$',
++    'N-fence-token-lease': r'^TestVerifyFencingTokenRefusals$',
++    'N-fence-token-holder': r'^TestVerifyFencingTokenRefusals$',
++    'N-fence-stale': r'^TestVerifyFencingTokenRefusals$',
++    'N-fence-future': r'^TestVerifyFencingTokenRefusals$',
++    'N-fence-loser': r'^TestVerifyFencingTokenRefusals$',
++    'N-fence-holder': r'^TestVerifyFencingTokenRefusals$',
++    'N-expiry-policy': r'^TestCheckFencingExpiry$',
++    'N-expiry-lapsed': r'^TestCheckFencingExpiry$',
++    'N-load-funnel': r'^TestStoredLeaseCorruptionRefuses$',
++    'N-get-funnel': r'^TestStoredLeaseCorruptionRefuses$|^TestGetLeaseRefusals$',
++    'N-install-length': r'^TestInstallDisagreeingBytesRefuses$',
++    'N-get-malformed': r'^TestGetLeaseRefusals$',
++    'N-get-unknown': r'^TestGetLeaseRefusals$',
++    'N-winning-empty': r'^TestWinningLeaseRefusesEmptyStore$',
++    'C-harmless-comment': r'^TestCompareLeaseTupleOrdersByGreatestTuple$',
++    'C-not-applied': r'^TestCompareLeaseTupleOrdersByGreatestTuple$',
++    'C-compile-failure': r'^TestCompareLeaseTupleOrdersByGreatestTuple$',
++}
++
++def test_command(name):
++    pattern = TEST_PATTERNS.get(name)
++    if pattern is None:
++        raise SystemExit(f'no behavioral test mapping for {name}')
++    return ['go', 'test', './internal/sessrepo', '-run', pattern, '-count=1', '-v']
++
++def run(name, old, new, narrow):
++    original = source.read_text()
++    if original.count(old) != 1:
++        results.append(dict(mutant=name, classification='NOT_APPLIED', count=original.count(old), bound=narrow))
++        print(name, 'NOT_APPLIED', original.count(old), flush=True)
++        return
++    source.write_text(original.replace(old, new))
++    command = test_command(name)
++    try:
++        with (output / (name + '.log')).open('w') as log:
++            process = subprocess.run(command, cwd=copy, stdout=log, stderr=subprocess.STDOUT, timeout=180)
++        text = (output / (name + '.log')).read_text()
++        failures = re.findall(r'^\s*--- FAIL: ([^ ]+)', text, re.M)
++        ran_tests = re.findall(r'^=== RUN ', text, re.M)
++        classification = 'COMPILE_OR_HARNESS_FAILURE' if not ran_tests else ('SURVIVED' if process.returncode == 0 else ('KILLED' if failures else 'COMPILE_OR_HARNESS_FAILURE'))
++        results.append(dict(mutant=name, classification=classification, exit=process.returncode, failed_tests=failures, bound=narrow, command=command))
++        print(name, classification, process.returncode, ', '.join(failures), flush=True)
++    finally:
++        source.write_text(original)
++        assert hashlib.sha256(source.read_bytes()).digest() == hashlib.sha256(original.encode()).digest()
++
++with (output / 'control-before.log').open('w') as log:
++    before = subprocess.run(['go','test','./internal/sessrepo','-count=1'],cwd=copy,stdout=log,stderr=subprocess.STDOUT,timeout=300)
++results.append(dict(mutant='control-before', classification='CONTROL', exit=before.returncode))
++if before.returncode:
++    raise SystemExit('baseline failed')
++run('N-create-token','if _, err := scalar.ParseUUIDv4(input.LeaseID); err != nil {','if _, err := scalar.ParseUUIDv4(input.LeaseID); err != nil && input.LeaseID != "not-a-uuid" {','Admit exactly the not-a-uuid fencing token; other malformed tokens still refuse.')
++run('N-create-holder','if _, err := scalar.ParseUUIDv7(input.HolderHostID); err != nil {','if _, err := scalar.ParseUUIDv7(input.HolderHostID); err != nil && input.HolderHostID != "not-a-uuid" {','Admit exactly the not-a-uuid holder; other malformed holders still refuse.')
++run('N-create-issuer','if _, err := scalar.ParseUUIDv7(input.IssuedByHostID); err != nil {','if _, err := scalar.ParseUUIDv7(input.IssuedByHostID); err != nil && input.IssuedByHostID != "0198f4c8-4a10-7b22-8b3c-1234567890aQ" {','Admit exactly the Q-suffixed issuer; other malformed issuers still refuse.')
++run('N-create-time','if _, err := scalar.ParseTimestamp(input.CreatedAt); err != nil {','if _, err := scalar.ParseTimestamp(input.CreatedAt); err != nil && input.CreatedAt != "not-a-timestamp" {','Admit exactly the not-a-timestamp value; padded and other malformed timestamps still refuse.')
++run('T-create-time-pad','if _, err := scalar.ParseTimestamp(input.CreatedAt); err != nil {','if _, err := scalar.ParseTimestamp(strings.TrimSpace(input.CreatedAt)); err != nil {','Parse the same timestamp token whitespace-tolerantly; padded timestamps admit while unparseable text still refuses.')
++run('N-successor-reason','case "create", "graceful_takeover", "force_takeover", "recovery":','case "create", "graceful_takeover", "force_takeover", "recovery", "bogus_reason":','Admit exactly the bogus_reason value past the enum; every other non-enum reason still refuses.')
++run('N-successor-checkpoint','if _, err := scalar.ParseDigest(input.CheckpointID); err != nil {','if _, err := scalar.ParseDigest(input.CheckpointID); err != nil && input.CheckpointID != "not-a-digest" {','Admit exactly the not-a-digest checkpoint; absent and other malformed checkpoints still refuse.')
++run('N-create-once','\tif identical, ref := findIdenticalLease(stored, digest); identical {\n\t\treturn ref, nil\n\t}\n\tif len(stored) > 0 {','\tif identical, ref := findIdenticalLease(stored, digest); identical {\n\t\treturn ref, nil\n\t}\n\tif len(stored) > 1 {','Admit exactly a second create at depth one; a third create past a succession still refuses.')
++run('N-cas-token-reuse','if known.LeaseID == input.LeaseID {','if known.LeaseID == input.LeaseID && known.LeaseID != "' + LEASEA + '" {','Admit exactly the epoch-1 token reuse; every other bound token still refuses.')
++run('N-cas-conflict','\tbasis, known := findExpectedLease(stored, expected.RecordID)\n\tif !known {','\tbasis, known := findExpectedLease(stored, expected.RecordID)\n\tif !known && expected.RecordID != "' + FOREIGN + '" {','Admit exactly the foreign-digest expectation; malformed and empty expectations still conflict.')
++run('N-cas-stale','if basis.RecordID != head.RecordID {','if basis.RecordID != head.RecordID && basis.Epoch != 1 {','Admit exactly epoch-1 stale bases; epoch-2 stale bases still refuse.')
++run('N-cas-empty','\tif err != nil {\n\t\treturn LeaseRef{}, err\n\t}\n\tif len(stored) == 0 {','\tif err != nil {\n\t\treturn LeaseRef{}, err\n\t}\n\tif len(stored) == 0 && expected.RecordID != "" {','Admit exactly the empty-expectation CAS on an empty store; a named expectation on an empty store still refuses.')
++run('N-fence-token-epoch','if token.Epoch == 0 {','if token.Epoch == 0 && (token.LeaseID != "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff" || token.HolderHostID != "0198f4c8-7d40-7e55-8e6f-1234567890ab") {','Admit exactly the suite epoch-zero vector; the refusal degrades to the stale class.')
++run('N-fence-token-lease','if _, err := scalar.ParseUUIDv4(token.LeaseID); err != nil {','if _, err := scalar.ParseUUIDv4(token.LeaseID); err != nil && token.LeaseID != "zzz" {','Admit exactly the zzz token lease; the refusal degrades to the conflict class.')
++run('N-fence-token-holder','if _, err := scalar.ParseUUIDv7(token.HolderHostID); err != nil {','if _, err := scalar.ParseUUIDv7(token.HolderHostID); err != nil && token.HolderHostID != "zzz" {','Admit exactly the zzz token holder; the refusal degrades to the mismatch class.')
++run('N-fence-stale','if token.Epoch < winner.Epoch {','if token.Epoch < winner.Epoch && !(token.Epoch == 1 && token.LeaseID == "' + LEASEA + '") {','Admit exactly the epoch-1 token; the refusal degrades to the conflict class.')
++run('N-fence-future','if token.Epoch > winner.Epoch {','if token.Epoch > winner.Epoch && token.Epoch != 9 {','Admit exactly the epoch-9 token; the empty-store epoch-1 token still refuses unknown.')
++run('N-fence-loser','if token.LeaseID != winner.LeaseID {','if token.LeaseID != winner.LeaseID && token.LeaseID != "' + LEASEC + '" {','Admit exactly the leaseC loser past the tie break; the token verifies and the negative fails by success.')
++run('N-fence-holder','if token.HolderHostID != winner.HolderHostID {','if token.HolderHostID != winner.HolderHostID && token.HolderHostID != "' + HOSTA + '" {','Admit exactly the hostA non-holder; the token verifies and the negative fails by success.')
++run('N-expiry-policy','if policy.RefreshInterval <= 0 {','if policy.RefreshInterval < 0 {','Admit exactly the zero interval; a negative interval still refuses.')
++run('N-expiry-lapsed','if now.Sub(grant.ValidatedAt) > policy.RefreshInterval {','if now.Sub(grant.ValidatedAt) > policy.RefreshInterval && grant.SessionID != "0198f4c8-3e70-7a11-8a2b-1234567890ab" {','Admit exactly the suite lapsed grant; the grant verifies and the negative fails by success.')
++run('N-load-funnel','\tstored, err := scanLeaseBlobs(directory, sessionID)\n\tif err != nil {','\tstored, err := scanLeaseBlobs(directory, sessionID)\n\tif err != nil && !strings.Contains(err.Error(), "garbage.json") {','Admit exactly the garbage-name torn vector; truncated, cross-session, misnamed, and undecodable vectors still refuse.')
++run('N-get-funnel','if err := verifyLeaseBlob(view.record.sessionID, recordID, blob); err != nil {','if err := verifyLeaseBlob(view.record.sessionID, recordID, blob); err != nil && recordID != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {','Admit exactly the undecodable-bytes vector; the misnamed vector still refuses.')
++run('N-install-length','func leaseBytesEqual(left, right []byte) bool {\n\treturn bytes.Equal(left, right)\n}','func leaseBytesEqual(left, right []byte) bool {\n\treturn len(left) == len(right) && bytes.Equal(left, left)\n}','Compare length only at the ledgered equality site; the same-length garbage arm reuses while the different-length arm still refuses.')
++run('N-get-malformed','if _, err := scalar.ParseDigest(recordID); err != nil {','if _, err := scalar.ParseDigest(recordID); err != nil && recordID != "not-a-digest" {','Admit exactly the not-a-digest record id; the refusal degrades to the unknown class.')
++run('N-get-unknown','\tblob, err := os.ReadFile(filepath.Join(view.directory, "leases", blobFileName(recordID)))\n\tif err != nil {','\tblob, err := os.ReadFile(filepath.Join(view.directory, "leases", blobFileName(recordID)))\n\tif err != nil && recordID != "' + FOREIGN + '" {','Admit exactly the foreign-digest read; the refusal degrades to the corruption class.')
++run('N-winning-empty','\tif err != nil {\n\t\treturn LeaseSummary{}, err\n\t}\n\tif len(stored) == 0 {','\tif err != nil {\n\t\treturn LeaseSummary{}, err\n\t}\n\tif len(stored) == 0 && sessionID != "0198f4c8-3e70-7a11-8a2b-1234567890ab" {','Admit exactly the suite empty store with a zero summary; the negative fails by success.')
++run('C-harmless-comment','// CompareLeaseTuple orders two stored lease summaries by the Section 5.3','// CompareLeaseTuple orders two stored lease summaries by the Section 5.3\n// classifier control: comment only, no behavior change.','Applied control: a behavior-preserving plant survives through the same instrument.')
++run('C-not-applied','TOKEN_THAT_IS_NOT_PRESENT','replacement','Application control: missing patch is not a killed mutant.')
++run('C-compile-failure','package sessrepo','package sessrepo\nthis is invalid Go','Compilation control: no named failed behavioral test is not a kill.')
++with (output / 'control-after.log').open('w') as log:
++    after = subprocess.run(['go','test','./internal/sessrepo','-count=1'],cwd=copy,stdout=log,stderr=subprocess.STDOUT,timeout=300)
++results.append(dict(mutant='control-after',classification='CONTROL', exit=after.returncode))
++assert source.read_text() == base
++(output / 'mutants.json').write_text(json.dumps(results,indent=2)+'\n')
++# Controls are reported separately from the applied behavioral denominator.
++bad = [row for row in results if (row['mutant'].startswith('N-') or row['mutant'].startswith('T-')) and row['classification'] != 'KILLED']
++raise SystemExit(1 if bad or after.returncode else 0)
