@@ -15,12 +15,13 @@ const (
 	ReleaseV043 Release = "v0.4.3"
 	ReleaseV050 Release = "v0.5.0"
 	ReleaseV060 Release = "v0.6.0"
+	ReleaseV070 Release = "v0.7.0"
 )
 
 // Adopted is the single code-level declaration of the adopted catalog
 // release. Current is defined through it so the two cannot diverge;
 // release-agnostic tooling derives its inputs from this constant.
-const Adopted Release = ReleaseV060
+const Adopted Release = ReleaseV070
 
 var ErrUnsupportedRelease = errors.New("unsupported catalog release")
 
@@ -186,11 +187,11 @@ type scopedError struct {
 	Releases   []Release
 }
 
-//go:generate go run ./cmd/cataloggen -metadata catalog.v0.6.0.json -contracts ../specpin/v0.6.0.lock.json -output catalog_gen.go
+//go:generate go run ./cmd/cataloggen -metadata catalog.v0.7.0.json -contracts ../specpin/v0.7.0.lock.json -output catalog_gen.go
 
-// Current returns an isolated catalog for the adopted source. The
-// exact historical v0.5.0 and v0.4.3 projections remain available through
-// ForRelease; they are derived from the adopted lock, never retyped.
+// Current returns an isolated catalog for the adopted v0.7.0 source. The
+// exact historical v0.6.0, v0.5.0 and v0.4.3 projections remain available
+// through ForRelease; they are derived from the adopted lock, never retyped.
 func Current() Catalog {
 	catalog, err := ForRelease(Adopted)
 	if err != nil {

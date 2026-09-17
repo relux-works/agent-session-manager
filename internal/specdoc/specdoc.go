@@ -38,6 +38,9 @@ var embedded []byte
 //go:embed SPEC.v0.6.0.md
 var embeddedV060 []byte
 
+//go:embed SPEC.v0.7.0.md
+var embeddedV070 []byte
+
 // ErrDocumentMismatch reports an absent, empty, or non-pinned document. A
 // failed or partial read is reported as a mismatch, never as an absence that
 // some caller could treat as satisfied.
@@ -97,12 +100,21 @@ func Load() (*Document, error) {
 	return Parse(embedded)
 }
 
-// LoadV060 returns the embedded adopted v0.6.0 document after verifying its
-// digest against specpin.DocumentSHA256V060. Load still serves the v0.5.0
-// document for historical readers; the traceability gate compares against the
-// adopted document through LoadV060.
+// LoadV060 returns the embedded superseded v0.6.0 document after verifying
+// its digest against specpin.DocumentSHA256V060. Load still serves the
+// v0.5.0 document for historical readers; the traceability gate compared
+// against the adopted document through LoadV060 until the v0.7.0 adoption
+// moved it to LoadV070.
 func LoadV060() (*Document, error) {
 	return ParseV060(embeddedV060)
+}
+
+// LoadV070 returns the embedded adopted v0.7.0 document after verifying its
+// digest against specpin.DocumentSHA256V070. Load and LoadV060 keep serving
+// the historical documents for their existing readers; the traceability
+// gate compares against the adopted document through LoadV070.
+func LoadV070() (*Document, error) {
+	return ParseV070(embeddedV070)
 }
 
 // Bytes returns an isolated copy of the exact embedded document bytes.
@@ -113,6 +125,11 @@ func Bytes() []byte {
 // BytesV060 returns an isolated copy of the exact embedded v0.6.0 bytes.
 func BytesV060() []byte {
 	return bytes.Clone(embeddedV060)
+}
+
+// BytesV070 returns an isolated copy of the exact embedded v0.7.0 bytes.
+func BytesV070() []byte {
+	return bytes.Clone(embeddedV070)
 }
 
 // Parse accepts only a byte-exact copy of the pinned SPEC.md identified by
@@ -140,6 +157,22 @@ func ParseV060(candidate []byte) (*Document, error) {
 	digest := sha256.Sum256(candidate)
 	if got := hex.EncodeToString(digest[:]); got != specpin.DocumentSHA256V060 {
 		return nil, fmt.Errorf("%w: SHA-256 is %s, want %s", ErrDocumentMismatch, got, specpin.DocumentSHA256V060)
+	}
+
+	return buildDocument(candidate), nil
+}
+
+// ParseV070 accepts only a byte-exact copy of the adopted v0.7.0 SPEC.md
+// identified by specpin.DocumentSHA256V070. The v0.6.0 and v0.5.0 documents,
+// a partial read, and any edited copy are refused, so a gate that has not
+// been deliberately re-pointed cannot silently compare against the new text.
+func ParseV070(candidate []byte) (*Document, error) {
+	if len(candidate) == 0 {
+		return nil, fmt.Errorf("%w: document is empty", ErrDocumentMismatch)
+	}
+	digest := sha256.Sum256(candidate)
+	if got := hex.EncodeToString(digest[:]); got != specpin.DocumentSHA256V070 {
+		return nil, fmt.Errorf("%w: SHA-256 is %s, want %s", ErrDocumentMismatch, got, specpin.DocumentSHA256V070)
 	}
 
 	return buildDocument(candidate), nil

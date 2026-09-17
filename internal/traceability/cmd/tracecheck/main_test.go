@@ -22,8 +22,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := "traceability ok: contracts=63 normative_sections=36 acceptance_cases=132 fixtures=32 compatibility_contracts=55 assigned_scopes=0\n" +
-		"section coverage: bindings=65 full=2 partial=6 sliver=4 unevidenced=49 unmeasured=4 unowned=7 clauses_discharged=49/535\n"
+	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=135 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
+		"section coverage: bindings=68 full=2 partial=6 sliver=4 unevidenced=52 unmeasured=4 unowned=7 clauses_discharged=49/569\n"
 	if output.String() != want {
 		t.Fatalf("run() output = %q, want %q", output.String(), want)
 	}
@@ -55,8 +55,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run(assigned sections) error = %v", err)
 	}
-	want = "traceability ok: contracts=63 normative_sections=36 acceptance_cases=132 fixtures=32 compatibility_contracts=55 assigned_scopes=1\n" +
-		"section coverage: bindings=65 full=2 partial=6 sliver=4 unevidenced=49 unmeasured=4 unowned=7 clauses_discharged=49/535\n"
+	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=135 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
+		"section coverage: bindings=68 full=2 partial=6 sliver=4 unevidenced=52 unmeasured=4 unowned=7 clauses_discharged=49/569\n"
 	if output.String() != want {
 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
 	}
@@ -126,7 +126,7 @@ func TestRunRefusesEveryAssignedSectionThatOnlySlivers(t *testing.T) {
 		{"2.3", "discharges 0/7 normative clauses, which is unevidenced coverage"},
 		{"3.2", "discharges 0/13 normative clauses, which is unevidenced coverage"},
 		{"3.3", "discharges 0/4 normative clauses, which is unevidenced coverage"},
-		{"5.1", "discharges 0/9 normative clauses, which is unevidenced coverage"},
+		{"5.1", "discharges 0/11 normative clauses, which is unevidenced coverage"},
 		{"6.1", "discharges 0/2 normative clauses, which is unevidenced coverage"},
 		{"6.3", "discharges 0/11 normative clauses, which is unevidenced coverage"},
 		{"6.4", "discharges 0/2 normative clauses, which is unevidenced coverage"},
@@ -253,7 +253,7 @@ func TestMainRejectsOneNarrowedAssignedSectionBinding(t *testing.T) {
 		t.Fatalf("copy repository fixture: %v", err)
 	}
 
-	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.6.0.json")
+	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.7.0.json")
 	removeOwnershipKey(t, registryPath, "section:9.2")
 
 	output, err := runTracecheck(t, fixtureRoot, "-section", "6.2")
@@ -283,7 +283,7 @@ func TestMainRejectsDetachedScopeSpecificAcceptanceCase(t *testing.T) {
 	}
 
 	fixtureRoot := isolatedTracecheckFixture(t)
-	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.6.0.json")
+	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.7.0.json")
 	removeOwnershipAcceptanceCases(t, registryPath, "section:9.2")
 
 	output, err := runTracecheck(t, fixtureRoot, "-section", "6.2")
@@ -313,7 +313,7 @@ func TestMainRejectsMissingScopeSpecificProductionDeclaration(t *testing.T) {
 	}
 
 	fixtureRoot := isolatedTracecheckFixture(t)
-	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.6.0.json")
+	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.7.0.json")
 	replaceOwnershipProductionDeclaration(t, registryPath, "section:9.2", "MissingSectionNineTwoImplementation")
 
 	output, err := runTracecheck(t, fixtureRoot, "-section", "6.2")
@@ -334,19 +334,19 @@ func TestMainRejectsMissingScopeSpecificProductionDeclaration(t *testing.T) {
 	}
 }
 
-// TestMainRejectsSyntacticallyValidNonexistentV060Section drives the production
+// TestMainRejectsSyntacticallyValidNonexistentV070Section drives the production
 // main -> run -> traceability.VerifyAssignedSections call chain. A plausible
 // subsection must not inherit the top-level owner unless that exact identifier
-// exists in the immutable v0.6.0 inventory. A real but still unowned section
+// exists in the immutable v0.7.0 inventory. A real but still unowned section
 // remains a separate refusal shape.
-func TestMainRejectsSyntacticallyValidNonexistentV060Section(t *testing.T) {
+func TestMainRejectsSyntacticallyValidNonexistentV070Section(t *testing.T) {
 	if testing.Short() {
 		t.Skip("launches the production tracecheck entry point")
 	}
 
 	repositoryRoot := filepath.Join("..", "..", "..", "..")
 	output, err := runTracecheck(t, repositoryRoot, "-section", "10.999")
-	want := `assigned section "10.999" is not a real v0.6.0 section identifier`
+	want := `assigned section "10.999" is not a real v0.7.0 section identifier`
 	if err == nil || !strings.Contains(output, want) || strings.Contains(output, "traceability ok:") {
 		t.Fatalf("tracecheck -section 10.999 error = %v output = %q, want refusal %q and no success output", err, output, want)
 	}
@@ -370,7 +370,7 @@ func TestRunRejectsRegisteredContractWithoutImplementationOwner(t *testing.T) {
 		t.Fatalf("copy repository fixture: %v", err)
 	}
 
-	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.6.0.json")
+	registryPath := filepath.Join(fixtureRoot, "internal", "traceability", "ownership.v0.7.0.json")
 	registry, err := os.ReadFile(registryPath)
 	if err != nil {
 		t.Fatalf("read ownership registry fixture: %v", err)

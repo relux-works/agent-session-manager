@@ -79,16 +79,24 @@ planning authority.
 [`internal/specpin`](internal/specpin) embeds one implementation lock for
 `agent-session-manager-spec@v0.5.0`, plus the adopted
 `agent-session-manager-spec@v0.6.0` lock (signed tag `v0.6.0`, verified
-before adoption). Its production `Current` and `Verify`
+before adoption) and the adopted `agent-session-manager-spec@v0.7.0` lock
+(signed tag `v0.7.0`, verified before adoption). Its production `Current` and `Verify`
 entry points fail closed on a partial read, unknown member, source substitution,
 contract or fixture drift, and any byte-level lock change. It also projects the
 exact historical v0.4.3 registry without widening that immutable baseline.
 The v0.6.0 entry points (`CurrentV060`, `VerifyV060`) enforce the same
 closed policy over the 63-row prepared registry, and the v0.6.0 projections
 of the v0.5.0 and v0.4.3 registries are proved row-equal to the real
-historical locks, so adoption rewrites no history. `Current` and `CurrentV050` retain the historical v0.5.0 baseline.
+historical locks, so adoption rewrites no history. The v0.7.0 entry points
+(`CurrentV070`, `VerifyV070`) enforce the same closed policy over the 64-row
+launch-plan registry, and the v0.7.0 projections of the v0.6.0, v0.5.0 and
+v0.4.3 registries are proved row-equal to the real historical locks.
+`Current` and `CurrentV050` retain the historical v0.5.0 baseline.
 The catalogue generator, CI contract roots and traceability gate explicitly
-consume v0.6.0; localstore explicitly uses `CurrentV050`.
+consume v0.7.0; localstore explicitly uses `CurrentV050`. Adopting the v0.7.0 source claims
+no launch-plan, `SpawnPlan` stdin, `caller_launch_plan` /
+`stdin_resume_replay`, `environment_drift`, or curator-run naming runtime
+support; those remain pending owners outside this adoption.
 
 This package is read-only and does not mutate durable state. Repeated reads are
 idempotent and isolated from caller mutation. It deliberately adds no `ax`
@@ -105,8 +113,11 @@ artifacts are supposed to constrain. The upstream specification remains
 normative; this copy is a verification input and amends nothing. It
 additionally embeds the byte-exact adopted v0.6.0 `SPEC.md` behind the
 `LoadV060`/`ParseV060` entry points, which accept only
-`specpin.DocumentSHA256V060` and refuse the historical document; `Load`
-retains v0.5.0 for historical consumers; traceability uses `LoadV060`.
+`specpin.DocumentSHA256V060` and refuse the historical document, and the
+byte-exact adopted v0.7.0 `SPEC.md` behind `LoadV070`/`ParseV070`, which
+accept only `specpin.DocumentSHA256V070` and refuse both historical
+documents; `Load` retains v0.5.0 for historical consumers; traceability uses
+`LoadV070`, with `LoadV060` retained for the historical projection.
 
 `Load` accepts the document only when its SHA-256 equals
 `specpin.DocumentSHA256`, so a substituted, edited, truncated, or unreadable
@@ -3000,9 +3011,9 @@ go test ./internal/cliresult -cover -count=1
 ## Generated Contract Catalogs
 
 [`internal/catalog`](internal/catalog) exposes typed records through
-`catalog.Current()` for v0.5.0 and `catalog.ForRelease()` for the exact pinned
-v0.4.3 compatibility projection. The reviewed input is
-[`catalog.v0.5.0.json`](internal/catalog/catalog.v0.5.0.json); generation first
+`catalog.Current()` for v0.7.0 and `catalog.ForRelease()` for the exact pinned
+v0.6.0, v0.5.0 and v0.4.3 compatibility projections. The reviewed input is
+[`catalog.v0.7.0.json`](internal/catalog/catalog.v0.7.0.json); generation first
 verifies the exact [`specpin`](internal/specpin) lock, strictly rejects partial,
 unknown, substituted, duplicate, release-incompatible, or unreviewed semantic
 metadata through a canonical projection digest, then writes
@@ -3012,6 +3023,8 @@ semantic identity.
 
 | Release projection | Contracts | Operations | Capability names | Events | Error codes |
 | --- | ---: | ---: | ---: | ---: | ---: |
+| v0.7.0 | 64 | 99 | 46 | 112 | 109 |
+| v0.6.0 | 63 | 99 | 46 | 112 | 109 |
 | v0.5.0 | 60 | 99 | 46 | 112 | 109 |
 | v0.4.3 | 55 | 89 | 30 | 112 | 94 |
 
@@ -3038,21 +3051,21 @@ adopted release, so the check stays valid when the adopted release changes.
 The explicit equivalent pins the same inputs by path:
 
 ```bash
-go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6.0.json -contracts internal/specpin/v0.6.0.lock.json -output internal/catalog/catalog_gen.go -check
+go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7.0.json -contracts internal/specpin/v0.7.0.lock.json -output internal/catalog/catalog_gen.go -check
 ```
 
 ## Specification-to-Code Ownership Gate
 
 [`internal/traceability`](internal/traceability) provides the read-only
 repository gate used by CI. Its reviewed
-[`ownership.v0.6.0.json`](internal/traceability/ownership.v0.6.0.json)
-registry independently enumerates implementation owners for all 63 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 132
-executable acceptance cases, 65 exact section bindings with their declared
-coverage, 7 disclosed unowned sections, and 32 exact fixture identities or
+[`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
+registry independently enumerates implementation owners for all 64 current
+contract rows, 36 pinned or catalog-referenced normative section keys, 135
+executable acceptance cases, 68 exact section bindings with their declared
+coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
-and the superseded v0.5.0 registry is checked as an owned legacy projection.
-The generated v0.6.0 catalog also carries the reviewed schema/version/self-field
+and the superseded v0.6.0 and v0.5.0 registries are checked as owned legacy projections.
+The generated v0.7.0 catalog also carries the reviewed schema/version/self-field
 contracts used by canonical object identity calculation; generator validation
 binds each row to a pinned contract and rejects duplicate, unsupported,
 malformed, or digest-drifted metadata.
@@ -3071,7 +3084,7 @@ go run ./internal/traceability/cmd/tracecheck -section 6.2
 
 The repeated `-section` form is the Story-scope production gate. It resolves
 each assigned subsection, and every heading in a same-top-level range, against
-the immutable v0.5.0 inventory. Every exact `section_binding` must name its own
+the immutable v0.7.0 inventory. Every exact `section_binding` must name its own
 production declaration and executable acceptance case, and must additionally
 discharge the whole section it claims. A generic top-level source pin is not a
 scoped implementation owner. Malformed, nonexistent, unpinned, or otherwise
@@ -3149,10 +3162,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=65 full=2 partial=6 sliver=4 unevidenced=49 unmeasured=4 unowned=7 clauses_discharged=49/535
+section coverage: bindings=68 full=2 partial=6 sliver=4 unevidenced=52 unmeasured=4 unowned=7 clauses_discharged=49/569
 ```
 
-Sixty-five section bindings discharge 49 of the 535 normative clauses their
+Sixty-eight section bindings discharge 49 of the 569 normative clauses their
 sections carry. Two bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
@@ -3214,19 +3227,26 @@ single-owner, replica-restraint, winning-epoch-carriage, and
 losing-event-rejection invariants while the replication, secret, store,
 and directory invariants have no implementation), four are `unmeasured` (Sections 7.3, 13.12, 13.14.5 and 15.2, each of
 which carries a gap saying why the scanner measures zero and what is missing),
-and forty-nine are `unevidenced`. Seven sections are recorded unowned.
+and fifty-two are `unevidenced`. Seven sections are recorded unowned.
 All 13 sections added by v0.6.0 name pending task owners in the reviewed
 registry gaps; these assignments grant no runtime admission. The
 [adoption ownership map](internal/traceability/adoption-v0.6.0.md) separates
 shared runtime APIs, their callers, product conformance and upstream source
 publication validators, and preserves historical acceptance obligations.
+The v0.7.0 revision adds no numbered section; its launch-plan, stdin,
+caller_launch_plan, environment_drift and curator-run clause areas name
+pending story owners in the reviewed registry gaps, and these assignments
+grant no runtime admission either. The
+[adoption ownership map](internal/traceability/adoption-v0.7.0.md) attributes
+each clause area to its implementing story and records the shared-section
+splits.
 Assigned-scope admission therefore succeeds today for `-section 6.2` and
 `-section 2.4` and nothing else; every other assignment is refused with its
 ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-Two admitted bindings out of sixty-five cover five clauses, and that is
+Two admitted bindings out of sixty-eight cover five clauses, and that is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and

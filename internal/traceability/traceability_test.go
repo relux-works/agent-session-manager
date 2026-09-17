@@ -27,19 +27,19 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 		t.Fatalf("VerifyRepository() error = %v", err)
 	}
 	want := Report{
-		Contracts:              63,
+		Contracts:              64,
 		NormativeSections:      36,
-		AcceptanceCases:        132,
-		Fixtures:               32,
+		AcceptanceCases:        135,
+		Fixtures:               33,
 		CompatibilityContracts: 55,
-		SectionBindings:        65,
+		SectionBindings:        68,
 		FullCoverage:           2,
 		PartialCoverage:        6,
 		SliverCoverage:         4,
-		UnevidencedCoverage:    49,
+		UnevidencedCoverage:    52,
 		UnmeasuredCoverage:     4,
 		UnownedSections:        7,
-		NormativeClauses:       535,
+		NormativeClauses:       569,
 		DischargedClauses:      49,
 	}
 	if !reflect.DeepEqual(report, want) {
@@ -121,7 +121,7 @@ func TestVerifyAssignedSectionsRejectsMalformedUnpinnedAndEmptyScope(t *testing.
 	}{
 		{name: "empty", sections: nil, contains: "assigned section scope is empty"},
 		{name: "malformed", sections: []string{"10.x!"}, contains: "invalid assigned section"},
-		{name: "nonexistent", sections: []string{"10.999"}, contains: "not a real v0.6.0 section identifier"},
+		{name: "nonexistent", sections: []string{"10.999"}, contains: "not a real v0.7.0 section identifier"},
 	} {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
@@ -226,7 +226,7 @@ func TestVerifyRepositoryRejectsNarrowedOwnership(t *testing.T) {
 
 // TestVerifyRepositoryRefusesStaleV050Lock drives the production
 // VerifyRepository entry point with the superseded v0.5.0 lock bytes at the
-// lock path. The adopted authority is v0.6.0, so a stale lock is a refusal,
+// lock path. The adopted authority is v0.7.0, so a stale lock is a refusal,
 // never a quiet fallback to the previous baseline.
 func TestVerifyRepositoryRefusesStaleV050Lock(t *testing.T) {
 	t.Parallel()
@@ -243,6 +243,55 @@ func TestVerifyRepositoryRefusesStaleV050Lock(t *testing.T) {
 	_, err = VerifyRepository(repository)
 	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), "verify normative source lock") {
 		t.Fatalf("VerifyRepository(stale v0.5.0 lock) error = %v, want ErrTraceability verifying the normative source lock", err)
+	}
+}
+
+// TestVerifyRepositoryRefusesStaleV060Lock is the v0.6.0 arm of the stale
+// lock refusal: the previously adopted lock is refused at the lock path
+// after the v0.7.0 move.
+func TestVerifyRepositoryRefusesStaleV060Lock(t *testing.T) {
+	t.Parallel()
+
+	repository := repositorySnapshot(t)
+	if _, err := VerifyRepository(repository); err != nil {
+		t.Fatalf("baseline VerifyRepository() error = %v, want green mask before planting", err)
+	}
+	stale, err := os.ReadFile(filepath.Join("..", "specpin", "v0.6.0.lock.json"))
+	if err != nil {
+		t.Fatalf("read stale lock: %v", err)
+	}
+	repository[contractLockPath] = &fstest.MapFile{Data: bytes.Clone(stale)}
+	_, err = VerifyRepository(repository)
+	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), "verify normative source lock") {
+		t.Fatalf("VerifyRepository(stale v0.6.0 lock) error = %v, want ErrTraceability verifying the normative source lock", err)
+	}
+}
+
+// TestVerifyRepositoryRefusesStaleOwnershipRegistry drives the production
+// VerifyRepository entry point with a superseded ownership registry at the
+// registry path. Either historical registry decodes but binds the wrong
+// source, so it is refused as source drift before any ownership is read.
+func TestVerifyRepositoryRefusesStaleOwnershipRegistry(t *testing.T) {
+	t.Parallel()
+
+	for _, release := range []string{"v0.6.0", "v0.5.0"} {
+		release := release
+		t.Run(release, func(t *testing.T) {
+			t.Parallel()
+			repository := repositorySnapshot(t)
+			if _, err := VerifyRepository(repository); err != nil {
+				t.Fatalf("baseline VerifyRepository() error = %v, want green mask before planting", err)
+			}
+			stale, err := os.ReadFile(filepath.Join("ownership." + release + ".json"))
+			if err != nil {
+				t.Fatalf("read stale registry: %v", err)
+			}
+			repository[ownershipRegistryPath] = &fstest.MapFile{Data: bytes.Clone(stale)}
+			_, err = VerifyRepository(repository)
+			if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), "ownership registry source differs") {
+				t.Fatalf("VerifyRepository(stale %s registry) error = %v, want ErrTraceability refusing the registry source", release, err)
+			}
+		})
 	}
 }
 
@@ -279,12 +328,67 @@ func TestVerifyRepositoryRefusesMissingSelectorContract(t *testing.T) {
 	}
 }
 
+// TestVerifyRepositoryRefusesMissingLaunchPlanContract pins both arms for
+// the adopted v0.7.0 row: a registry that drops the Launch Plan request
+// contract owner is refused naming the exact missing key, and a forged
+// Launch Plan row under a neighbouring identifier is refused as
+// self-minted, so the new contract can neither silently lose its owner
+// nor gain an unregistered sibling.
+func TestVerifyRepositoryRefusesMissingLaunchPlanContract(t *testing.T) {
+	t.Parallel()
+
+	const key = "Launch Plan request [urn:ax:schema:launch-plan-request]"
+	t.Run("omission", func(t *testing.T) {
+		t.Parallel()
+		repository := repositorySnapshot(t)
+		if _, err := VerifyRepository(repository); err != nil {
+			t.Fatalf("baseline VerifyRepository() error = %v, want green mask before planting", err)
+		}
+		rewriteRegistry(t, repository, func(registry *ownershipRegistry) {
+			for index := range registry.Ownership {
+				if registry.Ownership[index].Kind != ownershipContract {
+					continue
+				}
+				kept := registry.Ownership[index].Keys[:0]
+				for _, candidate := range registry.Ownership[index].Keys {
+					if candidate == key {
+						continue
+					}
+					kept = append(kept, candidate)
+				}
+				registry.Ownership[index].Keys = kept
+			}
+		})
+		_, err := VerifyRepository(repository)
+		want := `registered contract "` + key + `" has no implementation owner`
+		if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("VerifyRepository() error = %v, want ErrTraceability containing %q", err, want)
+		}
+	})
+
+	t.Run("forgery", func(t *testing.T) {
+		t.Parallel()
+		repository := repositorySnapshot(t)
+		if _, err := VerifyRepository(repository); err != nil {
+			t.Fatalf("baseline VerifyRepository() error = %v, want green mask before planting", err)
+		}
+		rewriteRegistry(t, repository, func(registry *ownershipRegistry) {
+			group := ownershipGroupByKind(t, registry, ownershipContract)
+			group.Keys = append(group.Keys, "Launch Plan request [urn:ax:schema:launch-plan-forged]")
+		})
+		_, err := VerifyRepository(repository)
+		if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), "self-minted") {
+			t.Fatalf("VerifyRepository() error = %v, want ErrTraceability refusing the self-minted key", err)
+		}
+	})
+}
+
 func TestCatalogSectionBindingCoverageIsExactAndDoesNotClaimUnimplementedScope(t *testing.T) {
 	t.Parallel()
 
-	current, err := catalog.ForRelease(catalog.ReleaseV060)
+	current, err := catalog.ForRelease(catalog.ReleaseV070)
 	if err != nil {
-		t.Fatalf("ForRelease(v0.6.0) error = %v", err)
+		t.Fatalf("ForRelease(v0.7.0) error = %v", err)
 	}
 	bindings, err := expectedCatalogSectionBindings(current)
 	if err != nil {
@@ -665,7 +769,7 @@ func TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers(t *testing.T) 
 		{"2.3", `binding "section:2.3" discharges 0/7 normative clauses, which is unevidenced coverage`},
 		{"3.2", `binding "section:3.2" discharges 0/13 normative clauses, which is unevidenced coverage`},
 		{"3.3", `binding "section:3.3" discharges 0/4 normative clauses, which is unevidenced coverage`},
-		{"5.1", `binding "section:5.1" discharges 0/9 normative clauses, which is unevidenced coverage`},
+		{"5.1", `binding "section:5.1" discharges 0/11 normative clauses, which is unevidenced coverage`},
 		{"6.1", `binding "section:6.1" discharges 0/2 normative clauses, which is unevidenced coverage`},
 		{"6.3", `binding "section:6.3" discharges 0/11 normative clauses, which is unevidenced coverage`},
 		{"6.4", `binding "section:6.4" discharges 0/2 normative clauses, which is unevidenced coverage`},
@@ -687,7 +791,7 @@ func TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers(t *testing.T) 
 		{"17.3", `binding "section:17.3" discharges 0/3 normative clauses, which is unevidenced coverage`},
 		{"18.1", `binding "section:18.1" discharges 0/5 normative clauses, which is unevidenced coverage`},
 		{"18.4", `binding "section:18.4" is recorded unowned:`},
-		{"Appendix D", `binding "section:appendix-d" discharges 0/16 normative clauses, which is unevidenced coverage`},
+		{"Appendix D", `binding "section:appendix-d" discharges 0/18 normative clauses, which is unevidenced coverage`},
 	} {
 		test := test
 		t.Run(test.section, func(t *testing.T) {
@@ -1298,8 +1402,15 @@ func TestMentionsSectionRequiresAWholeIdentifier(t *testing.T) {
 	}
 }
 
-// A task owner is a future implementation obligation, never coverage. Derive
-// the complete new-section denominator from the two pinned source inventories.
+// A story owner is a future implementation obligation, never coverage. The
+// v0.7.0 inventory is identifier-equal to the v0.6.0 one, so the adopted
+// denominator is the explicit clause-area table below, not an inventory
+// difference. Each adopted section names the exact implementing board Story
+// in its gap, stays unevidenced, and is refused runtime admission. The
+// story IDs below were verified against the live board at authoring time
+// (all seven exist under EPIC-260916-18uelk with the names the adoption
+// map states); a gap that names any other owner fails this test, so a
+// non-Story owner cannot be substituted without reddening it.
 func TestAdoptedSectionsHavePendingOwnersAndRefuseRuntimeAdmission(t *testing.T) {
 	repository := repositorySnapshot(t)
 	if _, err := VerifyRepository(repository); err != nil {
@@ -1309,38 +1420,146 @@ func TestAdoptedSectionsHavePendingOwnersAndRefuseRuntimeAdmission(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	gaps := map[string]string{}
+	bindings := map[string]ownershipGroup{}
 	for _, group := range registry.Ownership {
 		if group.Kind == ownershipSectionBinding {
 			for _, key := range group.Keys {
-				gaps[strings.TrimPrefix(key, "section:")] = group.Gap
+				bindings[strings.TrimPrefix(key, "section:")] = group
 			}
 		}
 	}
-	for _, entry := range registry.UnownedSections {
-		gaps[strings.TrimPrefix(entry.Key, "section:")] = entry.Gap
+	adopted := []struct {
+		section string
+		owner   string
+	}{
+		{"14.1", "STORY-260916-3fjjtn"},
+		{"13.1", "STORY-260916-3fjjtn"},
+		{"5.1", "STORY-260916-2q85nu"},
+		{"7.5", "STORY-260916-1kp1lx"},
+		{"7.4", "STORY-260916-1ea7od"},
+		{"13.10", "STORY-260916-3aukw3"},
 	}
-	previous := map[string]bool{}
-	for _, section := range specpin.SectionInventoryV050() {
-		previous[section] = true
+	if len(adopted) != 6 {
+		t.Fatalf("adopted owner/refusal cases = %d, want 6 of 6", len(adopted))
 	}
-	count := 0
-	for _, section := range specpin.SectionInventoryV060() {
-		if previous[section] {
-			continue
-		}
-		count++
-		t.Run(section, func(t *testing.T) {
-			if !strings.Contains(gaps[section], "Pending implementation owner: TASK-") {
-				t.Fatalf("new section %s has no pending task owner: %q", section, gaps[section])
+	for _, entry := range adopted {
+		entry := entry
+		t.Run(entry.section, func(t *testing.T) {
+			binding, ok := bindings[entry.section]
+			if !ok {
+				t.Fatalf("adopted section %s has no registry binding", entry.section)
 			}
-			_, err := VerifyAssignedSections(repository, []string{section})
-			if !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), "Pending implementation owner: TASK-") {
-				t.Fatalf("VerifyAssignedSections(%s) = %v; pending owner must not grant runtime admission", section, err)
+			if binding.Coverage != coverageUnevidenced {
+				t.Fatalf("adopted section %s coverage = %s, want unevidenced", entry.section, binding.Coverage)
+			}
+			if !strings.Contains(binding.Gap, "Pending implementation owner: "+entry.owner) {
+				t.Fatalf("adopted section %s names no pending owner %s: %q", entry.section, entry.owner, binding.Gap)
+			}
+			_, err := VerifyAssignedSections(repository, []string{entry.section})
+			if !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), "Pending implementation owner: "+entry.owner) {
+				t.Fatalf("VerifyAssignedSections(%s) = %v; pending owner must not grant runtime admission", entry.section, err)
 			}
 		})
 	}
-	if count != 13 {
-		t.Fatalf("new-section owner/refusal cases = %d, want 13 of 13", count)
+	// Shared-clause splits name their second owner in the same gap: the
+	// Section 13.1 name-unused precondition belongs to STORY-260916-3ustb3
+	// and the plugin-side Section 14.1 profile-flag refusal to
+	// STORY-260916-1ea7od. Either attribution drifting reddens here.
+	for _, split := range []struct {
+		section string
+		owner   string
+	}{
+		{"13.1", "STORY-260916-3ustb3"},
+		{"14.1", "STORY-260916-1ea7od"},
+	} {
+		if !strings.Contains(bindings[split.section].Gap, split.owner) {
+			t.Errorf("adopted section %s gap lost its %s split attribution: %q",
+				split.section, split.owner, bindings[split.section].Gap)
+		}
+	}
+}
+
+// TestAdoptedBindingsRefuseSelfMintedImplementationClaims drives the
+// production VerifyRepository entry point against the production snapshot
+// with each new v0.7.0 binding narrowed in exactly one way: its production
+// declaration is replaced by one that does not exist, or its acceptance
+// link is detached. Each plant must be refused naming the binding; the
+// unmutated snapshot stays green, so the refusal proves the gate, not the
+// fixture.
+func TestAdoptedBindingsRefuseSelfMintedImplementationClaims(t *testing.T) {
+	for _, key := range []string{"section:13.1", "section:13.10", "section:14.1"} {
+		key := key
+		t.Run(key, func(t *testing.T) {
+			t.Parallel()
+			repository := repositorySnapshot(t)
+			if _, err := VerifyRepository(repository); err != nil {
+				t.Fatalf("baseline VerifyRepository() error = %v, want green mask before planting", err)
+			}
+			rewriteRegistry(t, repository, func(registry *ownershipRegistry) {
+				group := sectionBinding(t, registry, key)
+				previous := group.Production.Declaration
+				group.Production.Declaration = "MissingAdoptedSectionImplementation"
+				group.Gap = strings.ReplaceAll(group.Gap, previous, group.Production.Declaration)
+			})
+			_, err := VerifyRepository(repository)
+			want := `section binding "` + key + `" production owner: declaration "MissingAdoptedSectionImplementation" is absent`
+			if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), want) {
+				t.Fatalf("VerifyRepository() error = %v, want ErrTraceability containing %q", err, want)
+			}
+		})
+	}
+
+	t.Run("section:14.1/detached-acceptance", func(t *testing.T) {
+		t.Parallel()
+		repository := repositorySnapshot(t)
+		if _, err := VerifyRepository(repository); err != nil {
+			t.Fatalf("baseline VerifyRepository() error = %v, want green mask before planting", err)
+		}
+		rewriteRegistry(t, repository, func(registry *ownershipRegistry) {
+			sectionBinding(t, registry, "section:14.1").AcceptanceCases = nil
+		})
+		_, err := VerifyRepository(repository)
+		want := `section binding "section:14.1" has no scope-specific acceptance owner`
+		if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("VerifyRepository() error = %v, want ErrTraceability containing %q", err, want)
+		}
+	})
+
+	t.Run("section:14.1/production-points-to-test-code", func(t *testing.T) {
+		t.Parallel()
+		repository := repositorySnapshot(t)
+		if _, err := VerifyRepository(repository); err != nil {
+			t.Fatalf("baseline VerifyRepository() error = %v, want green mask before planting", err)
+		}
+		rewriteRegistry(t, repository, func(registry *ownershipRegistry) {
+			sectionBinding(t, registry, "section:14.1").Production.Path = "internal/cliresult/output_test.go"
+		})
+		_, err := VerifyRepository(repository)
+		want := `section binding "section:14.1" production owner: production owner internal/cliresult/output_test.go:Emit points to test code`
+		if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), want) {
+			t.Fatalf("VerifyRepository() error = %v, want ErrTraceability containing %q", err, want)
+		}
+	})
+}
+
+// TestVerifyRepositoryRefusesOwnershipGapDriftAtDigestLayer plants a gap
+// sentence that still discloses (it names the section and the production
+// declaration) but is byte-different from the reviewed projection.
+// Coverage accepts the plant; the reviewed digest must refuse it, so
+// ownership prose cannot drift without review.
+func TestVerifyRepositoryRefusesOwnershipGapDriftAtDigestLayer(t *testing.T) {
+	t.Parallel()
+
+	repository := repositorySnapshot(t)
+	if _, err := VerifyRepository(repository); err != nil {
+		t.Fatalf("baseline VerifyRepository() error = %v, want green mask before planting", err)
+	}
+	rewriteRegistry(t, repository, func(registry *ownershipRegistry) {
+		binding := sectionBinding(t, registry, "section:13.10")
+		binding.Gap += " drift-marker."
+	})
+	_, err := VerifyRepository(repository)
+	if err == nil || !errors.Is(err, ErrTraceability) || !strings.Contains(err.Error(), "projection digest") {
+		t.Fatalf("VerifyRepository() error = %v, want ErrTraceability refusing the drifted projection digest", err)
 	}
 }

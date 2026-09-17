@@ -17,8 +17,8 @@ func TestRunGeneratesCommittedCatalogAndSupportsIdenticalRetry(t *testing.T) {
 
 	output := filepath.Join(t.TempDir(), "catalog_gen.go")
 	arguments := []string{
-		"-metadata", filepath.Join("..", "..", "catalog.v0.6.0.json"),
-		"-contracts", filepath.Join("..", "..", "..", "specpin", "v0.6.0.lock.json"),
+		"-metadata", filepath.Join("..", "..", "catalog.v0.7.0.json"),
+		"-contracts", filepath.Join("..", "..", "..", "specpin", "v0.7.0.lock.json"),
 		"-output", output,
 	}
 	if err := run(arguments); err != nil {
@@ -64,8 +64,8 @@ func TestRunCheckRefusesStaleOutputWithoutRewritingIt(t *testing.T) {
 		t.Fatalf("write stale output: %v", err)
 	}
 	arguments := []string{
-		"-metadata", filepath.Join("..", "..", "catalog.v0.6.0.json"),
-		"-contracts", filepath.Join("..", "..", "..", "specpin", "v0.6.0.lock.json"),
+		"-metadata", filepath.Join("..", "..", "catalog.v0.7.0.json"),
+		"-contracts", filepath.Join("..", "..", "..", "specpin", "v0.7.0.lock.json"),
 		"-output", output,
 		"-check",
 	}
@@ -85,8 +85,8 @@ func TestRunCheckRefusesStaleOutputWithoutRewritingIt(t *testing.T) {
 func TestRunRefusesInvalidArgumentsInputsAndOutput(t *testing.T) {
 	t.Parallel()
 
-	metadata := filepath.Join("..", "..", "catalog.v0.6.0.json")
-	contracts := filepath.Join("..", "..", "..", "specpin", "v0.6.0.lock.json")
+	metadata := filepath.Join("..", "..", "catalog.v0.7.0.json")
+	contracts := filepath.Join("..", "..", "..", "specpin", "v0.7.0.lock.json")
 	tests := []struct {
 		name      string
 		arguments func(string) []string
@@ -190,7 +190,7 @@ func TestRunAdoptedCheckIsGreen(t *testing.T) {
 }
 
 // TestRunAdoptedIsByteIdenticalToExplicit drives both the -adopted form and
-// the explicit v0.6.0 invocation through the production run entry and pins
+// the explicit v0.7.0 invocation through the production run entry and pins
 // the three artifacts — adopted output, explicit output, committed output —
 // byte-identical.
 func TestRunAdoptedIsByteIdenticalToExplicit(t *testing.T) {
@@ -203,8 +203,8 @@ func TestRunAdoptedIsByteIdenticalToExplicit(t *testing.T) {
 	}
 	explicitOutput := filepath.Join(t.TempDir(), "catalog_explicit.go")
 	explicit := []string{
-		"-metadata", filepath.Join(root, "internal", "catalog", "catalog.v0.6.0.json"),
-		"-contracts", filepath.Join(root, "internal", "specpin", "v0.6.0.lock.json"),
+		"-metadata", filepath.Join(root, "internal", "catalog", "catalog.v0.7.0.json"),
+		"-contracts", filepath.Join(root, "internal", "specpin", "v0.7.0.lock.json"),
 		"-output", explicitOutput,
 	}
 	if err := run(explicit); err != nil {
@@ -219,7 +219,7 @@ func TestRunAdoptedIsByteIdenticalToExplicit(t *testing.T) {
 		t.Fatalf("read explicit output: %v", err)
 	}
 	if !bytes.Equal(adopted, explicitBytes) {
-		t.Fatal("adopted output differs from explicit v0.6.0 output")
+		t.Fatal("adopted output differs from explicit v0.7.0 output")
 	}
 	committed, err := os.ReadFile(filepath.Join(root, "internal", "catalog", "catalog_gen.go"))
 	if err != nil {
@@ -238,8 +238,8 @@ func TestRunAdoptedRefusesMixedAndMissingInputs(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join("..", "..", "..", "..")
-	metadata := filepath.Join(root, "internal", "catalog", "catalog.v0.6.0.json")
-	contracts := filepath.Join(root, "internal", "specpin", "v0.6.0.lock.json")
+	metadata := filepath.Join(root, "internal", "catalog", "catalog.v0.7.0.json")
+	contracts := filepath.Join(root, "internal", "specpin", "v0.7.0.lock.json")
 	metadataBytes, err := os.ReadFile(metadata)
 	if err != nil {
 		t.Fatalf("read adopted metadata fixture: %v", err)
@@ -295,7 +295,7 @@ func TestRunAdoptedRefusesLockReleaseMismatch(t *testing.T) {
 	t.Parallel()
 
 	root := filepath.Join("..", "..", "..", "..")
-	metadataBytes, err := os.ReadFile(filepath.Join(root, "internal", "catalog", "catalog.v0.6.0.json"))
+	metadataBytes, err := os.ReadFile(filepath.Join(root, "internal", "catalog", "catalog.v0.7.0.json"))
 	if err != nil {
 		t.Fatalf("read adopted metadata fixture: %v", err)
 	}
@@ -379,6 +379,8 @@ func writeAdoptedRoot(t *testing.T, metadata, lock []byte) string {
 
 // Drive the command taken from the CR configuration through the real CLI entry.
 // A recognizable generator token alone cannot prove its selected authority.
+// On this tree -adopted resolves to the v0.7.0 metadata/lock pair and passes
+// -check; a v0.6.0 lock filed under the adopted name is refused.
 func TestConfiguredCRCatalogGateConsumesAdoptedAuthority(t *testing.T) {
 	root := filepath.Join("..", "..", "..", "..")
 	data, err := os.ReadFile(filepath.Join(root, "task-board.config.json"))
@@ -409,7 +411,8 @@ func TestConfiguredCRCatalogGateConsumesAdoptedAuthority(t *testing.T) {
 	fields := strings.Fields(commands[0])
 	if len(fields) != 7 ||
 		strings.Join(fields[:3], " ") != "go run ./internal/catalog/cmd/cataloggen" ||
-		fields[3] != "-adopted" || fields[4] != "-output" || fields[6] != "-check" {
+		fields[3] != "-adopted" || fields[4] != "-output" || fields[6] != "-check" ||
+		fields[5] != "internal/catalog/catalog_gen.go" {
 		t.Fatalf("unexpected gate command shape: %q", commands[0])
 	}
 	// The configured gate runs from the repository root; the test process
@@ -419,11 +422,11 @@ func TestConfiguredCRCatalogGateConsumesAdoptedAuthority(t *testing.T) {
 	if err := run(args); err != nil {
 		t.Fatalf("configured cataloggen run: %v", err)
 	}
-	metadataBytes, err := os.ReadFile(filepath.Join(root, "internal", "catalog", "catalog.v0.6.0.json"))
+	metadataBytes, err := os.ReadFile(filepath.Join(root, "internal", "catalog", "catalog.v0.7.0.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	staleLock, err := os.ReadFile(filepath.Join(root, "internal", "specpin", "v0.5.0.lock.json"))
+	staleLock, err := os.ReadFile(filepath.Join(root, "internal", "specpin", "v0.6.0.lock.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

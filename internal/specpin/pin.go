@@ -38,15 +38,16 @@ const (
 	ManifestSHA256 = "6fa3a22be22525b4a0146fe9f995aad63c49c2230e86c7039f8eacb87df1ab8c"
 )
 
-// The v0.6.0 constants below adopt the independently accepted signed release
+// The v0.6.0 constants below adopted the independently accepted signed release
 // agent-session-manager-spec v0.6.0 (annotated tag object
 // 40c123eb8399efa8e05cbc009110940ed861a785 peeling to commit
-// 0cbdf100dbf84df50c64f792b1f940e3a67859a6) as the adopted normative source
-// authority. Every v0.5.0 constant above keeps its historical meaning: nothing
-// here relabels the old lock, document, or inventory. Current/Verify still
-// serve the v0.5.0 baseline for the intentionally-historical platform-path
-// registry; the catalogue, traceability, and CI gates consume v0.6.0 through
-// CurrentV060/VerifyV060 and derive the historical projections from it.
+// 0cbdf100dbf84df50c64f792b1f940e3a67859a6) as the normative source
+// authority until the v0.7.0 adoption superseded it. Every v0.5.0 constant
+// above keeps its historical meaning: nothing here relabels the old lock,
+// document, or inventory. CurrentV060/VerifyV060 are retained for the exact
+// historical v0.6.0 projection and cross-version proofs; the catalogue,
+// traceability, and CI gates consume the adopted v0.7.0 authority through
+// CurrentV070/VerifyV070 instead.
 const (
 	ReleaseV060 = "v0.6.0"
 	TagV060     = "v0.6.0"
@@ -74,6 +75,38 @@ const (
 	ManifestSHA256V060 = "005cd4ffb5aba6792786727bf7d9fa59305191c81b210aae8d3d564d80661fb3"
 )
 
+// The v0.7.0 constants below adopt the independently accepted signed release
+// agent-session-manager-spec v0.7.0 (annotated tag object
+// d4abe46fb12d9ba347c09f43efb01089530795b3 peeling to commit
+// 32b3f2ba7c377248a53cd42389abbd2f1c321834) as the adopted normative source
+// authority. Every v0.5.0 and v0.6.0 constant above keeps its historical
+// meaning: nothing here relabels an old lock, document, or inventory.
+// Current/Verify still serve the v0.5.0 baseline for the
+// intentionally-historical platform-path registry; the catalogue,
+// traceability, and CI gates consume v0.7.0 through
+// CurrentV070/VerifyV070 and derive the historical projections from it.
+const (
+	ReleaseV070 = "v0.7.0"
+	TagV070     = "v0.7.0"
+	// TagObjectV070 is the verified annotated tag object; CommitV070 is the
+	// peeled commit it points to. Both were verified with git tag -v (Good
+	// signature, Ivan Oparin) and git rev-parse before adoption.
+	TagObjectV070 = "d4abe46fb12d9ba347c09f43efb01089530795b3"
+	CommitV070    = "32b3f2ba7c377248a53cd42389abbd2f1c321834"
+	// DocumentSHA256V070 is the SHA-256 of the 1185291-byte SPEC.md blob at
+	// the peeled commit, measured from the tagged blob, not the worktree.
+	// The blob carries no carriage returns, so the raw and LF-normalized
+	// digests coincide.
+	DocumentSHA256V070 = "c6b2fe64ee79ed697a96ed27a1679c80b8ee1eba137feb99e7738b4da289ddcf"
+
+	// LaunchPlanRequestFixtureID is the fixture discriminator the upstream
+	// launch_plan_request_conformance.json file declares for itself.
+	LaunchPlanRequestFixtureID = "ax-launch-plan-request-v1"
+
+	// ManifestSHA256V070 pins the exact v0.7.0 lock bytes embedded below.
+	ManifestSHA256V070 = "5696c69489e1d0ac33415995838a3c3deb0fbe106eaed4b4a0ae8cebbe0d93e4"
+)
+
 var (
 	// ErrPinMismatch reports malformed, partial, drifted, or substituted pin data.
 	ErrPinMismatch = errors.New("normative source pin mismatch")
@@ -87,6 +120,9 @@ var embeddedPin []byte
 
 //go:embed v0.6.0.lock.json
 var embeddedPinV060 []byte
+
+//go:embed v0.7.0.lock.json
+var embeddedPinV070 []byte
 
 var (
 	hex40  = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -150,12 +186,17 @@ func BytesV060() []byte {
 	return bytes.Clone(embeddedPinV060)
 }
 
+// BytesV070 returns an isolated copy of the exact embedded v0.7.0 lock bytes.
+func BytesV070() []byte {
+	return bytes.Clone(embeddedPinV070)
+}
+
 // Current returns a newly decoded copy of the embedded, verified release pin.
 //
 // Current still serves the v0.5.0 baseline: the platform-path registry in
 // internal/localstore binds that historical source explicitly through
 // CurrentV050. Catalogue, traceability, and CI gates consume the adopted
-// v0.6.0 authority through CurrentV060 instead.
+// v0.7.0 authority through CurrentV070 instead.
 func Current() (Manifest, error) {
 	return Verify(embeddedPin)
 }
@@ -168,9 +209,16 @@ func CurrentV050() (Manifest, error) {
 }
 
 // CurrentV060 returns a newly decoded copy of the embedded, verified v0.6.0
-// release pin: the adopted normative source authority.
+// release pin: the superseded adopted authority, retained for historical
+// consumers and cross-version proofs.
 func CurrentV060() (Manifest, error) {
 	return VerifyV060(embeddedPinV060)
+}
+
+// CurrentV070 returns a newly decoded copy of the embedded, verified v0.7.0
+// release pin: the adopted normative source authority.
+func CurrentV070() (Manifest, error) {
+	return VerifyV070(embeddedPinV070)
 }
 
 func decode(candidate []byte) (Manifest, error) {
@@ -232,24 +280,65 @@ func VerifyV060(candidate []byte) (Manifest, error) {
 	return manifest, nil
 }
 
+// VerifyV070 accepts only the exact embedded v0.7.0 release lock. The v0.6.0
+// and v0.5.0 locks, a partial read, and any drifted or substituted pin are
+// refused with ErrPinMismatch, exactly as VerifyV060 refuses everything but
+// the v0.6.0 bytes.
+func VerifyV070(candidate []byte) (Manifest, error) {
+	manifest, err := decode(candidate)
+	if err != nil {
+		return Manifest{}, err
+	}
+
+	if err := validateV070(manifest); err != nil {
+		return Manifest{}, err
+	}
+
+	digest := sha256.Sum256(candidate)
+	if hex.EncodeToString(digest[:]) != ManifestSHA256V070 {
+		return Manifest{}, mismatch("lock digest is not %s", ManifestSHA256V070)
+	}
+
+	return manifest, nil
+}
+
 // ContractsForRelease returns an isolated ordered contract registry for one
 // of the releases explicitly represented by this pin.
 //
 // A v0.5.0 manifest represents v0.5.0 and v0.4.3, exactly as before: asking
-// it for v0.6.0 is refused, because a stale pin cannot authorize a release
-// it predates. A v0.6.0 manifest represents v0.6.0, and derives the exact
-// historical v0.5.0 and v0.4.3 registries without rewriting them: the v0.5.0
-// projection drops the three v0.6.0 rows and trims the four widened version
-// lists, which the cross-version test proves byte-equal to the real v0.5.0
-// lock.
+// it for v0.6.0 or v0.7.0 is refused, because a stale pin cannot authorize a
+// release it predates. A v0.6.0 manifest represents v0.6.0, and derives the
+// exact historical v0.5.0 and v0.4.3 registries without rewriting them: the
+// v0.5.0 projection drops the three v0.6.0 rows and trims the four widened
+// version lists, which the cross-version test proves byte-equal to the real
+// v0.5.0 lock. A v0.7.0 manifest represents v0.7.0, derives the exact
+// historical v0.6.0 registry (dropping the Launch Plan request row and
+// trimming the five widened version lists), and reaches v0.5.0 through that
+// v0.6.0 projection, so every historical registry stays row-equal to its
+// real lock.
 func (manifest Manifest) ContractsForRelease(release string) ([]ContractPin, error) {
 	switch release {
+	case ReleaseV070:
+		if manifest.Source.Release != ReleaseV070 {
+			return nil, fmt.Errorf("%w: %s", ErrUnsupportedRelease, release)
+		}
+		return cloneContracts(manifest.Contracts), nil
 	case ReleaseV060:
+		if manifest.Source.Release == ReleaseV070 {
+			return derivedV060Contracts(manifest)
+		}
 		if manifest.Source.Release != ReleaseV060 {
 			return nil, fmt.Errorf("%w: %s", ErrUnsupportedRelease, release)
 		}
 		return cloneContracts(manifest.Contracts), nil
 	case ReleaseV050:
+		if manifest.Source.Release == ReleaseV070 {
+			derived060, err := derivedV060Contracts(manifest)
+			if err != nil {
+				return nil, err
+			}
+			return derivedV050Contracts(Manifest{Contracts: derived060})
+		}
 		if manifest.Source.Release == ReleaseV060 {
 			return derivedV050Contracts(manifest)
 		}
@@ -330,6 +419,58 @@ func v050VersionCeilings() map[string][]string {
 func derivedV050Contracts(manifest Manifest) ([]ContractPin, error) {
 	dropped := v060OnlyContractKeys()
 	ceilings := v050VersionCeilings()
+	contracts := make([]ContractPin, 0, len(manifest.Contracts)-len(dropped))
+	for _, contract := range manifest.Contracts {
+		key := contractKey(contract)
+		if _, added := dropped[key]; added {
+			continue
+		}
+		contract = cloneContract(contract)
+		if ceiling, widened := ceilings[key]; widened {
+			contract.Versions = append([]string(nil), ceiling...)
+		}
+		contracts = append(contracts, contract)
+	}
+	return contracts, nil
+}
+
+// v070OnlyContractKeys are the registry rows the v0.7.0 launch-plan revision
+// adds: the single Launch Plan request row. It is absent from every earlier
+// registry, so the historical projections drop it by key, never by position.
+func v070OnlyContractKeys() map[string]struct{} {
+	keys := map[string]struct{}{}
+	for _, contract := range []ContractPin{
+		{Name: "Launch Plan request", ID: "urn:ax:schema:launch-plan-request"},
+	} {
+		keys[contractKey(contract)] = struct{}{}
+	}
+	return keys
+}
+
+// v060VersionCeilings pins the exact versions each widened v0.7.0 row carried
+// in v0.6.0, per the specification's own launch-plan-delta account: Session
+// Record gains 3.1.0, Provider Protocol gains 2.1.0 and 3.1.0, Provider
+// manifest and Provider probe gain 1.1.0, and Structured Error gains 1.5.0.
+// CLI Result is unchanged at 5.0.0 and needs no ceiling. Every other v0.7.0
+// row is byte-identical to its v0.6.0 self.
+func v060VersionCeilings() map[string][]string {
+	return map[string][]string{
+		"Session record\x00urn:ax:schema:session-record":       {"1.0.0", "2.0.0", "3.0.0"},
+		"Provider protocol\x00urn:ax:protocol:provider":        {"2.0.0", "3.0.0"},
+		"Provider manifest\x00urn:ax:schema:provider-manifest": {"1.0.0"},
+		"Provider probe\x00urn:ax:schema:provider-probe":       {"1.0.0"},
+		"Structured error\x00urn:ax:schema:error":              {"1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"},
+	}
+}
+
+// derivedV060Contracts projects the exact historical v0.6.0 registry out of
+// a verified v0.7.0 manifest: drop the Launch Plan request row, trim the five
+// widened version lists to their v0.6.0 ceilings, keep registry order. The
+// result must equal the real v0.6.0 lock row for row; the cross-version test
+// enforces that, so history cannot drift here without failing loudly.
+func derivedV060Contracts(manifest Manifest) ([]ContractPin, error) {
+	dropped := v070OnlyContractKeys()
+	ceilings := v060VersionCeilings()
 	contracts := make([]ContractPin, 0, len(manifest.Contracts)-len(dropped))
 	for _, contract := range manifest.Contracts {
 		key := contractKey(contract)
@@ -533,6 +674,154 @@ func expectedFixturesV060() []FixturePin {
 		{ID: RoadmapV043FixtureID, Path: "fixtures/v0_4_3_roadmap_terminal_realm.json", SHA256: "6023ec0d1562e8868b8bef3dc41cfd66ea0b4a4054fbaf13d3aec504578a7f74"},
 		{ID: HostChannelFixtureID, Path: "fixtures/host_channel_conformance.json", SHA256: "20aa66c363bcb660f7ed45ac4e760457e408fc030df1c784b71857f96961ae3b"},
 		{ID: SessionSelectorFixtureID, Path: "fixtures/session_selector_conformance.json", SHA256: "2bda47f5ad79911a3ce3db1ec7c8fbefbd2023fcc9f39cdc0eb22ee86b605770"},
+	}
+}
+
+// validateV070 accepts only the exact adopted v0.7.0 source identity: the
+// verified signed tag, peeled commit, document and section-inventory digests,
+// the 64-row launch-plan registry in specification order (the 63 v0.6.0 rows
+// with the Launch Plan request row after Session record), the v0.4.3 baseline
+// with the four new rows absent and nine version overrides, and the six
+// shipped fixtures. The contract-identifier rule admits the same four
+// namespaces as v0.6.0; the v0.5.0 and v0.6.0 rules above are untouched, so
+// the old gates cannot be loosened from here.
+func validateV070(manifest Manifest) error {
+	if manifest.Format != Format || manifest.FormatVersion != FormatVersion {
+		return mismatch("unsupported pin format %q version %d", manifest.Format, manifest.FormatVersion)
+	}
+
+	source := manifest.Source
+	if source.Repository != Repository || source.Release != ReleaseV070 || source.Tag != TagV070 ||
+		source.TagObject != TagObjectV070 || source.Commit != CommitV070 ||
+		source.Document.Path != DocumentPath || source.Document.SHA256 != DocumentSHA256V070 ||
+		source.SectionInventorySHA256 != SectionInventorySHA256V070 {
+		return mismatch("source identity drift")
+	}
+	if !hex40.MatchString(source.TagObject) || !hex40.MatchString(source.Commit) ||
+		!hex64.MatchString(source.Document.SHA256) || !hex64.MatchString(source.SectionInventorySHA256) {
+		return mismatch("malformed source digest")
+	}
+	if !reflect.DeepEqual(source.NormativeScope, []string{
+		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
+		"11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+		"appendix-a", "appendix-b", "appendix-c", "appendix-d",
+	}) {
+		return mismatch("normative scope drift")
+	}
+
+	if len(manifest.Contracts) != 64 {
+		return mismatch("contract registry has %d rows, want 64", len(manifest.Contracts))
+	}
+	seenContracts := make(map[string]struct{}, len(manifest.Contracts))
+	for index, contract := range manifest.Contracts {
+		key := contractKey(contract)
+		if contract.Name == "" || !(strings.HasPrefix(contract.ID, "urn:ax:schema:") ||
+			strings.HasPrefix(contract.ID, "urn:ax:protocol:") ||
+			strings.HasPrefix(contract.ID, "urn:ax:transport:") ||
+			strings.HasPrefix(contract.ID, "urn:ax:contract:")) {
+			return mismatch("contract row %d has invalid name or identifier", index)
+		}
+		if _, duplicate := seenContracts[key]; duplicate {
+			return mismatch("duplicate contract row %q", contract.Name)
+		}
+		seenContracts[key] = struct{}{}
+		if err := validateVersions(contract); err != nil {
+			return err
+		}
+	}
+	for _, contract := range []ContractPin{
+		{Name: "Launch Plan request", ID: "urn:ax:schema:launch-plan-request", Versions: []string{"1.0.0"}},
+		{Name: "Session record", ID: "urn:ax:schema:session-record", Versions: []string{"1.0.0", "2.0.0", "3.0.0", "3.1.0"}},
+		{Name: "Provider protocol", ID: "urn:ax:protocol:provider", Versions: []string{"2.0.0", "2.1.0", "3.0.0", "3.1.0"}},
+		{Name: "Provider manifest", ID: "urn:ax:schema:provider-manifest", Versions: []string{"1.0.0", "1.1.0"}},
+		{Name: "Provider probe", ID: "urn:ax:schema:provider-probe", Versions: []string{"1.0.0", "1.1.0"}},
+		{Name: "Structured error", ID: "urn:ax:schema:error", Versions: []string{"1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.5.0"}},
+		{Name: "CLI result", ID: "urn:ax:schema:cli-result", Versions: []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0", "5.0.0"}},
+	} {
+		found := false
+		for _, row := range manifest.Contracts {
+			if contractKey(row) == contractKey(contract) && reflect.DeepEqual(row.Versions, contract.Versions) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return mismatch("v0.7.0 delta row %q is missing or drifted", contract.Name)
+		}
+	}
+
+	compatibility := manifest.Compatibility
+	if compatibility.BaselineRelease != ReleaseV043 || compatibility.RegistrySHA256 != HistoricalRegistrySHA256 {
+		return mismatch("compatibility baseline drift")
+	}
+	if !reflect.DeepEqual(compatibility.AbsentContracts, expectedAbsentContractsV070()) {
+		return mismatch("v0.4.3 absent-contract set drift")
+	}
+	if !reflect.DeepEqual(compatibility.VersionOverrides, expectedVersionOverridesV070()) {
+		return mismatch("v0.4.3 version overrides drift")
+	}
+
+	if !reflect.DeepEqual(manifest.Fixtures, expectedFixturesV070()) {
+		return mismatch("fixture identity drift")
+	}
+	for _, fixture := range manifest.Fixtures {
+		if fixture.ID == "" || fixture.Path == "" || !hex64.MatchString(fixture.SHA256) {
+			return mismatch("malformed fixture identity %q", fixture.ID)
+		}
+	}
+
+	return nil
+}
+
+// expectedAbsentContractsV070 is the v0.4.3 absent set as the v0.7.0
+// specification states it: the five Terminal Backend rows, the three v0.6.0
+// rows, and the Launch Plan request row, in registry order.
+func expectedAbsentContractsV070() []string {
+	return []string{
+		"Terminal Backend protocol",
+		"Terminal Backend manifest",
+		"Terminal Backend probe",
+		"Terminal Instance binding",
+		"Terminal capability evidence",
+		"Host Channel",
+		"Host Trust Store",
+		"Launch Plan request",
+		"Session selector",
+	}
+}
+
+// expectedVersionOverridesV070 pins the nine rows the v0.7.0 specification
+// binds to their then-active v0.4.3 versions, in registry order. The six
+// v0.6.0 overrides are unchanged and keep their values; the three new rows
+// trim exactly the lists the launch-plan delta widens (Provider manifest,
+// Provider probe, Session record) back to what v0.4.3 shipped.
+func expectedVersionOverridesV070() []ContractPin {
+	return []ContractPin{
+		{Name: "Configuration", ID: "urn:ax:schema:config", Versions: []string{"1.0.0", "2.0.0"}},
+		{Name: "Provider protocol", ID: "urn:ax:protocol:provider", Versions: []string{"2.0.0"}},
+		{Name: "Provider manifest", ID: "urn:ax:schema:provider-manifest", Versions: []string{"1.0.0"}},
+		{Name: "Provider probe", ID: "urn:ax:schema:provider-probe", Versions: []string{"1.0.0"}},
+		{Name: "Mesh RPC", ID: "urn:ax:protocol:rpc", Versions: []string{"2.0.0", "3.0.0"}},
+		{Name: "Session record", ID: "urn:ax:schema:session-record", Versions: []string{"1.0.0", "2.0.0", "3.0.0"}},
+		{Name: "Session event", ID: "urn:ax:schema:session-event", Versions: []string{"1.0.0", "2.0.0", "3.0.0"}},
+		{Name: "Structured error", ID: "urn:ax:schema:error", Versions: []string{"1.0.0", "1.1.0", "1.2.0"}},
+		{Name: "CLI result", ID: "urn:ax:schema:cli-result", Versions: []string{"1.0.0", "2.0.0", "3.0.0"}},
+	}
+}
+
+// expectedFixturesV070 pins all six fixtures the v0.7.0 source ships. The
+// first three digests are byte-identical to the v0.5.0 and v0.6.0 pins: the
+// upstream revision did not touch those files. The host-channel and selector
+// digests move because the upstream revision bumped only their
+// specification_version fields to 0.7.0; the launch-plan row is new.
+func expectedFixturesV070() []FixturePin {
+	return []FixturePin{
+		{ID: SessionDirectoryFixtureID, Path: "fixtures/session_directory_conformance.json", SHA256: "a6351a83e25a3a909297ed20bd1f4a75622b10f536a06b164fff3b12cb66f2ce"},
+		{ID: TerminalBackendFixtureID, Path: "fixtures/terminal_backend_conformance.json", SHA256: "67de0d78d76c9c445c742af5c4c14ffa5cecd620d4cb07dc5497d391b421ad37"},
+		{ID: RoadmapV043FixtureID, Path: "fixtures/v0_4_3_roadmap_terminal_realm.json", SHA256: "6023ec0d1562e8868b8bef3dc41cfd66ea0b4a4054fbaf13d3aec504578a7f74"},
+		{ID: HostChannelFixtureID, Path: "fixtures/host_channel_conformance.json", SHA256: "0d6529a8fd2ff4e03be98b694f62b58fa2f04cde7ca44b0382a1fdd56c532332"},
+		{ID: SessionSelectorFixtureID, Path: "fixtures/session_selector_conformance.json", SHA256: "f0f1cb2d7265bc224f57c04859cf0719c772cd08a266dc1c9abdd3bb04ecf913"},
+		{ID: LaunchPlanRequestFixtureID, Path: "fixtures/launch_plan_request_conformance.json", SHA256: "ec4310b8ded6562a3933960898b85b7521c8ed4fea703b8562921443334df241"},
 	}
 }
 
