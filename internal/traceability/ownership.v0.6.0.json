@@ -3045,6 +3045,132 @@
           "declaration": "TestStoreRealKillBetweenWriteAndSync"
         }
       ]
+    },
+    {
+      "id": "workspace-checkpoint-capture",
+      "production": {
+        "path": "internal/sessckpt/capture.go",
+        "declaration": "Capture"
+      },
+      "tests": [
+        {
+          "path": "internal/sessckpt/capture_test.go",
+          "declaration": "TestCaptureDirectInstallsAttestedRecord"
+        },
+        {
+          "path": "internal/sessckpt/capture_test.go",
+          "declaration": "TestCaptureTaskBoardVariantInstalls"
+        },
+        {
+          "path": "internal/sessckpt/capture_test.go",
+          "declaration": "TestCaptureReplayIsIdempotent"
+        }
+      ]
+    },
+    {
+      "id": "workspace-checkpoint-admission",
+      "production": {
+        "path": "internal/sessckpt/capture.go",
+        "declaration": "Admit"
+      },
+      "tests": [
+        {
+          "path": "internal/sessckpt/capture_test.go",
+          "declaration": "TestAdmitRawRecordRoundTrip"
+        },
+        {
+          "path": "internal/sessckpt/refusal_test.go",
+          "declaration": "TestAdmitRefusesSameEpochForeignLeaseHead"
+        },
+        {
+          "path": "internal/sessckpt/refusal_test.go",
+          "declaration": "TestAdmitRefusesUnknownSafeBoundaryMember"
+        }
+      ]
+    },
+    {
+      "id": "materialization-journal-lifecycle",
+      "production": {
+        "path": "internal/matjournal/store.go",
+        "declaration": "Create"
+      },
+      "tests": [
+        {
+          "path": "internal/matjournal/journal_test.go",
+          "declaration": "TestCreatePersistsJournalAndReceipt"
+        },
+        {
+          "path": "internal/matjournal/refusal_test.go",
+          "declaration": "TestTransitionRefusesIllegalEdges"
+        },
+        {
+          "path": "internal/matjournal/refusal_test.go",
+          "declaration": "TestRollbackConverges"
+        }
+      ]
+    },
+    {
+      "id": "materialization-journal-recovery",
+      "production": {
+        "path": "internal/matjournal/recover.go",
+        "declaration": "Recover"
+      },
+      "tests": [
+        {
+          "path": "internal/matjournal/recover_test.go",
+          "declaration": "TestRecoverGatesPark"
+        },
+        {
+          "path": "internal/matjournal/recover_test.go",
+          "declaration": "TestRecoverCompletesCommit"
+        },
+        {
+          "path": "internal/matjournal/crash_test.go",
+          "declaration": "TestCrashAfterActivationReconciles"
+        }
+      ]
+    },
+    {
+      "id": "crash-gate-journal-conformance",
+      "production": {
+        "path": "internal/matjournal/recover.go",
+        "declaration": "Recover"
+      },
+      "tests": [
+        {
+          "path": "internal/crashgate/conformance_test.go",
+          "declaration": "TestCrashGateConformance"
+        },
+        {
+          "path": "internal/crashgate/rejection_test.go",
+          "declaration": "TestCrashGateRejections"
+        },
+        {
+          "path": "internal/crashgate/exclusion_test.go",
+          "declaration": "TestCrashGateMutualExclusion"
+        },
+        {
+          "path": "internal/crashgate/section1312_test.go",
+          "declaration": "TestCrashGateSection1312"
+        }
+      ]
+    },
+    {
+      "id": "crash-gate-checkpoint-conformance",
+      "production": {
+        "path": "internal/sessckpt/capture.go",
+        "declaration": "Capture"
+      },
+      "tests": [
+        {
+          "path": "internal/crashgate/conformance_test.go",
+          "declaration": "TestCrashGateConformance"
+        },
+        {
+          "path": "internal/crashgate/crash_unix_test.go",
+          "declaration": "TestRealSIGKILLSeams"
+        }
+      ]
     }
   ],
   "ownership": [
@@ -3539,14 +3665,15 @@
         "section:5.4"
       ],
       "production": {
-        "path": "internal/canonicaljson/core_records.go",
-        "declaration": "validateCheckpointRecord"
+        "path": "internal/sessckpt/capture.go",
+        "declaration": "Capture"
       },
       "acceptance_cases": [
-        "core-record-identity-validation"
+        "workspace-checkpoint-capture",
+        "workspace-checkpoint-admission"
       ],
       "coverage": "unevidenced",
-      "gap": "validateCheckpointRecord validates the Section 5.4 Checkpoint Record shape; checkpoint creation and restore behaviour is not implemented and no clause of Section 5.4 is enumerated."
+      "gap": "Capture durably installs Section 5.4 checkpoint records with attested identities, idempotent replays, and head-bound admission; restore behaviour is not implemented and no clause of Section 5.4 is enumerated."
     },
     {
       "kind": "section_binding",
@@ -3982,6 +4109,21 @@
     {
       "kind": "section_binding",
       "keys": [
+        "section:10.6"
+      ],
+      "production": {
+        "path": "internal/matjournal/store.go",
+        "declaration": "Create"
+      },
+      "acceptance_cases": [
+        "materialization-journal-lifecycle"
+      ],
+      "coverage": "unevidenced",
+      "gap": "Create durably installs Section 10.6 materialization journals with phase transitions, receipts, and input digests; provider, bridge, and replica effects stay modeled and no clause of Section 10.6 is enumerated."
+    },
+    {
+      "kind": "section_binding",
+      "keys": [
         "section:11.2"
       ],
       "production": {
@@ -4038,6 +4180,116 @@
       ],
       "coverage": "unevidenced",
       "gap": "ForRelease only returns the reviewed typed catalog rows that reference 11.9; no clause of 11.9 is enumerated against an acceptance case, so the registry makes no clause-level claim about the 2 obligations it carries."
+    },
+    {
+      "kind": "section_binding",
+      "keys": [
+        "section:13.12"
+      ],
+      "production": {
+        "path": "internal/matjournal/recover.go",
+        "declaration": "Recover"
+      },
+      "acceptance_cases": [
+        "materialization-journal-recovery",
+        "crash-gate-journal-conformance"
+      ],
+      "coverage": "unmeasured",
+      "gap": "Recover classifies the journal-observable Section 13.12 failure rows (operator interrupt, owner-resume response lost, atomic rename blocked, disk full, task-board import/open/adopt failure before and after the new lease) into the Section 13.13 outcomes, proved by the crashgate conformance harness; the scanner finds no clause line in the table-shaped Section 13.12 so the binding stays unmeasured, and rows owned by sync, lease, provider, bridge, and lifecycle flows (SSH disconnect, quarantine, divergence, quiesce failure, plugin crash, missing bridge, concurrent takeovers, stale owner, corrupt index) belong to their unlanded owners."
+    },
+    {
+      "kind": "section_binding",
+      "keys": [
+        "section:13.13"
+      ],
+      "production": {
+        "path": "internal/matjournal/recover.go",
+        "declaration": "Recover"
+      },
+      "acceptance_cases": [
+        "materialization-journal-recovery",
+        "crash-gate-journal-conformance",
+        "crash-gate-checkpoint-conformance"
+      ],
+      "coverage": "partial",
+      "gap": "Recover with the crashgate conformance harness discharges 9 of the 11 normative clauses of Section 13.13 (every-boundary injection for checkpoint/journal-observable paths, exactly-one classification, safe_retry meaning, ambiguity rule, no fourth outcome, conformance record contents, two-live-authority and substitution rejection, unfenced-continuation parking); clauses 13.13#4 and 13.13#5 are discharged only for their journal-durable halves because rollback/parked visibility through event, CLI/status, audit, and lifecycle-projection surfaces belongs to unlanded owners, and boundaries owned by lease, terminal, provider, bridge, sync, lifecycle, and clone flows are recorded NOT APPLICABLE with owners rather than injected.",
+      "clauses": [
+        {
+          "id": "13.13#1",
+          "line": 9969,
+          "excerpt": "Every implementation MUST inject a crash and a clean process restart at every",
+          "acceptance_cases": [
+            "crash-gate-journal-conformance",
+            "crash-gate-checkpoint-conformance"
+          ]
+        },
+        {
+          "id": "13.13#2",
+          "line": 9971,
+          "excerpt": "After restart, the recovery evaluator MUST classify the operation into exactly",
+          "acceptance_cases": [
+            "crash-gate-journal-conformance"
+          ]
+        },
+        {
+          "id": "13.13#3",
+          "line": 9976,
+          "excerpt": "| <code>safe_retry</code> | The same logical operation can continue or return its recorded result using every caller-stable operation/materialization/transaction/bridge ID and byte-identical immutable input. The winning lease and the exact persisted Provider Identity Record or task-board manager reference/Ax Binding are unchanged. A retry MUST reconcile an uncertain external effect before issuing it again and MUST NOT allocate another process, manager, native handle, lease epoch, staging authority, or transaction root. | The pre-crash durable receipt or journal phase, the post-restart status result for every possibly executed provider/bridge/external effect, the unchanged winning lease, the unchanged native identity/binding, and the single returned or advanced durable result. |",
+          "acceptance_cases": [
+            "crash-gate-journal-conformance",
+            "crash-gate-checkpoint-conformance"
+          ]
+        },
+        {
+          "id": "13.13#6",
+          "line": 9987,
+          "excerpt": "contradictory, unreachable, or ambiguous evidence MUST select",
+          "acceptance_cases": [
+            "crash-gate-journal-conformance"
+          ]
+        },
+        {
+          "id": "13.13#7",
+          "line": 9988,
+          "excerpt": "<code>recoverable_parked_state</code>; an implementation MUST NOT invent a",
+          "acceptance_cases": [
+            "crash-gate-journal-conformance"
+          ]
+        },
+        {
+          "id": "13.13#8",
+          "line": 9996,
+          "excerpt": "phases still is. The conformance record MUST name the boundary ID, path,",
+          "acceptance_cases": [
+            "crash-gate-journal-conformance",
+            "crash-gate-checkpoint-conformance"
+          ]
+        },
+        {
+          "id": "13.13#9",
+          "line": 10016,
+          "excerpt": "For every boundary, the gate MUST reject the run if two hosts or two native",
+          "acceptance_cases": [
+            "crash-gate-journal-conformance"
+          ]
+        },
+        {
+          "id": "13.13#10",
+          "line": 10020,
+          "excerpt": "MUST be fenced/stopped with visible divergent-history evidence or remain",
+          "acceptance_cases": [
+            "crash-gate-journal-conformance"
+          ]
+        },
+        {
+          "id": "13.13#11",
+          "line": 10021,
+          "excerpt": "<code>recoverable_parked_state</code>. The gate also MUST reject any recovery",
+          "acceptance_cases": [
+            "crash-gate-journal-conformance"
+          ]
+        }
+      ]
     },
     {
       "kind": "section_binding",

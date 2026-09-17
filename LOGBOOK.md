@@ -5,6 +5,49 @@
 
 ## 2026-09-17
 
+### TASK-260830-17ootk — Section 13.13 crash/restart outcome gate (`internal/crashgate`, story-final)
+
+- NEW PACKAGE: boundary registry (94 IDs: 12 Section 13.13 table
+  ranges + `CR-CLONE-01..16` prose range) with per-path
+  reachable/NOT-APPLICABLE classification, plus the conformance
+  harness driving the landed owners only (`sessckpt.Capture`,
+  `matjournal` create/updates/`Recover`). No product behavior
+  changed; no owner source touched.
+- DERIVATION: `TestRegistryDerivesFromPinnedSpec` parses the ID set
+  from the pinned v0.6.0 text (78 table + 16 prose IDs) with zero
+  hand-typed IDs; the classification is explicit reviewed data.
+  31 IDs (48 paths) driven by 72 conformance rows, each with a
+  crash, a clean restart, exactly one outcome, and a
+  machine-readable record; 63 IDs (121 paths) NOT APPLICABLE with
+  exact owners, none driven.
+- OUTCOMES: all three proved — `safe_retry` (retry convergence and
+  reconciled completions), `explicit_rollback` (failed-import and
+  expired-token aborts with terminal evidence), parked (ambiguous,
+  contradictory, missing, torn, and host-fault evidence with frozen
+  phase and no second allocation). Rejections (10 rows: two live
+  authorities, unfenced x2, substitution x4, moved lease x3),
+  exclusion (12 rows), and the 7 journal-observable Section 13.12
+  rows all fail closed. Real SIGKILL at the capture and journal
+  seams. AC 4 of 4 driven.
+- MUTANTS: `python3 internal/crashgate/mutant_harness.py` — 9
+  narrowing KILLED (registry applicability, lease, substitution,
+  two-authority, unfenced, host, marker, both uncertainty floors),
+  each by its named behavioral killer; the token-preserving
+  registry mutant passes static derivation and fails the
+  behavioral suite; 1 comment control SURVIVED; exit 0.
+- STORY-CLOSE: section:13.13 `unevidenced`→`partial` at 9/11
+  (`13.13#4/#5` journal-halves only, disclosed in the gap);
+  section:13.12 stays `unmeasured` with the harness acceptance
+  case; 2 new acceptance cases (119 total); re-pinned
+  `reviewedOwnershipCanonicalSHA256` to
+  `ba242a9d…0937afd`; pinned report test and README figures/coverage
+  refreshed; README package section added. `tracecheck`,
+  `go vet` (+windows), `gofmt`, full `go test ./...`, and `go
+  build ./...` green; evidence tarball attached to the board.
+- REPUBLISH (rev2): replayed onto trunk `9e9fe51` (STORY-260830-315721);
+  registry union re-pinned at 119 cases / 38/489 with trunk rows preserved;
+  no product-code change beyond the reconciliation.
+
 ### TASK-260830-2zvo8m — native-resume smoke framework (story-final leaf)
 
 - PRODUCTION: new `internal/resumesmoke` (`Run` drives probe,
@@ -139,6 +182,78 @@
   crash bound; see `internal/provhost/TRACEABILITY.md`.
 - HANDOFF: results, conformance matrix, and producer evidence
   tarball attached to the task; candidate left uncommitted.
+### TASK-260830-3k3e6m — implement Materialization Journal 2.0.0 (`internal/matjournal`)
+- NEW PACKAGE: `Store.Create` (prepare-bound IDs + canonical request
+  digest → journal + plan view + no-replace receipt), `Transition`
+  (derived phase table with pre-activation/marker/evidence guards),
+  `UpdateProvider`/`UpdateTaskBoard`/`UpdateAuthority`/`RecordProgress`/
+  `RecordError`, `Rollback` (rolling_back first, then converged
+  rolled_back), `Recover` (CR-MAT-01..08 into exactly one Section 13.13
+  outcome), `ValidateMarker`/`ClassifyDestination`. No CLI, no RPC, no
+  driven processes; probes are modeled inputs.
+- DERIVED TABLES: the pinned text names the phase enum but no edge
+  table, so `legalTransitions` derives one edge per coordinator-order
+  step plus abort/failure edges, with committing-to-rolling_back gated
+  on pre-activation; sub-state tables derive from the bridge order and
+  the post-adopt rollback ban. Each edge's grounding is recorded in
+  `internal/matjournal/TRACEABILITY.md`.
+- RECOVERY SEMANTICS: unknown probes park only when a possibly executed
+  effect lacks a recorded outcome (recorded capabilities at
+  staging/validating stand; plans without a provider branch leave the
+  provider probe vacuous); activated sub-states before committing park
+  as torn progressions; terminal journals replay but park frozen on
+  live-authority gates.
+- TESTS: lifecycle, refusal, recovery-matrix, 8 crash boundaries with
+  hook crashes + reopen + `Recover`, and a real SIGKILL run at the
+  journal/receipt seam. 12 of 12 AC rows driven through production
+  entries. Coverage: matjournal 77.0%, sessckpt 82.1%.
+- MUTANTS: `python3 internal/matjournal/mutant_harness.py` — 11
+  narrowing mutants KILLED, 1 comment control SURVIVED, exit 0.
+- STORY-CLOSE: added the verdict-4 forged-Admit same-epoch
+  foreign-lease negative to `sessckpt`; rebound section:5.4 to
+  `sessckpt.Capture`; added section:10.6/13.12/13.13 bindings (13.12 is
+  `unmeasured`: the scanner finds no clause line in the table-shaped
+  section) with 4 acceptance cases; re-pinned
+  `reviewedOwnershipCanonicalSHA256`; README package sections +
+  ownership figures 101/56 to 105/59.
+- VALIDATION: `go test ./... -count=1` (28 packages ok), vet, build,
+  windows build, gofmt, catalog `-check`, and `tracecheck` (105 cases,
+  59 bindings, 17/489) all exit 0. Evidence:
+  `.temp/TASK-260830-3k3e6m/` + board resources
+  `TASK-260830-3k3e6m_results.md`,
+  `TASK-260830-3k3e6m_conformance-matrix.md`,
+  `TASK-260830-3k3e6m_producer-evidence.tar.gz`. Candidate remains
+  uncommitted in the managed Story worktree for board CR handoff.
+
+### TASK-260830-14yo67 — implement Checkpoint Record 1.0.0 capture (`internal/sessckpt`)
+- NEW PACKAGE: `Store.Capture` (typed closure → closed record →
+  `sessrepo.AttestCheckpointRecord` → content-addressed blob +
+  operation receipt), `Store.Admit` (raw sync-received records
+  through the same path), `Store.Get` (re-verified reads). No CLI,
+  no provider/task-board I/O, no manifest resolution.
+- REFUSALS: `ErrInvalidCheckpoint` wraps
+  `canonicaljson.ErrInvalidIdentity` (`errors.Is` proves
+  `incompatible_schema` for CP-N1..CP-N4); unknown session/head
+  propagate the `sessrepo` owner errors; same-operation moved
+  inputs refuse `ErrCheckpointConflict` (`idempotency_mismatch`).
+  Creator-holder binding stays with the `sessquery` consumer and
+  is driven there (epoch-1 + successor `BuildPlan`/`Revalidate`
+  positives, wrong-creator refusal).
+- REVIEW NOTE (own test caught it): `Admit` first skipped the
+  session-kind check, admitting any kind; fixed by routing `Admit`
+  through `checkSessionKind` plus a `default` refusal in
+  `checkPersistenceVariant`.
+- CRASH: hook faults (before-byte safe_retry, blob/receipt resume,
+  post-receipt replay) plus a real self-SIGKILL child test at the
+  blob→receipt boundary (unix-only): 1 verifying blob, 0 receipts,
+  identical retry converges on 1/1.
+- MUTANTS: shipped `internal/sessckpt/mutant_harness.py` reports
+  7 of 7 narrowing killed (incl. token-preserving `N-evidence-enum`)
+  + 1 harmless SURVIVED control, 0 NOT_APPLIED, 0 harness failures.
+- REGISTRY: the `section:5.4` ownership gap ("creation ... not
+  implemented") is stale but the registry digest is review-pinned
+  against self-minting, so the text is untouched; the clause
+  record lives in `internal/sessckpt/TRACEABILITY.md` (stated bound 5).
 
 ### TASK-260830-21gygk — rev16 rework: normalize Go aliases in the sealed-capability census
 - REVIEW FINDING CLOSED (CR15 P2-A): the package-wide `go/types` census

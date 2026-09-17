@@ -29,18 +29,18 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 	want := Report{
 		Contracts:              63,
 		NormativeSections:      36,
-		AcceptanceCases:        113,
+		AcceptanceCases:        119,
 		Fixtures:               32,
 		CompatibilityContracts: 55,
-		SectionBindings:        56,
+		SectionBindings:        59,
 		FullCoverage:           2,
-		PartialCoverage:        4,
+		PartialCoverage:        5,
 		SliverCoverage:         3,
-		UnevidencedCoverage:    44,
-		UnmeasuredCoverage:     3,
+		UnevidencedCoverage:    45,
+		UnmeasuredCoverage:     4,
 		UnownedSections:        12,
-		NormativeClauses:       463,
-		DischargedClauses:      29,
+		NormativeClauses:       489,
+		DischargedClauses:      38,
 	}
 	if !reflect.DeepEqual(report, want) {
 		t.Fatalf("VerifyRepository() report = %#v, want %#v", report, want)

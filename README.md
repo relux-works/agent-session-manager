@@ -2136,6 +2136,81 @@ chained, container, function-signature, generic, interface, reflect,
 and unsafe seal/token paths. Its evidence directory is attached to the
 task board.
 
+## Workspace Checkpoint Records
+
+[`internal/sessckpt`](internal/sessckpt) durably installs Section 5.4
+workspace checkpoint records with attested canonical identities,
+idempotent capture replays, and head-bound admission against the owning
+repository chain. Capture refuses malformed closures, lease-fenced
+heads, and byte-unequal retries; admission refuses forged raw records,
+including a same-epoch foreign-lease head. Crash seams between the blob
+and the receipt replay through the recorded result, and a real SIGKILL
+run proves the interrupted capture converges. The conformance matrix in
+[`internal/sessckpt/TRACEABILITY.md`](internal/sessckpt/TRACEABILITY.md)
+maps every clause to its production entry and test. It adds no `ax`
+command, no `doctor` result, and no runtime capability claim.
+
+```bash
+go test ./internal/sessckpt -count=1
+go test ./internal/sessckpt -count=1 -cover
+python3 internal/sessckpt/mutant_harness.py
+```
+
+## Materialization Journal and Recovery
+
+[`internal/matjournal`](internal/matjournal) durably persists the
+Section 10.6 Materialization Journal 2.0.0: the prepare-bound IDs and
+canonical request digest, the phase machine with its token, bridge,
+and authority rules, the no-replace prepare receipt, and the
+status-first recovery evaluator that classifies every CR-MAT-01..08
+boundary into exactly one Section 13.13 outcome with parked and
+rollback evidence. Recovery executes allowed aborts and provable
+terminal completions, records parked assessments with the retained
+lease, exact IDs, and blocking reason, and never invents a fourth
+outcome. Provider, bridge, marker, lease, and native states arrive as
+modeled status inputs; the package drives no process and claims no
+peer behavior. The conformance matrix in
+[`internal/matjournal/TRACEABILITY.md`](internal/matjournal/TRACEABILITY.md)
+maps every clause to its production entry, test, and narrowing mutant.
+It adds no `ax` command, no `doctor` result, and no runtime capability
+claim.
+
+```bash
+go test ./internal/matjournal -count=1
+go test ./internal/matjournal -count=1 -cover
+python3 internal/matjournal/mutant_harness.py
+```
+
+## Crash/Restart Outcome Gate
+
+[`internal/crashgate`](internal/crashgate) executes the Section 13.13
+crash/restart outcome gate over the landed checkpoint and journal owners. Its
+boundary registry enumerates all 94 crash boundaries of the pinned Section
+13.13 table plus the `CR-CLONE` prose range, verified against the pinned text
+by a derivation test rather than a hand-typed list; each boundary is
+classified per direct/task-board path as reachable through `sessckpt` capture
+or the `matjournal` recovery evaluator, or `NOT APPLICABLE` with the exact
+owning flow named. Every reachable row injects a crash after the boundary's
+durable write (and after every external effect that may have happened),
+restarts clean, and proves exactly one of `safe_retry`, `explicit_rollback`,
+or `recoverable_parked_state` with the full conformance record the gate
+requires, including the rejection cases (two live authorities, unfenced
+continuation, and every substitution shape) and the journal-observable
+Section 13.12 failure rows. Two seams carry real `SIGKILL` evidence; nine
+narrowing mutants (one token-preserving) prove the classification predicates
+and every rejection rule. The conformance matrix in
+[`internal/crashgate/TRACEABILITY.md`](internal/crashgate/TRACEABILITY.md)
+maps every clause and boundary ID to its test row, owner, or stated bound.
+It adds no `ax` command, no `doctor` result, and no runtime capability claim.
+
+```bash
+go test ./internal/crashgate -count=1
+go test ./internal/crashgate -count=1 -cover
+python3 internal/crashgate/mutant_harness.py --log-dir .temp/TASK-260830-17ootk/mutants
+CRASHGATE_CONFORMANCE_DIR=.temp/TASK-260830-17ootk/conformance go test ./internal/crashgate -count=1
+```
+
+
 ## Structured Errors, Stable Codes, and Causal Redaction
 
 [`internal/axerror`](internal/axerror) implements the Section 15 Structured
@@ -2770,8 +2845,8 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6
 repository gate used by CI. Its reviewed
 [`ownership.v0.6.0.json`](internal/traceability/ownership.v0.6.0.json)
 registry independently enumerates implementation owners for all 63 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 113
-executable acceptance cases, 56 exact section bindings with their declared
+contract rows, 36 pinned or catalog-referenced normative section keys, 119
+executable acceptance cases, 59 exact section bindings with their declared
 coverage, 12 disclosed unowned sections, and 32 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
 and the superseded v0.5.0 registry is checked as an owned legacy projection.
@@ -2872,10 +2947,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=56 full=2 partial=4 sliver=3 unevidenced=44 unmeasured=3 unowned=12 clauses_discharged=29/463
+section coverage: bindings=59 full=2 partial=5 sliver=3 unevidenced=45 unmeasured=4 unowned=12 clauses_discharged=38/489
 ```
 
-Fifty-six section bindings discharge 29 of the 463 normative clauses their
+Fifty-nine section bindings discharge 38 of the 489 normative clauses their
 sections carry. Two bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
@@ -2884,8 +2959,14 @@ refusal arm; and Section 2.4 at 4/4, bound to
 [`internal/sessprofile`](internal/sessprofile), whose derivation, checkpoint
 closure, fork projection, and mapping-failure clauses are discharged by the
 profile derivation, heads, fork-pair, and mapping-resolution acceptance
-cases), four are
-`partial` (Section 14.2 at 8/9, bound to
+cases), five are
+`partial` (Section 13.13 at 9/11, bound to
+[`internal/matjournal`](internal/matjournal) with the
+[`internal/crashgate`](internal/crashgate) conformance harness, whose
+undischarged clauses `13.13#4` and `13.13#5` are the rollback/parked
+visibility sentences through event, CLI/status, audit, and
+lifecycle-projection surfaces this repository has no binary or projection to
+produce; Section 14.2 at 8/9, bound to
 [`internal/cliresult`](internal/cliresult), whose undischarged clause `14.2#6`
 is the process exit status this repository has no binary to produce; Section
 15.1 at 5/7 and Section 15.3 at 2/3, both bound to
@@ -2917,9 +2998,9 @@ is enforced by identity creation and checking while the opaque-map content
 rule stays half-decided; and Section 8 at 4/12, whose discharged probe,
 label-integrity, and row-separation clauses are enforced by the resume tuple
 gate and the native-resume smoke while every materialization rule stays
-unimplemented), three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of
+unimplemented), four are `unmeasured` (Sections 7.3, 13.12, 13.14.5 and 15.2, each of
 which carries a gap saying why the scanner measures zero and what is missing),
-and forty-four are `unevidenced`. Twelve sections are recorded unowned.
+and forty-five are `unevidenced`. Twelve sections are recorded unowned.
 All 13 sections added by v0.6.0 name pending task owners in the reviewed
 registry gaps; these assignments grant no runtime admission. The
 [adoption ownership map](internal/traceability/adoption-v0.6.0.md) separates
@@ -2931,7 +3012,7 @@ ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-Two admitted bindings out of fifty-six cover five clauses, and that is
+Two admitted bindings out of fifty-nine cover five clauses, and that is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and
