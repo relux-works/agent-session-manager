@@ -1,0 +1,2265 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 5789e5b..eda4d04 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,40 @@
+ 
+ ## 2026-09-17
+ 
++### TASK-260830-kp4zpu — provider identity creation and binding
++- PRODUCTION (`internal/provhost/identity_create.go`,
++  `identity_bind.go`): `CreateIdentity` builds Section 5.5 records
++  with the true omit-self `record_id` via the owner's
++  `CalculateObjectIdentity`; `DecodeNativeDiscovery` decodes the
++  Section 7.5 proof; `StoreRootFor` resolves the six Section 8.2
++  documented roots (Muse XDG-aware, Antigravity backend-only);
++  `CheckResumeTuple` refuses unknown/unsupported/unverified-version
++  Section 8.4 tuples; `VerifyIdentityBuild`/`VerifyIdentityDiscovery`
++  bind records to exact build, root, realm, and discovery facts.
++- GATES: 50 new refusal arms, all `invalid_config` except the seven
++  proof-shape `provider_protocol_error` arms; 217/217 derived arms
++  witnessed (floor raised 166 -> 217); every constructor site
++  carries an exercised negative path; two new vocabulary
++  derivations (`resumeProviders` from the Section 8.2 table,
++  `discoveryMembers` from the Section 7.5 type row).
++- MUTANTS: shipped `internal/provhost/testdata/mutate_identity.py`
++  reports 24/24 applied N plants killed on the exact final source
++  (two token-preserving: opaque `/` suffix-swap, muse `0.1.0`
++  admission), harmless control `SURVIVED`, `NOT_APPLIED` and
++  `COMPILE_OR_HARNESS_FAILURE` outside the numerator. The first
++  battery run caught two inverted mutant conditions before they
++  shipped.
++- IDEMPOTENCY: `TestCreateIdentityIsByteIdentical` proves 25
++  identical emissions; creation is pure with no durable writes, so
++  crash/restart evidence is a stated bound, not a gap.
++- BOUNDS: Section 2.4 profile authority stays sibling-owned
++  (TASK-260830-3uzfyn); version ranges stay opaque; only Muse
++  carries a cell-level version pin; no CLI or capability
++  advertisement added. Coverage 9 of 10 AC rows driven plus the
++  crash bound; see `internal/provhost/TRACEABILITY.md`.
++- HANDOFF: results, conformance matrix, and producer evidence
++  tarball attached to the task; candidate left uncommitted.
++
+ ### TASK-260830-21gygk — rev16 rework: normalize Go aliases in the sealed-capability census
+ - REVIEW FINDING CLOSED (CR15 P2-A): the package-wide `go/types` census
+   compared lexical `*types.TypeName` objects, so a Go alias could bypass the
+diff --git a/README.md b/README.md
+index fa908d4..e89b4dd 100644
+--- a/README.md
++++ b/README.md
+@@ -485,7 +485,16 @@ literals disjoint from inherited names, and a `profile_mapping`
+ equal to the Section 7.7 mapping), the Section 5.5 Provider Identity
+ Record with the identify-session wrapper, and the single
+ `(operation, operation_id)` mutation key (keyed operations derived
+-per-row from the Section 7.5 table). A lost mutation retried with
++per-row from the Section 7.5 table). The host also constructs Section
++5.5 records itself (`CreateIdentity` computes the true omit-self
++`record_id` for host-side params, byte-identical for identical
++inputs) and binds records to exact native facts before use: the
++probed build tuple (`VerifyIdentityBuild` refuses version drift),
++the Section 8.2 store root with the Section 7.5 discovery proof
++(`VerifyIdentityDiscovery` refuses absent, mismatched, or unresolved
++discovery), and the Section 8.4 resume direction (`CheckResumeTuple`
++refuses unknown, unsupported, and unverified-version tuples without
++advertising any cell as usable). A lost mutation retried with
+ identical bytes returns byte-identical results across fresh
+ processes; a changed body surfaces the bound `idempotency_mismatch`
+ child with no further frame sent. Mutation receipts themselves live
+diff --git a/internal/environ/census_test.go b/internal/environ/census_test.go
+index 0f7300d..0c54f6a 100644
+--- a/internal/environ/census_test.go
++++ b/internal/environ/census_test.go
+@@ -267,6 +267,7 @@ var grammarSiteLedger = map[string]bool{
+ 	"semver-grammar|provhost|manifest.go|semverPattern":                   true,
+ 	"extensions-grammar|environ|decode.go|reverseDNSPattern":              true,
+ 	"extensions-grammar|canonicaljson|closed_shapes.go|reverseDNSPattern": true,
++	"extensions-grammar|provhost|identity_create.go|reverseDNSPattern":    true,
+ 	"provider-id-grammar|scalar|names.go|providerIDPattern":               true,
+ 	"provider-id-grammar|provhost|manifest.go|providerIDPattern":          true,
+ 	"provider-id-grammar|sessadapter|decode.go|providerIDPattern":         true,
+diff --git a/internal/provhost/TRACEABILITY.md b/internal/provhost/TRACEABILITY.md
+new file mode 100644
+index 0000000..7739e39
+--- /dev/null
++++ b/internal/provhost/TRACEABILITY.md
+@@ -0,0 +1,101 @@
++# TASK-260830-kp4zpu: implementation evidence
++
++Authority: relux-works/agent-session-manager-spec v0.6.0, commit
++`0cbdf100dbf84df50c64f792b1f940e3a67859a6`, adopted through
++STORY-260908-18woqo. Primary scope is Sections 5.5, 7.5, 7.6, 7.7
++and 8 (Sections 8.1-8.4 plus the Appendix B version gates), with
++Section 2.4 carried as a sibling-owned bound below. Historical scope
++is retained without weakening: v0.5.0 (commit
++`28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c`), same sections; the
++pinned Section 8 and NativeDiscoveryProof rows are byte-identical in
++both revisions. This file records implementation evidence; it changes
++no normative ownership and claims no public CLI delivery.
++
++## Acceptance rows
++
++9 of 10 AC rows are driven through the production entries named
++below; the tenth (crash evidence) is a stated bound, not a gap: the
++delivered entries are pure functions that mutate no durable state, so
++there is no crash-recovery surface to terminate. No `ax` session
++command exists in this tree; every row is delivered at the
++shared-library entries, which is the assigned surface for this leaf.
++
++| AC row | Production call site | Named test(s) | Evidence and bound |
++| --- | --- | --- | --- |
++| Create exact native session IDs | `CreateIdentity` (`identity_create.go`) | `TestCreateIdentityEmitsAttestedRecord`, `TestCreateIdentityAntigravityRecord`, `TestCreatedIdentityRoundTripsIdentifyCall` | Driven: the exact param string becomes the record `native_session_id` with no normalization; created records pass `CheckIdentity`, the owner shape entry, and binding attestation, and travel one `Host.Call` identify-session round trip. A hostile params value repeating the digest placeholder still attests (`TestCreateIdentityPlaceholderDigestInParams`). |
++| Validate store roots | `StoreRootFor`, `VerifyIdentityDiscovery` → `checkBindStoreRoot` (`identity_bind.go`) | `TestStoreRootForTable`, `TestStoreRootsArePairwiseDistinct`, `TestStoreRootForRefusals`, `TestVerifyIdentityDiscoveryPositive`, `TestResumeProvidersAreDerivedFromSpec` | Driven: the six Section 8.2 documented roots resolve (Muse XDG-aware, Antigravity backend-only); proof roots bind at-or-under the resolved root with a separator-aware boundary; foreign and sibling-prefix roots refuse. |
++| Validate backend realms | `CreateIdentity`, `VerifyIdentityDiscovery` → `checkBindRealm` | `TestCreateIdentityRefusals` (realm rows), `TestVerifyIdentityDiscoveryPositive/backend_realm`, `TestVerifyIdentityDiscoveryRefusals` (realm rows) | Driven: digest-or-empty shape, the Antigravity backend-kind requirement, expected-realm equality, and claimed-but-unresolved refusal. |
++| Validate build tuples | `CheckResumeTuple`, `VerifyIdentityBuild` (`identity_bind.go`) | `TestCheckResumeTuplePassesUsableRows`, `TestCheckResumeTupleRefusals`, `TestVerifyIdentityBuildPositive`, `TestVerifyIdentityBuildRefusals` | Driven: exact probed (provider, version, platform, arch) tuples gate resume; version drift between record and tuple refuses; the version-range member stays opaque (stated bound: no decidable range grammar in the sections). |
++| Validate discovery evidence | `DecodeNativeDiscovery`, `VerifyIdentityDiscovery` | `TestDecodeNativeDiscoveryPositive`, `TestDecodeNativeDiscoveryRefusals`, `TestDiscoveryMembersAreDerivedFromSpec`, `TestVerifyIdentityDiscoveryPositive`, `TestVerifyIdentityDiscoveryRefusals` | Driven: the closed Section 7.5 proof shape decodes on the tuple platform; exact native-ID equality, reported discovery, and realm coverage bind before use. |
++| Exact contract fixtures pass | `CreateIdentity`, `DecodeIdentifyResult`, `Host.Call` | `TestCreatedIdentityRoundTripsIdentifyCall`, `TestSpecIdentityExampleDecodes` (retained), `TestIdentifyThroughCall` (retained) | Driven: created records satisfy the same identify-session contract the retained Section 5.5 example satisfies, through the same transport entry. |
++| Negative/refusal cases pass | All six entries | Every `Test*Refusals` table above plus the 50 witnesses in `declaredOperationWitnessesIdentityCreate` | Driven: 217/217 derived arms witnessed (was 167); every constructor site carries an exercised negative path in the full run. |
++| Crash evidence | None (stated bound) | None | Bound: creation and binding are pure and stateless; `provhost` mutates no durable state of its own, so no crash/restart probe applies. Idempotency below is the applicable durability-adjacent evidence. |
++| Idempotency evidence | `CreateIdentity` | `TestCreateIdentityIsByteIdentical` | Driven: identical params emit byte-identical records across 25 calls despite map-order randomization. |
++| No unsupported capability advertised | `CheckResumeTuple`, `RequireCapability` (retained) | `TestCheckResumeTupleRefusals`, `TestCheckResumeTuplePassesUsableRows`, `TestCapabilityGatePrecedesCall` (retained) | Driven: unknown/unsupported/unverified-version tuples refuse; passing the matrix gate never reports usable, and conditional rows still require probe acceptance at the retained use-site gate. |
++
++## Refusal and recovery coverage
++
++Every `N-` row is a genuine narrowing mutant: the gate stays present
++and is weakened to admit exactly one member of the class it must
++reject, and the named behavioral test fails through the delivered
++harness `internal/provhost/testdata/mutate_identity.py`, executed on
++the exact final source. Whole-clause disables are not accepted as
++narrowing. `T-` rows preserve the searched-for token while changing
++behavior. Controls are reported separately and never counted as
++kills: 24/24 applied N plants killed, the harmless control
++`SURVIVED`, `NOT_APPLIED` and `COMPILE_OR_HARNESS_FAILURE` reported
++outside the numerator.
++
++| Gate | Real entry test | Narrowing attack (all killed) |
++| --- | --- | --- |
++| Creation native bounds | `TestCreateIdentityRefusals/native_empty` at `CreateIdentity` | N-create-native-empty admits exactly the empty ID (`< 1` to `< 0`). |
++| Creation opaque prefix (T) | `TestCreateIdentityRefusals/opaque_absolute_prefix` at `CreateIdentity` | N-create-opaque-abs keeps the `/` token but checks the wrong end (suffix); UNC and drive forms still refuse. |
++| Creation realm requirement | `TestCreateIdentityRefusals/realm_required` at `CreateIdentity` | N-create-realm-required admits exactly the fixture native ID; the owner backstop degrades the refusal. |
++| Creation owner backstop | `TestCreateIdentityRefusals/owner_backstop` at `CreateIdentity` | N-create-backstop admits exactly the fixture session past `CalculateObjectIdentity`; the record then claims an empty digest. |
++| Creation kind registry | `TestCreateIdentityRefusals/kind` at `CreateIdentity` | N-create-kind admits exactly `window_handle`; the owner backstop degrades the refusal. |
++| Creation session shape | `TestCreateIdentityRefusals/session_id` at `CreateIdentity` | N-create-session admits exactly `not-a-uuid`; the owner backstop degrades the refusal. |
++| Discovery root rule | `TestDecodeNativeDiscoveryRefusals/root_relative_admitted-token` at `DecodeNativeDiscovery` | N-discovery-root admits exactly `sessions/admitted`; every other relative root still refuses. |
++| Discovery platform registry | `TestDecodeNativeDiscoveryRefusals/platform_registry` at `DecodeNativeDiscovery` | N-discovery-platform admits exactly `plan9`; the body then decodes. |
++| Store registry | `TestStoreRootForRefusals/unknown_provider` at `StoreRootFor` | N-store-unknown admits exactly `futuredesk`, silently resolving the pi root. |
++| Store home rule | `TestStoreRootForRefusals/home_relative` at `StoreRootFor` | N-store-home admits exactly `Users/iv`; a relative root is then resolved. |
++| Store Qwen refusal | `TestStoreRootForRefusals/qwen` at `StoreRootFor` | N-store-qwen admits exactly the fixture home; the registry arm degrades the refusal. |
++| Resume Qwen refusal | `TestCheckResumeTupleRefusals/qwen_direct` at `CheckResumeTuple` | N-resume-qwen admits exactly the linux tuple; the registry arm degrades the refusal. |
++| Resume registry | `TestCheckResumeTupleRefusals/unknown_provider` at `CheckResumeTuple` | N-resume-unknown admits exactly `futuredesk`; the tuple then passes. |
++| Resume muse pin (T) | `TestCheckResumeTupleRefusals/muse_version_drift` at `CheckResumeTuple` | N-resume-muse-version keeps the pinned `0.1.0` token while admitting exactly `0.2.1`; every other version still refuses. |
++| Build drift | `TestVerifyIdentityBuildRefusals/version_drift` at `VerifyIdentityBuild` | N-build-drift admits exactly the `0.148.0` drifted build. |
++| Discovery native equality | `TestVerifyIdentityDiscoveryRefusals/native_id` at `VerifyIdentityDiscovery` | N-bind-native admits exactly the foreign fixture ID; the proof then binds. |
++| Discovery presence | `TestVerifyIdentityDiscoveryRefusals/evidence_absent` at `VerifyIdentityDiscovery` | N-bind-absent admits exactly an undiscovered proof that still carries a root. |
++| Root containment | `TestVerifyIdentityDiscoveryRefusals/root_sibling_prefix` at `VerifyIdentityDiscovery` | N-bind-contains admits exactly the sibling-prefix root. |
++| Realm resolution | `TestVerifyIdentityDiscoveryRefusals/realm_unresolved` at `VerifyIdentityDiscovery` | N-bind-unresolved admits exactly the fixture realm; the proof then binds. |
++| Override provider rule | `TestVerifyIdentityDiscoveryRefusals/override_pi-only` at `VerifyIdentityDiscovery` | N-bind-override-pi admits exactly codex; the containment arm degrades the refusal. |
++| Override absolute rule | `TestVerifyIdentityDiscoveryRefusals/override_absolute` at `VerifyIdentityDiscovery` | N-bind-override-absolute admits exactly `custom/relative`; the containment arm degrades the refusal. |
++| Root presence | `TestVerifyIdentityDiscoveryRefusals/root_missing` at `VerifyIdentityDiscovery` | N-bind-root-missing admits exactly a discovered proof with a null root; the containment arm degrades the refusal. |
++| Realm shape | `TestVerifyIdentityDiscoveryRefusals/realm_shape` at `VerifyIdentityDiscovery` | N-bind-realm-shape admits exactly `nope`; the equality arm degrades the refusal. |
++| Realm equality | `TestVerifyIdentityDiscoveryRefusals/realm_mismatch` at `VerifyIdentityDiscovery` | N-bind-realm-mismatch admits exactly the drifted fixture realm; the unresolved arm degrades the refusal. |
++
++## Bounds
++
++- Section 2.4 profile authority (Session Record creation value,
++  `profile.changed` derivation, the `profile_mapping_unavailable`
++  resume refusal) belongs to sibling TASK-260830-3uzfyn
++  (profile resolution/persistence); this leaf contributes the
++  identity records those flows carry and refuses nothing on profile
++  grounds.
++- The `provider_version_range` member is carried opaquely and
++  equality on the exact probed version is the enforced build rule:
++  the sections declare no decidable range grammar to evaluate.
++- Only the Muse macOS arm64 cell carries a version pin
++  (`A for probed 0.1.0`); exact-version acceptance for every other
++  provider stays the probe plane's decision through
++  `RequireCapability`, never this gate's.
++- Discovery-root binding is at-or-under with a separator-aware byte
++  comparison, so project-keyed subpaths count as store discovery
++  while sibling prefixes refuse. Windows case-insensitivity is out
++  of scope: comparison is byte-exact and fails closed on case drift.
++- Provider-identity binding attestation stays where the retained
++  `TestNoProductionPathAttestsProviderIdentityBinding` bound keeps
++  it: no production path outside `internal/sessrepo` calls
++  `VerifyObjectIdentity`. Creation computes digests with
++  `CalculateObjectIdentity`; only tests attest them.
++- No CLI, doctor surface, or capability advertisement is added or
++  changed: `ax` operator surfaces belong to their owning leaves.
+diff --git a/internal/provhost/closed_vocabulary_census_test.go b/internal/provhost/closed_vocabulary_census_test.go
+index 35b39f8..66c6989 100644
+--- a/internal/provhost/closed_vocabulary_census_test.go
++++ b/internal/provhost/closed_vocabulary_census_test.go
+@@ -780,6 +780,8 @@ func registeredVocabularyDerivations() []vocabularyDerivation {
+ 		{name: "responseMembers", prove: TestResponseMembersAreDerivedFromSpec},
+ 		{name: "profileNames", prove: TestProfileNamesAreDerivedFromSpec},
+ 		{name: "statusStates", prove: TestStatusStatesAreDerivedFromSpec},
++		{name: "resumeProviders", prove: TestResumeProvidersAreDerivedFromSpec},
++		{name: "discoveryMembers", prove: TestDiscoveryMembersAreDerivedFromSpec},
+ 	}
+ }
+ 
+@@ -875,4 +877,14 @@ func TestClosedMemberSetsRefuseExtraMembers(t *testing.T) {
+ 		_, err := DecodeStatusOutcome(body, testStatusIDs())
+ 		requireLocalRefusal(t, err, "integrity_failure", "status state is not a registry member")
+ 	})
++	t.Run("discovery proof carries bogus", func(t *testing.T) {
++		body := []byte(`{"native_session_id": "x", "discovered": true, "discovery_root": null, "backend_resolved": false, "bogus": 1}`)
++		_, err := DecodeNativeDiscovery(body, "macos")
++		requireFrameRefusal(t, err, "bogus", "unknown member")
++	})
++	t.Run("resume gate names bogus provider", func(t *testing.T) {
++		tuple := validBuildTuple()
++		tuple.ProviderID = "bogus"
++		requireLocalRefusal(t, CheckResumeTuple(tuple), "invalid_config", "unknown provider")
++	})
+ }
+diff --git a/internal/provhost/doc.go b/internal/provhost/doc.go
+index 558e600..aa02ea2 100644
+--- a/internal/provhost/doc.go
++++ b/internal/provhost/doc.go
+@@ -53,8 +53,10 @@
+ // values are evidence labels, not host behavior: the host pins the
+ // fail-closed direction (conditional, unsupported, and unknown are
+ // never usable) for every capability-by-status tuple rather than one
+-// cell value. Section 8.2 store-exclusion roots and the remaining
+-// Section 7.5 request vocabularies have no host production yet.
++// cell value, resolves the Section 8.2 documented store roots for
++// discovery binding, and refuses the Section 8.4 disabled resume
++// tuples. Section 8.2 store exclusions and the remaining Section 7.5
++// request vocabularies have no host production yet.
+ //
+ // Provider Protocol 3.0.0 (§7.A), which the v0.5.0 catalog pins
+ // alongside 2.0.0, is owned by internal/terminalbackend, not by this
+diff --git a/internal/provhost/identity_bind.go b/internal/provhost/identity_bind.go
+new file mode 100644
+index 0000000..e17332a
+--- /dev/null
++++ b/internal/provhost/identity_bind.go
+@@ -0,0 +1,524 @@
++package provhost
++
++import (
++	"encoding/json"
++	"path/filepath"
++	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// This file binds Provider Identity Records to the exact native facts
++// they claim: the probed build tuple, the documented store root, the
++// backend realm, and the discovery proof a materialize or resume
++// observation returned. Creation (identity_create.go) builds records;
++// this file refuses to USE one whose facts drifted.
++//
++// The Section 8 matrices are evidence labels, not availability
++// promises: every gate here refuses the fail-closed direction —
++// unknown providers and platforms, rows the matrix marks unsupported
++// or unknown, and version cells the matrix pins to an exact probe —
++// and passing a gate never advertises a capability as usable. A row
++// the matrix marks conditional still requires probe acceptance at the
++// use site through RequireCapability; only the probe plane in Section
++// 7.4 establishes usable. No gate invents parity for a gated cell.
++//
++// All binding refusals are invalid_config caller errors: the caller
++// correlated the wrong identity, proof, or tuple. Only the discovery
++// proof decoder reads plugin bytes, so only its shape arms are
++// provider_protocol_errors with member attribution.
++
++// resumeProviders is the six Section 8.2 direct providers in table
++// order: the only providers with a documented native-store row. Qwen
++// has no direct claim and future plugins start disabled, so neither
++// appears here: both refuse at their own arms below, never by table
++// default.
++var resumeProviders = []string{
++	"codex",
++	"claude",
++	"gemini",
++	"muse",
++	"antigravity",
++	"pi",
++}
++
++// BuildTuple is the exact probed provider build an identity is bound
++// to: the Section 7.4 probe members provider_id, provider_version,
++// platform, and architecture. Every binding compares exact equality;
++// there is no normalization, no prefix match, and no version-range
++// evaluation, because Section 5.5 declares the range opaque adapter
++// data rather than a decidable grammar.
++type BuildTuple struct {
++	ProviderID      string
++	ProviderVersion string
++	Platform        string
++	Architecture    string
++}
++
++// NativeDiscovery is one validated Section 7.5 NativeDiscoveryProof:
++// the native session ID the proof resolved, whether discovery
++// succeeded, the absolute root it resolved under (present exactly
++// when the proof carries a non-null discovery_root), and whether the
++// backend resolved the ID.
++type NativeDiscovery struct {
++	NativeSessionID  string
++	Discovered       bool
++	DiscoveryRoot    string
++	HasDiscoveryRoot bool
++	BackendResolved  bool
++}
++
++// DiscoveryContext carries the host-side facts one discovery proof is
++// bound against: the exact probed build tuple, the home and XDG data
++// home the Section 8.2 store root resolves from, the expected backend
++// realm digest (empty when no realm is required), and the Pi session
++// directory override (empty for the documented default).
++type DiscoveryContext struct {
++	Build             BuildTuple
++	Home              string
++	XDGDataHome       string
++	Realm             string
++	StoreRootOverride string
++}
++
++// discoveryMembers is the exact required member set of a
++// NativeDiscoveryProof.
++var discoveryMembers = map[string]bool{
++	"native_session_id": true,
++	"discovered":        true,
++	"discovery_root":    true,
++	"backend_resolved":  true,
++}
++
++// discoveryRequired lists discoveryMembers in a fixed order so a proof
++// missing several members always names the same one.
++var discoveryRequired = []string{
++	"native_session_id",
++	"discovered",
++	"discovery_root",
++	"backend_resolved",
++}
++
++// DecodeNativeDiscovery validates one Section 7.5 NativeDiscoveryProof
++// body on the named platform: the exact native session ID string, the
++// discovered and backend_resolved booleans, and an absolute
++// destination-native discovery root or null. Shape violations are
++// provider_protocol_errors; a platform outside the registry is an
++// invalid_config caller error, because the proof carries no platform
++// and the caller named it.
++func DecodeNativeDiscovery(body []byte, platform string) (NativeDiscovery, error) {
++	empty := NativeDiscovery{}
++	if !isProbePlatform(platform) {
++		failure, err := failInvalid("discovery platform is not a registry member")
++		if err != nil {
++			return empty, err
++		}
++		return empty, failure
++	}
++	members, fault := decodeStrictObject(body)
++	if fault != nil {
++		failure, err := failProtocol(fault.detail, fault.member)
++		if err != nil {
++			return empty, err
++		}
++		return empty, failure
++	}
++	if name, unknown := unknownMember(members, discoveryMembers); unknown {
++		failure, err := failProtocol("discovery carries unknown member", name)
++		if err != nil {
++			return empty, err
++		}
++		return empty, failure
++	}
++	if name, missing := missingMember(members, discoveryRequired); missing {
++		failure, err := failProtocol("discovery misses a required member", name)
++		if err != nil {
++			return empty, err
++		}
++		return empty, failure
++	}
++	native, ok := rawString(members["native_session_id"])
++	if !ok || runeLength(native) < 1 || runeLength(native) > 512 {
++		failure, err := failProtocol("discovery native_session_id is not 1..512 characters", "native_session_id")
++		if err != nil {
++			return empty, err
++		}
++		return empty, failure
++	}
++	discovered, ok := rawBool(members["discovered"])
++	if !ok {
++		failure, err := failProtocol("discovery discovered is not a boolean", "discovered")
++		if err != nil {
++			return empty, err
++		}
++		return empty, failure
++	}
++	root, isNull, ok := rawNullableString(members["discovery_root"])
++	if !ok || (!isNull && !isAbsoluteOn(root, scalar.Platform(platform))) {
++		failure, err := failProtocol("discovery discovery_root is not an absolute path or null", "discovery_root")
++		if err != nil {
++			return empty, err
++		}
++		return empty, failure
++	}
++	backendResolved, ok := rawBool(members["backend_resolved"])
++	if !ok {
++		failure, err := failProtocol("discovery backend_resolved is not a boolean", "backend_resolved")
++		if err != nil {
++			return empty, err
++		}
++		return empty, failure
++	}
++	return NativeDiscovery{
++		NativeSessionID:  native,
++		Discovered:       discovered,
++		DiscoveryRoot:    root,
++		HasDiscoveryRoot: !isNull,
++		BackendResolved:  backendResolved,
++	}, nil
++}
++
++// StoreRootFor resolves the Section 8.2 documented native-store root
++// for one provider under the given home. It returns the absolute root,
++// or backendOnly when the provider identifies through a backend realm
++// rather than a filesystem store. XDG data home applies to Muse only;
++// an empty value selects the documented default below ~/.local/share.
++// Refusals are invalid_config caller errors: Qwen has no direct claim,
++// unknown providers start disabled, and a non-absolute home cannot
++// anchor a store.
++func StoreRootFor(providerID, home, xdgDataHome string) (string, bool, error) {
++	if !validProviderID(providerID) {
++		failure, err := failInvalid("store provider is not a provider id")
++		if err != nil {
++			return "", false, err
++		}
++		return "", false, failure
++	}
++	if home == "" {
++		failure, err := failInvalid("store home is empty")
++		if err != nil {
++			return "", false, err
++		}
++		return "", false, failure
++	}
++	if !isBareAbsolute(home) {
++		failure, err := failInvalid("store home is not an absolute path")
++		if err != nil {
++			return "", false, err
++		}
++		return "", false, failure
++	}
++	if providerID == "qwen" {
++		failure, err := failInvalid("store has no direct qwen claim")
++		if err != nil {
++			return "", false, err
++		}
++		return "", false, failure
++	}
++	if !isResumeProvider(providerID) {
++		failure, err := failInvalid("store names an unknown provider")
++		if err != nil {
++			return "", false, err
++		}
++		return "", false, failure
++	}
++	// Antigravity identifies through the destination-authenticated
++	// backend realm, not a filesystem store: Section 8.2 names no
++	// durable root, and Appendix B leaves the SQLite root unsettled.
++	if providerID == "antigravity" {
++		return "", true, nil
++	}
++	if providerID == "muse" && xdgDataHome != "" {
++		if !isBareAbsolute(xdgDataHome) {
++			failure, err := failInvalid("store xdg data home is not an absolute path")
++			if err != nil {
++				return "", false, err
++			}
++			return "", false, failure
++		}
++		return filepath.Join(xdgDataHome, "muse", "sessions"), false, nil
++	}
++	if providerID == "codex" {
++		return filepath.Join(home, ".codex", "sessions"), false, nil
++	}
++	if providerID == "claude" {
++		return filepath.Join(home, ".claude", "projects"), false, nil
++	}
++	if providerID == "gemini" {
++		return filepath.Join(home, ".gemini"), false, nil
++	}
++	if providerID == "muse" {
++		return filepath.Join(home, ".local", "share", "muse", "sessions"), false, nil
++	}
++	// Only pi reaches here: six-membership is proven above and every
++	// other member returned. A seventh table member must extend this
++	// chain in the same change; the pairwise-distinctness test below
++	// the chain fails a provider silently aliased onto pi's root.
++	return filepath.Join(home, ".pi", "agent", "sessions"), false, nil
++}
++
++// CheckResumeTuple enforces the Section 8.4 native-resume direction
++// for one exact probed build tuple: unknown providers and platforms
++// refuse, the Qwen direct row refuses, the Muse native-Windows unknown
++// cell refuses, and a Muse macOS arm64 build refuses unless it is the
++// exact 0.1.0 probe the cell accepts, because Appendix B leaves every
++// newer Muse behavior unsettled with enabled false. Available and
++// conditional rows pass this gate; passing never advertises usable,
++// and conditional rows still require probe acceptance at the use site.
++func CheckResumeTuple(tuple BuildTuple) error {
++	if !validProviderID(tuple.ProviderID) {
++		failure, err := failInvalid("resume provider is not a provider id")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	if runeLength(tuple.ProviderVersion) < 1 || runeLength(tuple.ProviderVersion) > 128 {
++		failure, err := failInvalid("resume version is not 1..128 characters")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	if !isProbePlatform(tuple.Platform) {
++		failure, err := failInvalid("resume platform is not a registry member")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	if !isProbeArchitecture(tuple.Architecture) {
++		failure, err := failInvalid("resume architecture is not amd64 or arm64")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	if tuple.ProviderID == "qwen" {
++		failure, err := failInvalid("resume has no direct qwen claim")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	if !isResumeProvider(tuple.ProviderID) {
++		failure, err := failInvalid("resume names an unknown provider")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	if tuple.ProviderID == "muse" && tuple.Platform == "windows" {
++		failure, err := failInvalid("resume is unknown on this tuple")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	if tuple.ProviderID == "muse" && tuple.Platform == "macos" && tuple.Architecture == "arm64" && tuple.ProviderVersion != "0.1.0" {
++		failure, err := failInvalid("resume is unverified for this muse version")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	return nil
++}
++
++// VerifyIdentityBuild binds one Provider Identity Record to the exact
++// probed build tuple: the tuple must pass the Section 8.4 resume
++// gate, the record must validate for the tuple's provider, and the
++// record's exact probed version must equal the tuple's version. Any
++// drift between the identity's build facts and the probed facts
++// refuses, because a mapping or resume decision made for one build
++// must never silently apply to another.
++func VerifyIdentityBuild(identityBody []byte, tuple BuildTuple) error {
++	if err := CheckResumeTuple(tuple); err != nil {
++		return err
++	}
++	if err := CheckIdentity(identityBody, tuple.ProviderID); err != nil {
++		return err
++	}
++	// The members below replay the record CheckIdentity just proved
++	// well-formed, never the raw body: the fault is nil by
++	// construction, following the RequireCapability pattern, so no
++	// refusal can drift between the validation and the use.
++	members, _ := decodeStrictObject(identityBody)
++	version, _ := rawString(members["provider_version"])
++	if version != tuple.ProviderVersion {
++		failure, err := failInvalid("build version drifted from the probed tuple")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	return nil
++}
++
++// VerifyIdentityDiscovery binds one Provider Identity Record to one
++// discovery proof under the host's discovery context: the identity
++// must bind to the probed build tuple, the proof must decode on the
++// tuple's platform, its exact native ID must equal the identity's, it
++// must report discovery, its root must sit at or under the Section 8.2
++// store root (or the Pi override), and its backend resolution must
++// cover the identity's realm claim and the expected realm. A null
++// proof root is refused for filesystem providers; backend providers
++// carry no root rule because no documented root exists to bind.
++func VerifyIdentityDiscovery(identityBody, proofBody []byte, ctx DiscoveryContext) error {
++	if err := VerifyIdentityBuild(identityBody, ctx.Build); err != nil {
++		return err
++	}
++	proof, err := DecodeNativeDiscovery(proofBody, ctx.Build.Platform)
++	if err != nil {
++		return err
++	}
++	members, _ := decodeStrictObject(identityBody)
++	native, _ := rawString(members["native_session_id"])
++	if proof.NativeSessionID != native {
++		failure, err := failInvalid("bind native id does not equal the identity")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	if !proof.Discovered {
++		failure, err := failInvalid("bind discovery evidence is absent")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	if err := checkBindStoreRoot(proof, ctx); err != nil {
++		return err
++	}
++	if err := checkBindRealm(proof, members, ctx.Realm); err != nil {
++		return err
++	}
++	return nil
++}
++
++// checkBindStoreRoot requires the proof root at or under the expected
++// store root: the Pi override when the caller sets one, else the
++// Section 8.2 documented root. Backend providers return before any
++// root rule, because identity there resolves through the realm.
++func checkBindStoreRoot(proof NativeDiscovery, ctx DiscoveryContext) error {
++	expected, backendOnly, err := resolveBindRoot(ctx)
++	if err != nil {
++		return err
++	}
++	if backendOnly {
++		return nil
++	}
++	if !proof.HasDiscoveryRoot {
++		failure, err := failInvalid("bind discovery root is missing")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	if !rootContains(expected, proof.DiscoveryRoot) {
++		failure, err := failInvalid("bind discovery root is outside the provider store")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	return nil
++}
++
++// resolveBindRoot selects the expected store root: the caller override
++// for Pi, whose Section 8.2 row documents
++// PI_CODING_AGENT_SESSION_DIR and --session-dir, else the Section 8.2
++// documented root. Any other provider's override refuses: the surface
++// is documented for Pi only, and no provider inherits it by default.
++func resolveBindRoot(ctx DiscoveryContext) (string, bool, error) {
++	if ctx.StoreRootOverride != "" {
++		if ctx.Build.ProviderID != "pi" {
++			failure, err := failInvalid("bind store override is pi-only")
++			if err != nil {
++				return "", false, err
++			}
++			return "", false, failure
++		}
++		if !isAbsoluteOn(ctx.StoreRootOverride, scalar.Platform(ctx.Build.Platform)) {
++			failure, err := failInvalid("bind store override is not an absolute path")
++			if err != nil {
++				return "", false, err
++			}
++			return "", false, failure
++		}
++		return ctx.StoreRootOverride, false, nil
++	}
++	return StoreRootFor(ctx.Build.ProviderID, ctx.Home, ctx.XDGDataHome)
++}
++
++// checkBindRealm requires the proof's backend resolution to cover the
++// identity's realm claim and the caller's expected realm: an expected
++// realm must be a digest the identity carries exactly, and a
++// non-null identity realm requires backend_resolved, because the
++// realm is a resume precondition wherever it is set.
++func checkBindRealm(proof NativeDiscovery, members map[string]json.RawMessage, wantRealm string) error {
++	realm, isNull, _ := rawNullableString(members["backend_realm_fingerprint"])
++	if wantRealm != "" {
++		if !isDigest(wantRealm) {
++			failure, err := failInvalid("bind expected realm is not a digest")
++			if err != nil {
++				return err
++			}
++			return failure
++		}
++		if isNull || realm != wantRealm {
++			failure, err := failInvalid("bind realm does not equal the expected backend realm")
++			if err != nil {
++				return err
++			}
++			return failure
++		}
++	}
++	if !isNull && !proof.BackendResolved {
++		failure, err := failInvalid("bind backend realm is claimed but unresolved")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	return nil
++}
++
++// isResumeProvider reports whether the provider carries a Section 8.2
++// direct native-store row. It ranges resumeProviders, never a sample:
++// a validation that held for three providers and skipped the rest
++// would pass a tuple this gate must refuse.
++func isResumeProvider(providerID string) bool {
++	for _, provider := range resumeProviders {
++		if providerID == provider {
++			return true
++		}
++	}
++	return false
++}
++
++// isBareAbsolute reports whether the path starts with an absolute
++// prefix on any platform: a forward slash, a UNC backslash pair, or a
++// drive letter with a separator. Home and XDG roots arrive before any
++// platform is selected, so the check cannot be platform-native; the
++// proof-root rule beside it is, through isAbsoluteOn.
++func isBareAbsolute(path string) bool {
++	return strings.HasPrefix(path, "/") || strings.HasPrefix(path, `\\`) || windowsDrivePattern.MatchString(path)
++}
++
++// rootContains reports whether the observed proof root equals the
++// expected store root or sits under it: discovery of a session inside
++// a project-keyed subdirectory still counts as discovery in the
++// provider's store. Comparison is byte-exact and separator-aware, so a
++// sibling whose name merely extends the root prefix is outside.
++func rootContains(expected, observed string) bool {
++	if expected == observed {
++		return true
++	}
++	relative, err := filepath.Rel(expected, observed)
++	if err != nil {
++		return false
++	}
++	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
++}
+diff --git a/internal/provhost/identity_bind_test.go b/internal/provhost/identity_bind_test.go
+new file mode 100644
+index 0000000..11e1ad5
+--- /dev/null
++++ b/internal/provhost/identity_bind_test.go
+@@ -0,0 +1,479 @@
++package provhost
++
++import (
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/specdoc"
++)
++
++// This file proves the identity_bind.go production entries: the
++// NativeDiscoveryProof decoder, the Section 8.2 store-root table, the
++// Section 8.4 resume-tuple gate, and the build and discovery binding
++// verifiers. Every refusal below drives its production entry; the
++// arm witnesses in refusal_arm_operations_d_test.go pin each derived
++// arm to one of these entries.
++
++const (
++	bindSessionID   = "0198f4c8-3e70-7a11-8a2b-1234567890ab"
++	bindWorkspaceID = "0198f4c8-6c30-7d44-8d5e-1234567890ab"
++	bindHostID      = "0198f4c8-4a10-7b22-8b3c-1234567890ab"
++	bindNativeID    = "11111111-2222-4333-8444-555555555555"
++	bindRealm       = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaad"
++	bindHome        = "/Users/iv"
++)
++
++// validBuildTuple returns the codex macOS arm64 tuple the binding
++// tests correlate against created codex identities.
++func validBuildTuple() BuildTuple {
++	return BuildTuple{ProviderID: "codex", ProviderVersion: "0.147.0", Platform: "macos", Architecture: "arm64"}
++}
++
++// bindIdentity creates the codex identity matching validBuildTuple.
++func bindIdentity(t *testing.T) []byte {
++	t.Helper()
++	params := validCreateParams()
++	params.SessionID = bindSessionID
++	params.LogicalWorkspaceID = bindWorkspaceID
++	params.CreatedByHostID = bindHostID
++	params.NativeSessionID = bindNativeID
++	return mustCreate(t, params)
++}
++
++// bindProof renders one discovery proof body for the tests below.
++func bindProof(native, root string, nullRoot, discovered, backendResolved bool) []byte {
++	rootLiteral := "null"
++	if !nullRoot {
++		rootLiteral = `"` + root + `"`
++	}
++	boolLiteral := func(value bool) string {
++		if value {
++			return "true"
++		}
++		return "false"
++	}
++	return []byte(`{"native_session_id": "` + native + `", "discovered": ` + boolLiteral(discovered) + `, "discovery_root": ` + rootLiteral + `, "backend_resolved": ` + boolLiteral(backendResolved) + `}`)
++}
++
++// validDiscoveryContext returns the context matching validBuildTuple
++// under bindHome with no expected realm and no override.
++func validDiscoveryContext() DiscoveryContext {
++	return DiscoveryContext{Build: validBuildTuple(), Home: bindHome}
++}
++
++// TestDecodeNativeDiscoveryPositive proves both proof shapes decode:
++// a null root for backend-resolved discovery and an absolute root
++// for store discovery.
++func TestDecodeNativeDiscoveryPositive(t *testing.T) {
++	proof, err := DecodeNativeDiscovery(bindProof(bindNativeID, "", true, true, true), "macos")
++	if err != nil {
++		t.Fatalf("null-root proof: %v", err)
++	}
++	if proof.NativeSessionID != bindNativeID || !proof.Discovered || proof.HasDiscoveryRoot || !proof.BackendResolved {
++		t.Fatalf("null-root proof decodes to %+v", proof)
++	}
++	proof, err = DecodeNativeDiscovery(bindProof(bindNativeID, "/Users/iv/.codex/sessions", false, true, false), "macos")
++	if err != nil {
++		t.Fatalf("rooted proof: %v", err)
++	}
++	if proof.NativeSessionID != bindNativeID || !proof.Discovered || !proof.HasDiscoveryRoot || proof.DiscoveryRoot != "/Users/iv/.codex/sessions" || proof.BackendResolved {
++		t.Fatalf("rooted proof decodes to %+v", proof)
++	}
++}
++
++// TestDecodeNativeDiscoveryRefusals drives every proof-decoder refusal
++// through the production entry.
++func TestDecodeNativeDiscoveryRefusals(t *testing.T) {
++	rows := []struct {
++		name     string
++		body     string
++		platform string
++		member   string
++		detail   string
++	}{
++		{"unknown member", `{"native_session_id": "x", "discovered": true, "discovery_root": null, "backend_resolved": false, "score": 1}`, "macos", "score", "unknown member"},
++		{"missing member", `{"native_session_id": "x", "discovered": true, "backend_resolved": false}`, "macos", "discovery_root", "misses a required member"},
++		{"native bounds", `{"native_session_id": "", "discovered": true, "discovery_root": null, "backend_resolved": false}`, "macos", "native_session_id", "not 1..512 characters"},
++		{"discovered shape", `{"native_session_id": "x", "discovered": "yes", "discovery_root": null, "backend_resolved": false}`, "macos", "discovered", "not a boolean"},
++		{"root shape", `{"native_session_id": "x", "discovered": true, "discovery_root": 7, "backend_resolved": false}`, "macos", "discovery_root", "not an absolute path or null"},
++		{"root relative", `{"native_session_id": "x", "discovered": true, "discovery_root": "sessions/x", "backend_resolved": false}`, "macos", "discovery_root", "not an absolute path or null"},
++		{"root relative admitted-token", `{"native_session_id": "x", "discovered": true, "discovery_root": "sessions/admitted", "backend_resolved": false}`, "macos", "discovery_root", "not an absolute path or null"},
++		{"backend shape", `{"native_session_id": "x", "discovered": true, "discovery_root": null, "backend_resolved": "no"}`, "macos", "backend_resolved", "not a boolean"},
++	}
++	for _, row := range rows {
++		t.Run(row.name, func(t *testing.T) {
++			_, err := DecodeNativeDiscovery([]byte(row.body), row.platform)
++			requireFrameRefusal(t, err, row.member, row.detail)
++		})
++	}
++	t.Run("platform registry", func(t *testing.T) {
++		_, err := DecodeNativeDiscovery(bindProof(bindNativeID, "", true, true, false), "plan9")
++		requireLocalRefusal(t, err, "invalid_config", "discovery platform is not a registry member")
++	})
++	t.Run("malformed body", func(t *testing.T) {
++		_, err := DecodeNativeDiscovery([]byte(`{"native_session_id":`), "macos")
++		requireFrameRefusal(t, err, "native_session_id", "not a JSON object")
++	})
++}
++
++// TestStoreRootForTable proves the Section 8.2 documented roots
++// resolve per provider, the Muse XDG selection, and the Antigravity
++// backend-only row, which carries no filesystem root.
++func TestStoreRootForTable(t *testing.T) {
++	rows := []struct {
++		provider string
++		xdg      string
++		want     string
++		backend  bool
++	}{
++		{"codex", "", filepath.Join(bindHome, ".codex", "sessions"), false},
++		{"claude", "", filepath.Join(bindHome, ".claude", "projects"), false},
++		{"gemini", "", filepath.Join(bindHome, ".gemini"), false},
++		{"muse", "", filepath.Join(bindHome, ".local", "share", "muse", "sessions"), false},
++		{"muse", "/data/xdg", filepath.Join("/data/xdg", "muse", "sessions"), false},
++		{"pi", "", filepath.Join(bindHome, ".pi", "agent", "sessions"), false},
++		{"antigravity", "", "", true},
++	}
++	for _, row := range rows {
++		t.Run(row.provider+"/xdg="+row.xdg, func(t *testing.T) {
++			root, backendOnly, err := StoreRootFor(row.provider, bindHome, row.xdg)
++			if err != nil {
++				t.Fatalf("StoreRootFor(%q): %v", row.provider, err)
++			}
++			if backendOnly != row.backend || root != row.want {
++				t.Fatalf("StoreRootFor(%q) = (%q, %v), want (%q, %v)", row.provider, root, backendOnly, row.want, row.backend)
++			}
++		})
++	}
++}
++
++// TestStoreRootsArePairwiseDistinct proves no provider silently
++// aliases onto another provider's root: every filesystem provider
++// resolves a distinct absolute root.
++func TestStoreRootsArePairwiseDistinct(t *testing.T) {
++	seen := map[string]string{}
++	for _, provider := range resumeProviders {
++		root, backendOnly, err := StoreRootFor(provider, bindHome, "")
++		if err != nil {
++			t.Fatalf("StoreRootFor(%q): %v", provider, err)
++		}
++		if backendOnly {
++			if provider != "antigravity" {
++				t.Fatalf("StoreRootFor(%q) reports backend-only, want only antigravity", provider)
++			}
++			continue
++		}
++		if !isBareAbsolute(root) {
++			t.Fatalf("StoreRootFor(%q) = %q, want an absolute root", provider, root)
++		}
++		if other, repeated := seen[root]; repeated {
++			t.Fatalf("StoreRootFor(%q) aliases the %s root %q", provider, other, root)
++		}
++		seen[root] = provider
++	}
++	if len(seen) != 5 {
++		t.Fatalf("resolved %d filesystem roots, want 5 with antigravity backend-only", len(seen))
++	}
++}
++
++// TestStoreRootForRefusals drives every store-root refusal through the
++// production entry.
++func TestStoreRootForRefusals(t *testing.T) {
++	t.Run("provider grammar", func(t *testing.T) {
++		_, _, err := StoreRootFor("Codex", bindHome, "")
++		requireLocalRefusal(t, err, "invalid_config", "store provider is not a provider id")
++	})
++	t.Run("home empty", func(t *testing.T) {
++		_, _, err := StoreRootFor("codex", "", "")
++		requireLocalRefusal(t, err, "invalid_config", "store home is empty")
++	})
++	t.Run("home relative", func(t *testing.T) {
++		_, _, err := StoreRootFor("codex", "Users/iv", "")
++		requireLocalRefusal(t, err, "invalid_config", "store home is not an absolute path")
++	})
++	t.Run("qwen", func(t *testing.T) {
++		_, _, err := StoreRootFor("qwen", bindHome, "")
++		requireLocalRefusal(t, err, "invalid_config", "store has no direct qwen claim")
++	})
++	t.Run("unknown provider", func(t *testing.T) {
++		_, _, err := StoreRootFor("futuredesk", bindHome, "")
++		requireLocalRefusal(t, err, "invalid_config", "store names an unknown provider")
++	})
++	t.Run("xdg relative", func(t *testing.T) {
++		_, _, err := StoreRootFor("muse", bindHome, "data/xdg")
++		requireLocalRefusal(t, err, "invalid_config", "store xdg data home is not an absolute path")
++	})
++}
++
++// TestCheckResumeTuplePassesUsableRows proves the gate admits the
++// available and conditional rows it must not block: passing never
++// advertises usable, which stays the probe plane's decision.
++func TestCheckResumeTuplePassesUsableRows(t *testing.T) {
++	rows := []BuildTuple{
++		{ProviderID: "codex", ProviderVersion: "0.147.0", Platform: "macos", Architecture: "arm64"},
++		{ProviderID: "codex", ProviderVersion: "0.147.0", Platform: "windows", Architecture: "amd64"},
++		{ProviderID: "codex", ProviderVersion: "0.147.0", Platform: "wsl2", Architecture: "amd64"},
++		{ProviderID: "claude", ProviderVersion: "2.1.229", Platform: "windows", Architecture: "arm64"},
++		{ProviderID: "gemini", ProviderVersion: "0.9.0", Platform: "wsl2", Architecture: "amd64"},
++		{ProviderID: "muse", ProviderVersion: "0.1.0", Platform: "macos", Architecture: "arm64"},
++		{ProviderID: "muse", ProviderVersion: "0.2.1", Platform: "macos", Architecture: "amd64"},
++		{ProviderID: "muse", ProviderVersion: "0.2.1", Platform: "linux", Architecture: "amd64"},
++		{ProviderID: "muse", ProviderVersion: "0.2.1", Platform: "wsl2", Architecture: "arm64"},
++		{ProviderID: "antigravity", ProviderVersion: "1.1.14", Platform: "wsl2", Architecture: "amd64"},
++		{ProviderID: "pi", ProviderVersion: "0.73.1", Platform: "macos", Architecture: "arm64"},
++		{ProviderID: "pi", ProviderVersion: "0.74.0", Platform: "linux", Architecture: "amd64"},
++	}
++	for _, tuple := range rows {
++		name := tuple.ProviderID + "/" + tuple.Platform + "/" + tuple.Architecture + "@" + tuple.ProviderVersion
++		t.Run(name, func(t *testing.T) {
++			if err := CheckResumeTuple(tuple); err != nil {
++				t.Fatalf("CheckResumeTuple(%+v): %v", tuple, err)
++			}
++		})
++	}
++}
++
++// TestCheckResumeTupleRefusals drives every tuple-gate refusal through
++// the production entry, including the WSL2/native-Windows split the
++// matrix requires never to collapse.
++func TestCheckResumeTupleRefusals(t *testing.T) {
++	rows := []struct {
++		name   string
++		tuple  BuildTuple
++		detail string
++	}{
++		{"provider grammar", BuildTuple{ProviderID: "Codex", ProviderVersion: "1", Platform: "macos", Architecture: "arm64"}, "resume provider is not a provider id"},
++		{"version bounds", BuildTuple{ProviderID: "codex", ProviderVersion: "", Platform: "macos", Architecture: "arm64"}, "resume version is not 1..128 characters"},
++		{"platform registry", BuildTuple{ProviderID: "codex", ProviderVersion: "1", Platform: "plan9", Architecture: "arm64"}, "resume platform is not a registry member"},
++		{"architecture registry", BuildTuple{ProviderID: "codex", ProviderVersion: "1", Platform: "macos", Architecture: "mips"}, "resume architecture is not amd64 or arm64"},
++		{"qwen direct", BuildTuple{ProviderID: "qwen", ProviderVersion: "1", Platform: "linux", Architecture: "amd64"}, "resume has no direct qwen claim"},
++		{"unknown provider", BuildTuple{ProviderID: "futuredesk", ProviderVersion: "1", Platform: "linux", Architecture: "amd64"}, "resume names an unknown provider"},
++		{"muse native windows", BuildTuple{ProviderID: "muse", ProviderVersion: "0.2.1", Platform: "windows", Architecture: "amd64"}, "resume is unknown on this tuple"},
++		{"muse version drift", BuildTuple{ProviderID: "muse", ProviderVersion: "0.2.1", Platform: "macos", Architecture: "arm64"}, "resume is unverified for this muse version"},
++	}
++	for _, row := range rows {
++		t.Run(row.name, func(t *testing.T) {
++			requireLocalRefusal(t, CheckResumeTuple(row.tuple), "invalid_config", row.detail)
++		})
++	}
++}
++
++// TestVerifyIdentityBuildPositive proves a created record binds to its
++// exact probed tuple.
++func TestVerifyIdentityBuildPositive(t *testing.T) {
++	if err := VerifyIdentityBuild(bindIdentity(t), validBuildTuple()); err != nil {
++		t.Fatalf("VerifyIdentityBuild: %v", err)
++	}
++}
++
++// TestVerifyIdentityBuildRefusals drives the drift arm and the two
++// propagated gates through the production entry.
++func TestVerifyIdentityBuildRefusals(t *testing.T) {
++	t.Run("version drift", func(t *testing.T) {
++		tuple := validBuildTuple()
++		tuple.ProviderVersion = "0.148.0"
++		requireLocalRefusal(t, VerifyIdentityBuild(bindIdentity(t), tuple), "invalid_config", "build version drifted from the probed tuple")
++	})
++	t.Run("tuple gate propagates", func(t *testing.T) {
++		tuple := validBuildTuple()
++		tuple.ProviderID = "futuredesk"
++		requireLocalRefusal(t, VerifyIdentityBuild(bindIdentity(t), tuple), "invalid_config", "resume names an unknown provider")
++	})
++	t.Run("provider correlation propagates", func(t *testing.T) {
++		tuple := validBuildTuple()
++		tuple.ProviderID = "pi"
++		requireLocalRefusal(t, VerifyIdentityBuild(bindIdentity(t), tuple), "invalid_config", "identity names another provider")
++	})
++}
++
++// TestVerifyIdentityDiscoveryPositive proves the full binding for the
++// three discovery shapes: a store discovery at the documented root, a
++// project-keyed discovery under it, and a backend discovery with no
++// filesystem root.
++func TestVerifyIdentityDiscoveryPositive(t *testing.T) {
++	t.Run("store root", func(t *testing.T) {
++		root := filepath.Join(bindHome, ".codex", "sessions")
++		proof := bindProof(bindNativeID, root, false, true, false)
++		if err := VerifyIdentityDiscovery(bindIdentity(t), proof, validDiscoveryContext()); err != nil {
++			t.Fatalf("store discovery: %v", err)
++		}
++	})
++	t.Run("project-keyed subpath", func(t *testing.T) {
++		params := validCreateParams()
++		params.ProviderID = "claude"
++		params.ProviderVersion = "2.1.229"
++		params.ProviderVersionRange = ">=2.1.229 <2.2.0"
++		params.NativeSessionID = bindNativeID
++		identity := mustCreate(t, params)
++		ctx := validDiscoveryContext()
++		ctx.Build = BuildTuple{ProviderID: "claude", ProviderVersion: "2.1.229", Platform: "macos", Architecture: "arm64"}
++		proof := bindProof(bindNativeID, filepath.Join(bindHome, ".claude", "projects", "keyed-project"), false, true, false)
++		if err := VerifyIdentityDiscovery(identity, proof, ctx); err != nil {
++			t.Fatalf("project-keyed discovery: %v", err)
++		}
++	})
++	t.Run("pi override", func(t *testing.T) {
++		params := validCreateParams()
++		params.ProviderID = "pi"
++		params.ProviderVersion = "0.73.1"
++		params.ProviderVersionRange = ">=0.73.1 <0.74.0"
++		params.IdentityKind = "session_path_or_id"
++		params.NativeSessionID = bindNativeID
++		identity := mustCreate(t, params)
++		ctx := validDiscoveryContext()
++		ctx.Build = BuildTuple{ProviderID: "pi", ProviderVersion: "0.73.1", Platform: "macos", Architecture: "arm64"}
++		ctx.StoreRootOverride = filepath.Join(bindHome, "custom-pi-sessions")
++		proof := bindProof(bindNativeID, ctx.StoreRootOverride, false, true, false)
++		if err := VerifyIdentityDiscovery(identity, proof, ctx); err != nil {
++			t.Fatalf("pi override discovery: %v", err)
++		}
++	})
++	t.Run("backend realm", func(t *testing.T) {
++		params := validCreateParams()
++		params.ProviderID = "antigravity"
++		params.ProviderVersion = "1.1.14"
++		params.ProviderVersionRange = ">=1.1.14 <1.2.0"
++		params.IdentityKind = "backend_conversation_uuid"
++		params.BackendRealm = bindRealm
++		params.NativeSessionID = bindNativeID
++		identity := mustCreate(t, params)
++		ctx := validDiscoveryContext()
++		ctx.Build = BuildTuple{ProviderID: "antigravity", ProviderVersion: "1.1.14", Platform: "macos", Architecture: "arm64"}
++		ctx.Realm = bindRealm
++		proof := bindProof(bindNativeID, "", true, true, true)
++		if err := VerifyIdentityDiscovery(identity, proof, ctx); err != nil {
++			t.Fatalf("backend discovery: %v", err)
++		}
++	})
++}
++
++// TestVerifyIdentityDiscoveryRefusals drives every discovery-binding
++// refusal through the production entry.
++func TestVerifyIdentityDiscoveryRefusals(t *testing.T) {
++	proof := func() []byte {
++		return bindProof(bindNativeID, filepath.Join(bindHome, ".codex", "sessions"), false, true, false)
++	}
++	t.Run("native id", func(t *testing.T) {
++		other := bindProof("22222222-2222-4333-8444-555555555555", filepath.Join(bindHome, ".codex", "sessions"), false, true, false)
++		requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), other, validDiscoveryContext()), "invalid_config", "bind native id does not equal the identity")
++	})
++	t.Run("evidence absent", func(t *testing.T) {
++		absent := bindProof(bindNativeID, filepath.Join(bindHome, ".codex", "sessions"), false, false, false)
++		requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), absent, validDiscoveryContext()), "invalid_config", "bind discovery evidence is absent")
++	})
++	t.Run("override pi-only", func(t *testing.T) {
++		ctx := validDiscoveryContext()
++		ctx.StoreRootOverride = filepath.Join(bindHome, "custom")
++		requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), proof(), ctx), "invalid_config", "bind store override is pi-only")
++	})
++	t.Run("override absolute", func(t *testing.T) {
++		params := validCreateParams()
++		params.ProviderID = "pi"
++		params.ProviderVersion = "0.73.1"
++		params.ProviderVersionRange = ">=0.73.1 <0.74.0"
++		params.NativeSessionID = bindNativeID
++		identity := mustCreate(t, params)
++		ctx := validDiscoveryContext()
++		ctx.Build = BuildTuple{ProviderID: "pi", ProviderVersion: "0.73.1", Platform: "macos", Architecture: "arm64"}
++		ctx.StoreRootOverride = "custom/relative"
++		requireLocalRefusal(t, VerifyIdentityDiscovery(identity, proof(), ctx), "invalid_config", "bind store override is not an absolute path")
++	})
++	t.Run("root missing", func(t *testing.T) {
++		rootless := bindProof(bindNativeID, "", true, true, false)
++		requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), rootless, validDiscoveryContext()), "invalid_config", "bind discovery root is missing")
++	})
++	t.Run("root outside", func(t *testing.T) {
++		foreign := bindProof(bindNativeID, "/etc/provider", false, true, false)
++		requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), foreign, validDiscoveryContext()), "invalid_config", "bind discovery root is outside the provider store")
++	})
++	t.Run("root sibling prefix", func(t *testing.T) {
++		sibling := bindProof(bindNativeID, filepath.Join(bindHome, ".codex", "sessions-evil"), false, true, false)
++		requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), sibling, validDiscoveryContext()), "invalid_config", "bind discovery root is outside the provider store")
++	})
++	t.Run("realm shape", func(t *testing.T) {
++		ctx := validDiscoveryContext()
++		ctx.Realm = "nope"
++		requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), proof(), ctx), "invalid_config", "bind expected realm is not a digest")
++	})
++	t.Run("realm mismatch", func(t *testing.T) {
++		params := validCreateParams()
++		params.BackendRealm = bindRealm
++		params.NativeSessionID = bindNativeID
++		identity := mustCreate(t, params)
++		ctx := validDiscoveryContext()
++		ctx.Realm = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
++		requireLocalRefusal(t, VerifyIdentityDiscovery(identity, proof(), ctx), "invalid_config", "bind realm does not equal the expected backend realm")
++	})
++	t.Run("realm unresolved", func(t *testing.T) {
++		params := validCreateParams()
++		params.BackendRealm = bindRealm
++		params.NativeSessionID = bindNativeID
++		identity := mustCreate(t, params)
++		unresolved := bindProof(bindNativeID, filepath.Join(bindHome, ".codex", "sessions"), false, true, false)
++		requireLocalRefusal(t, VerifyIdentityDiscovery(identity, unresolved, validDiscoveryContext()), "invalid_config", "bind backend realm is claimed but unresolved")
++	})
++}
++
++// TestResumeProvidersAreDerivedFromSpec proves the resume gate holds
++// exactly the six Section 8.2 direct providers: a seventh member
++// resolving store roots or passing tuples reddens here, and the Qwen
++// and future-plugin rows below the six stay refused by their own
++// arms rather than admitted by the table.
++func TestResumeProvidersAreDerivedFromSpec(t *testing.T) {
++	document, err := specdoc.Load()
++	if err != nil {
++		t.Fatalf("specdoc.Load: %v", err)
++	}
++	window := sectionLines(t, document, "8.2", 3865, 3870)
++	requireQuote(t, document, "Muse and Antigravity rows above are normative uses", "8.2")
++	_ = window
++	var derived []string
++	for line := 3865; line <= 3870; line++ {
++		row, ok := document.TableRowAt(line)
++		if !ok {
++			t.Fatalf("SPEC.md line %d is not a table body row; the check is blind", line)
++		}
++		if row.Header != "Provider" {
++			t.Fatalf("SPEC.md line %d declares %q, want a Provider row; the check is blind", line, row.Header)
++		}
++		fields := strings.Fields(row.FirstCell)
++		if len(fields) == 0 {
++			t.Fatalf("SPEC.md line %d names no provider; the check is blind", line)
++		}
++		derived = append(derived, strings.ToLower(fields[0]))
++	}
++	if len(derived) == 0 {
++		t.Fatal("derived no providers from the Section 8.2 table; the check is blind")
++	}
++	requireMemberSet(t, "resumeProviders", append([]string(nil), resumeProviders...), derived)
++	for line := 3871; line <= 3872; line++ {
++		row, ok := document.TableRowAt(line)
++		if !ok {
++			t.Fatalf("SPEC.md line %d is not a table body row; the check is blind", line)
++		}
++		excluded := strings.ToLower(strings.Fields(row.FirstCell)[0])
++		for _, provider := range resumeProviders {
++			if provider == excluded {
++				t.Fatalf("resumeProviders admits the %q row, which must refuse by its own arm", excluded)
++			}
++		}
++	}
++	t.Logf("resume provider coverage: %d/%d providers derived", len(resumeProviders), len(derived))
++}
++
++// TestDiscoveryMembersAreDerivedFromSpec proves the exact discovery
++// member set equals the Section 7.5 NativeDiscoveryProof row: a
++// widened implementation admitting "bogus" reddens here.
++func TestDiscoveryMembersAreDerivedFromSpec(t *testing.T) {
++	document, err := specdoc.Load()
++	if err != nil {
++		t.Fatalf("specdoc.Load: %v", err)
++	}
++	row := sectionLines(t, document, "7.5", 2893, 2893)
++	var got []string
++	for member := range discoveryMembers {
++		got = append(got, member)
++	}
++	requireMemberSet(t, "discoveryMembers", got, typeRowMembersOf(t, row, "NativeDiscoveryProof"))
++}
+diff --git a/internal/provhost/identity_create.go b/internal/provhost/identity_create.go
+new file mode 100644
+index 0000000..1a0b1fe
+--- /dev/null
++++ b/internal/provhost/identity_create.go
+@@ -0,0 +1,317 @@
++package provhost
++
++import (
++	"bytes"
++	"encoding/json"
++	"regexp"
++	"sort"
++	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++)
++
++// This file constructs Provider Identity Records (Section 5.5,
++// urn:ax:schema:provider-identity 1.0.0) from host-side inputs: the
++// exact native session ID, backend realm, opaque adapter data, and
++// probed build facts the adapter established before identifying the
++// session. CheckIdentity in identity.go validates records a plugin
++// returned; CreateIdentity builds records the host owns, and every
++// record it emits must pass CheckIdentity, the owner's shape entry
++// canonicaljson.CalculateObjectIdentity, and the binding attestation
++// canonicaljson.VerifyObjectIdentity, because record_id is the true
++// omit-self digest computed here, never a carried claim.
++//
++// Creation is a pure function of its params: no clock, no randomness,
++// no filesystem, no durable state. Identical params marshal through
++// encoding/json's bytewise-sorted map keys and the single textual
++// record_id substitution below, so identical inputs emit byte-identical
++// records across calls and processes, which is the idempotency this
++// leaf promises. A time-varying created_at is the caller's input, not
++// this function's decision: two creations at different instants name
++// different instants and MUST differ, exactly as their params do.
++//
++// Every refusal is an invalid_config caller error: the caller, not a
++// plugin, supplied the bad input. The member rules mirror CheckIdentity
++// arm for arm (bounds, key grammar, the Antigravity backend-kind realm
++// requirement, the absolute-prefix half of the opaque rule), and the
++// verdict is conjoined with the owner's production identity entry the
++// same way: a record this dialect admits but the owner refuses is
++// refused at the backstop below rather than emitted through a drifted
++// copy. Any shape-rule change must land in all three sites — here,
++// CheckIdentity, and validateProviderIdentityRecord — in the same
++// change.
++
++// IdentityParams carries the host-side facts one Provider Identity
++// Record is built from. SessionID becomes both subject_id and
++// session_id, which Section 5.5 requires equal. BackendRealm is a
++// content digest, or the empty string for a null fingerprint.
++// OpaqueIdentity maps adapter keys to values; a nil map means the
++// empty map. Extensions maps reverse-DNS keys to JSON values; a nil
++// map means the empty object.
++type IdentityParams struct {
++	SessionID            string
++	ProviderID           string
++	ProviderVersion      string
++	ProviderVersionRange string
++	NativeSessionID      string
++	IdentityKind         string
++	LogicalWorkspaceID   string
++	BackendRealm         string
++	OpaqueIdentity       map[string]string
++	CreatedByHostID      string
++	CreatedAt            string
++	Extensions           map[string]any
++}
++
++// reverseDNSPattern is the shared extensions-key grammar: two or more
++// dot-separated lowercase labels. The symbol name and literal are
++// pinned by the environ grammar census, which requires every copy in
++// scope to spell this class identically; length 3..253 is checked
++// beside the pattern, as the owner does.
++var reverseDNSPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(\.[a-z][a-z0-9-]{0,62})+$`)
++
++// maxExtensionMembers is the owner's 64-member extensions cap.
++const maxExtensionMembers = 64
++
++// placeholderDigestId stands in for record_id while the omit-self
++// digest is computed. The owner requires the member present, so the
++// staged bytes carry this well-formed digest and the final bytes carry
++// the computed one; the substitution below matches the full
++// `"record_id":"<placeholder>"` frame, never the bare digest, so a
++// param value that repeats the digest text cannot misdirect it: values
++// marshal with their quotes escaped while the frame's quotes are bare.
++const placeholderDigestID = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
++
++// CreateIdentity builds one canonical Provider Identity Record 1.0.0
++// from host-side params. It returns the record bytes on success and
++// an invalid_config caller error naming the violated rule otherwise.
++func CreateIdentity(params IdentityParams) ([]byte, error) {
++	if !isUUIDv7(params.SessionID) {
++		failure, err := failInvalid("create session_id is not a UUIDv7")
++		if err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	if !validProviderID(params.ProviderID) {
++		failure, err := failInvalid("create provider_id is not a provider id")
++		if err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	if runeLength(params.ProviderVersion) < 1 || runeLength(params.ProviderVersion) > 128 {
++		failure, err := failInvalid("create provider_version is not 1..128 characters")
++		if err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	if runeLength(params.ProviderVersionRange) < 1 || runeLength(params.ProviderVersionRange) > 256 {
++		failure, err := failInvalid("create provider_version_range is not 1..256 characters")
++		if err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	if runeLength(params.NativeSessionID) < 1 || runeLength(params.NativeSessionID) > 512 {
++		failure, err := failInvalid("create native_session_id is not 1..512 characters")
++		if err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	if !isIdentityKind(params.IdentityKind) {
++		failure, err := failInvalid("create identity_kind is not a registry member")
++		if err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	if !isUUIDv7(params.LogicalWorkspaceID) {
++		failure, err := failInvalid("create logical_workspace_id is not a UUIDv7")
++		if err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	if params.BackendRealm != "" && !isDigest(params.BackendRealm) {
++		failure, err := failInvalid("create backend_realm_fingerprint is not a digest or empty")
++		if err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	if params.ProviderID == "antigravity" && params.IdentityKind == "backend_conversation_uuid" && params.BackendRealm == "" {
++		failure, err := failInvalid("create backend_realm_fingerprint is required for this backend kind")
++		if err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	if err := checkCreateOpaque(params.OpaqueIdentity); err != nil {
++		return nil, err
++	}
++	if !isUUIDv7(params.CreatedByHostID) {
++		failure, err := failInvalid("create created_by_host_id is not a UUIDv7")
++		if err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	if !isTimestamp(params.CreatedAt) {
++		failure, err := failInvalid("create created_at is not a timestamp")
++		if err != nil {
++			return nil, err
++		}
++		return nil, failure
++	}
++	if err := checkCreateExtensions(params.Extensions); err != nil {
++		return nil, err
++	}
++	object := map[string]any{
++		"schema":                    identitySchema,
++		"schema_version":            identitySchemaVersion,
++		"record_id":                 placeholderDigestID,
++		"subject_id":                params.SessionID,
++		"session_id":                params.SessionID,
++		"provider_id":               params.ProviderID,
++		"provider_version":          params.ProviderVersion,
++		"provider_version_range":    params.ProviderVersionRange,
++		"native_session_id":         params.NativeSessionID,
++		"identity_kind":             params.IdentityKind,
++		"logical_workspace_id":      params.LogicalWorkspaceID,
++		"backend_realm_fingerprint": nil,
++		"opaque_identity":           opaqueJSON(params.OpaqueIdentity),
++		"created_by_host_id":        params.CreatedByHostID,
++		"created_at":                params.CreatedAt,
++		"extensions":                extensionsJSON(params.Extensions),
++	}
++	if params.BackendRealm != "" {
++		object["backend_realm_fingerprint"] = params.BackendRealm
++	}
++	// Only extension values can fail this marshal: every other member
++	// is a string, a nil, or a string map, all infallible. A channel,
++	// function, or other non-JSON Go value in extensions refuses here
++	// rather than emitting a partial record.
++	staged, err := json.Marshal(object)
++	if err != nil {
++		failure, ferr := failInvalid("create extensions carry a non-JSON value")
++		if ferr != nil {
++			return nil, ferr
++		}
++		return nil, failure
++	}
++	// The backstop conjoins the owner's production identity entry:
++	// extension nesting beyond depth 4, an extensions object past its
++	// byte bound, or any other owner rule this dialect never reads is
++	// refused here rather than emitted. The digest return is the true
++	// omit-self identity the final record claims.
++	digest, _, err := canonicaljson.CalculateObjectIdentity(staged)
++	if err != nil {
++		failure, ferr := failInvalid("create params are not a valid provider identity")
++		if ferr != nil {
++			return nil, ferr
++		}
++		return nil, failure
++	}
++	framed := []byte(`"record_id":"` + placeholderDigestID + `"`)
++	claimed := []byte(`"record_id":"` + digest.String() + `"`)
++	return bytes.Replace(staged, framed, claimed, 1), nil
++}
++
++// checkCreateOpaque enforces the explicit adapter-data surface on
++// creation params: an object of at most 32 entries, keyed by the
++// provider-identity key grammar, with non-secret string values of
++// 1..1,024 characters that MUST NOT begin with an absolute path.
++// Keys iterate sorted so a params value violating several entries
++// always names the same rule.
++func checkCreateOpaque(opaque map[string]string) error {
++	if len(opaque) > 32 {
++		failure, err := failInvalid("create opaque_identity exceeds 32 entries")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	keys := make([]string, 0, len(opaque))
++	for key := range opaque {
++		keys = append(keys, key)
++	}
++	sort.Strings(keys)
++	for _, key := range keys {
++		if !identityKeyPattern.MatchString(key) {
++			failure, err := failInvalid("create opaque key is not a provider key")
++			if err != nil {
++				return err
++			}
++			return failure
++		}
++		value := opaque[key]
++		if runeLength(value) < 1 || runeLength(value) > 1024 {
++			failure, err := failInvalid("create opaque value is not 1..1024 characters")
++			if err != nil {
++				return err
++			}
++			return failure
++		}
++		if strings.HasPrefix(value, "/") || strings.HasPrefix(value, `\\`) || windowsDrivePattern.MatchString(value) {
++			failure, err := failInvalid("create opaque value begins with an absolute path")
++			if err != nil {
++				return err
++			}
++			return failure
++		}
++	}
++	return nil
++}
++
++// checkCreateExtensions enforces the extensions count and key rules on
++// creation params: at most 64 entries keyed by 3..253-character
++// lowercase reverse-DNS names. Value depth and the object byte bound
++// belong to the owner's backstop in CreateIdentity, which refuses what
++// these arms cannot see. Keys iterate sorted so a params value
++// violating several entries always names the same rule.
++func checkCreateExtensions(extensions map[string]any) error {
++	if len(extensions) > maxExtensionMembers {
++		failure, err := failInvalid("create extensions exceed 64 entries")
++		if err != nil {
++			return err
++		}
++		return failure
++	}
++	keys := make([]string, 0, len(extensions))
++	for key := range extensions {
++		keys = append(keys, key)
++	}
++	sort.Strings(keys)
++	for _, key := range keys {
++		if len(key) < 3 || len(key) > 253 || !reverseDNSPattern.MatchString(key) {
++			failure, err := failInvalid("create extension key is not reverse-DNS")
++			if err != nil {
++				return err
++			}
++			return failure
++		}
++	}
++	return nil
++}
++
++// opaqueJSON renders the opaque map for the staged record: a nil map
++// means the empty object, never null.
++func opaqueJSON(opaque map[string]string) map[string]any {
++	rendered := make(map[string]any, len(opaque))
++	for key, value := range opaque {
++		rendered[key] = value
++	}
++	return rendered
++}
++
++// extensionsJSON renders the extensions map for the staged record: a
++// nil map means the empty object, never null.
++func extensionsJSON(extensions map[string]any) map[string]any {
++	if extensions == nil {
++		return map[string]any{}
++	}
++	return extensions
++}
+diff --git a/internal/provhost/identity_create_test.go b/internal/provhost/identity_create_test.go
+new file mode 100644
+index 0000000..be86899
+--- /dev/null
++++ b/internal/provhost/identity_create_test.go
+@@ -0,0 +1,216 @@
++package provhost
++
++import (
++	"bytes"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++)
++
++// This file proves the CreateIdentity production entry: every record
++// it emits validates through CheckIdentity, the owner's shape entry,
++// and the binding attestation; identical params emit byte-identical
++// records; and every refusal names its rule through invalid_config.
++// The conformance test at the end drives a created record through the
++// landed Host.Call harness, so creation and transport agree on the
++// same bytes.
++
++// validCreateParams returns params for a codex session_uuid identity
++// with no backend realm: the baseline every creation test mutates.
++func validCreateParams() IdentityParams {
++	return IdentityParams{
++		SessionID:            "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++		ProviderID:           "codex",
++		ProviderVersion:      "0.147.0",
++		ProviderVersionRange: ">=0.147.0 <0.148.0",
++		NativeSessionID:      "11111111-2222-4333-8444-555555555555",
++		IdentityKind:         "session_uuid",
++		LogicalWorkspaceID:   "0198f4c8-6c30-7d44-8d5e-1234567890ab",
++		BackendRealm:         "",
++		OpaqueIdentity:       map[string]string{},
++		CreatedByHostID:      "0198f4c8-4a10-7b22-8b3c-1234567890ab",
++		CreatedAt:            "2026-08-19T04:03:00.000Z",
++		Extensions:           map[string]any{},
++	}
++}
++
++func mustCreate(t *testing.T, params IdentityParams) []byte {
++	t.Helper()
++	record, err := CreateIdentity(params)
++	if err != nil {
++		t.Fatalf("CreateIdentity: %v", err)
++	}
++	return record
++}
++
++// TestCreateIdentityEmitsAttestedRecord proves a created record is
++// accepted everywhere a plugin-returned record is: the host dialect,
++// the owner's shape entry, and the binding attestation, which must
++// return the claimed record_id itself.
++func TestCreateIdentityEmitsAttestedRecord(t *testing.T) {
++	record := mustCreate(t, validCreateParams())
++	if err := CheckIdentity(record, "codex"); err != nil {
++		t.Fatalf("created record fails CheckIdentity: %v", err)
++	}
++	if _, _, err := canonicaljson.CalculateObjectIdentity(record); err != nil {
++		t.Fatalf("created record fails the owner shape entry: %v", err)
++	}
++	digest, field, err := canonicaljson.VerifyObjectIdentity(record)
++	if err != nil {
++		t.Fatalf("created record fails binding attestation: %v", err)
++	}
++	if field != "record_id" {
++		t.Fatalf("binding self field = %q, want record_id", field)
++	}
++	members, fault := decodeStrictObject(record)
++	if fault != nil {
++		t.Fatalf("created record is not a strict object: %v %q", fault.detail, fault.member)
++	}
++	claimed, ok := rawString(members["record_id"])
++	if !ok || claimed != digest.String() {
++		t.Fatalf("created record_id = %q, want the attested digest %q", claimed, digest.String())
++	}
++}
++
++// TestCreateIdentityAntigravityRecord proves the backend-kind positive
++// control: an Antigravity backend_conversation_uuid with a realm, an
++// opaque entry, and an extension is created and attested.
++func TestCreateIdentityAntigravityRecord(t *testing.T) {
++	params := validCreateParams()
++	params.ProviderID = "antigravity"
++	params.ProviderVersion = "1.1.14"
++	params.ProviderVersionRange = ">=1.1.14 <1.2.0"
++	params.IdentityKind = "backend_conversation_uuid"
++	params.BackendRealm = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaad"
++	params.OpaqueIdentity = map[string]string{"adapter": "agy-cli"}
++	params.Extensions = map[string]any{"com.example.adapter": "v1"}
++	record := mustCreate(t, params)
++	if err := CheckIdentity(record, "antigravity"); err != nil {
++		t.Fatalf("created antigravity record fails CheckIdentity: %v", err)
++	}
++	if _, _, err := canonicaljson.VerifyObjectIdentity(record); err != nil {
++		t.Fatalf("created antigravity record fails binding attestation: %v", err)
++	}
++}
++
++// TestCreateIdentityIsByteIdentical proves creation idempotency: the
++// same params emit the same bytes on every call, despite Go map
++// iteration order randomizing beneath the marshal.
++func TestCreateIdentityIsByteIdentical(t *testing.T) {
++	params := validCreateParams()
++	params.OpaqueIdentity = map[string]string{"b": "2", "a": "1", "c": "3"}
++	params.Extensions = map[string]any{"com.example.b": 2, "com.example.a": 1}
++	first := mustCreate(t, params)
++	for i := 0; i < 25; i++ {
++		if again := mustCreate(t, params); !bytes.Equal(again, first) {
++			t.Fatalf("creation %d differs from the first emission", i+1)
++		}
++	}
++}
++
++// TestCreateIdentityPlaceholderDigestInParams proves the record_id
++// substitution cannot be misdirected by hostile params: a native ID
++// repeating the placeholder digest text, and an opaque value framing
++// it as a record_id member, still emit a record whose binding
++// attests. The opaque framing attempt marshals with escaped quotes,
++// so it never matches the bare-quote substitution frame.
++func TestCreateIdentityPlaceholderDigestInParams(t *testing.T) {
++	params := validCreateParams()
++	params.NativeSessionID = placeholderDigestID
++	params.OpaqueIdentity = map[string]string{"trap": `"record_id":"` + placeholderDigestID + `"`}
++	record := mustCreate(t, params)
++	digest, _, err := canonicaljson.VerifyObjectIdentity(record)
++	if err != nil {
++		t.Fatalf("hostile params fail binding attestation: %v", err)
++	}
++	members, fault := decodeStrictObject(record)
++	if fault != nil {
++		t.Fatalf("created record is not a strict object: %v %q", fault.detail, fault.member)
++	}
++	claimed, _ := rawString(members["record_id"])
++	if claimed != digest.String() {
++		t.Fatalf("created record_id = %q, want the attested digest %q", claimed, digest.String())
++	}
++	if n := bytes.Count(record, []byte(`"record_id":"`)); n != 1 {
++		t.Fatalf("created record carries %d record_id frames, want exactly one", n)
++	}
++}
++
++// TestCreateIdentityRefusals drives every creation refusal through
++// the production entry: each row mutates one param of the valid
++// baseline and requires the invalid_config arm naming that rule.
++func TestCreateIdentityRefusals(t *testing.T) {
++	deepExtensions := func() map[string]any {
++		return map[string]any{"com.example.deep": map[string]any{"l1": map[string]any{"l2": map[string]any{"l3": map[string]any{"l4": map[string]any{"l5": "x"}}}}}}
++	}
++	manyExtensions := func() map[string]any {
++		out := map[string]any{}
++		for i := 0; i < 65; i++ {
++			out["com.example.k"+pad2(i)] = i
++		}
++		return out
++	}
++	manyOpaque := func() map[string]string {
++		out := map[string]string{}
++		for i := 0; i < 33; i++ {
++			out["k"+pad2(i)] = "x"
++		}
++		return out
++	}
++	rows := []struct {
++		name   string
++		mutate func(*IdentityParams)
++		detail string
++	}{
++		{"session id", func(p *IdentityParams) { p.SessionID = "not-a-uuid" }, "create session_id is not a UUIDv7"},
++		{"provider id", func(p *IdentityParams) { p.ProviderID = "Codex" }, "create provider_id is not a provider id"},
++		{"version empty", func(p *IdentityParams) { p.ProviderVersion = "" }, "create provider_version is not 1..128 characters"},
++		{"version overlong", func(p *IdentityParams) { p.ProviderVersion = strings.Repeat("v", 129) }, "create provider_version is not 1..128 characters"},
++		{"range empty", func(p *IdentityParams) { p.ProviderVersionRange = "" }, "create provider_version_range is not 1..256 characters"},
++		{"native empty", func(p *IdentityParams) { p.NativeSessionID = "" }, "create native_session_id is not 1..512 characters"},
++		{"kind", func(p *IdentityParams) { p.IdentityKind = "window_handle" }, "create identity_kind is not a registry member"},
++		{"workspace", func(p *IdentityParams) { p.LogicalWorkspaceID = "0198f4c8-6c30-7d44-8d5e-1234567890aG" }, "create logical_workspace_id is not a UUIDv7"},
++		{"realm shape", func(p *IdentityParams) { p.BackendRealm = "nope" }, "create backend_realm_fingerprint is not a digest or empty"},
++		{"realm required", func(p *IdentityParams) {
++			p.ProviderID = "antigravity"
++			p.IdentityKind = "backend_conversation_uuid"
++			p.BackendRealm = ""
++		}, "create backend_realm_fingerprint is required for this backend kind"},
++		{"opaque count", func(p *IdentityParams) { p.OpaqueIdentity = manyOpaque() }, "create opaque_identity exceeds 32 entries"},
++		{"opaque key", func(p *IdentityParams) { p.OpaqueIdentity = map[string]string{"Bad Key!": "x"} }, "create opaque key is not a provider key"},
++		{"opaque value bounds", func(p *IdentityParams) { p.OpaqueIdentity = map[string]string{"ok": ""} }, "create opaque value is not 1..1024 characters"},
++		{"opaque absolute prefix", func(p *IdentityParams) { p.OpaqueIdentity = map[string]string{"workdir": "/Users/iv/work"} }, "create opaque value begins with an absolute path"},
++		{"host id", func(p *IdentityParams) { p.CreatedByHostID = "0198f4c8-4a10-7b22-8b3c-1234567890aG" }, "create created_by_host_id is not a UUIDv7"},
++		{"timestamp", func(p *IdentityParams) { p.CreatedAt = "yesterday" }, "create created_at is not a timestamp"},
++		{"extensions count", func(p *IdentityParams) { p.Extensions = manyExtensions() }, "create extensions exceed 64 entries"},
++		{"extensions key", func(p *IdentityParams) { p.Extensions = map[string]any{"NoDNS": true} }, "create extension key is not reverse-DNS"},
++		{"extensions value", func(p *IdentityParams) { p.Extensions = map[string]any{"com.example.bad": make(chan int)} }, "create extensions carry a non-JSON value"},
++		{"owner backstop", func(p *IdentityParams) { p.Extensions = deepExtensions() }, "create params are not a valid provider identity"},
++	}
++	for _, row := range rows {
++		t.Run(row.name, func(t *testing.T) {
++			params := validCreateParams()
++			row.mutate(&params)
++			_, err := CreateIdentity(params)
++			requireLocalRefusal(t, err, "invalid_config", row.detail)
++		})
++	}
++}
++
++// TestCreatedIdentityRoundTripsIdentifyCall proves creation agrees
++// with the transport: a created record embedded in an
++// identify-session result travels one Host.Call and validates for
++// its provider at DecodeIdentifyResult.
++func TestCreatedIdentityRoundTripsIdentifyCall(t *testing.T) {
++	runner := &scriptRunner{}
++	record := mustCreate(t, validCreateParams())
++	result := `{"identity": ` + string(record) + `, "confidence": "exact", "matched_evidence": ["native_id"]}`
++	body := callWithBody(t, runner, OpIdentifySession, testRequestID, frameFor(t, testRequestID, result))
++	if err := DecodeIdentifyResult(body, "codex"); err != nil {
++		t.Fatalf("created identity through Call: %v", err)
++	}
++	if runner.spawned() != 1 {
++		t.Fatalf("identify Call spawned %d processes, want one", runner.spawned())
++	}
++}
+diff --git a/internal/provhost/refusal_arm_inventory_test.go b/internal/provhost/refusal_arm_inventory_test.go
+index 34af38e..2209746 100644
+--- a/internal/provhost/refusal_arm_inventory_test.go
++++ b/internal/provhost/refusal_arm_inventory_test.go
+@@ -69,8 +69,13 @@ import (
+ // new arm witnessed in declaredOperationWitnesses below, then 162 ->
+ // 164 by the lone-surrogate gate and 164 -> 166 by the UTF-8 gate:
+ // one frame arm in decodeStrictObject plus its status-body integrity
+-// expansion each, every one witnessed above.
+-const refusalArmCensusFloor = 166
++// expansion each, every one witnessed above. Raised 166 -> 216 by the
++// provider-identity creation leaf (CreateIdentity, the discovery
++// decoder, store roots, the resume-tuple gate, and the build and
++// discovery bindings), each new arm witnessed in
++// declaredOperationWitnessesIdentityCreate. The pre-existing domain
++// derived 167 against the 166 floor, so 167 + 50 pins 217 exactly.
++const refusalArmCensusFloor = 217
+ 
+ func deriveRefusalArms(t *testing.T) map[string]struct{} {
+ 	t.Helper()
+@@ -779,7 +784,7 @@ func declaredParseWitnesses() []armWitness {
+ func TestDerivedRefusalArmsAreAllWitnessed(t *testing.T) {
+ 	derived := deriveRefusalArms(t)
+ 	witnessed := map[string]int{}
+-	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...)...)...) {
++	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...), declaredOperationWitnessesIdentityCreate()...)...)...) {
+ 		witnessed[witness.arm]++
+ 	}
+ 	var missing []string
+@@ -802,7 +807,7 @@ func TestDerivedRefusalArmsAreAllWitnessed(t *testing.T) {
+ func TestWitnessedArmsAreAllDerived(t *testing.T) {
+ 	derived := deriveRefusalArms(t)
+ 	var orphans []string
+-	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...)...)...) {
++	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...), declaredOperationWitnessesIdentityCreate()...)...)...) {
+ 		if _, ok := derived[witness.arm]; !ok {
+ 			orphans = append(orphans, witness.arm+" ("+witness.name+")")
+ 		}
+@@ -816,7 +821,7 @@ func TestWitnessedArmsAreAllDerived(t *testing.T) {
+ // TestEveryArmWitnessRefusesAtTheProductionEntry drives every witness
+ // through its production entry point and requires the attributed refusal.
+ func TestEveryArmWitnessRefusesAtTheProductionEntry(t *testing.T) {
+-	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...)...)...) {
++	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...), declaredOperationWitnessesIdentityCreate()...)...)...) {
+ 		t.Run(witness.arm+"/"+witness.name, func(t *testing.T) {
+ 			witness.prove(t)
+ 		})
+diff --git a/internal/provhost/refusal_arm_operations_d_test.go b/internal/provhost/refusal_arm_operations_d_test.go
+new file mode 100644
+index 0000000..a54d7fb
+--- /dev/null
++++ b/internal/provhost/refusal_arm_operations_d_test.go
+@@ -0,0 +1,272 @@
++package provhost
++
++import (
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++// declaredOperationWitnessesIdentityCreate proves the identity
++// creation and binding arms: CreateIdentity params, the
++// NativeDiscoveryProof decoder, the Section 8.2 store-root table, the
++// Section 8.4 resume-tuple gate, and the build and discovery binding
++// verifiers. It extends declaredOperationWitnessesIdentity in
++// refusal_arm_operations_c_test.go; the split is file size only.
++func declaredOperationWitnessesIdentityCreate() []armWitness {
++	createParams := func(mutate func(*IdentityParams)) IdentityParams {
++		params := validCreateParams()
++		mutate(&params)
++		return params
++	}
++	return []armWitness{
++		// Creation arms, through CreateIdentity.
++		{arm: `ctor|failInvalid|create session_id is not a UUIDv7`, name: "create bogus session", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.SessionID = "nope" }))
++			requireLocalRefusal(t, err, "invalid_config", "create session_id is not a UUIDv7")
++		}},
++		{arm: `ctor|failInvalid|create provider_id is not a provider id`, name: "create uppercase provider", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.ProviderID = "Codex" }))
++			requireLocalRefusal(t, err, "invalid_config", "create provider_id is not a provider id")
++		}},
++		{arm: `ctor|failInvalid|create provider_version is not 1..128 characters`, name: "create empty version", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.ProviderVersion = "" }))
++			requireLocalRefusal(t, err, "invalid_config", "create provider_version is not 1..128 characters")
++		}},
++		{arm: `ctor|failInvalid|create provider_version_range is not 1..256 characters`, name: "create empty range", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.ProviderVersionRange = "" }))
++			requireLocalRefusal(t, err, "invalid_config", "create provider_version_range is not 1..256 characters")
++		}},
++		{arm: `ctor|failInvalid|create native_session_id is not 1..512 characters`, name: "create empty native id", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.NativeSessionID = "" }))
++			requireLocalRefusal(t, err, "invalid_config", "create native_session_id is not 1..512 characters")
++		}},
++		{arm: `ctor|failInvalid|create identity_kind is not a registry member`, name: "create window handle kind", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.IdentityKind = "window_handle" }))
++			requireLocalRefusal(t, err, "invalid_config", "create identity_kind is not a registry member")
++		}},
++		{arm: `ctor|failInvalid|create logical_workspace_id is not a UUIDv7`, name: "create bogus workspace", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.LogicalWorkspaceID = "nope" }))
++			requireLocalRefusal(t, err, "invalid_config", "create logical_workspace_id is not a UUIDv7")
++		}},
++		{arm: `ctor|failInvalid|create backend_realm_fingerprint is not a digest or empty`, name: "create garbage realm", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.BackendRealm = "nope" }))
++			requireLocalRefusal(t, err, "invalid_config", "create backend_realm_fingerprint is not a digest or empty")
++		}},
++		{arm: `ctor|failInvalid|create backend_realm_fingerprint is required for this backend kind`, name: "create antigravity null realm", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) {
++				p.ProviderID = "antigravity"
++				p.IdentityKind = "backend_conversation_uuid"
++			}))
++			requireLocalRefusal(t, err, "invalid_config", "create backend_realm_fingerprint is required for this backend kind")
++		}},
++		{arm: `ctor|failInvalid|create opaque_identity exceeds 32 entries`, name: "create 33 opaque entries", prove: func(t *testing.T) {
++			opaque := map[string]string{}
++			for i := 0; i < 33; i++ {
++				opaque["k"+pad2(i)] = "x"
++			}
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.OpaqueIdentity = opaque }))
++			requireLocalRefusal(t, err, "invalid_config", "create opaque_identity exceeds 32 entries")
++		}},
++		{arm: `ctor|failInvalid|create opaque key is not a provider key`, name: "create bad opaque key", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.OpaqueIdentity = map[string]string{"Bad Key!": "x"} }))
++			requireLocalRefusal(t, err, "invalid_config", "create opaque key is not a provider key")
++		}},
++		{arm: `ctor|failInvalid|create opaque value is not 1..1024 characters`, name: "create empty opaque value", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.OpaqueIdentity = map[string]string{"ok": ""} }))
++			requireLocalRefusal(t, err, "invalid_config", "create opaque value is not 1..1024 characters")
++		}},
++		{arm: `ctor|failInvalid|create opaque value begins with an absolute path`, name: "create absolute opaque value", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.OpaqueIdentity = map[string]string{"workdir": "/tmp/x"} }))
++			requireLocalRefusal(t, err, "invalid_config", "create opaque value begins with an absolute path")
++		}},
++		{arm: `ctor|failInvalid|create created_by_host_id is not a UUIDv7`, name: "create bogus host", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.CreatedByHostID = "nope" }))
++			requireLocalRefusal(t, err, "invalid_config", "create created_by_host_id is not a UUIDv7")
++		}},
++		{arm: `ctor|failInvalid|create created_at is not a timestamp`, name: "create bogus timestamp", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.CreatedAt = "yesterday" }))
++			requireLocalRefusal(t, err, "invalid_config", "create created_at is not a timestamp")
++		}},
++		{arm: `ctor|failInvalid|create extensions exceed 64 entries`, name: "create 65 extensions", prove: func(t *testing.T) {
++			extensions := map[string]any{}
++			for i := 0; i < 65; i++ {
++				extensions["com.example.k"+pad2(i)] = i
++			}
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.Extensions = extensions }))
++			requireLocalRefusal(t, err, "invalid_config", "create extensions exceed 64 entries")
++		}},
++		{arm: `ctor|failInvalid|create extension key is not reverse-DNS`, name: "create bad extension key", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.Extensions = map[string]any{"NoDNS": true} }))
++			requireLocalRefusal(t, err, "invalid_config", "create extension key is not reverse-DNS")
++		}},
++		{arm: `ctor|failInvalid|create extensions carry a non-JSON value`, name: "create channel extension", prove: func(t *testing.T) {
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.Extensions = map[string]any{"com.example.bad": make(chan int)} }))
++			requireLocalRefusal(t, err, "invalid_config", "create extensions carry a non-JSON value")
++		}},
++		{arm: `ctor|failInvalid|create params are not a valid provider identity`, name: "create deep extensions", prove: func(t *testing.T) {
++			deep := map[string]any{"com.example.deep": map[string]any{"l1": map[string]any{"l2": map[string]any{"l3": map[string]any{"l4": map[string]any{"l5": "x"}}}}}}
++			_, err := CreateIdentity(createParams(func(p *IdentityParams) { p.Extensions = deep }))
++			requireLocalRefusal(t, err, "invalid_config", "create params are not a valid provider identity")
++		}},
++		// Discovery decoder arms, through DecodeNativeDiscovery.
++		{arm: `ctor|failInvalid|discovery platform is not a registry member`, name: "discovery plan9 platform", prove: func(t *testing.T) {
++			_, err := DecodeNativeDiscovery(bindProof("x", "", true, true, false), "plan9")
++			requireLocalRefusal(t, err, "invalid_config", "discovery platform is not a registry member")
++		}},
++		{arm: `ctor|failProtocol|discovery carries unknown member`, name: "discovery score member", prove: func(t *testing.T) {
++			body := []byte(`{"native_session_id": "x", "discovered": true, "discovery_root": null, "backend_resolved": false, "score": 1}`)
++			_, err := DecodeNativeDiscovery(body, "macos")
++			requireFrameRefusal(t, err, "score", "unknown member")
++		}},
++		{arm: `ctor|failProtocol|discovery misses a required member`, name: "discovery without root", prove: func(t *testing.T) {
++			body := []byte(`{"native_session_id": "x", "discovered": true, "backend_resolved": false}`)
++			_, err := DecodeNativeDiscovery(body, "macos")
++			requireFrameRefusal(t, err, "discovery_root", "misses a required member")
++		}},
++		{arm: `ctor|failProtocol|discovery native_session_id is not 1..512 characters`, name: "discovery empty native id", prove: func(t *testing.T) {
++			_, err := DecodeNativeDiscovery(bindProof("", "", true, true, false), "macos")
++			requireFrameRefusal(t, err, "native_session_id", "not 1..512 characters")
++		}},
++		{arm: `ctor|failProtocol|discovery discovered is not a boolean`, name: "discovery string discovered", prove: func(t *testing.T) {
++			body := []byte(`{"native_session_id": "x", "discovered": "yes", "discovery_root": null, "backend_resolved": false}`)
++			_, err := DecodeNativeDiscovery(body, "macos")
++			requireFrameRefusal(t, err, "discovered", "not a boolean")
++		}},
++		{arm: `ctor|failProtocol|discovery discovery_root is not an absolute path or null`, name: "discovery relative root", prove: func(t *testing.T) {
++			_, err := DecodeNativeDiscovery(bindProof("x", "sessions/relative", false, true, false), "macos")
++			requireFrameRefusal(t, err, "discovery_root", "not an absolute path or null")
++		}},
++		{arm: `ctor|failProtocol|discovery backend_resolved is not a boolean`, name: "discovery string backend", prove: func(t *testing.T) {
++			body := []byte(`{"native_session_id": "x", "discovered": true, "discovery_root": null, "backend_resolved": "no"}`)
++			_, err := DecodeNativeDiscovery(body, "macos")
++			requireFrameRefusal(t, err, "backend_resolved", "not a boolean")
++		}},
++		// Store-root arms, through StoreRootFor.
++		{arm: `ctor|failInvalid|store provider is not a provider id`, name: "store uppercase provider", prove: func(t *testing.T) {
++			_, _, err := StoreRootFor("Codex", bindHome, "")
++			requireLocalRefusal(t, err, "invalid_config", "store provider is not a provider id")
++		}},
++		{arm: `ctor|failInvalid|store home is empty`, name: "store empty home", prove: func(t *testing.T) {
++			_, _, err := StoreRootFor("codex", "", "")
++			requireLocalRefusal(t, err, "invalid_config", "store home is empty")
++		}},
++		{arm: `ctor|failInvalid|store home is not an absolute path`, name: "store relative home", prove: func(t *testing.T) {
++			_, _, err := StoreRootFor("codex", "Users/iv", "")
++			requireLocalRefusal(t, err, "invalid_config", "store home is not an absolute path")
++		}},
++		{arm: `ctor|failInvalid|store has no direct qwen claim`, name: "store qwen", prove: func(t *testing.T) {
++			_, _, err := StoreRootFor("qwen", bindHome, "")
++			requireLocalRefusal(t, err, "invalid_config", "store has no direct qwen claim")
++		}},
++		{arm: `ctor|failInvalid|store names an unknown provider`, name: "store future provider", prove: func(t *testing.T) {
++			_, _, err := StoreRootFor("futuredesk", bindHome, "")
++			requireLocalRefusal(t, err, "invalid_config", "store names an unknown provider")
++		}},
++		{arm: `ctor|failInvalid|store xdg data home is not an absolute path`, name: "store relative xdg", prove: func(t *testing.T) {
++			_, _, err := StoreRootFor("muse", bindHome, "data/xdg")
++			requireLocalRefusal(t, err, "invalid_config", "store xdg data home is not an absolute path")
++		}},
++		// Resume-tuple arms, through CheckResumeTuple.
++		{arm: `ctor|failInvalid|resume provider is not a provider id`, name: "resume uppercase provider", prove: func(t *testing.T) {
++			tuple := validBuildTuple()
++			tuple.ProviderID = "Codex"
++			requireLocalRefusal(t, CheckResumeTuple(tuple), "invalid_config", "resume provider is not a provider id")
++		}},
++		{arm: `ctor|failInvalid|resume version is not 1..128 characters`, name: "resume empty version", prove: func(t *testing.T) {
++			tuple := validBuildTuple()
++			tuple.ProviderVersion = ""
++			requireLocalRefusal(t, CheckResumeTuple(tuple), "invalid_config", "resume version is not 1..128 characters")
++		}},
++		{arm: `ctor|failInvalid|resume platform is not a registry member`, name: "resume plan9 platform", prove: func(t *testing.T) {
++			tuple := validBuildTuple()
++			tuple.Platform = "plan9"
++			requireLocalRefusal(t, CheckResumeTuple(tuple), "invalid_config", "resume platform is not a registry member")
++		}},
++		{arm: `ctor|failInvalid|resume architecture is not amd64 or arm64`, name: "resume mips architecture", prove: func(t *testing.T) {
++			tuple := validBuildTuple()
++			tuple.Architecture = "mips"
++			requireLocalRefusal(t, CheckResumeTuple(tuple), "invalid_config", "resume architecture is not amd64 or arm64")
++		}},
++		{arm: `ctor|failInvalid|resume has no direct qwen claim`, name: "resume qwen", prove: func(t *testing.T) {
++			tuple := validBuildTuple()
++			tuple.ProviderID = "qwen"
++			requireLocalRefusal(t, CheckResumeTuple(tuple), "invalid_config", "resume has no direct qwen claim")
++		}},
++		{arm: `ctor|failInvalid|resume names an unknown provider`, name: "resume future provider", prove: func(t *testing.T) {
++			tuple := validBuildTuple()
++			tuple.ProviderID = "futuredesk"
++			requireLocalRefusal(t, CheckResumeTuple(tuple), "invalid_config", "resume names an unknown provider")
++		}},
++		{arm: `ctor|failInvalid|resume is unknown on this tuple`, name: "resume muse native windows", prove: func(t *testing.T) {
++			tuple := BuildTuple{ProviderID: "muse", ProviderVersion: "0.2.1", Platform: "windows", Architecture: "amd64"}
++			requireLocalRefusal(t, CheckResumeTuple(tuple), "invalid_config", "resume is unknown on this tuple")
++		}},
++		{arm: `ctor|failInvalid|resume is unverified for this muse version`, name: "resume muse 0.2.1 arm64", prove: func(t *testing.T) {
++			tuple := BuildTuple{ProviderID: "muse", ProviderVersion: "0.2.1", Platform: "macos", Architecture: "arm64"}
++			requireLocalRefusal(t, CheckResumeTuple(tuple), "invalid_config", "resume is unverified for this muse version")
++		}},
++		// Build-binding arm, through VerifyIdentityBuild.
++		{arm: `ctor|failInvalid|build version drifted from the probed tuple`, name: "build drifted version", prove: func(t *testing.T) {
++			tuple := validBuildTuple()
++			tuple.ProviderVersion = "0.148.0"
++			requireLocalRefusal(t, VerifyIdentityBuild(bindIdentity(t), tuple), "invalid_config", "build version drifted from the probed tuple")
++		}},
++		// Discovery-binding arms, through VerifyIdentityDiscovery.
++		{arm: `ctor|failInvalid|bind native id does not equal the identity`, name: "bind foreign native id", prove: func(t *testing.T) {
++			proof := bindProof("22222222-2222-4333-8444-555555555555", filepath.Join(bindHome, ".codex", "sessions"), false, true, false)
++			requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), proof, validDiscoveryContext()), "invalid_config", "bind native id does not equal the identity")
++		}},
++		{arm: `ctor|failInvalid|bind discovery evidence is absent`, name: "bind undiscovered proof", prove: func(t *testing.T) {
++			proof := bindProof(bindNativeID, filepath.Join(bindHome, ".codex", "sessions"), false, false, false)
++			requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), proof, validDiscoveryContext()), "invalid_config", "bind discovery evidence is absent")
++		}},
++		{arm: `ctor|failInvalid|bind store override is pi-only`, name: "bind codex override", prove: func(t *testing.T) {
++			ctx := validDiscoveryContext()
++			ctx.StoreRootOverride = filepath.Join(bindHome, "custom")
++			proof := bindProof(bindNativeID, filepath.Join(bindHome, ".codex", "sessions"), false, true, false)
++			requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), proof, ctx), "invalid_config", "bind store override is pi-only")
++		}},
++		{arm: `ctor|failInvalid|bind store override is not an absolute path`, name: "bind relative pi override", prove: func(t *testing.T) {
++			params := validCreateParams()
++			params.ProviderID = "pi"
++			params.ProviderVersion = "0.73.1"
++			params.ProviderVersionRange = ">=0.73.1 <0.74.0"
++			identity := mustCreate(t, params)
++			ctx := validDiscoveryContext()
++			ctx.Build = BuildTuple{ProviderID: "pi", ProviderVersion: "0.73.1", Platform: "macos", Architecture: "arm64"}
++			ctx.StoreRootOverride = "custom/relative"
++			proof := bindProof(params.NativeSessionID, filepath.Join(bindHome, ".pi", "agent", "sessions"), false, true, false)
++			requireLocalRefusal(t, VerifyIdentityDiscovery(identity, proof, ctx), "invalid_config", "bind store override is not an absolute path")
++		}},
++		{arm: `ctor|failInvalid|bind discovery root is missing`, name: "bind null store root", prove: func(t *testing.T) {
++			proof := bindProof(bindNativeID, "", true, true, false)
++			requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), proof, validDiscoveryContext()), "invalid_config", "bind discovery root is missing")
++		}},
++		{arm: `ctor|failInvalid|bind discovery root is outside the provider store`, name: "bind foreign root", prove: func(t *testing.T) {
++			proof := bindProof(bindNativeID, "/etc/provider", false, true, false)
++			requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), proof, validDiscoveryContext()), "invalid_config", "bind discovery root is outside the provider store")
++		}},
++		{arm: `ctor|failInvalid|bind expected realm is not a digest`, name: "bind garbage realm", prove: func(t *testing.T) {
++			ctx := validDiscoveryContext()
++			ctx.Realm = "nope"
++			proof := bindProof(bindNativeID, filepath.Join(bindHome, ".codex", "sessions"), false, true, false)
++			requireLocalRefusal(t, VerifyIdentityDiscovery(bindIdentity(t), proof, ctx), "invalid_config", "bind expected realm is not a digest")
++		}},
++		{arm: `ctor|failInvalid|bind realm does not equal the expected backend realm`, name: "bind drifted realm", prove: func(t *testing.T) {
++			params := validCreateParams()
++			params.BackendRealm = bindRealm
++			identity := mustCreate(t, params)
++			ctx := validDiscoveryContext()
++			ctx.Realm = "sha256:" + strings.Repeat("b", 64)
++			proof := bindProof(params.NativeSessionID, filepath.Join(bindHome, ".codex", "sessions"), false, true, true)
++			requireLocalRefusal(t, VerifyIdentityDiscovery(identity, proof, ctx), "invalid_config", "bind realm does not equal the expected backend realm")
++		}},
++		{arm: `ctor|failInvalid|bind backend realm is claimed but unresolved`, name: "bind unresolved realm", prove: func(t *testing.T) {
++			params := validCreateParams()
++			params.BackendRealm = bindRealm
++			identity := mustCreate(t, params)
++			proof := bindProof(params.NativeSessionID, filepath.Join(bindHome, ".codex", "sessions"), false, true, false)
++			requireLocalRefusal(t, VerifyIdentityDiscovery(identity, proof, validDiscoveryContext()), "invalid_config", "bind backend realm is claimed but unresolved")
++		}},
++	}
++}
+diff --git a/internal/provhost/testdata/mutate_identity.py b/internal/provhost/testdata/mutate_identity.py
+new file mode 100644
+index 0000000..0a65731
+--- /dev/null
++++ b/internal/provhost/testdata/mutate_identity.py
+@@ -0,0 +1,143 @@
++#!/usr/bin/env python3
++"""Run isolated behavioral mutants for provider-identity creation; never modify the managed Story checkout.
++Usage: PYTHONDONTWRITEBYTECODE=1 python3 internal/provhost/testdata/mutate_identity.py /absolute/evidence/directory
++Every subprocess runs directly, logs its real exit, and has a bounded timeout.
++The battery proves each gate by narrowing, never by deletion: every N-
++mutant keeps its gate present and weakens it to admit exactly one member
++of the class the gate must reject, and a named behavioral test must fail.
++Text-inspecting gates carry a token-preserving mutant, and the harness
++always executes the behavioral suites, never only a static checker.
++"""
++import hashlib
++import json
++from pathlib import Path
++import re
++import shutil
++import subprocess
++import sys
++
++root = Path(__file__).resolve().parents[3]
++output = Path(sys.argv[1]).resolve()
++output.mkdir(parents=True, exist_ok=True)
++copy = output / 'mutation-source'
++if copy.exists():
++    raise SystemExit('refusing to overwrite an existing mutation source')
++copy.mkdir()
++shutil.copytree(root / 'internal', copy / 'internal')
++for name in ('go.mod', 'go.sum', 'README.md', 'LOGBOOK.md'):
++    shutil.copy2(root / name, copy / name)
++create_source = copy / 'internal/provhost/identity_create.go'
++create_base = create_source.read_text()
++bind_source = copy / 'internal/provhost/identity_bind.go'
++bind_base = bind_source.read_text()
++results = []
++
++REALM_A = 'sha256:' + 'a' * 63 + 'd'
++REALM_B = 'sha256:' + 'b' * 64
++
++# Keep each mutant bounded to the smallest named behavioral suite that can
++# observe its gate. This is still the same subprocess instrument and every
++# selected test drives a production entry point; the control rows run the
++# complete package. A missing mapping is a harness error, never an
++# accidental empty test selection.
++TEST_PATTERNS = {
++    'N-create-native-empty': r'^TestCreateIdentityRefusals$',
++    'N-create-opaque-abs': r'^TestCreateIdentityRefusals$',
++    'N-create-realm-required': r'^TestCreateIdentityRefusals$',
++    'N-create-backstop': r'^TestCreateIdentityRefusals$',
++    'N-create-kind': r'^TestCreateIdentityRefusals$',
++    'N-create-session': r'^TestCreateIdentityRefusals$',
++    'N-discovery-root': r'^TestDecodeNativeDiscoveryRefusals$',
++    'N-discovery-platform': r'^TestDecodeNativeDiscoveryRefusals$',
++    'N-store-unknown': r'^TestStoreRootForRefusals$',
++    'N-store-home': r'^TestStoreRootForRefusals$',
++    'N-store-qwen': r'^TestStoreRootForRefusals$',
++    'N-resume-qwen': r'^TestCheckResumeTupleRefusals$',
++    'N-resume-unknown': r'^TestCheckResumeTupleRefusals$',
++    'N-resume-muse-version': r'^TestCheckResumeTupleRefusals$',
++    'N-build-drift': r'^TestVerifyIdentityBuildRefusals$',
++    'N-bind-native': r'^TestVerifyIdentityDiscoveryRefusals$',
++    'N-bind-absent': r'^TestVerifyIdentityDiscoveryRefusals$',
++    'N-bind-contains': r'^TestVerifyIdentityDiscoveryRefusals$',
++    'N-bind-unresolved': r'^TestVerifyIdentityDiscoveryRefusals$',
++    'N-bind-override-pi': r'^TestVerifyIdentityDiscoveryRefusals$',
++    'N-bind-override-absolute': r'^TestVerifyIdentityDiscoveryRefusals$',
++    'N-bind-root-missing': r'^TestVerifyIdentityDiscoveryRefusals$',
++    'N-bind-realm-shape': r'^TestVerifyIdentityDiscoveryRefusals$',
++    'N-bind-realm-mismatch': r'^TestVerifyIdentityDiscoveryRefusals$',
++    'C-harmless-comment': None,
++    'C-not-applied': None,
++    'C-compile-failure': None,
++}
++
++def test_command(name):
++    pattern = TEST_PATTERNS.get(name, 'MISSING')
++    if pattern == 'MISSING':
++        raise SystemExit(f'no behavioral test mapping for {name}')
++    if pattern is None:
++        return ['go', 'test', './internal/provhost', '-count=1', '-v']
++    return ['go', 'test', './internal/provhost', '-run', pattern, '-count=1', '-v']
++
++def run(name, path, old, new, narrow):
++    original = path.read_text()
++    if original.count(old) != 1:
++        results.append(dict(mutant=name, classification='NOT_APPLIED', count=original.count(old), bound=narrow))
++        print(name, 'NOT_APPLIED', original.count(old), flush=True)
++        return
++    path.write_text(original.replace(old, new))
++    command = test_command(name)
++    try:
++        with (output / (name + '.log')).open('w') as log:
++            process = subprocess.run(command, cwd=copy, stdout=log, stderr=subprocess.STDOUT, timeout=180)
++        text = (output / (name + '.log')).read_text()
++        failures = re.findall(r'^\s*--- FAIL: ([^ ]+)', text, re.M)
++        ran_tests = re.findall(r'^=== RUN ', text, re.M)
++        classification = 'COMPILE_OR_HARNESS_FAILURE' if not ran_tests else ('SURVIVED' if process.returncode == 0 else ('KILLED' if failures else 'COMPILE_OR_HARNESS_FAILURE'))
++        results.append(dict(mutant=name, classification=classification, exit=process.returncode, failed_tests=failures, bound=narrow, command=command))
++        print(name, classification, process.returncode, ', '.join(failures), flush=True)
++    finally:
++        path.write_text(original)
++        assert hashlib.sha256(path.read_bytes()).digest() == hashlib.sha256(original.encode()).digest()
++
++with (output / 'control-before.log').open('w') as log:
++    before = subprocess.run(['go','test','./internal/provhost','-count=1'],cwd=copy,stdout=log,stderr=subprocess.STDOUT,timeout=300)
++results.append(dict(mutant='control-before', classification='CONTROL', exit=before.returncode))
++print('control-before', 'CONTROL', before.returncode, flush=True)
++if before.returncode:
++    raise SystemExit('baseline failed')
++run('N-create-native-empty',create_source,'if runeLength(params.NativeSessionID) < 1 || runeLength(params.NativeSessionID) > 512 {','if runeLength(params.NativeSessionID) < 0 || runeLength(params.NativeSessionID) > 512 {','Admit exactly the empty native session ID; overlong IDs still refuse.')
++run('N-create-opaque-abs',create_source,r'if strings.HasPrefix(value, "/") || strings.HasPrefix(value, `\\`) || windowsDrivePattern.MatchString(value) {',r'if strings.HasSuffix(value, "/") || strings.HasPrefix(value, `\\`) || windowsDrivePattern.MatchString(value) {','Preserve the searched-for "/" token while checking the wrong end; a leading-absolute opaque value is admitted while UNC and drive forms still refuse.')
++run('N-create-realm-required',create_source,'if params.ProviderID == "antigravity" && params.IdentityKind == "backend_conversation_uuid" && params.BackendRealm == "" {','if params.ProviderID == "antigravity" && params.IdentityKind == "backend_conversation_uuid" && params.BackendRealm == "" && params.NativeSessionID != "11111111-2222-4333-8444-555555555555" {','Admit exactly the fixture native ID past the Antigravity null-realm arm; the owner backstop still refuses it with a degraded detail.')
++run('N-create-backstop',create_source,'digest, _, err := canonicaljson.CalculateObjectIdentity(staged)\n\tif err != nil {','digest, _, err := canonicaljson.CalculateObjectIdentity(staged)\n\tif err != nil && params.SessionID != "0198f4c8-3e70-7a11-8a2b-1234567890ab" {','Admit exactly the fixture session past the owner backstop; the deep-extensions negative then succeeds with an empty record_id claim.')
++run('N-create-kind',create_source,'if !isIdentityKind(params.IdentityKind) {','if !isIdentityKind(params.IdentityKind) && params.IdentityKind != "window_handle" {','Admit exactly window_handle past the kind arm; the owner backstop still refuses it with a degraded detail.')
++run('N-create-session',create_source,'if !isUUIDv7(params.SessionID) {','if !isUUIDv7(params.SessionID) && params.SessionID != "not-a-uuid" {','Admit exactly not-a-uuid past the session arm; the owner backstop still refuses it with a degraded detail.')
++run('N-discovery-root',bind_source,'if !ok || (!isNull && !isAbsoluteOn(root, scalar.Platform(platform))) {','if !ok || (!isNull && !isAbsoluteOn(root, scalar.Platform(platform)) && root != "sessions/admitted") {','Admit exactly the sessions/admitted relative root; every other relative root still refuses.')
++run('N-discovery-platform',bind_source,'if !isProbePlatform(platform) {','if !isProbePlatform(platform) && platform != "plan9" {','Admit exactly the plan9 platform past the registry arm; the body then decodes and the refusal disappears.')
++run('N-store-unknown',bind_source,'if !isResumeProvider(providerID) {','if !isResumeProvider(providerID) && providerID != "futuredesk" {','Admit exactly futuredesk past the store registry arm; it silently resolves the pi root.')
++run('N-store-home',bind_source,'if !isBareAbsolute(home) {','if !isBareAbsolute(home) && home != "Users/iv" {','Admit exactly the Users/iv relative home; a relative store root is then resolved.')
++run('N-store-qwen',bind_source,'if providerID == "qwen" {','if providerID == "qwen" && home != "/Users/iv" {','Admit exactly the fixture home past the qwen arm; the registry arm still refuses it with a degraded detail.')
++run('N-resume-qwen',bind_source,'if tuple.ProviderID == "qwen" {','if tuple.ProviderID == "qwen" && tuple.Platform != "linux" {','Admit exactly the linux tuple past the qwen arm; the registry arm still refuses it with a degraded detail.')
++run('N-resume-unknown',bind_source,'if !isResumeProvider(tuple.ProviderID) {','if !isResumeProvider(tuple.ProviderID) && tuple.ProviderID != "futuredesk" {','Admit exactly futuredesk past the resume registry arm; the tuple then passes the gate.')
++run('N-resume-muse-version',bind_source,'if tuple.ProviderID == "muse" && tuple.Platform == "macos" && tuple.Architecture == "arm64" && tuple.ProviderVersion != "0.1.0" {','if tuple.ProviderID == "muse" && tuple.Platform == "macos" && tuple.Architecture == "arm64" && tuple.ProviderVersion != "0.1.0" && tuple.ProviderVersion != "0.2.1" {','Preserve the pinned 0.1.0 token while admitting exactly 0.2.1; every other unverified version still refuses.')
++run('N-build-drift',bind_source,'if version != tuple.ProviderVersion {','if version != tuple.ProviderVersion && tuple.ProviderVersion != "0.148.0" {','Admit exactly the 0.148.0 drifted build; every other drifted version still refuses.')
++run('N-bind-native',bind_source,'if proof.NativeSessionID != native {','if proof.NativeSessionID != native && proof.NativeSessionID != "22222222-2222-4333-8444-555555555555" {','Admit exactly the foreign fixture native ID; the proof then binds and the refusal disappears.')
++run('N-bind-absent',bind_source,'\tif !proof.Discovered {','\tif !proof.Discovered && !proof.HasDiscoveryRoot {','Admit exactly an undiscovered proof that still carries a root; a rootless undiscovered proof still refuses.')
++run('N-bind-contains',bind_source,'if !rootContains(expected, proof.DiscoveryRoot) {','if !rootContains(expected, proof.DiscoveryRoot) && proof.DiscoveryRoot != "/Users/iv/.codex/sessions-evil" {','Admit exactly the sibling-prefix root; every other foreign root still refuses.')
++run('N-bind-unresolved',bind_source,'if !isNull && !proof.BackendResolved {','if !isNull && !proof.BackendResolved && realm != "' + REALM_A + '" {','Admit exactly the fixture realm past the unresolved arm; the proof then binds and the refusal disappears.')
++run('N-bind-override-pi',bind_source,'if ctx.Build.ProviderID != "pi" {','if ctx.Build.ProviderID != "pi" && ctx.Build.ProviderID != "codex" {','Admit exactly codex past the pi-only arm; the root-containment arm still refuses it with a degraded detail.')
++run('N-bind-override-absolute',bind_source,'if !isAbsoluteOn(ctx.StoreRootOverride, scalar.Platform(ctx.Build.Platform)) {','if !isAbsoluteOn(ctx.StoreRootOverride, scalar.Platform(ctx.Build.Platform)) && ctx.StoreRootOverride != "custom/relative" {','Admit exactly the custom/relative override past the absolute arm; the root-containment arm still refuses it with a degraded detail.')
++run('N-bind-root-missing',bind_source,'\tif !proof.HasDiscoveryRoot {','\tif !proof.HasDiscoveryRoot && !proof.Discovered {','Admit exactly a discovered proof with a null root; the root-containment arm still refuses it with a degraded detail.')
++run('N-bind-realm-shape',bind_source,'if !isDigest(wantRealm) {','if !isDigest(wantRealm) && wantRealm != "nope" {','Admit exactly the nope realm past the shape arm; the realm-equality arm still refuses it with a degraded detail.')
++run('N-bind-realm-mismatch',bind_source,'if isNull || realm != wantRealm {','if isNull || realm != wantRealm && wantRealm != "' + REALM_B + '" {','Admit exactly the drifted fixture realm past the equality arm; the unresolved arm still refuses it with a degraded detail.')
++run('C-harmless-comment',bind_source,'// resolveBindRoot selects the expected store root: the caller override','// resolveBindRoot selects the expected store root: the caller override\n// classifier control: comment only, no behavior change.','Applied control: a behavior-preserving plant survives through the same instrument.')
++run('C-not-applied',bind_source,'TOKEN_THAT_IS_NOT_PRESENT','replacement','Application control: missing patch is not a killed mutant.')
++run('C-compile-failure',bind_source,'package provhost','package provhost\nthis is invalid Go','Compilation control: no named failed behavioral test is not a kill.')
++with (output / 'control-after.log').open('w') as log:
++    after = subprocess.run(['go','test','./internal/provhost','-count=1'],cwd=copy,stdout=log,stderr=subprocess.STDOUT,timeout=300)
++results.append(dict(mutant='control-after',classification='CONTROL', exit=after.returncode))
++print('control-after', 'CONTROL', after.returncode, flush=True)
++assert create_source.read_text() == create_base and bind_source.read_text() == bind_base
++(output / 'mutants.json').write_text(json.dumps(results,indent=2)+'\n')
++# Controls are reported separately from the applied behavioral denominator.
++bad = [row for row in results if row['mutant'].startswith('N-') and row['classification'] != 'KILLED']
++raise SystemExit(1 if bad or after.returncode else 0)
