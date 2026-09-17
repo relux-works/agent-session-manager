@@ -39,8 +39,22 @@ import (
 // it, and the conjoined CalculateObjectIdentity entry validates shape
 // only (its digest return is discarded below); the entry that would
 // attest the binding, canonicaljson.VerifyObjectIdentity, has no
-// production call site anywhere in the repository, so no transport gate
-// and no persistence path recomputes a provider-identity digest today.
+// production call site attesting provider-identity records. The only
+// production call sites (internal/sessrepo, TASK-260830-wbpf1v) attest
+// session-record and session-event bindings — and the load
+// re-verification among them does recompute whatever digest stored
+// bytes claim, including a provider-identity one, before refusing it.
+// The two entry decodes refuse any other schema before Verify; the
+// load path re-verifies stored blobs through Verify and refuses a
+// non-event_id self field or an index-disagreeing digest at its named
+// arms (pinned in that leaf by
+// TestLoadRefusesProviderIdentityBlobAtEventPath and
+// TestLoadRefusesSwappedEventBlobs). So no transport gate and no
+// persistence path attests a provider-identity binding today; the one
+// path that recomputes such a digest refuses it. An earlier revision
+// of this comment claimed a schema gate in front of every Verify call,
+// which the load site never had; that false universal is withdrawn
+// here.
 //
 // This is deferred, not decided. Conjoining Verify here would refuse
 // records this gate documents as admitted: every boundary admission in

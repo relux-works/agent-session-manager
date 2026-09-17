@@ -3,7 +3,315 @@
 > Institutional memory. Concise, factual, high-signal.
 > Newest entries first. One block per insight.
 
+## 2026-09-17
+
+### TASK-260830-21gygk — rev16 rework: normalize Go aliases in the sealed-capability census
+- REVIEW FINDING CLOSED (CR15 P2-A): the package-wide `go/types` census
+  compared lexical `*types.TypeName` objects, so a Go alias could bypass the
+  sealed `checkpointSeal`/`checkpointSealToken` inventory. The initial alias
+  baseline admitted the direct, token, chained, and container plants; its
+  recorded exit was 1 before the fix.
+- FIX (`internal/sessquery/rev11_regression_test.go`): every sealed type and
+  value identity path now applies `types.Unalias` before canonical comparison
+  and before structural descent. The recursive coverage includes chained
+  aliases, pointers, arrays, slices, maps, channels, structs, function
+  signatures, generic arguments, interfaces, type parameters, and unions.
+  Unrelated named capability types are not opened through their underlying
+  representation, so the census keeps the public capability boundary intact.
+- TESTS (`internal/sessquery/rev15_regression_test.go`): direct, chained,
+  container, and function-signature alias plants all refuse through the same
+  production census entry. The existing callback-provenance negative now binds
+  its unknown callback locally inside the approved profile flow, isolating the
+  callback object-identity gate from the independent package-scope sealed-value
+  guard; its narrowing mutant is killed by the same instrument.
+- MUTANTS: the final local battery (`mutants-rev16b`) reports 66/66 applied N/B
+  plants killed (63 narrowing, 3 ordering). The applied harmless control is
+  `SURVIVED`; `NOT_APPLIED` and `COMPILE_OR_HARNESS_FAILURE` remain separate
+  classifier outcomes. The alias mutant removes `types.Unalias` only from the
+  nested sealed-value recursion path and fails the container plant.
+- CLEANUP: removed the stray `internal/sessquery/testdata/__pycache__` Python
+  cache from the candidate; the mutation copy restored all mutated source
+  bytes and the final candidate contains no Python cache artifact.
+- COVERAGE: 8 of 8 shared-library AC rows remain driven by named production
+  entries; public CLI/lifecycle coverage is 0 of 8 by the stated ownership
+  bound. These reads and revalidations perform no durable writes, so crash and
+  mutation-idempotency evidence is not applicable to this leaf.
+- HANDOFF: final validation logs, conformance/relation matrices, and the raw
+  mutation evidence are attached to this task for independent review. The
+  Story candidate remains uncommitted.
+
+### TASK-260830-21gygk — rev15 rework: close seal/token path and callback provenance census gaps
+- REVIEW FINDINGS CLOSED (CR14 P2): the package-wide `go/types` census no
+  longer relies on composite literals alone. It rejects `new(T)`, generic
+  constructors, explicit field mutation, interface copies, `reflect.TypeFor`,
+  and `unsafe.Pointer` paths by exact `checkpointSeal`/
+  `checkpointSealToken` object identity. Profile result calls accept only the
+  exact callback parameter object recorded for that profile entry; package
+  callback variables and struct-field callbacks type-check but refuse.
+- TEMPORAL FIXTURE: `good_prechange` now points at a checkpoint head before
+  `profile.changed` and resumes with the creation pair yolo/null. The distinct
+  `good_divergent` fixture preserves a losing-lease profile-change blob outside
+  the authoritative index while admitting the winning standard/changed pair.
+  Both remain driven through BuildPlan, fresh/old-plan Revalidate,
+  AuthoritativeStatus, and AuthoritativeList.
+- MUTANTS: the final local harness reports 65/65 applied N/B plants killed
+  (62 narrowing, 3 ordering), including the new
+  `N-census-unknown-callback`. Controls are separate: before/after green,
+  harmless-comment SURVIVED, not-applied, and compile/harness-failure. No
+  control is counted as a behavioral kill.
+- VALIDATION: `go test ./... -v`, `go test ./... -cover`,
+  `go test ./... -race`, `go vet ./...`, `go build ./...`, `gofmt -l`, and
+  `git diff --check` are green on the final uncommitted Story candidate.
+  Evidence and relation/conformance matrices are attached under the task's
+  rev15 resources.
+
+## 2026-09-16
+
+### TASK-260830-21gygk — rev11 rework: referenced checkpoint admitted through the shared semantic owner
+- DEFECT (fifth C6 member, CR10 P1): `referencedCheckpointProfile`
+  treated a canonically parsed map entry as authority after only
+  session equality and head membership. A referenced resume checkpoint
+  with the wrong creator, wrong Session.kind variant, or a fencing
+  token without an admitted owning lease was consumed for derivation
+  (ported `TestReview10ReferencedCheckpointAdmission` red baseline in
+  `.temp/TASK-260830-21gygk/rev11-baseline-red.log`: 4 controls passed,
+  12 negatives admitted pre-fix through all four entries).
+- FIX (shared owner only, `internal/sessquery/lease.go`): new
+  `checkReferencedCheckpointBinding` resolves the owning lease tuple in
+  the winning ancestry and checks creator-holder, Session.kind variant,
+  and head closure via the shared helpers; the winning chain and kind
+  thread from `winningLeaseFor` through the profile path (no new store,
+  transport, publication, or materialization). Wrong-creator/variant/
+  lease references refuse observation_unavailable; historical,
+  branching, and lagging references stay admitted. Old-plan revalidation
+  now surfaces the same unavailable refusal (previously stale) because
+  authority is validated before digest comparison; no new error-order
+  requirement.
+- INSTRUMENT (class-closing): K1-K7 record-consumption table in the
+  rev11 census names every consumed record with its admission owner,
+  call site, positives, negatives, and plant; the call-graph gate
+  `TestRev11RecordConsumptionCensus` requires admission before
+  derivation in source order. Three token-preserving narrowing plants
+  (`N-referenced-creator/variant/lease`) keep every census token while
+  admitting one invalid member each; only the behavioral suites fail.
+  Battery: 63 N/B (60 N, 3 B): 46 semantic, 17 precision. Work left
+  uncommitted in the Story worktree for board CR.
+
+### TASK-260830-21gygk — rev10 rework: fork/resume profile authority closed by relation census
+- DEFECT (third verdict in the canonical-identity family, C6): the
+  shared profile gate derived every pair from the outer-walk prefix.
+  A fork.created event was never compared (no `fork.created` case),
+  so a corrupt new-session pair was admitted by all four entries
+  (CR9 P1-A, ported `TestReview9ForkLocalProfile` red baseline in
+  `.temp/TASK-260830-21gygk/rev10-baseline-red.log`); a
+  session.resumed event ignored its `checkpoint_id`, so a pair from
+  outside its referenced closure was admitted (CR9 P1-B, ported
+  `TestReview9ResumeReferencedCheckpoint` red baseline in the same
+  log: 3 positives passed, 3 negatives admitted pre-fix).
+- FIX (`internal/sessquery/lease.go`, shared owner only): new
+  `fork.created` arm compares the event pair to the new Session
+  Record creation profile with a null source (`source_profile_event_id`
+  provenance never read); the `session.resumed` arm now derives its
+  expectation from its referenced checkpoint's own event-head closure
+  via `referencedCheckpointProfile` (admitted Checkpoint Records
+  threaded from the reader; no new store). Missing/wrong-session/
+  unresolvable references refuse observation_unavailable;
+  contradictory pairs refuse integrity_failure. Later-launch
+  derivation is unchanged by normative text (launches carry no
+  `checkpoint_id`) and is pinned by retained positives plus new
+  task_board.launched rows.
+- CENSUS (class-closing instrument): six rows (provider/task_board x
+  first/later, resume, fork) each name authority input, owner arm,
+  positive control, negatives, and narrowing plant; 6 of 6 driven,
+  0 undriven. A non-null fork source has no chained fixture (the
+  canonical owner pins it at append, observed refusal); a post-head
+  launch citation has none by causal necessity (historical controls
+  prove non-consultation instead).
+- TESTS: ported probes kept verbatim; new `rev10_regression_test.go`
+  adds fork/resume matrices (direct/task_board x winner/ancestor
+  with class pins), fork + resume old-plan substitution, referenced
+  withdrawal, and task_board.launched first/later suites. Two
+  retained rev8 resume fixtures repaired for the new required input
+  (referenced record supplied; dangling-source test isolates the
+  source with a valid reference). Full `go test ./...` green.
+- ACCOUNTING CORRECTION (supersedes the rev8 "full 59-plant battery"
+  line and the blanket narrowing figure): the rev8 manifests held 56
+  unique N/B plants (39 semantic-admission, 17
+  label/class/output-precision), not 59 narrowing kills; the rev10
+  battery holds 60 unique N/B plants (43 semantic, 17 precision).
+  `N-checkpoint-heads` is a class/order precision kill through the
+  profile backstop, not semantic admission. The three classifier
+  controls (harmless SURVIVED applied, NOT_APPLIED,
+  COMPILE_OR_HARNESS_FAILURE) report separately, never in the
+  numerator. Four new semantic plants (`N-profile-fork-value`,
+  `N-profile-resume-missing`, `N-profile-resume-newest`,
+  `N-profile-first-value`) kill by behavioral admission through the
+  same instrument. Work left uncommitted in the Story worktree for
+  board CR.
+
+## 2026-09-10
+
+### TASK-260830-21gygk — rev8 rework: checkpoint profile authority admitted over the event-head closure
+- DEFECT (repeat of the canonical-identity family, C6 relationship):
+  `checkCheckpointEventHeads` resolved digests/tuples without profile
+  payloads, so a first launch citing a dangling all-zero source kept
+  every head/session/lease/creator/persistence check green and was
+  admitted by all four shared entries (CR8 P1, reviewer
+  `TestRev8CheckpointProfileAuthority` red baseline recorded pre-fix
+  in `.temp/TASK-260830-21gygk/rev8-baseline-red.log`: 4 controls
+  passed, 4 missing-source negatives admitted).
+- FIX (shared admission path, `internal/sessquery/lease.go`): new
+  `checkCheckpointProfileAuthority` runs after the heads gate for the
+  winner and every necessary ancestor at all four entries. It walks
+  the transitive predecessor closure from the winning-source chain
+  (`ListEvents` predecessors; genesis link must name the Session
+  Record, anything else dangling is integrity_failure; divergent
+  blobs outside the index never enter), reads the creation profile
+  via `GetRecord`, and binds every launch/resume pair in chain
+  order: first launch carries (creation, null), later pairs carry
+  the newest authoritative profile.changed at or before them with
+  its target; missing/out-of-closure/wrong-type/non-newest sources
+  and stale values refuse integrity_failure per SPEC 5.4. Only the
+  change target feeds derivation (source/confirmation belong to
+  publication); fork.created keeps its shape-pinned null source plus
+  cross-session provenance and is not re-derived here. Losing-lease
+  changes are observable as preserved-but-unindexed blobs (sessrepo
+  `AppendEvent` divergent arm) and refuse as unknown sources; a
+  well-formed future citation from inside the closure has no fixture
+  by causal necessity (continuity forces every prior event into the
+  closure), and the historical control proves later events are never
+  consulted instead.
+- MUTANT INTERACTION (recorded, not hidden): the new closure backstop
+  also refuses the all-zero head, so `N-checkpoint-heads` briefly
+  SURVIVED (weakened heads still green via profile refusal).
+  `TestRev7CheckpointHeadAuthority` now pins the
+  observation_unavailable class for missing/later heads
+  (`rev7CheckHeadRefusalClass` + old-plan pin): unmutated heads fire
+  first, the weakened-heads plant is KILLED again by wrong-class
+  instead of silent admission, and gate order is locked.
+- TESTS: ported reviewer probe kept as `TestRev8CheckpointProfileAuthority`;
+  new `rev8_regression_test.go` adds real-change positives
+  (launch/resume/two-generation, direct/task_board winner+ancestor,
+  fresh-plan revalidation), eight refusal classes with the integrity
+  class pinned, historical-closure admission, and old-plan
+  profile-only substitution. New narrowing plants
+  `N-profile-first-source`, `N-profile-newest`, `N-profile-value`,
+  and token-preserving `N-profile-change-direction` (from-for-to)
+  are KILLED through the same instrument with the applied harmless
+  SURVIVED control; full 59-plant battery re-run green on final
+  source (only the three design controls report separately).
+- DOCS: TRACEABILITY SelectionPlan row + six new refusal rows state
+  the gate, call sites, tests, and plants. Work left uncommitted in
+  the Story worktree for board CR.
+
+### TASK-260830-21gygk rev4 rework: winning-lease succession, parked fail-closed, closed capability vocabulary
+- CHAIN+CHECKPOINT (`internal/sessquery/lease.go`): `winningLeaseFor`
+  now validates the full succession after greatest-tuple selection.
+  `checkLeaseChain` walks the admitted ancestry by epoch plus one to
+  an epoch-1 null root; self/cycle/skip/contradictory/duplicate links
+  are `integrity_failure`, missing names/records stay
+  `selector_observation_unavailable`. `checkWinnerCheckpoint`
+  resolves the winner's `checkpoint_id` against admitted
+  `Reader.CheckpointRecords` (new input, new
+  `sessrepo.AttestCheckpointRecord` owner; provhost
+  no-attestation-outside-the-leaf bound 4→5 with justification):
+  successors must name a validated record for their session bound to
+  the predecessor lease, epoch-1 roots may carry none or a
+  self-bound one. Unresolvable references are
+  observation_unavailable, never absence.
+- PARKED (`revalidate.go`): `checkUnionCopy` fails a parked pinned
+  copy closed with observation_unavailable at build and revalidate.
+  The agreeing-record fixture isolates this gate: under the
+  narrowing mutant Revalidate/BuildPlan return nil (strong kill),
+  while the divergent member shifts to record-agreement integrity
+  (reason change only, documented subsumption). Replaces the
+  parked-ignored expectation; lagging-copy and agreeing-replica
+  behavior preserved.
+- VOCABULARY (`summary.go`): capability names admit exactly the
+  provhost-owned Section 7.3 seven-name registry through both
+  authoritative entries (`invalid_config` otherwise); exec/net
+  fixtures replaced, all-names positive added. Not the 15-name
+  adapter or 8-name directory registries.
+- EVIDENCE: reviewer probes carried verbatim (RED 4 FAIL/2 PASS
+  baseline kept); shipped battery 44N+3B KILLED exit 0 with
+  before/after green plus a harmless-comment SURVIVED control;
+  focused driver binds final file hashes. Full `go test ./...`
+  green (26 packages), race clean, coverage 87.7/87.2/86.0/92.2.
+  Outcome: task-scoped `TASK-260830-21gygk_results-rev4-rework.md`.
+  Candidate left UNCOMMITTED for the handoff snapshot.
+
 ## 2026-09-09
+
+### TASK-260830-21gygk rework: all four rev2 review findings implemented in the shared selector layer
+- FINDING 1 (union revalidation): `Revalidate` and `bindPlan` now run
+  `validateAuthorityUnion` over the local and every allowlisted source
+  for the pinned UUID after the plan-source checks. A disagreeing
+  non-parked record digest is `integrity_failure` (same class/message
+  as `Resolve`); a contradictory observed winning lease or fresh
+  tombstone evidence is `selector_plan_stale`; zero-lease copies skip
+  only the lease check; parked copies and absences never contradict;
+  unreadable required sources keep their read-failure class. Names are
+  never re-resolved: a same-name gain for another UUID stays current
+  (`TestRevalidateUnionNameDriftStaysCurrent`), an agreeing replica
+  stays current, and explicit-source no-fallback is preserved.
+- FINDING 2 (16-member plan): `SelectionPlan` gains `lease_record_id`
+  (wire, digest, shapes). This stack persists no standalone
+  `urn:ax:schema:lease` objects, so the member binds the locally
+  attested canonical digest of the validated winning envelope lease
+  recomputed from validated facts on every build/revalidation — stated
+  exactly in plan.go/TRACEABILITY/README, never a fabricated object
+  digest. Record-only builds refuse `selector_bootstrap_incomplete`;
+  local builds without a known local host refuse `invalid_config`;
+  shapes require the full positive triple. The plan-source path also
+  recompares the lease attestation, closing hand-built digest forgery.
+- FINDING 3 (summaries): `List`/`Status` refuse record-only bootstraps
+  with `selector_bootstrap_incomplete`, whole-list on any
+  unrepresentable record (mixed listings included, nil rows, nothing
+  omitted); `InspectLocal` keeps raw recovery-diagnostics access by
+  design. New closed `AuthoritativeStatus`/`AuthoritativeList` bind
+  owner names only from validated host metadata, roles only with a
+  known local host, and checkpoint timestamps only from validated
+  observations; missing required facts refuse
+  `selector_observation_unavailable`, optionals stay nil when
+  unobserved. Reviewer regression tests carried verbatim into
+  `review_test.go`.
+- FINDING 4 (narrowing): all seven `&& false` clause-disables replaced
+  with single-member admissions (revocation/hostA, config/hostC-ws,
+  binding/hostB-ws, index/idB, parked chain-mismatch record, leaseB
+  triple+attestation, two-event chain), plus new narrowings for both
+  cross-copy agreement call sites, union record/lease/tombstone, plan
+  bootstrap/host, summary bootstrap, and observation host — 33 N + 3 B
+  mutants, every one KILLED by a named behavioral test through the
+  delivered harness (battery exit 0; controls distinct, never kills).
+  Diagnosis worth keeping: the "record replacement" fixture presents
+  as a parked chain-mismatch with an empty digest, not a renamed live
+  record — the first N-rev-record plant (admitting name "renamed")
+  SURVIVED and exposed it; the corrected plant admits the parked
+  mismatch and is killed with degradation to the lease reason.
+- EVIDENCE: full validation re-derived on the final candidate (see
+  the task-scoped rework outcome); independent Astra medium review
+  and orchestrator integration own the remaining path. Candidate left
+  UNCOMMITTED in the Story worktree for the handoff snapshot.
+
+### TASK-260830-21gygk resume: re-validated v0.6.0 selector candidate, one doc-accuracy fix
+- SCOPE: resumed implementation leaf on the preserved Story worktree; trunk
+  combination re-verified byte-identical with origin/main for every shared
+  path (catalog/specdoc/specpin/traceability/config/localstore), story-only
+  sessrepo/sessstate/sessquery retained, README/LOGBOOK/provhost-comment
+  deltas intentional. No commit on the Story branch; candidate stays
+  uncommitted for handoff snapshot.
+- FIX: plan.go header claimed two contract-table members stay unbound;
+  exactly one (`lease_record_id`) is unbound while authority heads bind
+  validated event-head digests — comment corrected to match the
+  implementation, TRACEABILITY bounds, and the §14.7.2 table. No behavior
+  change; no state/error invented; record-only prefix routing unchanged
+  (creating = record AND initial lease per §§5.7/13.1, recovery with the
+  14.7.4 leaf).
+- EVIDENCE: `go build ./...` exit 0; `go test ./... -count=1` all packages
+  ok; sessquery coverage 91.0%; `go vet ./...` clean; `gofmt -l internal`
+  empty; narrowing battery re-derived on the final tree (29 KILLED, 0
+  survivors; NOT_APPLIED + COMPILE controls distinct) under
+  `.temp/TASK-260830-21gygk/sel-mutants-final/`.
 
 ### TASK-260908-2tkufa: recovered v0.6.0 consumer adoption and bound pending runtime owners
 - AUTHORITY: catalogue generation, Current, CI roots and traceability consume the adopted v0.6.0 lock/document/inventory; three release projections preserve V050/V043 history. Metadata digest `5788d45d…87b963`; ownership digest `a1ab2913…f3b130d`. Localstore explicitly calls CurrentV050. Error 1.4 remains census-only; no new runtime capability is claimed.
@@ -22,8 +330,62 @@
 - MUTANTS (4 narrowing, each admits exactly one member, each kills exactly its named subtest, full suites otherwise green, all restored cmp-clean): M1 digest+trailing-newline, M2 identity+stale-commit (v0.6.0 tokens preserved), M3 ParseV060+stale-v0.5.0-doc, M4 token-preserving delta-row Versions drop. Detail in `.temp/TASK-260908-3kvnm2/mutant-results.md`.
 - DEPENDENCY: catalogue/traceability regeneration is sibling TASK-260908-2tkufa, after this leaf checkpoints. `Current`/`Verify`/`Load` intentionally still serve v0.5.0 until then.
 - STATUS: implemented, tests green, ready for review; work left UNCOMMITTED in the Story worktree for the handoff snapshot.
+## 2026-09-08
+
+### TASK-260830-1r9wrr: missing Type-ownership gate before R2-F2 rework
+- FINDING: rev2 recognized only direct-selector dispatch. PB (copy then switch) and PC (string helper) preserved every searched token, compiled, and survived while Reduce applied an unknown-v1 lifecycle effect. PA was census-only; the earlier behavioral label was wrong and is corrected below.
+- GATE FIRST: all production Type selector uses now derive through invcore into an exact AST-context ownership ledger. Copies, arguments, pointers, closures, package bindings, writes and unclassified contexts are refused at the read/use boundary; unregistered/orphan/duplicate checks are control-planted. The four existing uses remain unchanged. The event-spelling census is composed with this prerequisite, not described as a dataflow analysis.
+- LIVE EVIDENCE: committed TestCensusLiveEventOwnershipPlants wires PA/PB/PC/PD into Reduce and compiles each. All four are census-only kills; none is called a behavioral kill. Neutral identity control survives; a token-preserving unknown-default lifecycle rewrite fails TestReduceTreatsUnknownV1TypeAsInert. Narrowing the ownership gate to admit only kind := event.Type fails TestCensusLiveEventOwnershipPlants/PB. Separate post-gate control probes prove all four live plants reach the wrong idle state; they do not inflate delivered behavioral coverage. Prerequisite outcome was attached before any broader claim or Local change.
+- BOUND: direct Type-field access only; no proof of reflective/unsafe/serialization access to whole Event values or later interpretation of diagnostic strings. Other Type selectors are conservatively refused for classification. Parse-only controls and compiling live controls are reported separately.
+- R2-F2: no product validation invented. With an empty authoritative chain, Local (including malformed and partial tuples) is ignored, LocalHostID derives no role, and a valid Union can still select a winner and its named conflict. TestReduceEmptyChainLocalIsIgnored compares the entire projection with the no-Local baseline, with and without a selected Union winner. README/doc.go now state the exact bound; old F7 closure is narrowed to its Union half.
+- SCOPE: existing sixteen-path candidate preserved, no manual Story commit or sibling worker; sessrepo/provhost untouched. Verification and separately classified selected battery are attached in the task-scoped rev3 outcome. Independent review and checkpoint remain the orchestrator's responsibility.
 
 ## 2026-09-07
+
+### TASK-260830-1r9wrr rev2: F1/F2/F4/F5/F6 repaired; F3 and F7 Local remained open
+- SCOPE: same story worktree, still uncommitted (16 CR paths: LOGBOOK, README, 14 files under `internal/sessstate/`). No `internal/sessrepo` or `internal/provhost` file touched.
+- F1 (`resolveWinner` case 0): the arm cleared `offChainWinner` exactly when the winner was already off-chain, so a duplicated union entry dropped the `union_supersedes_chain` conflict and its warning. Fix: the arm is a documented no-op. Pinned by `TestWinnerResolutionDuplicateOffChainUnionKeepsConflict` plus the triple-copy/losing-branch both-orders `...StaysResolved` (one step past the vector).
+- F2 (`applyLocalLease`): implemented as not-equal against three sources stating lost-the-tuple. Fix: `>= 0` stands, only `< 0` stales. Pinned by `TestReduceLocalLeaseTupleRule` (equal / greater-epoch / greater-lease-id stand, lesser stales) — the greater-lease-id row exercises the second arm of `Compare`, one step past the reported vector.
+- F3 (event census denominator was one function name): `deriveHandledEventTypes` now collects every switch over a `.Type` selector plus every ==/!= comparison against one, and fails closed on a second switch dispatch site outside `effect`. Reviewer PA replayed live against the fixed tree: KILLED by the census (not behavior) with both signals (`event-type dispatch outside effect` + `session.reaped` unregistered). PA kept as the permanent `second switch dispatch site is unregistered` control; `if-compared spelling is unregistered` covers the different shape.
+- F4: refusal inventory is 69 sites (39/28/2), not 67 (39/26/2) — re-derived in source (`grep refuse` == roster == derived, 39/28/2) and corrected in README and outcome.
+- F5: X1/X2 replaced by live controls that compile and reach both gates — XN neutral (`"" + fold.tailID`) CONTROL-OK/SURVIVED, XK known-bad (staleSources admits stopped) CONTROL-OK/KILLED by `TestProjectLeavesStoppedPastTakeoverUnstaled`. Either misbehavior prints HARNESS-FAIL and exits nonzero.
+- F6: `scalar.ParseUUIDv7` dropped from the watched delegations (`doc.go`, census spec, README) — zero production occurrences; UUIDv7 stays with `environ.CheckUUIDv7`. F7 Union half only (Local remained unstated until the following rework): the empty-chain early return is gone — empty chains derive creating through the same `resolveWinner`/`applyLocalLease`/`emitWarnings` path (malformed union refuses at the same sites, no roster churn), pinned by `TestReduceEmptyChainValidatesUnion`, bound stated in `doc.go` and README.
+- EVIDENCE: outcome `TASK-260830-1r9wrr_outcome.md` rev2 (10/10 AC rows unchanged, gate table, censuses, 28/28 killed battery over 14 narrowing incl. N13/N14 on the union/local derivation + 8 arm-deletion + 3 census-test + 3 audit-only, XN the single intended survivor with its bound, tree OID + exact 16 paths). Harness `.temp/TASK-260830-1r9wrr/mutate.sh` (gitignored scratch), rev2 log attached.
+- GATES this session: `go build` 0, `go vet` 0, `GOOS=windows` vet+build 0, gofmt clean, `go test ./...` 0 (25 pkgs), `-race` 0 (sessstate+sessrepo), tracecheck 0, sessstate cover 92.2%.
+- STATUS: handed off to review (rev2).
+
+### TASK-260830-1r9wrr: session-state reducer handed off; no re-attestation outside the leaf
+- SCOPE: second leaf of STORY-260830-3tq4ns. New `internal/sessstate` (doc/reducer/decode/project + behavior/purity/winner/parked/negative/arm/census/plants tests), README section, this entry. `internal/sessrepo` production untouched; `internal/provhost` untouched.
+- FINDING (gate did its job): `go test ./...` reddened on `TestNoProductionPathAttestsProviderIdentityBinding` — my first decode re-verified blobs through `VerifyObjectIdentity` outside `internal/sessrepo/`. Rewriting that bound would have weakened another leaf's gate, so the design changed instead: Decode projects members from attested bytes (frame + member grammars through their owners, self digest read as a grammar-checked member) and never attests. The two dropped arms became `record_id`/`event_id` member arms with their own vectors; tamper-evidence stays in sessrepo where it belongs.
+- DESIGN (table-faithful, three calls): a successor lease composes through `successionMove` BEFORE the event effect (active takes over to stale, checkpoint/stop/failure/park stage to materializing); ties resolve at EVERY epoch with past-epoch rivals still reported; the local-stale override is itself transition-gated (stopped stays stopped past a takeover). Each rule earned its test by first failing.
+- EVIDENCE: outcome `TASK-260830-1r9wrr_outcome.md` on the board task (10/10 AC rows with call sites, gate table, three censuses, 26/26 killed battery with narrowing/arm-deletion/census-test/audit-only + NOT_APPLIED/COMPILE_FAIL rows, tree OID + exact changed paths). Harness `.temp/TASK-260830-1r9wrr/mutate.sh` (gitignored scratch), log attached.
+- GATES this session: `go build` 0, `go vet` 0, `GOOS=windows` vet+build 0, gofmt clean, `go test ./...` 0, `-race` 0 in 4 groups (25 unique pkgs), tracecheck 0, sessstate cover 91.7%.
+- STATUS: handed off to review.
+
+### TASK-260830-wbpf1v round 4: digest-arm regression fixed, equality census unmasked, numbers re-derived
+- REGRESSION (production, not the tests): round 4 had rewritten the load digest arm as `digest.String() != indexed.EventID && field != canonicaljson.SelfEventID` (`chain.go:293`); the field was already proven `== SelfEventID` two lines above, so the arm was dead and `TestLoadRefusesSwappedEventBlobs` + `TestLoadRefusesSubstitutedFirstEventBlob` failed on the clean tree. Rev3 shipped the arm as a bare digest comparison (verified in the rev3 patch); restored to that form. Both tests pass again.
+- CENSUS DIAGNOSIS: the round-4 equality instrument (derived over every production file via `invcore.ScanProduction`, diffed against the ledger) was never blind — the two red tests masked it, because TestMain skipped the whole audit unless the suite was green. Fix: the static content-equality audit now runs on every full unfiltered run, green or red; only the exercised-vs-derived refusal runtime audit stays gated on green. Red-before on the green tree: P2 new-file `bytes.Equal` plant → exit 1 `sessrepo content-equality site without a registered vector: plantextra.go:6`; P3 `string(left) == string(right)` plant in `store.go` → exit 1 `...: store.go:17`. The three plant tests that diffed synthetic sources against hard-coded ledger copies are now coupled to the live derived set and live ledger, so drift fails the sanity half first.
+- NUMBERS (re-derived, not re-typed): refusal census 35 = chain.go 25 + sessrepo.go 5 + store.go 5 (README's 36 fixed in place); equality census 2 sites = 2 ledger rows; battery 33 applied / 33 killed / 0 survivors (16 narrowing N1–N16, 10 arm-deletion D1–D10, 4 census-only C1–C4 incl. both reviewer plant shapes, 3 audit-only A1–A3) + NOT_APPLIED/COMPILE_FAIL controls distinct. Candidate tree by detached-index `write-tree`; outcome enumerates exactly the 11 CR paths. Also fixed the N2 comment wording (`sessrepo_test.go`): the canonical owner refuses one arm later, not earlier (member arms run before Verify).
+- GATES this session: `go build` 0, `go vet` 0, `GOOS=windows` vet+build 0, gofmt clean, `go test ./...` 0 (24/24), `-race` 0 in 4 groups (24 unique pkgs), tracecheck 0 (60/98), sessrepo cover 87.6%.
+- STATUS: handed off to review (rev4).
+
+### wbpf1v round 2: F1/F2/F3 rework — resume heals every create window, load arms witnessed, allowlist anchored
+- SCOPE: TASK-260830-wbpf1v rework after rev1 `changes_requested` (F1 false ordering claim, F2 five surviving load/recovery mutants, F3 interrupted-create brick; F4 non-blocking allowlist anchoring fixed while here). Same worktree/branch, still uncommitted for the board CR.
+- F1 CORRECTION (supersedes the round-1 entry below): "schema gate precedes every Verify call" was false — `loadSessionLocked` re-verifies stored blobs through Verify with no schema gate, and the verbatim SPEC §5.5 provider-identity record verifies cleanly there (recomputed digest matches; only `field != SelfEventID` refuses). Restated everywhere the false universal stood (`identity.go` comment, `identity_test.go` bound, `sessrepo/doc.go` authority split, README, outcome): entry decodes gate schema before Verify; the load path recomputes whatever digest stored bytes claim and refuses non-`event_id` self fields / index-disagreeing digests at named arms. Gating the load path instead would have made the field arm unreachable-by-construction (Verify resolves the self field from the same schema member) and its narrowing mutant unkillable — measured, not assumed. The load verify is now three single-line refuse rows (verify failure, self field, digest), each with its own boundary plant; the shared message that formatted a nil error is gone.
+- F3 FIX: `CreateSession` (MkdirAll dir → record → MkdirAll events → chain) had both crash points outside its span, and a crash before `record.json` was unrecoverable (`ErrSessionExists` for a never-created session; `GetRecord`/`ListSessions` corrupt, the latter for the whole repo). `resumeCreateLocked` now heals both parked states (bare directory completes with the retry bytes when no chain exists; record-without-chain completes as before; chain-without-record and colliding bytes refuse), and `AfterCreateStep` fires after each of the four steps so one secconftest point per boundary drives it — each test asserts the exact fired-step prefix plus arm consumption. Interior faults carry `recoverable_parked_state` (parked state the identical retry resumes); `safe_retry` stays pre-span only.
+- F2 BATTERY: 26 applied / 26 killed / 0 survivors (12 narrowing, 10 arm-deletion, 2 census-only, 2 audit-only; NOT_APPLIED + COMPILE_FAIL distinct), denominator extended to load/recovery: provider-identity plant kills the field narrowing (M1a), blob-swap kills the digest narrowing (M1b), exclusive-create-first blob install kills O_EXCL→O_TRUNC (M2, witnessed through a fresh handle sharing no mutex/memory), same-length collision kills the resume-equality narrowing (M6), cross-session record kills the session-half drop (M7), rebound-predecessor detached index kills the digest-half drop behaviorally (M8 — the old detached test passes via the continuity arm and is kept as the precision control). Measured bound: the verify-error arm is behaviorally subsumed by the field arm (Verify returns field "" on every error path) — diagnostic attribution + census row, no deletion mutant, stated in the outcome. Harness at `.temp/TASK-260830-wbpf1v/mutation_battery.sh` (gitignored scratch) with exact-count application and checksum restore; log attached to the board task.
+- F4 FIX: allowlist anchored on `<root>/internal/sessrepo/` with the site count pinned at exactly 3 (decode ×2 + load ×1); a synthetic-tree test plants `internal/provhost/sessrepo/` (token preserved, owner changed) and `internal/xsessrepo/` and requires both outside, leaf inside.
+- F5 NOTE (verdict non-blocking, out of the spawn brief — acknowledged, not rewired): `syncDirectory`/`writeAtomic`/`writeExclusive`/`installEventBlob` duplicate `localstore` path policy (which has no consumer yet); the outcome's "no new path policy" line is corrected to state the duplication with the reason instead of claiming otherwise.
+- GATES: full `go test ./...`, `-race` over all packages, `-cover`, `go vet` + `GOOS=windows` vet/build, gofmt, tracecheck, catalog freshness, cigate selections — all re-run this session (see outcome for exit codes).
+- STATUS: handed off to review (rev2).
+
+### wbpf1v: session repository + event chain landed; provhost attestation bound rewritten around the new truth
+- SCOPE: TASK-260830-wbpf1v (first leaf of STORY-260830-3tq4ns, root of M1 chain). New `internal/sessrepo` (doc/sessrepo/chain/store + behavioral/crash/census tests), README section, `internal/provhost/identity.go` comment + `identity_test.go` gate rewrite. Work left uncommitted in the story worktree for the board CR.
+- FINDING (gate did its job): `go test ./...` reddened on `TestNoProductionPathAttestsProviderIdentityBinding`, which pins "no production file calls VerifyObjectIdentity". Session-record/event persistence MUST attest (SPEC §5.1/§5.2 "MUST recompute and MUST reject"); routing through `CalculateObjectIdentity` would dodge the text scan while attesting anyway, so the bound was rewritten, not bypassed: `internal/sessrepo/` allowlisted (schema gate precedes every Verify call, so provider-identity records can never reach one), every other tree still red (proved by a temporary foreign call site, then removed), exception fails when stale. Reviewers read the provhost diff first.
+- DELIVERY: CreateSession/AppendEvent over content-addressed no-replace blobs + atomic chain index; gap/repeat/divergent/stale/predecessor arms; first-event record link; byte-identical reload across handles; idempotent retry; secconftest prepare/commit faults (safe_retry / recoverable_parked_state, crashed commit counts as committed); local Resolve (exact, ASCII-fold ambiguity, UUID route); 34-site invcore census all boundary-driven with alias/var/dot-import/shadow plants.
+- EVIDENCE: outcome `TASK-260830-wbpf1v_outcome.md` on the board task (10/10 AC rows with call sites, gate table, census + 12/12 killed mutation battery with narrowing/arm-deletion/census-only/audit-only + NOT_APPLIED/COMPILE_FAIL rows, tree OID + exact changed paths recorded there). Battery harness at `/tmp/mutation_battery.sh` (throwaway, not committed).
+- GATES: `go test ./...` exit 0 (24 ok), `-race` exit 0 (all 24 pkgs, 4 groups), `-cover` (sessrepo 86.3/provhost 86.0), `go vet` + `GOOS=windows` vet/build exit 0, gofmt clean, tracecheck exit 0, catalog current, cigate contract + claims selections exit 0, fuzz count 13 (smoke not run: no fuzzed package touched).
+- STATUS: handed off to review. Downstream bounds in outcome: single-branch chain, no reducer/name-resolution/CLI/lease-arbitration in this leaf.
 
 ### 9ny4xl: R1–R6 closed — probe-availability claims corrected, marker census measures effect, catalog directive pinned
 - SCOPE: TASK-260907-9ny4xl (story final leaf). `internal/cigate` claim tests + effect census + splitter tests + `doc.go`, `internal/catalog` directive pin, `.github/workflows/ci.yml` comments + freshness guard, README CI table + 20 probe notes, 2249 correction below. Leaves 1–5 production untouched; `claims.go` production changed only in comments; `catalog.go` production unchanged.
@@ -1216,3 +1578,281 @@ assertion here rather than a brittle one.
 - EVIDENCE: 15-row battery, 6 behavioural kills (incl. echo same-length narrowing failing `TestCheckContextEcho`, mechanism max+1 failing 5 bound suites, conditional-at-write-gate failing `TestCheckTargetWriteGatesRefusesNonAvailableEnabled`), 6 census-only kills (all three rev6 plant shapes now redden), 3 stated survivors green (plain-param bound, cap, reflect.DeepEqual). Tables attached as `TASK-260830-2z3se0_mutant-table-rev7.md`, narrative as `TASK-260830-2z3se0_rework-evidence-rev7.md`.
 - SCOPE: test files only (`identity_census_test.go`, `bound_census_test.go`, `inventory_test.go`) + LOGBOOK.md (this entry); zero production changes. `go test ./...` 17/17 green, vet + GOOS=windows vet + gofmt clean, `-race` green, `tracecheck` exit 0 (acceptance_cases=88). Census counts: identity 100 (86/14), bound 107 (80/27), constructors 7; test inventory 109->111 (+2 synthetic, 0 removed).
 - STATUS: handed to review, work left uncommitted in the worktree for board CR.
+
+### TASK-260830-wbpf1v round 3: B1 equality census + B2 per-session parked channel (implementation)
+- FIX (B1): `TestAppendEventRefusesSameLengthDisagreeingBytes` plants a 1-bit-flip same-length forgery at the digest path through production `AppendEvent` — fails under `!bytes.Equal` → `len != len` with `error = <nil>` (the false-success scenario) while both 15-byte `{"forged":true}` vectors stay green under it; N13 battery row; `TestContentEqualityComparisonsAreCensused` pins the class at exactly two sites (sessrepo.go resume, chain.go install).
+- FIX (B2, implementation change not doc-only): `SessionSummary` gains `Parked`/`BlockingReason`/`RetryHint`; `ListSessions` returns healthy sessions plus one parked entry per torn session (identity filled from the parked record when it verifies; bare dir / torn store get distinct retry hints); `Resolve` routes healthy sessions only. Retry table + operator remedy (no delete entry by design; remove `<data-root>/sessions/<session-id>` when no retry heals) documented in `doc.go` + README. Reviewer probe P5 committed as `TestListSessionsKeepsHealthySessionsBesideParked`.
+- FIX (N1): `TestLoadRefusesSubstitutedFirstEventBlob` (single-event chain, position 0) kills `&& position > 0` while the two-event swap stays green (N16 + precision control). NOTE (N2): bad-member vectors pin the sentinel at the entry but are subsumed by `canonicaljson` one arm earlier — stated in test comments + outcome, not patched.
+- EVIDENCE: battery 30 applied / 30 killed / 0 survivors (16 narrowing incl N13–N16, 10 arm-deletion, 2 census-only, 2 audit-only; NOT_APPLIED + COMPILE_FAIL distinct); `go test ./...` 24/24 green, `-race` green in 4 groups (all 24 pkgs), vet + GOOS=windows vet/build + gofmt clean, tracecheck 60/98, sessrepo cover 87.2%. Tree `93d4a106fd15cdb335539c2612d3ed84d70f919a` (detached-index write-tree over README + 7 sessrepo files). Outcome + battery log attached as `TASK-260830-wbpf1v_outcome-rev3.md` / `TASK-260830-wbpf1v_mutation-battery-rev3.log`.
+- SCOPE: `README.md`, `internal/sessrepo/{sessrepo,store,doc,sessrepo_test,crash_test}.go` + `LOGBOOK.md` (this entry). Work left uncommitted in the worktree for board CR.
+
+
+### TASK-260830-21gygk — decision-independent read implementation, RUN-260908-00dda9
+
+- Added `sessquery.Reader` over real persisted repositories and the accepted
+  state projector: local/allowlisted learned-name/UUID precedence, ASCII-fold
+  ambiguity, read summaries, deterministic ID ordering and parked inspection.
+- Corrected the predecessor local `Repository.Resolve` case-variant admission:
+  §2.3 mandates an exact name; ASCII folding governs uniqueness. Its old positive
+  case-variant test defended a broader behavior and now requires not-found.
+- No qualified grammar chosen. Full task scope is unchanged and its pending
+  product question remains unanswered. Public list/status rendering also needs
+  observation facts that the accepted state projection does not carry. The
+  creating-session/closed-CLI mismatch is reproduced in a named boundary test;
+  a fake owner or observation default is not a valid solution.
+- Peer authentication, freshness and mesh union remain upstream boundaries.
+  The read API accepts learned indexes and a separate configuration allowlist;
+  it does not claim these caller inputs are independently attested.
+- Managed Story history and accepted predecessor checkpoints preserved. Source
+  and validation evidence are attached under TASK-260830-21gygk names before
+  lifecycle end; this partial work is not a review or acceptance claim.
+
+
+### TASK-260830-21gygk — v0.6.0 selector grammar, source resolution, and selection plans, RUN-260909-c41bb6
+
+- SCOPE: primary owner of §§14.7/14.7.1 plus shared SelectionPlan
+  construction/revalidation in §14.7.2, refining §2.3 and summaries in
+  §§5.7/14.7.3. No refresh-candidate applied: the task held no Change
+  Request, so there was nothing to replay; trunk (§14.7 adoption,
+  specpin/specdoc/traceability/catalog/config) was combined by
+  three-way file merge — README clean, LOGBOOK one date-heading
+  conflict resolved newest-first — and every other trunk path merges
+  without touching this candidate.
+- GRAMMAR: `ParseSelector` splits at the first literal `@`; key is
+  NAME/bare-UUID/`id:UUID`, source is bare/`local`/`peer:` entire
+  suffix/`id:` host. No joining, decoding, normalization, trimming, or
+  alias folding. `Reader.Resolve` keeps §2.3 bare tiers byte for byte,
+  adds `id:` union bypass with digest-agreement dedup and bytewise
+  holder tie break, and resolves qualified keys in exactly one source
+  with no fallback. Distinct classes: invalid_arguments,
+  invalid_config, selector_source_not_found, peer_not_allowlisted,
+  selector_source_read_failed (cause-preserving), name_ambiguous,
+  not_found, integrity_failure, selector_plan_stale.
+- PLAN: `BuildPlan` binds fourteen attestable members once;
+  `lease_record_id` stays unbound (no Lease Record objects exist —
+  documented delta, nothing fabricated) and heads bind validated
+  event tails for the plan source. `Revalidate` compares in a fixed
+  order with per-member stale reasons under one class, revocation
+  first, reads never re-resolved by name. `BoundariesFor` carries the
+  closed action/boundary matrix; plans authorize read projection only.
+- SUMMARIES: List/Status behavior preserved; record-only chains keep
+  the accepted internal projection with empty owner/lease (creating =
+  record AND initial lease per §§5.7/13.1; recovery is the 14.7.4
+  leaf). The bounds-test comment now states the pinned requirements.
+  Wire exits, CLI Result 5, transports, auth, and observations stay
+  with their owning leaves; configuration/indexes are trusted caller
+  inputs and the allowlist proof covers filtering only.
+- EVIDENCE: full sessquery/sessrepo suites green; battery 29 applied /
+  29 killed / 0 survivors (17 new narrowing incl. 3 token-preserving
+  grammar mutants and 8 plan-compare mutants, 9 retained narrowing, 3
+  determinism; NOT_APPLIED + COMPILE_FAIL controls distinct); vet +
+  gofmt clean. Work left uncommitted in the worktree for board CR.
+
+### TASK-260830-21gygk — rev5 rework: winning-ancestry checkpoint authority, RUN-260910-rev6
+
+- DEFECT FAMILY: canonical identity mistaken for semantic authority.
+  `checkLeaseChain` walked earlier leases without validating their
+  checkpoint references, and `checkWinnerCheckpoint` never checked
+  `created_by_host_id` against the owning lease holder (§§5.3/5.4).
+- FIX (shared admission path, `internal/sessquery/lease.go` only):
+  `checkLeaseChain` now returns the winner-to-root ancestry;
+  new `checkAncestorCheckpoints` validates every non-winner
+  ancestry lease (epoch>1 references an admitted checkpoint for
+  its session and predecessor lease; epoch-1 root checkpoints bind
+  to self), and both winner and ancestor checks enforce
+  checkpoint creator == owning lease holder via parsed
+  `created_by_host_id` (new `validatedCheckpoint.CreatorHostID`).
+  Only the winner's ancestry is consulted, so legal branching,
+  lagging copies, and parked-source refusal are preserved.
+- TESTS: ported reviewer `TestRev5AncestorCheckpointAuthority` and
+  `TestRev5CheckpointCreatorMustBeHolder` (failing baseline recorded
+  pre-fix: both negatives admitted through BuildPlan, Revalidate,
+  AuthoritativeStatus, AuthoritativeList); added
+  `TestRev5AncestorCheckpointBinding` (wrong-session/wrong-lease/
+  wrong-creator ancestor checkpoints through all four entries).
+  Post-fix: full `go test ./...` green; sessquery 87.9%,
+  sessrepo 87.2% coverage; vet/gofmt/diff-check clean.
+- MUTANTS (focused, same instrument as `testdata/mutate.py`):
+  N-ancestor-checkpoint, N-checkpoint-holder, N-ancestor-holder
+  KILLED by the named tests; C-harmless-comment SURVIVED applied;
+  controls green. Three narrowing plants also added to the
+  committed `testdata/mutate.py` battery (all anchors unique).
+- DOCS: README/TRACEABILITY "fully validated succession" now
+  covers the whole ancestry plus holder binding. Work left
+  uncommitted in the Story worktree for board CR.
+
+### TASK-260830-21gygk — rev6 rework: checkpoint persistence variant bound to Session kind, RUN-260910-rev6b
+
+- DEFECT FAMILY (repeat of CR5 canonical-identity family, new
+  relationship): `parseCheckpointRecord` dropped the persistence
+  members and no check bound them to the Session Record, so a
+  swapped-variant checkpoint kept canonical identity, session,
+  lease, epoch, and creator and was admitted by all four shared
+  entries including old-plan revalidation (CR6 P1, reviewer
+  `TestRev6CheckpointPersistenceMustMatchSession` red baseline
+  recorded pre-fix in `.temp/TASK-260830-21gygk/rev6-failing-baseline.log`:
+  both wrong-variant subtests admitted, both controls passed).
+- FIX (shared admission path, `internal/sessquery/lease.go`):
+  `validatedCheckpoint` carries `HasProviderManifest` /
+  `HasTaskBoardBundle` parsed as nullable digests; new
+  `checkCheckpointPersistence` enforces direct=>provider-only and
+  task_board=>bundle-only for the winner (`checkWinnerCheckpoint`)
+  and every necessary ancestor (`checkCheckpointBinding`), with the
+  Session kind threaded from the winning-source projection through
+  `winningLeaseFor(sessionID, sessionKind)` at all three production
+  call sites (bindPlan, Revalidate, authorize). Mismatch refuses
+  selector_observation_unavailable; unknown kind refuses
+  invalid_config. Class-level gate: task-scoped clause-to-owner
+  conformance matrix for all owned 5.3/5.4/14.7.2
+  Session/Lease/Checkpoint relationships written before the fix
+  (`.temp/TASK-260830-21gygk/conformance-matrix.md`, attached as
+  board outcome); the only unguarded owned relationship was C4,
+  now repaired. No owned relationship declared delegated without
+  an input-carrying delegated API.
+- TESTS: ported reviewer test kept as
+  `TestRev6CheckpointPersistenceMustMatchSession` plus winner-path
+  old-plan revalidation; added `TestRev6TaskBoardPersistenceControl`
+  (task_board positive control + provider-variant refusal through
+  all four entries incl. old-plan) and
+  `TestRev6PersistenceMismatchIsObservationUnavailable` (class).
+  Direct test callers of `winningLeaseFor` pass the projected kind.
+- MUTANTS: repaired `N-chain-self` for the 3-value `checkLeaseChain`
+  return (`return chain, parent, nil`, same narrow self-link); added
+  narrowing `N-checkpoint-persistence` (admits exactly the idA
+  direct-session wrong variant). All lease.go anchors count 1.
+  Focused final-source run with applied C-harmless-comment SURVIVED
+  control through the identical instrument; bytes restored.
+- DOCS: README/TRACEABILITY succession rows + `Reader` doc now
+  state the kind-selected persistence variant. Work left
+  uncommitted in the Story worktree for board CR.
+
+### TASK-260830-21gygk — rev7 rework: checkpoint event-head closure admitted against winning-source chain
+
+- DEFECT FAMILY (repeat of CR5/CR6 canonical-identity family, C6
+  relationship): `parseCheckpointRecord` dropped `event_heads` and no
+  check resolved them, so a checkpoint naming an absent event or an
+  event under a later lease kept canonical identity, session, lease,
+  epoch, creator, and variant and was admitted by all four shared
+  entries including old-plan revalidation (CR7 P1, reviewer
+  `TestRev7CheckpointHeadAuthority` red baseline recorded pre-fix in
+  `.temp/TASK-260830-21gygk/rev7-failing-baseline.log`: both winner
+  and both ancestor invalid-head subtests admitted, both controls
+  passed; persistence controls passed).
+- FIX (shared admission path, `internal/sessquery/lease.go`):
+  `validatedCheckpoint` carries `EventHeads` parsed as digests;
+  new `checkCheckpointEventHeads` resolves each head to a chained
+  event for its session at or before its bound lease in the winning
+  source chain (`repo.ListEvents`): missing (incl. cross-session,
+  losing-lease blobs outside the authoritative chain, synthetic
+  placeholders), later-epoch, and same-epoch foreign-lease heads
+  refuse selector_observation_unavailable; historical heads
+  admissible, never required to equal the current tail. Threaded
+  through `winningLeaseFor(sessionID, kind, repo)` at all four
+  entries: `bindPlan` passes `selected.repo`, `Revalidate` passes
+  the plan-source repo, `AuthoritativeStatus` passes `selected.repo`,
+  `AuthoritativeList` passes `reader.Local`. Nil repo or failed
+  chain read fails closed in the same class. Matrix C6 false
+  delegation corrected (`.temp/TASK-260830-21gygk/conformance-matrix-rev7.md`):
+  owned admission named with call sites/inputs/tests; profile
+  derivation shown absent by real evidence (no sessquery derivation,
+  sessstate doc exclusion, provhost mapping only).
+- TESTS: ported reviewer test kept as `rev7_regression_test.go`
+  (`TestRev7CheckpointHeadAuthority` + `TestRev7IndependentPersistence`
+  through all four entries + old-plan); older successor fixtures
+  rebound to real heads via `checkpointWithHeads`/`headAtOrBefore`
+  so closed ancestry/creator/persistence gates stay isolated;
+  `TestSelfPredecessorWithCheckpointMustRefuse` now carries a fully
+  valid checkpoint (real head) as its comment claims.
+- MUTANTS: added narrowing `N-checkpoint-heads` (admits exactly the
+  all-zero missing head; later/other unknown still refuse). Focused
+  final-source run (same instrument): 8 N KILLED (incl. new heads
+  plant by the missing_head negatives, self-link by the isolated
+  test), C-harmless-comment SURVIVED applied, controls green.
+- DOCS: README/TRACEABILITY succession rows now state the head
+  closure; new traceability row for the closure gate. Work left
+  uncommitted in the Story worktree for board CR.
+
+### TASK-260830-21gygk — rev12 rework: referenced checkpoint temporal authority and package-wide raw boundary
+
+- DEFECT FAMILY (CR11): `checkReferencedCheckpointBinding` admitted a
+  canonically identified referenced checkpoint when its owning lease was
+  later than the consuming `session.resumed` event. The old source census
+  also needed a package-wide type boundary so a raw `validatedCheckpoint`
+  could not re-enter through a new file, method receiver, closure factory,
+  or inferred loader result.
+- BASELINE: the reviewer future-owner fixture admitted through BuildPlan,
+  fresh/old-plan Revalidate, AuthoritativeStatus, and AuthoritativeList in
+  direct/task_board winner and ancestor paths before the fix; the failing
+  red run is `.temp/TASK-260830-21gygk/temporal-red-baseline-rev12.log`.
+- FIX (`internal/sessquery/lease.go`): the shared `admitCheckpoint` owner now
+  checks owner-at-or-before-consumer temporal position and requires every
+  checkpoint event head to be in the consuming resume's predecessor closure.
+  Profile derivation receives only `admittedCheckpoint`; `go/types` checks
+  raw type identity and recursive raw value types across every production Go
+  file, not only `lease.go`. Winner, ancestor, and referenced paths all use
+  the same admission owner.
+- TESTS: `.temp/TASK-260830-21gygk/temporal-green-rev12.log` records the
+  20 direct/task_board temporal subtests green; the later-consumer positive
+  is in `.temp/TASK-260830-21gygk/temporal-later-rev12-2.log`. The package
+  census, alternate-path plants, and call-order precision checks are green
+  in `.temp/TASK-260830-21gygk/census-rev12-green-2.log`.
+- RELATIONS: K4 owner-before-consumer, head-at-or-before-owner,
+  resume-predecessor closure, and ancestry creator/variant relationships
+  are recorded in `.temp/TASK-260830-21gygk/relation-census-rev12.md`.
+- MUTANTS: the focused rev12 instrument applies a token-preserving
+  owner-index narrowing mutant, a one-member raw-boundary allowlist mutant,
+  and a harmless comment control through behavioral suites. Results are
+  recorded only after the instrument runs; no compile failure or unapplied
+  plant is counted as a behavioral kill.
+- DOCS: README and `internal/sessquery/TRACEABILITY.md` state the admitted
+  capability boundary, same-or-earlier temporal rule, resume closure, and
+  explicit 8-of-8 shared-library / 0-of-8 CLI ownership ratio. Work remains
+  uncommitted in the Story worktree for board CR handoff.
+
+### TASK-260830-21gygk — rev14 sealed checkpoint capability and exact census
+
+- DEFECT FAMILY (CR13): profile derivation was protected by function signatures
+  and a source census, but the admitted checkpoint value itself remained a
+  record-shaped value that could be forged by zero or field assembly. The
+  census also needed to prove exact function-object identity rather than
+  accepting a receiver method merely named `admitCheckpoint`.
+- FIX (`internal/sessquery/lease.go`): `admittedCheckpoint` now carries a
+  private constructor-only `checkpointSealToken`; only the free
+  `admitCheckpoint` constructor can create the sealed capability. All nine
+  profile derivation entries call `authority()` before reading checkpoint
+  facts. The raw loader and semantic admission helpers remain the only owners
+  of `validatedCheckpoint` values.
+- TESTS: `TestRev14CapabilitySeal` drives zero and field-assembled forged
+  values through every profile entry and requires
+  `selector_observation_unavailable`. `TestRev14RecordConsumptionCensusRejectsAlternatePaths`
+  covers interface assertion, package closure, unresolved callee, a method
+  named `admitCheckpoint`, raw-only method use, field assembly, embedding, raw
+  copy, and capability-map paths. The final focused census run exited 0 in
+  `.temp/TASK-260830-21gygk/final-census-01.log`.
+- MUTANTS: `.temp/TASK-260830-21gygk-mutants-rev14-02/mutants.json` records 64
+  applied N/B plants (61 narrowing, 3 ordering), all `KILLED`; the applied
+  harmless control is `SURVIVED`, while the not-applied and compile-failure
+  controls are classified separately. `N-census-raw-owner-object` preserves
+  the `admitCheckpoint` token, admits a method by name, and is killed by the
+  `method_raw_only.go` behavioral census plant. The final production source
+  hashes match the mutation copy for `lease.go`, `rev11_regression_test.go`,
+  and `mutate.py`.
+- VALIDATION: `go test ./... -v`, `go test ./... -cover`,
+  `go test ./... -race`, `go vet ./...`, `go build ./...`, and
+  `go run ./internal/traceability/cmd/tracecheck` all exited 0. Logs are in
+  `.temp/TASK-260830-21gygk/`; coverage reports `sessquery` at 86.9%.
+  `curator install` and the subsequent `curator status --check` exited 0;
+  the initial status check was recorded as a missing-install diagnostic and
+  is superseded by the successful recheck.
+- COVERAGE: 8 of 8 shared-library AC rows are driven by named tests through
+  production entries (`Reader.Resolve`, `Reader.List`, `Reader.Status`,
+  `Reader.AuthoritativeStatus`, `Reader.AuthoritativeList`,
+  `Reader.BuildPlan`, `Reader.Revalidate`, and the shared admission path).
+  Public CLI/lifecycle coverage is 0 of 8 by stated ownership bound: this
+  package provides no `ax` executable or mutation transport. Reads do not
+  mutate durable state, so crash/idempotency evidence is not applicable to
+  these entry points; existing repository recovery tests remain green.
+- DOCS: README and `internal/sessquery/TRACEABILITY.md` now describe the
+  sealed capability, exact census, rev14 mutation counts, and the evidence
+  command/output locations. Candidate remains uncommitted in the managed
+  Story worktree for board CR handoff.

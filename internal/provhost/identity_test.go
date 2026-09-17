@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/relux-works/agent-session-manager/internal/invcore"
 	"go/ast"
+	"go/token"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -66,13 +67,35 @@ func TestSpecIdentityExampleVerifiesAgainstItsClaimedDigest(t *testing.T) {
 }
 
 // TestNoProductionPathAttestsProviderIdentityBinding pins the second
-// half of the stated bound: no non-test Go file anywhere in the module
-// calls VerifyObjectIdentity, so provider-identity binding attestation
-// happens nowhere in production — not at this gate and not at the
-// persistence layer the old bound named. The day the deferred ruling
-// lands a production call site, this test reddens and forces the bound
-// to be rewritten around the new truth. The scan is AST-based (comments
-// and test files never count) and fails closed when it sees nothing.
+// half of the stated bound: no non-test Go file outside the session
+// persistence leaf calls VerifyObjectIdentity, so provider-identity
+// binding attestation happens nowhere in production — not at this gate
+// and not at any persistence path. The session-state story
+// (TASK-260830-wbpf1v) landed the anticipated production call sites in
+// internal/sessrepo, and this bound is rewritten around that truth
+// rather than bypassed. The name-resolution story (TASK-260830-21gygk)
+// adds the fourth site AttestLeaseRecord for urn:ax:schema:lease
+// objects, owned by the same leaf so query admission never attests
+// itself. Its checkpoint rework adds the fifth site
+// AttestCheckpointRecord for urn:ax:schema:checkpoint objects, owned
+// by the same leaf for the same reason: the winning-lease
+// checkpoint gate needs the referenced checkpoint digest attested,
+// and query admission still attests nothing itself. The two entry decodes (decodeSessionRecord and
+// decodeSessionEvent) refuse any other schema before Verify; the load
+// re-verification (loadSessionLocked) re-verifies stored blobs through
+// Verify — recomputing whatever digest the bytes claim, including a
+// provider-identity one — and refuses a non-event_id self field or an
+// index-disagreeing digest at its named arms. That division is pinned
+// behaviorally in the owning leaf by
+// TestLoadRefusesProviderIdentityBlobAtEventPath and
+// TestLoadRefusesSwappedEventBlobs: the first revision stated a schema
+// gate in front of every Verify call, which the load site never had.
+// The allowlist below names the owning directory by its full
+// module-relative path and pins the exact site count, so a stale
+// exception or a foreign directory with the same leaf name fails
+// instead of lingering; it still reddens for any other tree. The scan
+// is AST-based (comments and test files never count) and fails closed
+// when it sees nothing.
 // Stated bound on this test: only *ast.CallExpr nodes are inspected, so a
 // `f := pkg.VerifyObjectIdentity; f(x)` binding would not be seen; no such
 // shape exists today.
@@ -92,8 +115,37 @@ func TestNoProductionPathAttestsProviderIdentityBinding(t *testing.T) {
 		}
 		root = parent
 	}
-	var scanned, parsed int
-	var callers []string
+	allowed, callers, scanned, parsed := scanAttestationSites(t, root)
+	if scanned == 0 {
+		t.Fatal("scanned no production sources; the check is blind")
+	}
+	if len(allowed) != 5 {
+		t.Fatalf("session-leaf attestation sites = %d, want exactly 5 (decodeSessionRecord, decodeSessionEvent, loadSessionLocked, AttestLeaseRecord, AttestCheckpointRecord): a moved call site must rewrite the bound, a new one must justify itself, a stale exception must go", len(allowed))
+	}
+	if len(callers) != 0 {
+		t.Fatalf("production call sites outside the session leaf attest the identity binding, contradicting the stated bound:\n  %s", strings.Join(callers, "\n  "))
+	}
+	t.Logf("attestation scan: %d production files, %d parsed, %d session-leaf call sites, 0 elsewhere", scanned, parsed, len(allowed))
+}
+
+// isSessrepoLeafFile reports whether a scan path sits inside the owning
+// session-persistence directory: <root>/internal/sessrepo/. The match
+// anchors on the full module-relative owning path, never on a bare
+// segment, so internal/provhost/sessrepo/plant.go (same leaf name,
+// foreign owner) and internal/xsessrepo/plant.go (near-miss name) both
+// land outside the allowlist while the leaf's own files stay admitted.
+func isSessrepoLeafFile(root, path string) bool {
+	leaf := filepath.Join(root, "internal", "sessrepo") + string(filepath.Separator)
+	return strings.HasPrefix(path, leaf)
+}
+
+// scanAttestationSites walks the production trees beneath root and
+// classifies every VerifyObjectIdentity call: inside the owning leaf it
+// is allowlisted, anywhere else it contradicts the bound. It returns
+// the allowlisted entries, the contradicting entries, and the scanned
+// and parsed file counts.
+func scanAttestationSites(t *testing.T, root string) (allowed, callers []string, scanned, parsed int) {
+	t.Helper()
 	for _, tree := range []string{"internal", "cmd"} {
 		base := filepath.Join(root, tree)
 		if _, err := os.Stat(base); err != nil {
@@ -124,19 +176,25 @@ func TestNoProductionPathAttestsProviderIdentityBinding(t *testing.T) {
 				if !ok {
 					return true
 				}
+				record := func(position token.Position) {
+					entry := fmt.Sprintf("%s:%d", position.Filename, position.Line)
+					if isSessrepoLeafFile(root, path) {
+						allowed = append(allowed, entry)
+						return
+					}
+					callers = append(callers, entry)
+				}
 				switch fun := call.Fun.(type) {
 				case *ast.SelectorExpr:
 					if fun.Sel.Name == "VerifyObjectIdentity" {
-						position := fileSet.Position(call.Pos())
-						callers = append(callers, fmt.Sprintf("%s:%d", position.Filename, position.Line))
+						record(fileSet.Position(call.Pos()))
 					}
 				case *ast.Ident:
 					if fun.Name == "VerifyObjectIdentity" {
 						// The canonicaljson definition itself is a
 						// FuncDecl, never a call; a bare-identifier call
 						// anywhere is a production call site.
-						position := fileSet.Position(call.Pos())
-						callers = append(callers, fmt.Sprintf("%s:%d", position.Filename, position.Line))
+						record(fileSet.Position(call.Pos()))
 					}
 				}
 				return true
@@ -146,13 +204,47 @@ func TestNoProductionPathAttestsProviderIdentityBinding(t *testing.T) {
 			t.Fatalf("walk %s: %v", base, err)
 		}
 	}
-	if scanned == 0 {
-		t.Fatal("scanned no production sources; the check is blind")
+	return allowed, callers, scanned, parsed
+}
+
+// TestAttestationAllowlistAnchorsOwningPath drives the allowlist through
+// a synthetic module tree, preserving the searched-for "sessrepo" token
+// while changing the owning directory: a plant under
+// internal/provhost/sessrepo/ and a near-miss under
+// internal/xsessrepo/ must both land outside the allowlist, while the
+// leaf's own file stays admitted. The production suite executes the
+// behavioral tests, not only this static shape, for the token-preserving
+// mutants in the owning task's battery.
+func TestAttestationAllowlistAnchorsOwningPath(t *testing.T) {
+	root := t.TempDir()
+	leafCall := "package sessrepo\nfunc load(raw []byte) {\n\t_, _, _ = canonicaljson.VerifyObjectIdentity(raw)\n}\n"
+	foreignCall := "package plant\nfunc plant(raw []byte) {\n\t_, _, _ = canonicaljson.VerifyObjectIdentity(raw)\n}\n"
+	for _, file := range []struct{ rel, body string }{
+		{"internal/sessrepo/chain.go", leafCall},
+		{"internal/provhost/sessrepo/plant.go", foreignCall},
+		{"internal/xsessrepo/plant.go", foreignCall},
+	} {
+		path := filepath.Join(root, filepath.FromSlash(file.rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(file.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if len(callers) != 0 {
-		t.Fatalf("production call sites attest the identity binding, contradicting the stated bound:\n  %s", strings.Join(callers, "\n  "))
+	allowed, callers, scanned, parsed := scanAttestationSites(t, root)
+	if scanned != 3 || parsed != 3 {
+		t.Fatalf("synthetic scan files = %d scanned %d parsed, want 3 and 3", scanned, parsed)
 	}
-	t.Logf("attestation scan: %d production files, %d parsed, 0 production call sites", scanned, parsed)
+	if len(allowed) != 1 {
+		t.Fatalf("synthetic allowlisted sites = %q, want only the owning leaf file", allowed)
+	}
+	if !strings.Contains(allowed[0], filepath.Join("internal", "sessrepo", "chain.go")) {
+		t.Fatalf("synthetic allowlisted site = %q, want the owning leaf file", allowed[0])
+	}
+	if len(callers) != 2 {
+		t.Fatalf("synthetic contradicting sites = %q, want the provhost/sessrepo and xsessrepo plants", callers)
+	}
 }
 
 // identityVariant rewrites one unique substring of the example.

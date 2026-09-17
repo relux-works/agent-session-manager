@@ -1621,6 +1621,355 @@ path. The exact-name closure over the objects root is driven with a near-miss
 sibling name as well as a foreign one, because a closure narrowed from equality
 to a prefix admits exactly the near miss.
 
+## Session Repository and Append-Only Event Chain
+
+[`internal/sessrepo`](internal/sessrepo) persists and validates Session Records
+and per-session event chains with source sequence continuity (pinned v0.5.0
+Sections 2.3, 5.1-5.2, 5.7, 14.4). `Open` binds a repository to the sessions
+namespace beneath a data root. `CreateSession` validates one Session Record
+through `canonicaljson.VerifyObjectIdentity` and stores its bytes verbatim;
+`AppendEvent` validates one Session Event the same way and links it onto the
+chain only when the continuity rules hold: the first event links exactly the
+Session Record at sequence 1, within one lease the sequence increases by
+exactly one with no repeat and each event references the prior authoritative
+event, a successor lease restarts at 1, a same-epoch second lease diverges,
+and a lower epoch is stale. Records and events live as content-addressed
+`0600` files installed no-replace through the exclusive create (the blob
+install leads with `O_EXCL` and only compares on an `EEXIST` loss, so the
+no-replace property holds across processes the in-process mutex cannot see);
+the chain index (`chain.json`) is replaced atomically after the blob it
+names, and every load re-verifies each digest and re-folds the index through
+the same append rules, so a torn, tampered, reordered, or substituted store
+fails closed instead of deriving state from it. The load re-verification
+attests stored bindings through `VerifyObjectIdentity` and refuses a blob
+whose self field is not `event_id` or whose digest disagrees with the index
+at its named arms — entry decodes refuse a foreign schema before verifying,
+while the load path recomputes whatever digest stored bytes claim and then
+refuses it.
+
+The chain is append-only in both obligations. Appends succeed in order, and
+no production entry rewrites or deletes: duplicate creates, colliding records
+under one session ID, and repeats at a chained sequence are refused, and
+losing-lease branches are preserved as immutable blobs without ever entering
+the authoritative chain. A byte-identical retry of a chained event returns its
+existing reference, so a retry after a crashed commit is safe; a crashed
+commit counts as committed and a retry names the terminal state.
+`CreateSession` runs four durable steps (session directory, record, events
+directory, chain index) and an interrupted create resumes on retry: a bare
+directory or a record without a chain completes, a completed create names
+the terminal state, and a colliding record or a chain without a record is
+refused. `BeforeWrite` and `AfterCommit` connect the outer write boundaries
+to `secconftest` crash points in tests, and `AfterCreateStep` fires after
+each of the four interior create steps, so every crash window is drivable:
+a fault before the durable write carries `safe_retry` with nothing mutated,
+a fault past any durable step carries `recoverable_parked_state` with the
+parked state resuming on the identical retry. `Resolve` implements the local
+steps of name resolution — exact live name, ASCII case-fold collision refusal
+with `name_ambiguous`, UUID routing over healthy sessions only — and
+`ListSessions` exposes stored identity plus chain-head facts, with a parked
+session returned per session (`Parked` with the `recoverable_parked_state`
+blocking reason and the same-operation retry) instead of failing the whole
+repository: a bare directory retries `CreateSession` with the record for its
+ID, a record without a chain retries the byte-identical record (full-content
+equality, not length-only), and a torn store past the create window has no
+healing retry — the operator removes
+`<data-root>/sessions/<session-id>` after confirming no host will retry, and
+the listing heals. The two content-equality comparisons (resume in
+`sessrepo.go`, blob install in `chain.go`) each ship a same-length differing
+vector and a length-only narrowing mutant.
+
+The package derives no lifecycle state, renders no list/status output, learns
+no peer names, and takes no lease-arbitration decision: the Section 5.7
+reducer, the full Section 2.3 order with interactive choice, Section 14.4
+rendering, and cross-partition lease convergence belong to the sibling leaves
+that build on these entries. It adds no `ax` command, no `doctor` result, and
+no runtime capability claim.
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/sessrepo -count=1
+go test ./internal/sessrepo -cover -count=1
+```
+
+The unfiltered package run derives the 35-site refusal inventory from the
+production source through `internal/invcore` (5 in `sessrepo.go`, 25 in
+`chain.go`, 5 in `store.go`): every `refuse` call site must
+have a boundary-driven negative path (`Open`, `CreateSession`, `AppendEvent`,
+`GetRecord`, `GetEvent`, `ListEvents`, `ListSessions`, `Resolve`), every
+exercised site must derive, sentinel wraps outside the funnel fail, and the
+observed sentinel set must equal the derived roster. The load re-verification
+holds three separate rows — verify failure, non-`event_id` self field, and
+index-disagreeing digest — each with its own boundary-driven plant. The alias
+audit keeps the funnel and the watched owner delegations
+(`VerifyObjectIdentity`, `DecodeStrictObject`, `CheckUUIDv7`,
+`CheckUint53Bounds`, `ParseDigest`, `ParseUUIDv7`, `ParseUUIDv4`) in
+direct-call position, proved by plants that include an import alias and a var
+binding in both directions. A second derived census covers the two
+content-equality comparisons (`bytes.Equal` in `sessrepo.go` resume and
+`chain.go` blob install, plus the `string(...) ==` spelling form): every
+derived site needs a registered same-length vector, an unregistered site, an
+orphan row, or an unclassifiable spelling fails the gate, and the static
+census runs on every full package run whether the suite is green or red, so a
+red test masks no plant. The mutation battery (33 applied, 33 killed, 0
+survivors; 16 narrowing, 10 arm-deletion, 4 census-only, 3 audit-only; plus
+NOT_APPLIED and COMPILE_FAIL controls) covers the write, load, and recovery
+paths — including the per-session parked channel and both content-equality
+comparisons — and is recorded on the owning task board item.
+
+## Session State Reducer
+
+[`internal/sessstate`](internal/sessstate) derives deterministic logical-session
+state from the immutable records (pinned v0.5.0 Sections 2.3, 5.1-5.2, 5.7,
+14.4): every `SessionState` value, the winning lease epoch, lease conflicts,
+the current checkpoint, provider identity, and terminal binding. `Reduce` is a
+pure function of its input — record facts plus the authoritative events in
+chain order — performing no I/O and keeping no cache, so the same event
+sequence always yields the same state. `Project` binds the pure core to one
+`sessrepo.Repository`: it locates the session through `ListSessions`, loads
+the stored record and chain through `GetRecord`, `ListEvents`, and `GetEvent`,
+and folds them through `Reduce`. It only reads and owns no crash window; its
+idempotency is the reducer's purity, pinned by projecting twice and requiring
+byte-equal results.
+
+The Section 5.7 transition table is the single source the step gate enforces:
+a same-state restatement is not a transition, the first event may only open a
+bootstrap state, and every other move needs its table edge, else
+`invalid_state_transition`. Chain continuity is re-checked over the reducer
+input, so a chain-forbidden reordering refuses instead of silently deriving a
+different state. The winning lease is the greatest `(epoch, lease_id)` tuple
+over the chain leases and the union leases; a same-epoch tie resolves to the
+bytewise-greater lease ID, an epoch gap keeps the greatest tuple while
+recording the gap, losing union branches report preserved-never-applied, and
+an off-chain union winner moves the reported winner without rewriting
+authoritative state — each as reported conflict data under its named rule,
+never as an error. An empty chain derives creating, but its union still passes
+through the same validation: a malformed union refuses exactly as on a
+non-empty chain, while a well-formed union moves only the reported winner.
+Without an authoritative event, `Local` is ignored, including malformed and
+partial tuples; it is not validated and changes no state, winner, conflict or
+warning. `LocalHostID` leaves the role unknown even with a selected union
+winner. `TestReduceEmptyChainLocalIsIgnored` pins this bound through `Reduce`.
+Takeover while the winner is active stales the old host's
+projection exactly where the table lets it go stale; a local lease that lost
+the tuple rule stales the local projection the same way. No event derives
+stopped while the newest checkpoint is null, the failed-to-creating retry
+requires epoch 1 under the create lease with no checkpoint and no abort, and
+`task_board.launched` must repeat the creation lease and the record provider
+or fail integrity. A parked session from `sessrepo` reaches `SessionState` as
+the parked state carrying its blocking reason and retry — never as an error
+or an omission — and the listing tells a parked name apart from a missing one
+with no repository interface change.
+
+Decode projects members from attested bytes and never re-attests: canonical
+identity stays single-owned at the `sessrepo` durable boundary (pinned by the
+provhost no-attestation-outside-the-leaf gate), so `DecodeRecord` and
+`DecodeEvent` check frame and member grammars through their owners and read
+the grammar-checked self member instead of recomputing a digest.
+
+The package resolves no names, renders no list/status output, and takes no
+interactive choice: the full Section 2.3 order with choice and Section 14.4
+rendering belong to the sibling name-resolution leaf. It adds no `ax`
+command, no `doctor` result, and no runtime capability claim.
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/sessstate -count=1
+go test ./internal/sessstate -cover -count=1
+```
+
+The unfiltered package run derives the 69-site refusal inventory from the
+production source through `internal/invcore` (39 in `sessstate.go`, 28 in
+`decode.go`, 2 in `project.go`): every `refuse` call site must have a
+boundary-driven negative path (`Reduce`, `DecodeRecord`, `DecodeEvent`,
+`Project`), every exercised site must derive, sentinel wraps outside the
+funnel fail, and the observed sentinel set must equal the derived roster. A
+second derived census covers the 11 `SessionState` spellings — structurally
+derived from the `State`-typed const block, each living exactly once as a
+production literal, each driven to through the production `Reduce` entry —
+and a third covers the 24 handled v1 event types derived from direct-selector
+switches and comparisons against the pinned Section 5.2 registry, each row
+naming its lifecycle-or-fact class and driver. `TestEventTypeUsesAreOwned`
+adds the ownership prerequisite: every production `Type` selector, including
+ones in new files or package bindings, must match one of four exact AST use
+contexts. Copies, helper arguments, address-taking and other unregistered
+contexts fail closed, as do orphan rows, duplicate uses and unclassifiable
+sites. This is direct-field-access ownership, not whole-program taint
+analysis: reflective/unsafe/serialization access to whole `Event` values and
+later interpretation of permitted diagnostic strings remain unproved.
+Unrelated selectors named `Type` also need classification.
+
+The alias audit keeps the funnel and watched owner delegations
+(`DecodeStrictObject`, `CheckUUIDv7`, `CheckUint53Bounds`, `ParseDigest`,
+`ParseUUIDv4`, `ParseProviderID`, `ParseID`) in direct-call position, with
+import-alias and var-binding controls. Named `TestSessstateStaticAudit`
+exposes this layer separately. The task outcome records the selected mutation
+battery with disjoint behavioral, census and static-audit selectors; a
+census failure is never reported as a behavioral kill. The selected mutants
+cover reduce/read/recovery paths; this package owns no durable write path.
+Their count is not a claim that every possible dispatch or mutation is covered.
+
+`TestCensusLiveEventOwnershipPlants` compiles and wires direct-switch PA,
+var-binding PB, string-helper PC and pointer-neighbor PD through `Reduce`.
+All four fail the census; their unchanged behavioral-suite result is reported
+separately. Independent control-effect probes are added only after the
+shipped layers run and do not count as shipped behavioral kills. Neutral XN
+survives (identity-transform bound); known-bad XK fails the unknown-v1
+behavioral test. The gate's own narrowing that admits only the simple
+`kind := event.Type` copy is killed by the live PB control. Run this focused
+composition with:
+
+```bash
+go test ./internal/sessstate -count=1 -run '^TestCensusLiveEventOwnershipPlants$' -v
+```
+
+The live test uses a temporary package copy and read-only dependency symlinks;
+it restores its copied sources and never mutates the managed worktree. It runs
+on the normal package suite and adds compiler/subprocess time. Task validation
+logs and mutation artifacts are attached to `TASK-260830-1r9wrr`; scratch
+outputs live under `.temp/TASK-260830-1r9wrr/`.
+
+## Session selector, read summaries, and selection plans
+
+`internal/sessquery` is the single shared selector API over the persisted
+session repositories and the accepted state projector. It implements the
+v0.6.0 selector contract (§14.7/§14.7.1, refining §2.3) with shared
+SelectionPlan construction and revalidation (§14.7.2):
+
+- Literal grammar: split at the first `@` only. The key is a NAME, a bare
+  UUID (name-first precedence kept), or `id:UUID` (bypasses names for the
+  durable union identity). The source is empty (bare §2.3 tiers), `local`,
+  `peer:ALIAS` (the entire remaining suffix, literal — spaces, `@`,
+  Unicode, and `%` included), or `id:HOST_UUID`. No joining, aliasing,
+  percent-decoding, Unicode normalization, trimming, or alias folding.
+- Exact source mappings: effective configuration (local host, peer
+  alias/host mappings, allowlist) is validated first, including exact
+  alias and host-ID uniqueness; duplicates are `invalid_config`.
+  Explicit unknown aliases/hosts are `selector_source_not_found`; known
+  but disallowed peers are `peer_not_allowlisted`. Remote read failures
+  are `selector_source_read_failed` with the cause preserved; local I/O
+  keeps its repository error; malformed authority is `integrity_failure`.
+- No explicit-source fallback: a qualified key resolves in its one
+  source only. Tier, collision, and tombstone semantics follow §14.7.1:
+  exact live name then UUID-shaped name within the source, replicated
+  copies deduplicate only on agreeing record digests (else
+  `integrity_failure`), distinct colliding names refuse with
+  `name_ambiguous`, and tombstoned entries stay excluded on
+  authoritative tombstone evidence while failed reads never count as it.
+- Immutable plans: `Reader.BuildPlan` binds all sixteen §14.7.2
+  members — the literal selector, session and validated record digest,
+  source host (always a UUIDv7; a local selection without a known local
+  host refuses `invalid_config`) and exact alias, index and
+  configuration digests, the validated winning `urn:ax:schema:lease`
+  Lease Record digest with its epoch, lease ID, and holder from that
+  same record (admitted through the canonicaljson owner from
+  `Reader.LeaseRecords`, greatest (epoch, lease_id) winner with a
+  fully validated succession: the predecessor ancestry chains by
+  epoch plus one to an epoch-1 null-predecessor root, and every
+  lease in that winning ancestry above epoch 1 references an
+  admitted `urn:ax:schema:checkpoint` Checkpoint Record from
+  `Reader.CheckpointRecords` for its session and predecessor lease,
+  each created by the owning lease holder, each carrying the
+  persistence variant the referenced Session Record kind selects
+  (direct only provider-manifest, task_board only task-board-bundle;
+  §5.4), and each resolving every event head to a chained event for
+  its session at or before its bound lease in the winning source
+  chain (historical heads admissible, never required to equal the
+  current tail; missing, cross-session, losing-lease, and later-lease
+  heads refuse), and each admitting its Section 2.4 profile authority
+  over the same closure (first launch carries the creation pair,
+  later launches the newest authoritative change at or before them,
+  resumes their referenced checkpoint's pair, forks the new record
+  pair; contradictory pairs refuse `integrity_failure`); no envelope
+  observation substitutes for it). Profile derivation consumes only
+  the private `admittedCheckpoint` sealed capability, constructed
+  solely by the exact `admitCheckpoint` function and re-verified at
+  every profile derivation entry. A referenced checkpoint's owning
+  lease must be the consuming resume's lease or an earlier lease in
+  the same validated succession, and every referenced event head
+  must be in that resume's predecessor closure; a future-owned or
+  post-resume head refuses `selector_observation_unavailable`. The plan
+  also binds lease/event/tombstone authority heads (winning lease digest plus
+  every non-parked source tail, sorted unique), action, destination,
+  and expectation digest. A session with no admitted winning record
+  refuses `selector_observation_unavailable`; a complete read proving
+  a record without any valid lease refuses
+  `selector_bootstrap_incomplete` instead of binding an empty triple.
+  `Reader.Revalidate` compares every bound fact in a fixed order and
+  validates the complete authority union for the pinned UUID across
+  the local and every allowlisted source — contradictory records are
+  `integrity_failure`, a greater winning lease and fresh tombstone
+  evidence are `selector_plan_stale` while lagging copies stay
+  current, and a parked copy of the pinned session in any required
+  source fails the union closed with
+  `selector_observation_unavailable` (never evidence, never absence)
+  — without re-resolving names or substituting selections.
+  Revocation is `peer_not_allowlisted`, and reads keep their classes.
+  Plans authorize read projection only; fencing, commit, and remote
+  routes belong to the CLI/lifecycle callers that invoke revalidation.
+
+`Reader.List` and `Reader.Status` read actual Session Records and event
+chains through `sessrepo` and `sessstate.Projector`. They expose the
+derived identity, provider, lifecycle, winning lease/owner, local role,
+checkpoint ID, conflicts, and warnings as an internal `Summary`. List
+order is bytewise session ID; `InspectLocal` retains raw access to
+parked/tombstoned IDs and recovery diagnostics and is not a public
+summary entry. Failed index reads and failed projections propagate as
+errors. Repository-parked sessions remain visible in listing but are
+excluded from live routing. Reading never repairs a store or performs
+an attach, resume, or ownership change. Creating is a record AND an
+authoritative initial lease (§5.7/§13.1 step 2), so a record-only chain
+is an interrupted prefix for the bootstrap-recovery leaf: list and
+status refuse it with `selector_bootstrap_incomplete` — the whole list
+when any encountered record is unrepresentable — instead of returning
+an ownerless row or a placeholder owner. The closed authoritative
+layer (`Reader.AuthoritativeStatus`, `Reader.AuthoritativeList`)
+binds owner, lease, and role from the validated winning Lease Record,
+owner display names only from validated host metadata (1..64), local
+roles only with a known local host, checkpoint timestamps only from
+validated observations, workspace_status from the closed five-value
+enum, capabilities from validated CapabilitySummary maps (0..7, only
+available may enable) keyed by exactly the provhost-owned Section 7.3
+seven-name provider registry (any other name refuses
+`invalid_config`), process liveness as a required boolean for
+status, and warnings from the projection; unknown required
+observations refuse `selector_observation_unavailable` while
+established absence (workspace absent, empty non-nil capabilities)
+stays representable, and nothing is inferred.
+
+These entries do not provide an `ax` executable or a closed CLI Result
+renderer. CLI Result 5 with Structured Error 1.4.0, wire exit binding,
+transports, peer authentication, and lifecycle effects belong to their
+owning leaves.
+`TestCreatingSummaryCannotClaimClosedCLIResult` drives the refused
+`Reader.List`/`Reader.Status` entries and the existing `cliresult.New`
+to demonstrate that a creating session without owner facts satisfies
+neither the summary entries nor the mandatory CLI owner/lease fields.
+No owner is invented and no doctor/provider/platform capability
+is advertised. The traceability, gate battery, and remaining bounds are
+in [the task evidence map](internal/sessquery/TRACEABILITY.md).
+
+```bash
+go test ./internal/sessquery ./internal/sessrepo -count=1 -v
+python3 internal/sessquery/testdata/mutate.py /absolute/path/to/new/evidence-dir
+```
+
+The temporal authority and raw-record boundary are driven by
+`TestReview11ReferencedTemporalAuthority`,
+`TestRev12ReferencedCheckpointLaterLease`,
+`TestRev11RecordConsumptionCensus`,
+`TestRev12RecordConsumptionCensusRejectsAlternatePaths`, and
+`TestRev12AdmissionPrecisionCensus`, `TestRev14CapabilitySeal`, and
+`TestRev14RecordConsumptionCensusRejectsAlternatePaths`, and
+`TestRev15AliasAwareRecordConsumptionCensus` in the shared `sessquery`
+package. The rev16 mutation run records 66 applied N/B plants (63
+narrowing, 3 ordering), all killed, plus separate classifier controls;
+it proves exact callback provenance and normalizes Go aliases across
+chained, container, function-signature, generic, interface, reflect,
+and unsafe seal/token paths. Its evidence directory is attached to the
+task board.
+
 ## Structured Errors, Stable Codes, and Causal Redaction
 
 [`internal/axerror`](internal/axerror) implements the Section 15 Structured
@@ -2526,6 +2875,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | Tool | Purpose | Command or entry point | Outputs |
 | --- | --- | --- | --- |
 | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
+| `sessquery` mutation harness | Run isolated selector, plan, summary, and admission narrowing/order mutants with exact replacement and real test-exit classification | `python3 internal/sessquery/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
 | Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6.0.json -contracts internal/specpin/v0.6.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
