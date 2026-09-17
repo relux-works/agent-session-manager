@@ -1,0 +1,82 @@
+# Qualified selectors and independently authenticated inbound peers
+
+**PROPOSED — decision brief, ready for review; no specification approval or implementation authorization.**
+
+## Authority and preserved scope
+
+This proposal addresses TASK-260830-21gygk (session selection/summaries) and TASK-260830-z1yxg9 (Mesh RPC). Both remain blocked with their full implementation scope preserved. No source, pin, owner, acceptance criteria, status, source-tool PR, or deferred issue 176/177 is changed.
+
+Authority is [AX v0.5.0, commit 28bf96d7](https://github.com/relux-works/agent-session-manager-spec/blob/28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c/SPEC.md), locally verified SHA-256 `562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a`. Sections 2.3/6 define resolution and configuration, but no qualification grammar or independent inbound association. Sections 11.1/11.2 require bilateral identity checking after SSH authentication; hello is closed. Section 16 trusts local operators, without making one listed host equivalent to every other listed host.
+
+Read-only implementation evidence: `sessquery.Reader.Resolve` distinguishes index source from owner; `peeridentity.Directory.Resolve` selects configuration, while `Target.CheckProtocolHost` checks equality; `sshtransport.Client.Open` retains an outbound Target but supplies no inbound identity. The [selector stop](board-resource://TASK-260830-21gygk/outcome/TASK-260830-21gygk_stop-line.md), [summary constraint](board-resource://TASK-260830-21gygk/outcome/TASK-260830-21gygk_owner-partial-routing.md), [identity counterexample](board-resource://TASK-260830-z1yxg9/outcome/TASK-260830-z1yxg9_blocked-outcome.md), and [preserved RPC stop](board-resource://TASK-260830-z1yxg9/outcome/TASK-260830-z1yxg9_independent-stop-packet.md) remain authoritative task evidence. Their historical test results are not reruns here.
+
+## 1. Selector decision
+
+| Contract | Meaning and advantages | Cost |
+| --- | --- | --- |
+| Explicit index source — recommended | Resolve in exactly the local index or one configured peer's learned index; provenance is directly inspectable and composes with the reader. | Replicas can contain the same session; source is not owner or execution destination. |
+| Current owner qualification | Filter merged candidates by authoritative winning lease holder; intuitive when asking for a machine's sessions. | Takeover changes selector meaning; stale/conflicting leases or unknown ownership prevent resolution. Source lookup alone cannot establish it. |
+
+Both are viable **new** contracts. Owner qualification would require a merged lease view, freshness requirements, and owner assertions rechecked before action. It should not be smuggled into source syntax.
+
+**PROPOSED grammar:**
+
+```text
+selector = bare | key "@" source
+bare     = NAME | "id:" UUIDv7
+key      = NAME | "id:" UUIDv7
+source   = "local" | "id:" UUIDv7 | "peer:" ALIAS
+NAME     = [A-Za-z0-9][A-Za-z0-9._-]{0,63}
+```
+
+`ALIAS` is the exact configured `mesh.peers[].name`, encoded as UTF-8: leave only ASCII letters, digits, `.`, `_`, `-`, `~` literal; percent-encode every other byte using uppercase hex. Reject invalid UTF-8, noncanonical/redundant escapes, and decoded values outside the existing field contract; do not Unicode-normalize or case-fold aliases. UUIDs use the pinned canonical UUIDv7 representation. Typed branches prevent an alias equal to a UUID or `local` from stealing that identity. Section 6 allows broader peer names than session names; bare `name@host` without this distinction is underspecified. `@`, `:`, and `%` cannot collide with NAME.
+
+Examples: `ax build@peer:workstation`, `ax build@local`, `ax build@peer:lab%40west`, `ax id:0198f4c8-3e70-7a11-8a2b-1234567890ab`, and `ax takeover build@peer:workstation --to laptop`. The last selects from workstation's index and independently requests laptop as destination. Qualification confers no action permission.
+
+Rules, in order:
+
+1. Parse once; malformed explicit syntax returns `invalid_arguments` (2), never a bare-name retry. Resolve typed source against configuration only: unknown peer → `peer_not_allowlisted` (7); conflicting mapping → `invalid_config` (3). A source UUID equal to configured local host ID selects local; `peer:` addresses peers only.
+2. Unqualified NAME keeps Section 2.3: local exact live name, then allowlisted-peer exact live name, then exact UUID, then `not_found` (4). Detect ASCII-fold collisions within the applicable name tier; different session IDs collide even when one spelling is exact. A unique differently cased spelling is not an exact match. Local priority applies only here.
+3. Qualified NAME searches only its selected source's persisted index, with the same live eligibility and collision refusal. No other source/owner fallback. Explicit `id:` bypasses name precedence, searching that source or, unqualified, local plus allowlisted indexes. It identifies one live session, not arbitrary tombstone/recovery inspection. A UUID-shaped NAME still follows old precedence unless typed `id:` is used.
+4. Deduplicate equal session UUIDs across replicas; divergent immutable records for one UUID return `integrity_failure` (9). Distinct IDs in one folded bucket return `name_ambiguous` (4), with sorted candidate IDs/provenance. Deterministic source ordering is local, then host UUID bytes; this order grants no ownership authority.
+5. Unreadable/incomplete relevant indexes refuse before lower-priority fallback: local failure → `local_precondition_failed` (3), peer transport/read failure → `transport_failure` (8); verified corruption → `integrity_failure` (9). `not_found` means a successful search of the specified snapshot, not proof of global/current absence.
+
+Session UUID is durable identity; alias, source, endpoint and owner are not. Plans retain session UUID, immutable-record identity, source/configuration snapshot and expected winning lease tuple. Cached selection is discovery evidence only: before attach/resume/mutation, authenticate the relevant host, refresh authoritative state and validate lease, tombstone, realm and action prerequisites. Changed binding/selection → `local_precondition_failed`; changed lease → `stale_owner`/`lease_conflict`; unreachable owner → `owner_unreachable`. Replan explicitly; never silently select a replacement session with the old name. Adding qualification does not authorize creation of otherwise forbidden duplicate names.
+
+## 2. Inbound identity decision
+
+| Design | Assurance | Provisioning/migration |
+| --- | --- | --- |
+| Server-enforced key/principal → restricted OS identity → AX host — recommended | Independent expected host, using SSH authentication and OS isolation. | Administrator deployment and per-peer ingress accounts; approximately one account per admitted sender per receiver. |
+| Protocol-level proof of an enrolled AX host key | Portable possession proof, independent of SSH login account, if established authenticated-channel machinery binds the whole stream. | AX key lifecycle plus incompatible transport/handshake change. |
+| Membership-only hello | Rejects unlisted IDs, but an authenticated user can claim any listed host. | Smallest change, but cannot meet cross-listed-host spoofing refusal. Reject for this requirement. |
+
+**Verified platform facts.** OpenSSH supports key-specific forced commands and restrictions; certificates can constrain accepted principals. These identify a credential, not an AX UUID. [OpenSSH sshd](https://man.openbsd.org/sshd#AUTHORIZED_KEYS_FILE_FORMAT). `ForceCommand` ignores the requested command but does not itself disable forwarding. `ExposeAuthInfo` exposes public authentication information through a file named by `SSH_USER_AUTH`; neither the filename nor arbitrary environment values are independently trustworthy. [OpenSSH configuration](https://man.openbsd.org/sshd_config#ForceCommand).
+
+**PROPOSED enforcement:** provision a dedicated non-administrative ingress account for each sender identity. Accept only that sender's dedicated key, or CA-issued certificate with a uniquely assigned host principal; forbid credentials/principals spanning multiple host IDs. Administrator-owned policy forces a fixed launcher, blocks shell/SFTP escape, forwarding, user startup code and privilege escalation, and prevents account writes to policy, executable, credential mapping or AX service state. The launcher forwards stdio to a separate AX service; the service derives identity from authenticated OS IPC credentials and its protected account→host mapping, never a caller-supplied ID. Local host operators remain trusted under Section 16.
+
+This separation matters: a forced wrapper running as a writable general-purpose AX account can be bypassed through another login, modified startup files or direct invocation. Argv, environment, `SSH_ORIGINAL_COMMAND`, `SSH_CONNECTION`, and claimed auth-info paths are untrusted inputs. Even direct launcher invocation under ingress A must yield only A at the service. No boolean “verified” adapter suffices.
+
+OS facilities exist, but the integrated boundary requires conformance: Apple's [getpeereid](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/getpeereid.3.html) exposes connected Unix peer credentials; Windows documents [named-pipe client impersonation](https://learn.microsoft.com/en-us/windows/win32/ipc/impersonating-a-named-pipe-client). Native Windows OpenSSH lacks `ExposeAuthInfo` and principal/key command hooks, and its chroot applies only to SFTP. Use protected static key/account mappings and a proven SID/IPC adapter; do not claim POSIX configuration establishes Windows isolation. [Microsoft OpenSSH](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-server-configuration).
+
+Tailscale SSH authenticates through node keys/policy and its own SSH server, rather than ordinary SSH user keys; policy can accept client environment variables. Its documented servers are Linux and open-source macOS tailscaled, not native Windows. Thus OpenSSH forced-command/auth-info guarantees do not transfer. A user or multi-node tag is not one AX host. The inspected documentation does not establish a protected per-session node→AX identity handoff; native Tailscale SSH remains unproven for this proposed profile. [Tailscale SSH](https://tailscale.com/docs/features/tailscale-ssh). Explicitly configured [ordinary OpenSSH over Tailscale networking](https://tailscale.com/docs/reference/ssh-over-tailscale) is the recommended supported route; never switch transports silently. A native adapter remains separate preserved work, requiring node binding and bypass tests.
+
+**Protocol alternative:** SSHSIG supports signatures and revocation, but signing a hello nonce alone neither authenticates all subsequent frames nor excludes live relay. [ssh-keygen](https://man.openbsd.org/ssh-keygen#-Y). Prefer TLS 1.3 mutual authentication over the SSH byte stream with dedicated AX-host credentials, an explicit certificate→UUID mapping, no 0-RTT or anonymous/plaintext fallback, and no resumption initially. CertificateVerify/Finished authenticate the handshake; record protection covers later data. [RFC 8446 §§4.4,5,8](https://www.rfc-editor.org/rfc/rfc8446.html). This is a viable alternate product direction, not a proposed bespoke signed-JSON protocol. Do not reuse server SSH private host keys or claim a key proves a physical machine when copied.
+
+**Enrollment/lifecycle:** independently verify host UUID, endpoint server identity and sender credential fingerprint/principal; install reciprocal allowlists and protected mappings only by explicit operator enrollment. Discovery/hello never enrolls. Rotation retains UUID with an approved, bounded old/new credential overlap; both credentials map only to that host. Revoke at SSH policy and service admission, close affected live sessions, and recheck mapping generation before dispatch. CA expiry/revocation must be enforced, not inferred from certificate names. OpenSSH provides [KRL tooling](https://man.openbsd.org/ssh-keygen#KEY_REVOCATION_LISTS). Shared/copied credentials cannot distinguish their holders: reject multi-host enrollment; compromise requires rotation/revocation.
+
+**Migration:** propose Configuration 4.0.0 for mandatory admission semantics, with an explicit admission-profile and protected-manifest reference; define provisioning-manifest 1.0 and launch/service-IPC 1.0. The manifest binds receiver UUID, generation, OS account UID/SID, sender UUID and credential fingerprint or CA/principal policy, including validity/revocation. AX config references this administrator-owned authority; user-writable overrides cannot replace it. Missing, unreadable, duplicate or conflicting bindings refuse. Existing peer objects are closed. Keep RPC 2/3/4 JSON shapes only when authentication is entirely external, explicitly enabled and validated before hello. Old deployments lacking the association fail `migration_required` locally; never default to membership-only. The TLS alternative requires a distinct launch mode plus a new negotiated RPC/transport major, not hidden fields in hello/extensions. Existing fixed error embeddings remain unchanged.
+
+Reject unbound/revoked connections before payload dispatch. An authenticated connection claiming another listed host fails `host_identity_mismatch` (7). No inventory, durable write or normal success precedes bilateral hello. Supported-major invalid first requests get exactly one correctly bound failure then close; unparseable/oversize/unsupported-major input closes without an RPC frame, following Sections 11.2/15.1. Authentication failure before parse produces a local error, not fabricated peer output.
+
+## 3. Supporting recommendations
+
+**Git capture:** hold real provider/input quiescence throughout capture, not a past idle observation. Stage objects, index representation and worktree bytes privately; validate required OID closure, modes, symlinks and submodules; compare HEAD/index/included digests before publication. Only publish after durable staging/manifest validation and a crash-safe commit marker. External editors/builds/Git processes need an enforced writer exclusion or coherent filesystem snapshot; AX's mutex and matching before/after hashes cannot exclude change-and-revert races. Refuse when this bound cannot be established. Git bundles do not capture index/worktree state, so they are insufficient alone. [Git bundle](https://git-scm.com/docs/git-bundle), pinned §§7.6/12.3.
+
+**Interrupted create:** Section 5.7 `creating` requires Session Record **and initial lease**; an event-free record alone proves neither owner nor lease. Preserve repository recovery and internal unknown fields. Project public SessionSummary only from authoritative lease and observation facts; never fill required owner/lease/role fields from configuration guesses or nulls. Until recoverable bootstrap supplies them, return existing `local_precondition_failed` with redacted session/recovery details; do not silently omit entries or call that corruption. Showing incomplete rows successfully instead requires an explicitly versioned CLI representation decision. Sections 13.1/14.2 do not presently provide one.
+
+## Decisions and acceptance boundary
+
+Approve separately: **D1** typed source grammar and exact errors; **D2** server-enforced admission/profile, administrative provisioning cost and native-Tailscale support bound (or explicitly choose mutual TLS); **D3** explicit migration contracts with no downgrade; **D4** public incomplete-summary refusal versus a new representation. Git notes add no new implementation scope.
+
+Required future conformance pairs: local shadowing/unqualified versus qualified source; UUID-shaped name versus `id:`; encoded alias versus malformed escape; replica deduplication versus conflicting records; successful empty index versus failed read; stable plan versus alias edit/takeover/tombstone; A→A versus A→listed-B; restricted invocation versus shell/env/IPC forgery; unique credential versus multi-host enrollment; approved rotation versus revoked live stream; valid hello versus unauthorized first operation/oversize/major mismatch; held capture versus external writer/crash; durable initial lease versus interrupted record-only create. Drive actual resolver, launcher/service and CLI boundaries. These are required scenarios, **not executed tests or accepted implementations**.

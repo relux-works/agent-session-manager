@@ -1,0 +1,1 @@
+Superseded on 2026-09-16 19:15Z by TASK-260830-21gygk_republish-rev10.md: the rev9 rework is complete in the worktree (RUN-260916-dea59a, evidence rev10 attached); the next producer run only republishes. Original text retained at .temp/TASK-260830-21gygk/rework-rev9.md.

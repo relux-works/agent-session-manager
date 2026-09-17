@@ -1,0 +1,1 @@
+Rev12 evidence: shared library 8 of 8 AC rows. Targeted temporal and type boundary narrowing mutants killed; harmless survivor classified separately. Candidate remains uncommitted and ready for independent review.

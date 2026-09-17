@@ -1,0 +1,9 @@
+Review the actual ready immutable CR for TASK-260830-21gygk after RUN-260909-ffb76b. Read attached TASK-260830-21gygk_reviewer-v060.md and TASK-260830-21gygk_reviewer-bd27d9-addendum.md in full; their complete assigned scope and independent-review requirements remain active.
+
+Read latest TASK-260830-21gygk_results-ffb76b.md, validation-ffb76b.log, revalidation-probe-ffb76b.log and mutants-bd27d9.json. Producer changed no product code during publication recovery. PR204 restored missing protected resource JSON; command24 passed independently, but require actual ready CR and its final validation result.
+
+P1/P2 now have concrete production diagnostic observations: fresh Resolve changes the peer-tier name winner after a local same-name gain, or refuses cross-source record divergence, while Revalidate(old plan) returns nil. P3 selected-source change correctly refuses. Producer argues pinned UUID/provenance and prohibition on name re-resolution make this correct; evaluate the normative text yourself, distinguishing forbidden retargeting from required refusal and all complete-authority requirements. Diagnostic PASS is not a correctness test.
+
+Producer explicitly declares lease_record_id absent, not equivalent, because this stack lacks Lease Record objects, and assigns it to a later caller leaf. Independently determine whether that preserves the assigned shared SelectionPlan requirement or leaves an acceptance gap. Do not waive a required field solely because its dependency is missing; do not invent a digest. Likewise assess claimed caller ownership of 14.7.3 versus shared summary scope. Preserve the full objective and actual ownership contracts.
+
+If evidence is insufficient or requirements unmet, record precise changes requested through the normal review lifecycle. Do not edit product files or land. Only accept_cr after independent evidence and the live merged reviewer checklist satisfy the actual immutable candidate.

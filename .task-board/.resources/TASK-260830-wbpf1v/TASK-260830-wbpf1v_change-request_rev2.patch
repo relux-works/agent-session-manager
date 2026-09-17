@@ -1,0 +1,3623 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 99f7d8b..70428ed 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,24 @@
+ 
+ ## 2026-09-07
+ 
++### wbpf1v round 2: F1/F2/F3 rework — resume heals every create window, load arms witnessed, allowlist anchored
++- SCOPE: TASK-260830-wbpf1v rework after rev1 `changes_requested` (F1 false ordering claim, F2 five surviving load/recovery mutants, F3 interrupted-create brick; F4 non-blocking allowlist anchoring fixed while here). Same worktree/branch, still uncommitted for the board CR.
++- F1 CORRECTION (supersedes the round-1 entry below): "schema gate precedes every Verify call" was false — `loadSessionLocked` re-verifies stored blobs through Verify with no schema gate, and the verbatim SPEC §5.5 provider-identity record verifies cleanly there (recomputed digest matches; only `field != SelfEventID` refuses). Restated everywhere the false universal stood (`identity.go` comment, `identity_test.go` bound, `sessrepo/doc.go` authority split, README, outcome): entry decodes gate schema before Verify; the load path recomputes whatever digest stored bytes claim and refuses non-`event_id` self fields / index-disagreeing digests at named arms. Gating the load path instead would have made the field arm unreachable-by-construction (Verify resolves the self field from the same schema member) and its narrowing mutant unkillable — measured, not assumed. The load verify is now three single-line refuse rows (verify failure, self field, digest), each with its own boundary plant; the shared message that formatted a nil error is gone.
++- F3 FIX: `CreateSession` (MkdirAll dir → record → MkdirAll events → chain) had both crash points outside its span, and a crash before `record.json` was unrecoverable (`ErrSessionExists` for a never-created session; `GetRecord`/`ListSessions` corrupt, the latter for the whole repo). `resumeCreateLocked` now heals both parked states (bare directory completes with the retry bytes when no chain exists; record-without-chain completes as before; chain-without-record and colliding bytes refuse), and `AfterCreateStep` fires after each of the four steps so one secconftest point per boundary drives it — each test asserts the exact fired-step prefix plus arm consumption. Interior faults carry `recoverable_parked_state` (parked state the identical retry resumes); `safe_retry` stays pre-span only.
++- F2 BATTERY: 26 applied / 26 killed / 0 survivors (12 narrowing, 10 arm-deletion, 2 census-only, 2 audit-only; NOT_APPLIED + COMPILE_FAIL distinct), denominator extended to load/recovery: provider-identity plant kills the field narrowing (M1a), blob-swap kills the digest narrowing (M1b), exclusive-create-first blob install kills O_EXCL→O_TRUNC (M2, witnessed through a fresh handle sharing no mutex/memory), same-length collision kills the resume-equality narrowing (M6), cross-session record kills the session-half drop (M7), rebound-predecessor detached index kills the digest-half drop behaviorally (M8 — the old detached test passes via the continuity arm and is kept as the precision control). Measured bound: the verify-error arm is behaviorally subsumed by the field arm (Verify returns field "" on every error path) — diagnostic attribution + census row, no deletion mutant, stated in the outcome. Harness at `.temp/TASK-260830-wbpf1v/mutation_battery.sh` (gitignored scratch) with exact-count application and checksum restore; log attached to the board task.
++- F4 FIX: allowlist anchored on `<root>/internal/sessrepo/` with the site count pinned at exactly 3 (decode ×2 + load ×1); a synthetic-tree test plants `internal/provhost/sessrepo/` (token preserved, owner changed) and `internal/xsessrepo/` and requires both outside, leaf inside.
++- F5 NOTE (verdict non-blocking, out of the spawn brief — acknowledged, not rewired): `syncDirectory`/`writeAtomic`/`writeExclusive`/`installEventBlob` duplicate `localstore` path policy (which has no consumer yet); the outcome's "no new path policy" line is corrected to state the duplication with the reason instead of claiming otherwise.
++- GATES: full `go test ./...`, `-race` over all packages, `-cover`, `go vet` + `GOOS=windows` vet/build, gofmt, tracecheck, catalog freshness, cigate selections — all re-run this session (see outcome for exit codes).
++- STATUS: handed off to review (rev2).
++
++### wbpf1v: session repository + event chain landed; provhost attestation bound rewritten around the new truth
++- SCOPE: TASK-260830-wbpf1v (first leaf of STORY-260830-3tq4ns, root of M1 chain). New `internal/sessrepo` (doc/sessrepo/chain/store + behavioral/crash/census tests), README section, `internal/provhost/identity.go` comment + `identity_test.go` gate rewrite. Work left uncommitted in the story worktree for the board CR.
++- FINDING (gate did its job): `go test ./...` reddened on `TestNoProductionPathAttestsProviderIdentityBinding`, which pins "no production file calls VerifyObjectIdentity". Session-record/event persistence MUST attest (SPEC §5.1/§5.2 "MUST recompute and MUST reject"); routing through `CalculateObjectIdentity` would dodge the text scan while attesting anyway, so the bound was rewritten, not bypassed: `internal/sessrepo/` allowlisted (schema gate precedes every Verify call, so provider-identity records can never reach one), every other tree still red (proved by a temporary foreign call site, then removed), exception fails when stale. Reviewers read the provhost diff first.
++- DELIVERY: CreateSession/AppendEvent over content-addressed no-replace blobs + atomic chain index; gap/repeat/divergent/stale/predecessor arms; first-event record link; byte-identical reload across handles; idempotent retry; secconftest prepare/commit faults (safe_retry / recoverable_parked_state, crashed commit counts as committed); local Resolve (exact, ASCII-fold ambiguity, UUID route); 34-site invcore census all boundary-driven with alias/var/dot-import/shadow plants.
++- EVIDENCE: outcome `TASK-260830-wbpf1v_outcome.md` on the board task (10/10 AC rows with call sites, gate table, census + 12/12 killed mutation battery with narrowing/arm-deletion/census-only/audit-only + NOT_APPLIED/COMPILE_FAIL rows, tree OID + exact changed paths recorded there). Battery harness at `/tmp/mutation_battery.sh` (throwaway, not committed).
++- GATES: `go test ./...` exit 0 (24 ok), `-race` exit 0 (all 24 pkgs, 4 groups), `-cover` (sessrepo 86.3/provhost 86.0), `go vet` + `GOOS=windows` vet/build exit 0, gofmt clean, tracecheck exit 0, catalog current, cigate contract + claims selections exit 0, fuzz count 13 (smoke not run: no fuzzed package touched).
++- STATUS: handed off to review. Downstream bounds in outcome: single-branch chain, no reducer/name-resolution/CLI/lease-arbitration in this leaf.
++
+ ### 9ny4xl: R1–R6 closed — probe-availability claims corrected, marker census measures effect, catalog directive pinned
+ - SCOPE: TASK-260907-9ny4xl (story final leaf). `internal/cigate` claim tests + effect census + splitter tests + `doc.go`, `internal/catalog` directive pin, `.github/workflows/ci.yml` comments + freshness guard, README CI table + 20 probe notes, 2249 correction below. Leaves 1–5 production untouched; `claims.go` production changed only in comments; `catalog.go` production unchanged.
+ - R1: the capability-claims comment and the 2249 entry stated `ProbeState.Available` is consumed by no call site; `claims.go:235` reads it into the availability map. Both now state what `doc.go` states: the gate reads `Available` from its input states (both postures driven), and what reaches no availability reader is the live probe outcome (`ProbeStates` feeds only `CapabilityIDs`, which drops availability). New `TestAvailabilityFieldDrivesVerdict` refuses/admits the same claim across postures (battery N-avail-false/true killed).
+diff --git a/README.md b/README.md
+index 6f9d673..14b621d 100644
+--- a/README.md
++++ b/README.md
+@@ -1609,6 +1609,84 @@ path. The exact-name closure over the objects root is driven with a near-miss
+ sibling name as well as a foreign one, because a closure narrowed from equality
+ to a prefix admits exactly the near miss.
+ 
++## Session Repository and Append-Only Event Chain
++
++[`internal/sessrepo`](internal/sessrepo) persists and validates Session Records
++and per-session event chains with source sequence continuity (pinned v0.5.0
++Sections 2.3, 5.1-5.2, 5.7, 14.4). `Open` binds a repository to the sessions
++namespace beneath a data root. `CreateSession` validates one Session Record
++through `canonicaljson.VerifyObjectIdentity` and stores its bytes verbatim;
++`AppendEvent` validates one Session Event the same way and links it onto the
++chain only when the continuity rules hold: the first event links exactly the
++Session Record at sequence 1, within one lease the sequence increases by
++exactly one with no repeat and each event references the prior authoritative
++event, a successor lease restarts at 1, a same-epoch second lease diverges,
++and a lower epoch is stale. Records and events live as content-addressed
++`0600` files installed no-replace through the exclusive create (the blob
++install leads with `O_EXCL` and only compares on an `EEXIST` loss, so the
++no-replace property holds across processes the in-process mutex cannot see);
++the chain index (`chain.json`) is replaced atomically after the blob it
++names, and every load re-verifies each digest and re-folds the index through
++the same append rules, so a torn, tampered, reordered, or substituted store
++fails closed instead of deriving state from it. The load re-verification
++attests stored bindings through `VerifyObjectIdentity` and refuses a blob
++whose self field is not `event_id` or whose digest disagrees with the index
++at its named arms — entry decodes refuse a foreign schema before verifying,
++while the load path recomputes whatever digest stored bytes claim and then
++refuses it.
++
++The chain is append-only in both obligations. Appends succeed in order, and
++no production entry rewrites or deletes: duplicate creates, colliding records
++under one session ID, and repeats at a chained sequence are refused, and
++losing-lease branches are preserved as immutable blobs without ever entering
++the authoritative chain. A byte-identical retry of a chained event returns its
++existing reference, so a retry after a crashed commit is safe; a crashed
++commit counts as committed and a retry names the terminal state.
++`CreateSession` runs four durable steps (session directory, record, events
++directory, chain index) and an interrupted create resumes on retry: a bare
++directory or a record without a chain completes, a completed create names
++the terminal state, and a colliding record or a chain without a record is
++refused. `BeforeWrite` and `AfterCommit` connect the outer write boundaries
++to `secconftest` crash points in tests, and `AfterCreateStep` fires after
++each of the four interior create steps, so every crash window is drivable:
++a fault before the durable write carries `safe_retry` with nothing mutated,
++a fault past any durable step carries `recoverable_parked_state` with the
++parked state resuming on the identical retry. `Resolve` implements the local
++steps of name resolution — exact live name, ASCII case-fold collision refusal
++with `name_ambiguous`, UUID routing — and `ListSessions` exposes stored
++identity plus chain-head facts.
++
++The package derives no lifecycle state, renders no list/status output, learns
++no peer names, and takes no lease-arbitration decision: the Section 5.7
++reducer, the full Section 2.3 order with interactive choice, Section 14.4
++rendering, and cross-partition lease convergence belong to the sibling leaves
++that build on these entries. It adds no `ax` command, no `doctor` result, and
++no runtime capability claim.
++
++Run the focused tests and coverage with:
++
++```bash
++go test ./internal/sessrepo -count=1
++go test ./internal/sessrepo -cover -count=1
++```
++
++The unfiltered package run derives the 36-site refusal inventory from the
++production source through `internal/invcore`: every `refuse` call site must
++have a boundary-driven negative path (`Open`, `CreateSession`, `AppendEvent`,
++`GetRecord`, `GetEvent`, `ListEvents`, `ListSessions`, `Resolve`), every
++exercised site must derive, sentinel wraps outside the funnel fail, and the
++observed sentinel set must equal the derived roster. The load re-verification
++holds three separate rows — verify failure, non-`event_id` self field, and
++index-disagreeing digest — each with its own boundary-driven plant. The alias
++audit keeps the funnel and the watched owner delegations
++(`VerifyObjectIdentity`, `DecodeStrictObject`, `CheckUUIDv7`,
++`CheckUint53Bounds`, `ParseDigest`, `ParseUUIDv7`, `ParseUUIDv4`) in
++direct-call position, proved by plants that include an import alias and a var
++binding in both directions. The mutation battery (26 applied, 26 killed, 0
++survivors; 12 narrowing, 10 arm-deletion, 2 census-only, 2 audit-only; plus
++NOT_APPLIED and COMPILE_FAIL controls) covers the write, load, and recovery
++paths and is recorded on the owning task board item.
++
+ ## Structured Errors, Stable Codes, and Causal Redaction
+ 
+ [`internal/axerror`](internal/axerror) implements the Section 15 Structured
+diff --git a/internal/provhost/identity.go b/internal/provhost/identity.go
+index 6c12f94..0875c9a 100644
+--- a/internal/provhost/identity.go
++++ b/internal/provhost/identity.go
+@@ -39,8 +39,22 @@ import (
+ // it, and the conjoined CalculateObjectIdentity entry validates shape
+ // only (its digest return is discarded below); the entry that would
+ // attest the binding, canonicaljson.VerifyObjectIdentity, has no
+-// production call site anywhere in the repository, so no transport gate
+-// and no persistence path recomputes a provider-identity digest today.
++// production call site attesting provider-identity records. The only
++// production call sites (internal/sessrepo, TASK-260830-wbpf1v) attest
++// session-record and session-event bindings — and the load
++// re-verification among them does recompute whatever digest stored
++// bytes claim, including a provider-identity one, before refusing it.
++// The two entry decodes refuse any other schema before Verify; the
++// load path re-verifies stored blobs through Verify and refuses a
++// non-event_id self field or an index-disagreeing digest at its named
++// arms (pinned in that leaf by
++// TestLoadRefusesProviderIdentityBlobAtEventPath and
++// TestLoadRefusesSwappedEventBlobs). So no transport gate and no
++// persistence path attests a provider-identity binding today; the one
++// path that recomputes such a digest refuses it. An earlier revision
++// of this comment claimed a schema gate in front of every Verify call,
++// which the load site never had; that false universal is withdrawn
++// here.
+ //
+ // This is deferred, not decided. Conjoining Verify here would refuse
+ // records this gate documents as admitted: every boundary admission in
+diff --git a/internal/provhost/identity_test.go b/internal/provhost/identity_test.go
+index 4bba2b0..29629cb 100644
+--- a/internal/provhost/identity_test.go
++++ b/internal/provhost/identity_test.go
+@@ -4,6 +4,7 @@ import (
+ 	"fmt"
+ 	"github.com/relux-works/agent-session-manager/internal/invcore"
+ 	"go/ast"
++	"go/token"
+ 	"os"
+ 	"path/filepath"
+ 	"runtime"
+@@ -66,13 +67,28 @@ func TestSpecIdentityExampleVerifiesAgainstItsClaimedDigest(t *testing.T) {
+ }
+ 
+ // TestNoProductionPathAttestsProviderIdentityBinding pins the second
+-// half of the stated bound: no non-test Go file anywhere in the module
+-// calls VerifyObjectIdentity, so provider-identity binding attestation
+-// happens nowhere in production — not at this gate and not at the
+-// persistence layer the old bound named. The day the deferred ruling
+-// lands a production call site, this test reddens and forces the bound
+-// to be rewritten around the new truth. The scan is AST-based (comments
+-// and test files never count) and fails closed when it sees nothing.
++// half of the stated bound: no non-test Go file outside the session
++// persistence leaf calls VerifyObjectIdentity, so provider-identity
++// binding attestation happens nowhere in production — not at this gate
++// and not at any persistence path. The session-state story
++// (TASK-260830-wbpf1v) landed the anticipated production call sites in
++// internal/sessrepo, and this bound is rewritten around that truth
++// rather than bypassed. The two entry decodes (decodeSessionRecord and
++// decodeSessionEvent) refuse any other schema before Verify; the load
++// re-verification (loadSessionLocked) re-verifies stored blobs through
++// Verify — recomputing whatever digest the bytes claim, including a
++// provider-identity one — and refuses a non-event_id self field or an
++// index-disagreeing digest at its named arms. That division is pinned
++// behaviorally in the owning leaf by
++// TestLoadRefusesProviderIdentityBlobAtEventPath and
++// TestLoadRefusesSwappedEventBlobs: the first revision stated a schema
++// gate in front of every Verify call, which the load site never had.
++// The allowlist below names the owning directory by its full
++// module-relative path and pins the exact site count, so a stale
++// exception or a foreign directory with the same leaf name fails
++// instead of lingering; it still reddens for any other tree. The scan
++// is AST-based (comments and test files never count) and fails closed
++// when it sees nothing.
+ // Stated bound on this test: only *ast.CallExpr nodes are inspected, so a
+ // `f := pkg.VerifyObjectIdentity; f(x)` binding would not be seen; no such
+ // shape exists today.
+@@ -92,8 +108,37 @@ func TestNoProductionPathAttestsProviderIdentityBinding(t *testing.T) {
+ 		}
+ 		root = parent
+ 	}
+-	var scanned, parsed int
+-	var callers []string
++	allowed, callers, scanned, parsed := scanAttestationSites(t, root)
++	if scanned == 0 {
++		t.Fatal("scanned no production sources; the check is blind")
++	}
++	if len(allowed) != 3 {
++		t.Fatalf("session-leaf attestation sites = %d, want exactly 3 (decodeSessionRecord, decodeSessionEvent, loadSessionLocked): a moved call site must rewrite the bound, a new one must justify itself, a stale exception must go", len(allowed))
++	}
++	if len(callers) != 0 {
++		t.Fatalf("production call sites outside the session leaf attest the identity binding, contradicting the stated bound:\n  %s", strings.Join(callers, "\n  "))
++	}
++	t.Logf("attestation scan: %d production files, %d parsed, %d session-leaf call sites, 0 elsewhere", scanned, parsed, len(allowed))
++}
++
++// isSessrepoLeafFile reports whether a scan path sits inside the owning
++// session-persistence directory: <root>/internal/sessrepo/. The match
++// anchors on the full module-relative owning path, never on a bare
++// segment, so internal/provhost/sessrepo/plant.go (same leaf name,
++// foreign owner) and internal/xsessrepo/plant.go (near-miss name) both
++// land outside the allowlist while the leaf's own files stay admitted.
++func isSessrepoLeafFile(root, path string) bool {
++	leaf := filepath.Join(root, "internal", "sessrepo") + string(filepath.Separator)
++	return strings.HasPrefix(path, leaf)
++}
++
++// scanAttestationSites walks the production trees beneath root and
++// classifies every VerifyObjectIdentity call: inside the owning leaf it
++// is allowlisted, anywhere else it contradicts the bound. It returns
++// the allowlisted entries, the contradicting entries, and the scanned
++// and parsed file counts.
++func scanAttestationSites(t *testing.T, root string) (allowed, callers []string, scanned, parsed int) {
++	t.Helper()
+ 	for _, tree := range []string{"internal", "cmd"} {
+ 		base := filepath.Join(root, tree)
+ 		if _, err := os.Stat(base); err != nil {
+@@ -124,19 +169,25 @@ func TestNoProductionPathAttestsProviderIdentityBinding(t *testing.T) {
+ 				if !ok {
+ 					return true
+ 				}
++				record := func(position token.Position) {
++					entry := fmt.Sprintf("%s:%d", position.Filename, position.Line)
++					if isSessrepoLeafFile(root, path) {
++						allowed = append(allowed, entry)
++						return
++					}
++					callers = append(callers, entry)
++				}
+ 				switch fun := call.Fun.(type) {
+ 				case *ast.SelectorExpr:
+ 					if fun.Sel.Name == "VerifyObjectIdentity" {
+-						position := fileSet.Position(call.Pos())
+-						callers = append(callers, fmt.Sprintf("%s:%d", position.Filename, position.Line))
++						record(fileSet.Position(call.Pos()))
+ 					}
+ 				case *ast.Ident:
+ 					if fun.Name == "VerifyObjectIdentity" {
+ 						// The canonicaljson definition itself is a
+ 						// FuncDecl, never a call; a bare-identifier call
+ 						// anywhere is a production call site.
+-						position := fileSet.Position(call.Pos())
+-						callers = append(callers, fmt.Sprintf("%s:%d", position.Filename, position.Line))
++						record(fileSet.Position(call.Pos()))
+ 					}
+ 				}
+ 				return true
+@@ -146,13 +197,47 @@ func TestNoProductionPathAttestsProviderIdentityBinding(t *testing.T) {
+ 			t.Fatalf("walk %s: %v", base, err)
+ 		}
+ 	}
+-	if scanned == 0 {
+-		t.Fatal("scanned no production sources; the check is blind")
++	return allowed, callers, scanned, parsed
++}
++
++// TestAttestationAllowlistAnchorsOwningPath drives the allowlist through
++// a synthetic module tree, preserving the searched-for "sessrepo" token
++// while changing the owning directory: a plant under
++// internal/provhost/sessrepo/ and a near-miss under
++// internal/xsessrepo/ must both land outside the allowlist, while the
++// leaf's own file stays admitted. The production suite executes the
++// behavioral tests, not only this static shape, for the token-preserving
++// mutants in the owning task's battery.
++func TestAttestationAllowlistAnchorsOwningPath(t *testing.T) {
++	root := t.TempDir()
++	leafCall := "package sessrepo\nfunc load(raw []byte) {\n\t_, _, _ = canonicaljson.VerifyObjectIdentity(raw)\n}\n"
++	foreignCall := "package plant\nfunc plant(raw []byte) {\n\t_, _, _ = canonicaljson.VerifyObjectIdentity(raw)\n}\n"
++	for _, file := range []struct{ rel, body string }{
++		{"internal/sessrepo/chain.go", leafCall},
++		{"internal/provhost/sessrepo/plant.go", foreignCall},
++		{"internal/xsessrepo/plant.go", foreignCall},
++	} {
++		path := filepath.Join(root, filepath.FromSlash(file.rel))
++		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.WriteFile(path, []byte(file.body), 0o600); err != nil {
++			t.Fatal(err)
++		}
+ 	}
+-	if len(callers) != 0 {
+-		t.Fatalf("production call sites attest the identity binding, contradicting the stated bound:\n  %s", strings.Join(callers, "\n  "))
++	allowed, callers, scanned, parsed := scanAttestationSites(t, root)
++	if scanned != 3 || parsed != 3 {
++		t.Fatalf("synthetic scan files = %d scanned %d parsed, want 3 and 3", scanned, parsed)
++	}
++	if len(allowed) != 1 {
++		t.Fatalf("synthetic allowlisted sites = %q, want only the owning leaf file", allowed)
++	}
++	if !strings.Contains(allowed[0], filepath.Join("internal", "sessrepo", "chain.go")) {
++		t.Fatalf("synthetic allowlisted site = %q, want the owning leaf file", allowed[0])
++	}
++	if len(callers) != 2 {
++		t.Fatalf("synthetic contradicting sites = %q, want the provhost/sessrepo and xsessrepo plants", callers)
+ 	}
+-	t.Logf("attestation scan: %d production files, %d parsed, 0 production call sites", scanned, parsed)
+ }
+ 
+ // identityVariant rewrites one unique substring of the example.
+diff --git a/internal/sessrepo/census_test.go b/internal/sessrepo/census_test.go
+new file mode 100644
+index 0000000..e24b8ad
+--- /dev/null
++++ b/internal/sessrepo/census_test.go
+@@ -0,0 +1,508 @@
++package sessrepo
++
++import (
++	"flag"
++	"fmt"
++	"go/ast"
++	"go/token"
++	"os"
++	"path/filepath"
++	"runtime"
++	"sort"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/invcore"
++)
++
++// This file is the sessrepo refusal census. Every rejection in this package
++// funnels through the refuse var, and the census derives its denominator
++// from production source instead of listing it: a new refuse call without a
++// boundary-driven negative path fails the gate, and a row without a site
++// fails too. The gate has three halves:
++//
++//  1. Static derivation: every direct refuse(SENTINEL, ...) call in the
++//     production files is derived as file:line with its sentinel. Calls
++//     must sit on a single line with a bare sentinel identifier, or the
++//     derivation fails closed.
++//  2. Runtime recording: TestMain wraps the refuse var, attributing each
++//     exercised refusal to its production file:line plus the sentinel it
++//     carried, and whether a production boundary entry (Open,
++//     CreateSession, AppendEvent, GetRecord, GetEvent, ListEvents,
++//     ListSessions, Resolve) is on the stack. A direct helper call proves
++//     the helper refuses and nothing about the boundary, so only
++//     boundary-driven sites count.
++//  3. Alias audit: every refuse reference outside direct-call position,
++//     and every import-aliased or var-bound reference to the watched owner
++//     delegations, fails through invcore.AuditConstructorReferences, with
++//     the funnel's own declaration allowlisted by derived position.
++//
++// Control plants below prove each half fails closed, including an import
++// alias and a var binding in both the passing and the failing direction.
++var sessrepoRefusalRecorder = invcore.NewSiteRecorder()
++
++var sessrepoBoundarySites = map[string]struct{}{}
++
++var sessrepoBoundaryMarkers = []string{
++	"sessrepo.Open",
++	").CreateSession",
++	").AppendEvent",
++	").GetRecord",
++	").GetEvent",
++	").ListEvents",
++	").ListSessions",
++	").Resolve",
++}
++
++func TestMain(main *testing.M) {
++	original := refuse
++	refuse = func(sentinel error, format string, arguments ...any) error {
++		err := original(sentinel, format, arguments...)
++		sessrepoRefusalRecorder.Record(sentinel.Error(), 1)
++		if beneathSessrepoBoundary() {
++			if site := callerSessrepoSite(); site != "" {
++				sessrepoBoundarySites[site] = struct{}{}
++			}
++		}
++		return err
++	}
++	code := main.Run()
++	if code == 0 && fullSessrepoPackageTestRun() {
++		if failures := auditSessrepoRefusals(); len(failures) != 0 {
++			for _, failure := range failures {
++				fmt.Fprintln(os.Stderr, failure)
++			}
++			code = 1
++		}
++	}
++	os.Exit(code)
++}
++
++func fullSessrepoPackageTestRun() bool {
++	selected := flag.Lookup("test.run")
++	return selected == nil || selected.Value.String() == ""
++}
++
++// callerSessrepoSite reports the production file:line of the refuse call
++// site: the wrapper calls this helper, so skip lands past Callers, this
++// helper, and the wrapper, on the production line that refused.
++func callerSessrepoSite() string {
++	frames := make([]uintptr, 4)
++	if count := runtime.Callers(3, frames); count == 0 {
++		return ""
++	}
++	located := runtime.CallersFrames(frames)
++	frame, _ := located.Next()
++	if frame.Function == "" {
++		return ""
++	}
++	return filepath.Base(frame.File) + ":" + strconv.Itoa(frame.Line)
++}
++
++func beneathSessrepoBoundary() bool {
++	frames := make([]uintptr, 64)
++	for {
++		count := runtime.Callers(2, frames)
++		located := runtime.CallersFrames(frames[:count])
++		for range frames[:count] {
++			frame, _ := located.Next()
++			for _, marker := range sessrepoBoundaryMarkers {
++				if strings.Contains(frame.Function, marker) {
++					return true
++				}
++			}
++		}
++		if count < len(frames) {
++			return false
++		}
++		frames = make([]uintptr, 2*len(frames))
++	}
++}
++
++// auditSessrepoRefusals derives the expected inventory from production AST
++// and requires the exercised sets to match it in both directions, the alias
++// audit to be clean, and the observed sentinel set to equal the derived
++// sentinel roster exactly.
++func auditSessrepoRefusals() []string {
++	files, fileSet, failures := invcore.ScanProduction(".")
++	if len(failures) != 0 {
++		return failures
++	}
++	derived, sentinels, sentinelNames, derivationFailures := deriveSessrepoRefusalSites(files, fileSet)
++	failures = append(failures, derivationFailures...)
++	aliasFailures := auditSessrepoAliases(files, fileSet)
++	failures = append(failures, aliasFailures...)
++	failures = append(failures, auditSessrepoUnrouted(files, fileSet, sentinelNames)...)
++	derivedSet := make(map[string]struct{}, len(derived))
++	for _, site := range derived {
++		derivedSet[site.key()] = struct{}{}
++	}
++	unregistered, orphaned, diffFailures := invcore.DiffSets(derivedSet, sessrepoRefusalRecorder.Sites())
++	for _, failure := range diffFailures {
++		failures = append(failures, "sessrepo refusal census: "+failure)
++	}
++	for _, site := range unregistered {
++		failures = append(failures, "sessrepo refusal site without an exercised negative path: "+site)
++	}
++	for _, site := range orphaned {
++		failures = append(failures, "sessrepo exercised refusal outside the derived inventory: "+site)
++	}
++	var missingBoundary []string
++	for _, site := range derived {
++		if _, ok := sessrepoBoundarySites[site.key()]; !ok {
++			missingBoundary = append(missingBoundary, site.key())
++		}
++	}
++	sort.Strings(missingBoundary)
++	if len(missingBoundary) != 0 {
++		failures = append(failures, "sessrepo refusal sites never reached beneath a production boundary entry (a direct helper call does not prove the production effect): "+strings.Join(missingBoundary, ", "))
++	}
++	var extraBoundary []string
++	for site := range sessrepoBoundarySites {
++		if _, ok := derivedSet[site]; !ok {
++			extraBoundary = append(extraBoundary, site)
++		}
++	}
++	sort.Strings(extraBoundary)
++	if len(extraBoundary) != 0 {
++		failures = append(failures, "sessrepo boundary-exercised sites outside the derived inventory: "+strings.Join(extraBoundary, ", "))
++	}
++	wantCodes := make([]string, 0, len(sentinels))
++	for code := range sentinels {
++		wantCodes = append(wantCodes, code)
++	}
++	sort.Strings(wantCodes)
++	gotCodes := sessrepoRefusalRecorder.Codes()
++	if fmt.Sprintf("%v", gotCodes) != fmt.Sprintf("%v", wantCodes) {
++		failures = append(failures, fmt.Sprintf("sessrepo observed refusal codes = %v, want closed roster %v", gotCodes, wantCodes))
++	}
++	return failures
++}
++
++// sessrepoRefusalSite is one derived call site with its sentinel.
++type sessrepoRefusalSite struct {
++	file     string
++	line     int
++	sentinel string
++}
++
++func (site sessrepoRefusalSite) key() string {
++	return site.file + ":" + strconv.Itoa(site.line)
++}
++
++// deriveSessrepoRefusalSites derives every direct refuse(SENTINEL, ...)
++// call in the production files plus the closed sentinel roster. The roster
++// derives from package-level Err* vars initialized with errors.New, so a
++// new sentinel without a refusal — or a refusal carrying an undeclared
++// sentinel — fails the gate. Sentinel names feed the unrouted-refusal
++// audit; sentinel texts feed the observed-code audit.
++func deriveSessrepoRefusalSites(files []invcore.ProductionFile, fileSet *token.FileSet) ([]sessrepoRefusalSite, map[string]struct{}, map[string]struct{}, []string) {
++	var sites []sessrepoRefusalSite
++	sentinels := map[string]struct{}{}
++	sentinelNames := map[string]struct{}{}
++	var failures []string
++	for _, production := range files {
++		for _, declaration := range production.Syntax.Decls {
++			general, ok := declaration.(*ast.GenDecl)
++			if !ok || general.Tok != token.VAR {
++				continue
++			}
++			for _, specification := range general.Specs {
++				value, ok := specification.(*ast.ValueSpec)
++				if !ok {
++					continue
++				}
++				for index, name := range value.Names {
++					if !strings.HasPrefix(name.Name, "Err") || index >= len(value.Values) {
++						continue
++					}
++					call, ok := value.Values[index].(*ast.CallExpr)
++					if !ok {
++						continue
++					}
++					selector, ok := call.Fun.(*ast.SelectorExpr)
++					if !ok || selector.Sel.Name != "New" {
++						continue
++					}
++					receiver, ok := selector.X.(*ast.Ident)
++					if !ok || receiver.Name != "errors" || len(call.Args) != 1 {
++						continue
++					}
++					literal, ok := call.Args[0].(*ast.BasicLit)
++					if !ok || literal.Kind != token.STRING {
++						failures = append(failures, production.Name+": sentinel "+name.Name+" is not an errors.New string literal")
++						continue
++					}
++					text, err := strconv.Unquote(literal.Value)
++					if err != nil {
++						failures = append(failures, production.Name+": sentinel "+name.Name+": "+err.Error())
++						continue
++					}
++					sentinels[text] = struct{}{}
++					sentinelNames[name.Name] = struct{}{}
++				}
++			}
++		}
++		ast.Inspect(production.Syntax, func(node ast.Node) bool {
++			call, ok := node.(*ast.CallExpr)
++			if !ok {
++				return true
++			}
++			identifier, ok := call.Fun.(*ast.Ident)
++			if !ok || identifier.Name != "refuse" || len(call.Args) < 1 {
++				return true
++			}
++			position := fileSet.Position(identifier.Pos())
++			if !position.IsValid() {
++				failures = append(failures, production.Name+": refuse call at an invalid position")
++				return true
++			}
++			if end := fileSet.Position(call.End()); end.Line != position.Line {
++				failures = append(failures, production.Name+":"+strconv.Itoa(position.Line)+": refuse call spans several lines; the runtime site and the parsed site would disagree")
++				return true
++			}
++			sentinel, ok := call.Args[0].(*ast.Ident)
++			if !ok {
++				failures = append(failures, production.Name+":"+strconv.Itoa(position.Line)+": refuse sentinel is not a bare identifier; the extractor cannot see through indirection")
++				return true
++			}
++			sites = append(sites, sessrepoRefusalSite{file: production.Name, line: position.Line, sentinel: sentinel.Name})
++			return true
++		})
++	}
++	if len(sites) == 0 {
++		failures = append(failures, "sessrepo refusal census derived zero sites; the scanner is blind, not the package empty")
++	}
++	if len(sentinels) == 0 {
++		failures = append(failures, "sessrepo refusal census derived zero sentinels; the roster extractor is blind")
++	}
++	return sites, sentinels, sentinelNames, failures
++}
++
++// auditSessrepoUnrouted fails every fmt.Errorf call that wraps a package
++// sentinel outside the refuse funnel. A routed refusal and an identical
++// direct wrap behave the same, so without this half a bypassed funnel
++// passes the behavioral suite and the site inventory together.
++func auditSessrepoUnrouted(files []invcore.ProductionFile, fileSet *token.FileSet, sentinelNames map[string]struct{}) []string {
++	var unrouted []string
++	for _, production := range files {
++		ast.Inspect(production.Syntax, func(node ast.Node) bool {
++			call, ok := node.(*ast.CallExpr)
++			if !ok {
++				return true
++			}
++			selector, ok := call.Fun.(*ast.SelectorExpr)
++			if !ok || selector.Sel.Name != "Errorf" {
++				return true
++			}
++			receiver, ok := selector.X.(*ast.Ident)
++			if !ok || receiver.Name != "fmt" {
++				return true
++			}
++			for _, argument := range call.Args {
++				identifier, ok := argument.(*ast.Ident)
++				if !ok {
++					continue
++				}
++				if _, watched := sentinelNames[identifier.Name]; watched {
++					position := fileSet.Position(call.Pos())
++					unrouted = append(unrouted, production.Name+":"+strconv.Itoa(position.Line))
++				}
++			}
++			return true
++		})
++	}
++	sort.Strings(unrouted)
++	if len(unrouted) == 0 {
++		return nil
++	}
++	return []string{"sessrepo refusals raised outside the refuse funnel (the derived inventory cannot require a negative path for them): " + strings.Join(unrouted, ", ")}
++}
++
++// sessrepoConstructorSpec is the alias-audit policy: the local funnel must
++// stay a direct call, and the watched owner delegations must stay direct
++// qualified calls resolved by import path, so neither an import alias nor
++// a var binding can hide a refusal or a delegation.
++func sessrepoConstructorSpec() invcore.ConstructorSpec {
++	return invcore.ConstructorSpec{
++		Local: map[string]bool{"refuse": true},
++		Qualified: map[string]map[string]bool{
++			"github.com/relux-works/agent-session-manager/internal/canonicaljson": {"VerifyObjectIdentity": true},
++			"github.com/relux-works/agent-session-manager/internal/environ":       {"DecodeStrictObject": true, "CheckUUIDv7": true, "CheckUint53Bounds": true},
++			"github.com/relux-works/agent-session-manager/internal/scalar":        {"ParseDigest": true, "ParseUUIDv7": true, "ParseUUIDv4": true},
++		},
++	}
++}
++
++// auditSessrepoAliases runs the alias audit over every production file,
++// allowlisting the funnel's own declaration position: a package-level
++// `var refuse = func...` binding a function literal.
++func auditSessrepoAliases(files []invcore.ProductionFile, fileSet *token.FileSet) []string {
++	var failures []string
++	spec := sessrepoConstructorSpec()
++	for _, production := range files {
++		allowed := sessrepoFunnelPositions(production.Syntax)
++		for _, failure := range invcore.AuditConstructorReferences(production.Syntax, fileSet, production.Name, spec) {
++			if atAllowedPosition(failure, production.Name, fileSet, allowed) {
++				continue
++			}
++			failures = append(failures, failure)
++		}
++	}
++	return failures
++}
++
++func sessrepoFunnelPositions(syntax *ast.File) map[token.Pos]bool {
++	positions := map[token.Pos]bool{}
++	for _, declaration := range syntax.Decls {
++		general, ok := declaration.(*ast.GenDecl)
++		if !ok || general.Tok != token.VAR {
++			continue
++		}
++		for _, specification := range general.Specs {
++			value, ok := specification.(*ast.ValueSpec)
++			if !ok {
++				continue
++			}
++			for index, name := range value.Names {
++				if name.Name != "refuse" || index >= len(value.Values) {
++					continue
++				}
++				if _, ok := value.Values[index].(*ast.FuncLit); ok {
++					positions[name.Pos()] = true
++				}
++			}
++		}
++	}
++	return positions
++}
++
++func atAllowedPosition(failure, display string, fileSet *token.FileSet, allowed map[token.Pos]bool) bool {
++	for position := range allowed {
++		located := fileSet.Position(position)
++		if !located.IsValid() {
++			continue
++		}
++		prefix := display + ":" + strconv.Itoa(located.Line) + ":" + strconv.Itoa(located.Column) + ":"
++		if strings.Contains(failure, prefix) {
++			return true
++		}
++	}
++	return false
++}
++
++// TestCensusDiffSetsFailsClosed plants the three derivation outcomes
++// against the production DiffSets harness: an unregistered site, an orphan
++// row, and a zero-site derivation each fail instead of passing silently.
++func TestCensusDiffSetsFailsClosed(t *testing.T) {
++	unregistered, orphaned, failures := invcore.DiffSets(map[string]struct{}{"chain.go:1": {}}, map[string]struct{}{})
++	if len(failures) != 0 {
++		t.Fatalf("plant failures = %v", failures)
++	}
++	if len(unregistered) != 1 || unregistered[0] != "chain.go:1" {
++		t.Fatalf("unregistered = %v, want [chain.go:1]", unregistered)
++	}
++	if len(orphaned) != 0 {
++		t.Fatalf("orphaned = %v, want none", orphaned)
++	}
++	unregistered, orphaned, failures = invcore.DiffSets(map[string]struct{}{"chain.go:1": {}}, map[string]struct{}{"chain.go:1": {}, "chain.go:2": {}})
++	if len(failures) != 0 {
++		t.Fatalf("plant failures = %v", failures)
++	}
++	if len(unregistered) != 0 {
++		t.Fatalf("unregistered = %v, want none", unregistered)
++	}
++	if len(orphaned) != 1 || orphaned[0] != "chain.go:2" {
++		t.Fatalf("orphaned = %v, want [chain.go:2]", orphaned)
++	}
++	_, _, failures = invcore.DiffSets(map[string]struct{}{}, map[string]struct{}{})
++	if len(failures) == 0 {
++		t.Fatal("zero-site derivation passed clean; the harness would bless a blind scan")
++	}
++}
++
++// sessrepoAliasPlant is one control for the alias audit: wantFailure names
++// the fragment a reporting plant must carry, empty for a clean plant.
++type sessrepoAliasPlant struct {
++	name        string
++	source      string
++	wantFailure string
++}
++
++func sessrepoAliasPlants() []sessrepoAliasPlant {
++	canonical := `"github.com/relux-works/agent-session-manager/internal/canonicaljson"`
++	scalar := `"github.com/relux-works/agent-session-manager/internal/scalar"`
++	return []sessrepoAliasPlant{
++		{
++			name:        "direct local call is clean",
++			source:      "package plant\nfunc run() error {\n\treturn refuse(errExample, \"no\")\n}\n",
++			wantFailure: "",
++		},
++		{
++			name:        "import alias direct call resolves by path",
++			source:      "package plant\nimport cjson " + canonical + "\nfunc run(raw []byte) {\n\t_, _, _ = cjson.VerifyObjectIdentity(raw)\n}\n",
++			wantFailure: "",
++		},
++		{
++			name:        "import alias var binding fails",
++			source:      "package plant\nimport cjson " + canonical + "\nfunc run(raw []byte) {\n\tverify := cjson.VerifyObjectIdentity\n\t_, _, _ = verify(raw)\n}\n",
++			wantFailure: "outside direct-call position",
++		},
++		{
++			name:        "local var binding fails",
++			source:      "package plant\nfunc run() error {\n\tdeny := refuse\n\treturn deny(errExample, \"no\")\n}\n",
++			wantFailure: "outside direct-call position",
++		},
++		{
++			name:        "dot import of a watched path fails closed",
++			source:      "package plant\nimport . " + scalar + "\nfunc run(value string) {\n\t_, _ = ParseDigest(value)\n}\n",
++			wantFailure: "dot-imports watched path",
++		},
++		{
++			name:        "shadowed funnel name fails closed",
++			source:      "package plant\nfunc run(refuse int) int {\n\treturn refuse\n}\n",
++			wantFailure: "outside direct-call position",
++		},
++	}
++}
++
++// TestCensusAliasPlants drives every control through the production audit
++// spec and requires the ledgered outcome. A plant that stops reporting
++// fails here by construction.
++func TestCensusAliasPlants(t *testing.T) {
++	spec := sessrepoConstructorSpec()
++	for _, plant := range sessrepoAliasPlants() {
++		t.Run(plant.name, func(t *testing.T) {
++			syntax, fileSet, failure := invcore.ParseSource("plant.go", []byte(plant.source))
++			if failure != "" {
++				t.Fatalf("control does not parse: %s", failure)
++			}
++			failures := invcore.AuditConstructorReferences(syntax, fileSet, "plant.go", spec)
++			if plant.wantFailure == "" {
++				if len(failures) != 0 {
++					t.Fatalf("clean plant reported: %s", strings.Join(failures, "; "))
++				}
++				return
++			}
++			matched := false
++			for _, failure := range failures {
++				if strings.Contains(failure, plant.wantFailure) {
++					matched = true
++				}
++			}
++			if !matched {
++				t.Fatalf("plant reported %q, want a failure containing %q", failures, plant.wantFailure)
++			}
++		})
++	}
++}
++
++// TestCensusPlantHarnessFailsClosed proves the plant harness itself is
++// fail-closed: an unparseable control is a harness failure, never clean.
++func TestCensusPlantHarnessFailsClosed(t *testing.T) {
++	_, _, failure := invcore.ParseSource("plant.go", []byte("package plant\nfunc broken( {\n"))
++	if failure == "" {
++		t.Fatal("unparseable control parsed clean; the harness would pass a blind plant")
++	}
++}
+diff --git a/internal/sessrepo/chain.go b/internal/sessrepo/chain.go
+new file mode 100644
+index 0000000..55fc6e5
+--- /dev/null
++++ b/internal/sessrepo/chain.go
+@@ -0,0 +1,495 @@
++package sessrepo
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"os"
++	"path/filepath"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/environ"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// sessionRecord is the validated identity of one Session Record: the exact
++// bytes plus the members the repository must bind (SPEC.md Section 5.1).
++type sessionRecord struct {
++	raw       []byte
++	recordID  string
++	sessionID string
++	name      string
++	kind      string
++	provider  string
++}
++
++// eventView is the validated routing surface of one Session Event: the
++// exact bytes plus the members the chain rules must read (SPEC.md 5.2).
++type eventView struct {
++	raw          []byte
++	eventID      string
++	eventType    string
++	sessionID    string
++	leaseEpoch   uint64
++	leaseID      string
++	leaseSeq     uint64
++	predecessors []string
++}
++
++// storedChain is the chain index: the record digest plus one entry per
++// chained event in authoritative order. The blobs are truth; the index is
++// a verified cache rebound to them on every load.
++type storedChain struct {
++	RecordID string
++	Events   []EventSummary
++}
++
++// sessionView is one loaded session: record, index, directory, and name facts.
++type sessionView struct {
++	directory string
++	record    sessionRecord
++	chain     storedChain
++}
++
++// decodeSessionRecord runs the three validation layers in order: strict
++// frame (environ owner), member shape, then canonical identity and closed
++// shape (canonicaljson owner). Each layer refuses before the next runs,
++// so every site below is reachable with a vector that clears the earlier
++// layers and fails exactly this one.
++func decodeSessionRecord(raw []byte) (sessionRecord, error) {
++	members, fault := environ.DecodeStrictObject(raw)
++	if fault != nil {
++		return sessionRecord{}, refuse(ErrInvalidRecord, "decode session record frame: %v", fault)
++	}
++	if schema, err := stringMember(members, "schema"); err != nil || schema != sessionRecordSchema {
++		return sessionRecord{}, refuse(ErrInvalidRecord, "session record schema %q, want %q", schema, sessionRecordSchema)
++	}
++	sessionID, ok := environ.CheckUUIDv7(memberRaw(members, "session_id"))
++	if !ok {
++		return sessionRecord{}, refuse(ErrInvalidRecord, "session record carries no valid session_id member")
++	}
++	digest, field, err := canonicaljson.VerifyObjectIdentity(raw)
++	if err != nil {
++		return sessionRecord{}, refuse(ErrInvalidRecord, "verify session record identity: %v", err)
++	}
++	if field != canonicaljson.SelfRecordID {
++		return sessionRecord{}, fmt.Errorf("session record identity field %q, want record_id", string(field))
++	}
++	name, _ := stringMember(members, "name")
++	kind, _ := stringMember(members, "kind")
++	provider, _ := stringMember(members, "provider_id")
++	return sessionRecord{raw: raw, recordID: digest.String(), sessionID: sessionID.String(), name: name, kind: kind, provider: provider}, nil
++}
++
++// decodeSessionEvent runs the same three layers for Session Events: strict
++// frame, member shape, then canonical identity and closed payload shape.
++func decodeSessionEvent(raw []byte) (eventView, error) {
++	members, fault := environ.DecodeStrictObject(raw)
++	if fault != nil {
++		return eventView{}, refuse(ErrInvalidEvent, "decode session event frame: %v", fault)
++	}
++	if schema, err := stringMember(members, "schema"); err != nil || schema != sessionEventSchema {
++		return eventView{}, refuse(ErrInvalidEvent, "session event schema %q, want %q", schema, sessionEventSchema)
++	}
++	event, err := extractEventMembers(members)
++	if err != nil {
++		return eventView{}, refuse(ErrInvalidEvent, "session event member: %v", err)
++	}
++	digest, field, err := canonicaljson.VerifyObjectIdentity(raw)
++	if err != nil {
++		return eventView{}, refuse(ErrInvalidEvent, "verify session event identity: %v", err)
++	}
++	if field != canonicaljson.SelfEventID {
++		return eventView{}, fmt.Errorf("session event identity field %q, want event_id", string(field))
++	}
++	event.raw = raw
++	event.eventID = digest.String()
++	return event, nil
++}
++
++// extractEventMembers reads the routing members after the frame gate. It
++// returns plain errors; the caller attributes them through its one member
++// site. Grammar and range rules stay with their owners: UUIDv7 and uint53
++// with environ, digests and UUIDv4 with scalar.
++func extractEventMembers(members map[string]json.RawMessage) (eventView, error) {
++	var event eventView
++	sessionID, ok := environ.CheckUUIDv7(memberRaw(members, "session_id"))
++	if !ok {
++		return eventView{}, fmt.Errorf("member %q is not a UUIDv7", "session_id")
++	}
++	event.sessionID = sessionID.String()
++	eventType, err := stringMember(members, "event_type")
++	if err != nil {
++		return eventView{}, err
++	}
++	event.eventType = eventType
++	epoch, ok := environ.CheckUint53Bounds(memberRaw(members, "lease_epoch"), 1, uint53Max)
++	if !ok {
++		return eventView{}, fmt.Errorf("member %q is not a uint53 at or above 1", "lease_epoch")
++	}
++	event.leaseEpoch = epoch
++	leaseID, err := stringMember(members, "lease_id")
++	if err != nil {
++		return eventView{}, err
++	}
++	if _, err := scalar.ParseUUIDv4(leaseID); err != nil {
++		return eventView{}, fmt.Errorf("member %q is not a UUIDv4: %v", "lease_id", err)
++	}
++	event.leaseID = leaseID
++	sequence, ok := environ.CheckUint53Bounds(memberRaw(members, "lease_sequence"), 1, uint53Max)
++	if !ok {
++		return eventView{}, fmt.Errorf("member %q is not a uint53 at or above 1", "lease_sequence")
++	}
++	event.leaseSeq = sequence
++	predecessors, err := digestMembers(members, "predecessors")
++	if err != nil {
++		return eventView{}, err
++	}
++	if len(predecessors) == 0 {
++		return eventView{}, fmt.Errorf("member %q names no predecessor", "predecessors")
++	}
++	event.predecessors = predecessors
++	return event, nil
++}
++
++// checkAppend enforces the SPEC.md Section 5.2 chain rules for one event
++// against the record and the current tail: the first event links exactly
++// the Session Record at sequence 1 with no gap; within one lease the
++// sequence increases by exactly one with no repeat and each event
++// references the immediately prior authoritative event; a successor lease
++// restarts at 1 referencing the predecessor head; a same-epoch second
++// lease diverges and a lower epoch is stale. The reload audit folds this
++// same check over the stored index, so weakening any arm breaks both the
++// append and the reload evidence.
++func checkAppend(recordID string, tail *EventSummary, event eventView) error {
++	if tail != nil && event.leaseID != tail.LeaseID {
++		if event.leaseEpoch < tail.LeaseEpoch {
++			return refuse(ErrStaleLease, "event lease epoch %d precedes chain head epoch %d", event.leaseEpoch, tail.LeaseEpoch)
++		}
++		if event.leaseEpoch == tail.LeaseEpoch {
++			return refuse(ErrDivergentBranch, "event under lease %s diverges from chain head lease %s at epoch %d", event.leaseID, tail.LeaseID, tail.LeaseEpoch)
++		}
++	}
++	want := uint64(1)
++	if tail != nil && event.leaseID == tail.LeaseID {
++		want = tail.LeaseSequence + 1
++	}
++	if event.leaseSeq < want {
++		return refuse(ErrSequenceRepeat, "event lease sequence %d repeats chained sequence through %d", event.leaseSeq, want-1)
++	}
++	if event.leaseSeq > want {
++		return refuse(ErrSequenceGap, "event lease sequence %d skips chained sequence %d", event.leaseSeq, want)
++	}
++	if tail == nil {
++		if len(event.predecessors) != 1 || event.predecessors[0] != recordID {
++			return refuse(ErrPredecessorLink, "first event must link exactly the session record")
++		}
++		return nil
++	}
++	if !containsDigest(event.predecessors, tail.EventID) {
++		return refuse(ErrPredecessorLink, "event predecessors omit prior authoritative event")
++	}
++	return nil
++}
++
++func containsDigest(haystack []string, needle string) bool {
++	for _, candidate := range haystack {
++		if candidate == needle {
++			return true
++		}
++	}
++	return false
++}
++
++// memberRaw reports the raw member for the environ bound checkers. A
++// missing member yields nil, which every checker refuses.
++func memberRaw(members map[string]json.RawMessage, name string) json.RawMessage {
++	return members[name]
++}
++
++// stringMember reads one string member with the language decoder. Grammar
++// rules for the value stay with the shape owner; this only accesses it.
++func stringMember(members map[string]json.RawMessage, name string) (string, error) {
++	raw, ok := members[name]
++	if !ok {
++		return "", fmt.Errorf("member %q is absent", name)
++	}
++	var value string
++	if err := json.Unmarshal(raw, &value); err != nil {
++		return "", fmt.Errorf("member %q is not a string: %v", name, err)
++	}
++	return value, nil
++}
++
++// digestMembers reads one array of digest strings. Digest grammar stays
++// with the scalar owner.
++func digestMembers(members map[string]json.RawMessage, name string) ([]string, error) {
++	raw, ok := members[name]
++	if !ok {
++		return nil, fmt.Errorf("member %q is absent", name)
++	}
++	var values []string
++	if err := json.Unmarshal(raw, &values); err != nil {
++		return nil, fmt.Errorf("member %q is not a string array: %v", name, err)
++	}
++	for _, value := range values {
++		if _, err := scalar.ParseDigest(value); err != nil {
++			return nil, fmt.Errorf("member %q holds malformed digest %q: %v", name, value, err)
++		}
++	}
++	return values, nil
++}
++
++// sessionDir maps a validated session ID to its directory. The ID passed
++// the scalar UUIDv7 grammar at decode time, so no traversaliedy member can
++// reach the join; path policy stays with the scalar and secprim owners.
++func (repository *Repository) sessionDir(sessionID string) string {
++	return filepath.Join(repository.root, sessionID)
++}
++
++// loadSessionLocked loads and fully re-verifies one session: the chain
++// index decodes, the record bytes re-verify against the indexed digest,
++// every indexed event blob re-verifies, and the index folds clean through
++// the append rules. Callers hold the repository mutex.
++func (repository *Repository) loadSessionLocked(sessionID string) (*sessionView, error) {
++	directory := repository.sessionDir(sessionID)
++	if _, err := os.Stat(directory); err != nil {
++		return nil, refuse(ErrUnknownSession, "unknown session %s", sessionID)
++	}
++	chainBytes, err := os.ReadFile(filepath.Join(directory, "chain.json"))
++	if err != nil {
++		return nil, refuse(ErrChainCorrupt, "read chain index for session %s: %v", sessionID, err)
++	}
++	chain, err := decodeChainIndex(chainBytes)
++	if err != nil {
++		return nil, refuse(ErrChainCorrupt, "decode chain index for session %s: %v", sessionID, err)
++	}
++	recordBytes, err := os.ReadFile(filepath.Join(directory, "record.json"))
++	if err != nil {
++		return nil, refuse(ErrChainCorrupt, "read session record for session %s: %v", sessionID, err)
++	}
++	record, err := decodeSessionRecord(recordBytes)
++	if err != nil {
++		return nil, refuse(ErrChainCorrupt, "re-verify session record for session %s: %v", sessionID, err)
++	}
++	if record.recordID != chain.RecordID || record.sessionID != sessionID {
++		return nil, refuse(ErrChainCorrupt, "chain index does not describe stored session record for session %s", sessionID)
++	}
++	events := filepath.Join(directory, "events")
++	for position, indexed := range chain.Events {
++		blob, err := os.ReadFile(filepath.Join(events, blobFileName(indexed.EventID)))
++		if err != nil {
++			return nil, refuse(ErrChainCorrupt, "read chained event %d for session %s: %v", position, sessionID, err)
++		}
++		digest, field, err := canonicaljson.VerifyObjectIdentity(blob)
++		if err != nil {
++			return nil, refuse(ErrChainCorrupt, "re-verify chained event %d for session %s: %v", position, sessionID, err)
++		}
++		if field != canonicaljson.SelfEventID {
++			return nil, refuse(ErrChainCorrupt, "chained event %d for session %s carries self field %q, want event_id", position, sessionID, string(field))
++		}
++		if digest.String() != indexed.EventID {
++			return nil, refuse(ErrChainCorrupt, "chained event %d for session %s digest %s disagrees with indexed event %s", position, sessionID, digest.String(), indexed.EventID)
++		}
++		var tail *EventSummary
++		if position > 0 {
++			tail = &chain.Events[position-1]
++		}
++		replay := eventView{eventID: indexed.EventID, eventType: indexed.EventType, sessionID: sessionID, leaseEpoch: indexed.LeaseEpoch, leaseID: indexed.LeaseID, leaseSeq: indexed.LeaseSequence, predecessors: indexed.Predecessors}
++		if err := checkAppend(chain.RecordID, tail, replay); err != nil {
++			return nil, refuse(ErrChainCorrupt, "chain index order breaks continuity at event %d for session %s: %v", position, sessionID, err)
++		}
++	}
++	return &sessionView{directory: directory, record: record, chain: chain}, nil
++}
++
++// decodeChainIndex decodes the internal chain index. It is not an AX wire
++// object, so the canonical owner does not validate it; member grammars
++// still stay with environ and scalar.
++func decodeChainIndex(raw []byte) (storedChain, error) {
++	members, fault := environ.DecodeStrictObject(raw)
++	if fault != nil {
++		return storedChain{}, fmt.Errorf("decode chain frame: %v", fault)
++	}
++	recordID, err := stringMember(members, "record_id")
++	if err != nil {
++		return storedChain{}, err
++	}
++	if _, err := scalar.ParseDigest(recordID); err != nil {
++		return storedChain{}, fmt.Errorf("chain record_id: %v", err)
++	}
++	rawEvents, ok := members["events"]
++	if !ok {
++		return storedChain{}, fmt.Errorf("member %q is absent", "events")
++	}
++	var entries []map[string]json.RawMessage
++	if err := json.Unmarshal(rawEvents, &entries); err != nil {
++		return storedChain{}, fmt.Errorf("member %q is not an object array: %v", "events", err)
++	}
++	chain := storedChain{RecordID: recordID}
++	for _, entry := range entries {
++		summary, err := decodeChainEntry(entry)
++		if err != nil {
++			return storedChain{}, err
++		}
++		chain.Events = append(chain.Events, summary)
++	}
++	return chain, nil
++}
++
++// decodeChainEntry validates one index entry. Failures are plain errors;
++// loadSessionLocked attributes them through its one index site.
++func decodeChainEntry(entry map[string]json.RawMessage) (EventSummary, error) {
++	var summary EventSummary
++	eventID, err := stringMember(entry, "event_id")
++	if err != nil {
++		return EventSummary{}, err
++	}
++	if _, err := scalar.ParseDigest(eventID); err != nil {
++		return EventSummary{}, fmt.Errorf("chain event_id: %v", err)
++	}
++	summary.EventID = eventID
++	eventType, err := stringMember(entry, "event_type")
++	if err != nil {
++		return EventSummary{}, err
++	}
++	summary.EventType = eventType
++	epoch, ok := environ.CheckUint53Bounds(entry["lease_epoch"], 1, uint53Max)
++	if !ok {
++		return EventSummary{}, fmt.Errorf("chain member %q is not a uint53 at or above 1", "lease_epoch")
++	}
++	summary.LeaseEpoch = epoch
++	leaseID, err := stringMember(entry, "lease_id")
++	if err != nil {
++		return EventSummary{}, err
++	}
++	if _, err := scalar.ParseUUIDv4(leaseID); err != nil {
++		return EventSummary{}, fmt.Errorf("chain lease_id: %v", err)
++	}
++	summary.LeaseID = leaseID
++	sequence, ok := environ.CheckUint53Bounds(entry["lease_sequence"], 1, uint53Max)
++	if !ok {
++		return EventSummary{}, fmt.Errorf("chain member %q is not a uint53 at or above 1", "lease_sequence")
++	}
++	summary.LeaseSequence = sequence
++	predecessors, err := digestMembers(entry, "predecessors")
++	if err != nil {
++		return EventSummary{}, err
++	}
++	summary.Predecessors = predecessors
++	return summary, nil
++}
++
++// writeChain stores the index atomically: temp file, fsync, rename, fsync
++// the directory. A crash either leaves the previous index or the new one;
++// the blobs it names are verified on every load, so neither outcome can
++// invent history.
++func (repository *Repository) writeChain(directory string, chain storedChain) error {
++	payload, err := json.Marshal(chainPayload{RecordID: chain.RecordID, Events: chain.Events})
++	if err != nil {
++		return fmt.Errorf("encode chain index: %w", err)
++	}
++	return writeAtomic(filepath.Join(directory, "chain.json"), payload)
++}
++
++// chainPayload is the on-disk shape of the index. EventSummary carries the
++// JSON tags so the stored form stays exactly this struct.
++type chainPayload struct {
++	RecordID string         `json:"record_id"`
++	Events   []EventSummary `json:"events"`
++}
++
++// errDigestDisagreement reports bytes at a digest path that a completed
++// read proved different from the installing candidate. It is an internal
++// marker, never a refusal: callers attribute it through their own site.
++var errDigestDisagreement = errors.New("digest path holds disagreeing bytes")
++
++// installEventBlob installs one event blob idempotently through the
++// no-replace open first: a fresh path is created atomically, and only an
++// EEXIST loser falls back to comparing against the winner's bytes —
++// identical bytes are reused, disagreeing bytes are reported for
++// refusal. Leading with the exclusive create (instead of stat-then-act)
++// keeps the no-replace property a filesystem fact under a second
++// process, not a check-then-act race the repository mutex cannot see:
++// the mutex serializes one process, while O_EXCL serializes all of
++// them. A path that exists but is not a readable file still fails the
++// install, as an operational error rather than a digest disagreement.
++func installEventBlob(path string, data []byte) error {
++	if err := writeExclusive(path, data); err == nil {
++		return nil
++	} else if !os.IsExist(err) {
++		return fmt.Errorf("install event blob: %w", err)
++	}
++	existing, readErr := os.ReadFile(path)
++	if readErr != nil || !bytes.Equal(existing, data) {
++		return errDigestDisagreement
++	}
++	return nil
++}
++
++// writeExclusive installs bytes at a path that must not exist. The
++// no-replace open makes append-only a filesystem property, not a convention.
++func writeExclusive(path string, data []byte) error {
++	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
++	if err != nil {
++		return err
++	}
++	if _, err := file.Write(data); err != nil {
++		_ = file.Close()
++		return fmt.Errorf("write exclusive file: %w", err)
++	}
++	if err := file.Sync(); err != nil {
++		_ = file.Close()
++		return fmt.Errorf("fsync exclusive file: %w", err)
++	}
++	if err := file.Close(); err != nil {
++		return fmt.Errorf("close exclusive file: %w", err)
++	}
++	return nil
++}
++
++// writeAtomic replaces a path through a temp file in the same directory:
++// staged bytes fsync before the rename, the directory fsyncs after.
++func writeAtomic(path string, data []byte) error {
++	staged, err := os.CreateTemp(filepath.Dir(path), ".ax-chain-stage-")
++	if err != nil {
++		return fmt.Errorf("stage chain index: %w", err)
++	}
++	stagedPath := staged.Name()
++	finished := false
++	defer func() {
++		if !finished {
++			_ = staged.Close()
++			_ = os.Remove(stagedPath)
++		}
++	}()
++	if err := staged.Chmod(0o600); err != nil {
++		return fmt.Errorf("mode staged chain index: %w", err)
++	}
++	if _, err := io.Copy(staged, bytes.NewReader(data)); err != nil {
++		return fmt.Errorf("write staged chain index: %w", err)
++	}
++	if err := staged.Sync(); err != nil {
++		return fmt.Errorf("fsync staged chain index: %w", err)
++	}
++	if err := staged.Close(); err != nil {
++		return fmt.Errorf("close staged chain index: %w", err)
++	}
++	finished = true
++	if err := os.Rename(stagedPath, path); err != nil {
++		return fmt.Errorf("install chain index: %w", err)
++	}
++	return syncDirectory(filepath.Dir(path))
++}
++
++// blobFileName maps a validated event digest to its file name. The digest
++// passed scalar grammar at decode time; Hex is the owner's rendering.
++func blobFileName(eventID string) string {
++	digest, err := scalar.ParseDigest(eventID)
++	if err != nil {
++		return "invalid.json"
++	}
++	return digest.Hex() + ".json"
++}
+diff --git a/internal/sessrepo/crash_test.go b/internal/sessrepo/crash_test.go
+new file mode 100644
+index 0000000..eb7d916
+--- /dev/null
++++ b/internal/sessrepo/crash_test.go
+@@ -0,0 +1,311 @@
++package sessrepo
++
++import (
++	"encoding/json"
++	"errors"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/secconftest"
++)
++
++// wireCrashPoints connects a repository's write boundaries to the owner's
++// crash injector: BeforeWrite fires PointPrepareEnter (before any durable
++// byte) and AfterCommit fires PointCommitApply (after the chain index is
++// durable). The faults that surface are the owner's typed faults with the
++// owner's outcome vocabulary.
++func wireCrashPoints(repository *Repository, injector *secconftest.Injector) {
++	repository.BeforeWrite = func() error {
++		return injector.MaybeFail(secconftest.PointPrepareEnter)
++	}
++	repository.AfterCommit = func() error {
++		return injector.MaybeFail(secconftest.PointCommitApply)
++	}
++}
++
++// mustCrashFault fails unless err is the injected fault for the armed point
++// carrying the expected outcome.
++func mustCrashFault(t *testing.T, err error, point string, outcome secconftest.Outcome, what string) {
++	t.Helper()
++	if err == nil {
++		t.Fatalf("%s error = nil, want injected fault at %s", what, point)
++	}
++	var fault *secconftest.Fault
++	if !errors.As(err, &fault) {
++		t.Fatalf("%s error = %v, want *secconftest.Fault", what, err)
++	}
++	if fault.Point() != point {
++		t.Fatalf("%s point = %q, want %q", what, fault.Point(), point)
++	}
++	if fault.Outcome() != outcome {
++		t.Fatalf("%s outcome = %q, want %q", what, fault.Outcome(), outcome)
++	}
++}
++
++func TestCrashBeforeDurableWriteIsSafeRetryOnCreate(t *testing.T) {
++	repository := openTestRepository(t)
++	injector := &secconftest.Injector{}
++	wireCrashPoints(repository, injector)
++	injector.Arm(secconftest.PointPrepareEnter)
++	_, err := repository.CreateSession([]byte(specRecordExample))
++	mustCrashFault(t, err, secconftest.PointPrepareEnter, secconftest.OutcomeSafeRetry, "CreateSession(prepare fault)")
++	// Nothing mutated: the session is still unknown.
++	_, err = repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrUnknownSession, "GetRecord(after prepare fault)")
++	// The identical retry is safe and succeeds.
++	reference, err := repository.CreateSession([]byte(specRecordExample))
++	if err != nil {
++		t.Fatalf("retry CreateSession error = %v", err)
++	}
++	if reference.SessionID != testSessionID {
++		t.Fatalf("retry SessionID = %q", reference.SessionID)
++	}
++}
++
++func TestCrashBeforeDurableWriteIsSafeRetryOnAppend(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	injector := &secconftest.Injector{}
++	wireCrashPoints(repository, injector)
++	raw := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{reference.RecordID}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.created", payload: createdPayload(reference.RecordID)})
++	injector.Arm(secconftest.PointPrepareEnter)
++	_, err := repository.AppendEvent(testSessionID, raw)
++	mustCrashFault(t, err, secconftest.PointPrepareEnter, secconftest.OutcomeSafeRetry, "AppendEvent(prepare fault)")
++	events, err := repository.ListEvents(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 0 {
++		t.Fatalf("chain after prepare fault = %d events, want 0", len(events))
++	}
++	first, err := repository.AppendEvent(testSessionID, raw)
++	if err != nil {
++		t.Fatalf("retry AppendEvent error = %v", err)
++	}
++	if first.Position != 0 || first.LeaseSequence != 1 {
++		t.Fatalf("retry ref = %+v", first)
++	}
++}
++
++func TestCrashAfterDurableWriteCountsAsCommittedOnCreate(t *testing.T) {
++	repository := openTestRepository(t)
++	injector := &secconftest.Injector{}
++	wireCrashPoints(repository, injector)
++	injector.Arm(secconftest.PointCommitApply)
++	_, err := repository.CreateSession([]byte(specRecordExample))
++	mustCrashFault(t, err, secconftest.PointCommitApply, secconftest.OutcomeRecoverableParked, "CreateSession(commit fault)")
++	// The crashed commit already performed the durable write: the record
++	// reads back and the operation is terminal, so a retry names the
++	// terminal state instead of duplicating it.
++	stored, err := repository.GetRecord(testSessionID)
++	if err != nil {
++		t.Fatalf("GetRecord after crashed commit error = %v", err)
++	}
++	if !jsonEqual(t, stored, []byte(specRecordExample)) {
++		t.Fatal("record after crashed commit differs")
++	}
++	_, err = repository.CreateSession([]byte(specRecordExample))
++	mustErrorIs(t, err, ErrSessionExists, "CreateSession(after crashed commit)")
++}
++
++func TestCrashAfterDurableWriteCountsAsCommittedOnAppend(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	injector := &secconftest.Injector{}
++	wireCrashPoints(repository, injector)
++	raw := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{reference.RecordID}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.created", payload: createdPayload(reference.RecordID)})
++	injector.Arm(secconftest.PointCommitApply)
++	_, err := repository.AppendEvent(testSessionID, raw)
++	mustCrashFault(t, err, secconftest.PointCommitApply, secconftest.OutcomeRecoverableParked, "AppendEvent(commit fault)")
++	var eventID struct {
++		EventID string `json:"event_id"`
++	}
++	if err := json.Unmarshal(raw, &eventID); err != nil {
++		t.Fatal(err)
++	}
++	stored, err := repository.GetEvent(testSessionID, eventID.EventID)
++	if err != nil {
++		t.Fatalf("GetEvent after crashed commit error = %v", err)
++	}
++	if string(stored) != string(raw) {
++		t.Fatal("event after crashed commit differs")
++	}
++	// The lost-response retry carries the identical bytes and receives the
++	// identical reference without a second chain entry.
++	retry, err := repository.AppendEvent(testSessionID, raw)
++	if err != nil {
++		t.Fatalf("idempotent retry after crashed commit error = %v", err)
++	}
++	if retry.EventID != eventID.EventID || retry.Position != 0 {
++		t.Fatalf("retry ref = %+v, want the committed position", retry)
++	}
++	events, err := repository.ListEvents(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 1 {
++		t.Fatalf("chain after crashed commit and retry = %d events, want 1", len(events))
++	}
++	// Rollback past the crashed commit is forbidden by construction: there
++	// is no rollback entry, and the committed bytes survive every later
++	// refusal on this session.
++	_, err = repository.AppendEvent(testSessionID, buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{eventID.EventID}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.idle", payload: idlePayload()}))
++	mustErrorIs(t, err, ErrSequenceRepeat, "AppendEvent(repeat after parked commit)")
++	stored, err = repository.GetEvent(testSessionID, eventID.EventID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(stored) != string(raw) {
++		t.Fatal("committed bytes did not survive the later refusal")
++	}
++}
++
++// armCreateStep wires AfterCreateStep to fire point only at the targeted
++// interior step, recording every step reached. The closure — not the
++// arm — selects the step, so one armed point proves exactly the targeted
++// boundary fired: any other firing order leaves RemainingArmed non-empty
++// or the fired prefix wrong.
++func armCreateStep(t *testing.T, repository *Repository, target CreateStep, point string) (*secconftest.Injector, *[]CreateStep) {
++	t.Helper()
++	injector := &secconftest.Injector{}
++	injector.Arm(point)
++	fired := &[]CreateStep{}
++	repository.AfterCreateStep = func(step CreateStep) error {
++		*fired = append(*fired, step)
++		if step != target {
++			return nil
++		}
++		return injector.MaybeFail(point)
++	}
++	return injector, fired
++}
++
++// mustFiredPrefix fails unless the create reached exactly the expected
++// step prefix and the armed point was consumed: a crash point outside
++// the window it claims to cover measures nothing.
++func mustFiredPrefix(t *testing.T, injector *secconftest.Injector, fired *[]CreateStep, want []CreateStep, what string) {
++	t.Helper()
++	if remaining := injector.RemainingArmed(); len(remaining) != 0 {
++		t.Fatalf("%s left armed points %q; the interior crash never fired", what, remaining)
++	}
++	if len(*fired) != len(want) {
++		t.Fatalf("%s fired steps = %q, want prefix %q", what, *fired, want)
++	}
++	for index, step := range want {
++		if (*fired)[index] != step {
++			t.Fatalf("%s fired steps = %q, want prefix %q", what, *fired, want)
++		}
++	}
++}
++
++// TestCreateStepCrashAfterSessionDirResumesOnRetry crashes CreateSession
++// between the session directory and the record install — the window the
++// first revision left unrecoverable. The parked state is a bare
++// directory: reads fail closed (including ListSessions, for the whole
++// repository, by the documented closed-listing rule), and the identical
++// retry resumes the interrupted create instead of reporting a session
++// that never existed as existing.
++func TestCreateStepCrashAfterSessionDirResumesOnRetry(t *testing.T) {
++	repository := openTestRepository(t)
++	injector, fired := armCreateStep(t, repository, CreateStepSessionDir, secconftest.PointCommitApply)
++	_, err := repository.CreateSession([]byte(specRecordExample))
++	mustCrashFault(t, err, secconftest.PointCommitApply, secconftest.OutcomeRecoverableParked, "CreateSession(session-dir fault)")
++	mustFiredPrefix(t, injector, fired, []CreateStep{CreateStepSessionDir}, "CreateSession(session-dir fault)")
++	_, err = repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "GetRecord(parked bare directory)")
++	_, err = repository.ListSessions()
++	mustErrorIs(t, err, ErrChainCorrupt, "ListSessions(parked bare directory)")
++	reference, err := repository.CreateSession([]byte(specRecordExample))
++	if err != nil {
++		t.Fatalf("retry CreateSession error = %v", err)
++	}
++	if reference.SessionID != testSessionID {
++		t.Fatalf("retry SessionID = %q", reference.SessionID)
++	}
++	stored, err := repository.GetRecord(testSessionID)
++	if err != nil {
++		t.Fatalf("GetRecord after resumed create error = %v", err)
++	}
++	if !jsonEqual(t, stored, []byte(specRecordExample)) {
++		t.Fatal("record after resumed create differs")
++	}
++	summaries, err := repository.ListSessions()
++	if err != nil {
++		t.Fatalf("ListSessions after resumed create error = %v", err)
++	}
++	if len(summaries) != 1 || summaries[0].SessionID != testSessionID {
++		t.Fatalf("sessions after resumed create = %+v, want the one session", summaries)
++	}
++}
++
++// TestCreateStepCrashAfterRecordResumesOnRetry crashes CreateSession
++// between the record install and the events directory: the record is
++// durable, the chain is absent, and the identical retry completes the
++// index through the resume path, after which the chain continues.
++func TestCreateStepCrashAfterRecordResumesOnRetry(t *testing.T) {
++	repository := openTestRepository(t)
++	injector, fired := armCreateStep(t, repository, CreateStepRecord, secconftest.PointCommitApply)
++	_, err := repository.CreateSession([]byte(specRecordExample))
++	mustCrashFault(t, err, secconftest.PointCommitApply, secconftest.OutcomeRecoverableParked, "CreateSession(record fault)")
++	mustFiredPrefix(t, injector, fired, []CreateStep{CreateStepSessionDir, CreateStepRecord}, "CreateSession(record fault)")
++	_, err = repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "GetRecord(parked record without chain)")
++	reference, err := repository.CreateSession([]byte(specRecordExample))
++	if err != nil {
++		t.Fatalf("retry CreateSession error = %v", err)
++	}
++	if reference.SessionID != testSessionID {
++		t.Fatalf("retry SessionID = %q", reference.SessionID)
++	}
++	first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	if first.Position != 0 {
++		t.Fatalf("continued ref = %+v, want position 0", first)
++	}
++}
++
++// TestCreateStepCrashAfterEventsDirResumesOnRetry crashes CreateSession
++// between the events directory and the chain index: same parked shape
++// as the record fault, and the identical retry completes it.
++func TestCreateStepCrashAfterEventsDirResumesOnRetry(t *testing.T) {
++	repository := openTestRepository(t)
++	injector, fired := armCreateStep(t, repository, CreateStepEventsDir, secconftest.PointCommitApply)
++	_, err := repository.CreateSession([]byte(specRecordExample))
++	mustCrashFault(t, err, secconftest.PointCommitApply, secconftest.OutcomeRecoverableParked, "CreateSession(events-dir fault)")
++	mustFiredPrefix(t, injector, fired, []CreateStep{CreateStepSessionDir, CreateStepRecord, CreateStepEventsDir}, "CreateSession(events-dir fault)")
++	_, err = repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "GetRecord(parked record without chain)")
++	reference, err := repository.CreateSession([]byte(specRecordExample))
++	if err != nil {
++		t.Fatalf("retry CreateSession error = %v", err)
++	}
++	if reference.SessionID != testSessionID {
++		t.Fatalf("retry SessionID = %q", reference.SessionID)
++	}
++	stored, err := repository.GetRecord(testSessionID)
++	if err != nil {
++		t.Fatalf("GetRecord after resumed create error = %v", err)
++	}
++	if !jsonEqual(t, stored, []byte(specRecordExample)) {
++		t.Fatal("record after resumed create differs")
++	}
++}
++
++// TestCreateStepCrashAfterChainCountsAsCommitted crashes CreateSession
++// after the chain index is durable but before the operation returns:
++// the crashed commit already committed, so the record reads back and
++// the retry names the terminal state instead of duplicating it.
++func TestCreateStepCrashAfterChainCountsAsCommitted(t *testing.T) {
++	repository := openTestRepository(t)
++	injector, fired := armCreateStep(t, repository, CreateStepChain, secconftest.PointCommitApply)
++	_, err := repository.CreateSession([]byte(specRecordExample))
++	mustCrashFault(t, err, secconftest.PointCommitApply, secconftest.OutcomeRecoverableParked, "CreateSession(chain fault)")
++	mustFiredPrefix(t, injector, fired, []CreateStep{CreateStepSessionDir, CreateStepRecord, CreateStepEventsDir, CreateStepChain}, "CreateSession(chain fault)")
++	stored, err := repository.GetRecord(testSessionID)
++	if err != nil {
++		t.Fatalf("GetRecord after crashed commit error = %v", err)
++	}
++	if !jsonEqual(t, stored, []byte(specRecordExample)) {
++		t.Fatal("record after crashed commit differs")
++	}
++	_, err = repository.CreateSession([]byte(specRecordExample))
++	mustErrorIs(t, err, ErrSessionExists, "CreateSession(after crashed commit)")
++}
+diff --git a/internal/sessrepo/doc.go b/internal/sessrepo/doc.go
+new file mode 100644
+index 0000000..83308a5
+--- /dev/null
++++ b/internal/sessrepo/doc.go
+@@ -0,0 +1,52 @@
++// Package sessrepo persists and validates AX Session Records and the
++// append-only per-session event chain with source sequence continuity.
++//
++// Normative scope: AX v0.5.0 sections 2.3 (session name resolution), 5.1
++// (Session Record), 5.2 (Session Event), 5.7 (derived session states), and
++// 14.4 (list and status fields). This package owns durable session state:
++// the immutable record, the ordered event chain beneath it, and the stored
++// identity fields that later leaves project into lifecycle state, resolved
++// names, and list/status rows.
++//
++// Division of authority inside this story:
++//
++//   - Validation of record and event closed shapes and of every self-identity
++//     digest is owned by internal/canonicaljson and reached only through its
++//     production VerifyObjectIdentity entry. Entry decodes refuse a foreign
++//     schema before Verify; the load path re-verifies stored blobs through
++//     Verify — recomputing whatever digest the bytes claim — and refuses a
++//     non-event_id self field or an index-disagreeing digest at its named
++//     arms. This package never re-decodes a frame, never recomputes a
++//     bound, and never selects a self field.
++//   - Strict frame decoding and scalar bound checks on the members this
++//     package must read (session and lease identifiers, lease_sequence,
++//     predecessor digests, names) are owned by internal/environ and
++//     internal/scalar and reached only through their production checks.
++//   - Crash-point vocabulary and outcomes are owned by
++//     internal/secconftest. The repository fires the owner's own points
++//     through the owner's Injector: a fault before the durable write carries
++//     safe_retry, a fault after it carries recoverable_parked_state, and a
++//     crashed commit counts as committed.
++//   - The refusal census denominator is derived from production through
++//     internal/invcore; see census_test.go.
++//
++// Stated bounds (not silent gaps):
++//
++//   - Single authoritative branch. The repository tracks one ordered chain
++//     per session in arrival order. A same-epoch event under a different
++//     lease is preserved as an immutable blob but refused from the chain
++//     with ErrDivergentBranch; lease arbitration across partitions belongs
++//     to the ownership-leases story, not to this leaf.
++//   - No lifecycle derivation. Section 5.7 SessionState reduction and the
++//     full Section 2.3 four-step resolution order (peer-learned names,
++//     interactive choice) belong to the sibling reducer and name-resolution
++//     leaves. This package exposes the stored facts they project: exact
++//     local names with ASCII case-fold ambiguity detection, UUID routing,
++//     and per-session chain heads.
++//   - No Section 14.4 rendering. ListSessions exposes stored identity plus
++//     chain-head facts; human or JSON rendering of owner host, checkpoint
++//     age, capability status, and warnings belongs to the CLI surface leaf.
++//
++// The package adds no ax command, no doctor result, and no runtime
++// capability claim.
++package sessrepo
+diff --git a/internal/sessrepo/sessrepo.go b/internal/sessrepo/sessrepo.go
+new file mode 100644
+index 0000000..781d380
+--- /dev/null
++++ b/internal/sessrepo/sessrepo.go
+@@ -0,0 +1,314 @@
++package sessrepo
++
++import (
++	"bytes"
++	"errors"
++	"fmt"
++	"os"
++	"path/filepath"
++	"sync"
++)
++
++// uint53Max is the AX safe-integer ceiling from SPEC.md Section 1.6. It is
++// passed to the environ bound checker, never re-enforced here.
++const uint53Max = uint64(1<<53 - 1)
++
++const (
++	sessionRecordSchema = "urn:ax:schema:session-record"
++	sessionEventSchema  = "urn:ax:schema:session-event"
++)
++
++var (
++	ErrInvalidRecord   = errors.New("invalid session record")
++	ErrSessionExists   = errors.New("session already exists")
++	ErrUnknownSession  = errors.New("unknown session")
++	ErrInvalidEvent    = errors.New("invalid session event")
++	ErrSequenceGap     = errors.New("event source sequence gap")
++	ErrSequenceRepeat  = errors.New("event source sequence repeat")
++	ErrPredecessorLink = errors.New("event predecessor link mismatch")
++	ErrDivergentBranch = errors.New("divergent lease branch preserved without application")
++	ErrStaleLease      = errors.New("event lease epoch precedes the chain head")
++	ErrChainCorrupt    = errors.New("session event chain is corrupt")
++	ErrUnknownEvent    = errors.New("unknown session event")
++	ErrNameAmbiguous   = errors.New("name_ambiguous")
++	ErrNameNotFound    = errors.New("session name not found")
++	ErrRepositoryPath  = errors.New("invalid session repository path")
++)
++
++// refuse is the single refusal funnel every sessrepo rejection flows
++// through. It is a var so the census TestMain can wrap it and record the
++// production file:line behind each exercised refusal. No production path
++// wraps a sentinel with fmt.Errorf directly.
++var refuse = func(sentinel error, format string, arguments ...any) error {
++	return fmt.Errorf("%w: %s", sentinel, fmt.Sprintf(format, arguments...))
++}
++
++// SessionRef names one persisted session: its Session Record digest and ID.
++type SessionRef struct {
++	SessionID string
++	RecordID  string
++}
++
++// EventRef names one chained event: its digest, lease sequence, and position.
++type EventRef struct {
++	SessionID     string
++	EventID       string
++	LeaseSequence uint64
++	Position      int
++}
++
++// EventSummary is the chain-index entry for one event, derived from the
++// validated event bytes at append time and re-verified against them on load.
++type EventSummary struct {
++	EventID       string   `json:"event_id"`
++	EventType     string   `json:"event_type"`
++	LeaseEpoch    uint64   `json:"lease_epoch"`
++	LeaseID       string   `json:"lease_id"`
++	LeaseSequence uint64   `json:"lease_sequence"`
++	Predecessors  []string `json:"predecessors"`
++}
++
++// SessionSummary is the Section 14.4 list projection this leaf owns: stored
++// identity plus chain-head facts. Owner host, checkpoint age, capability
++// status, and warnings are derived downstream, never here.
++type SessionSummary struct {
++	SessionID  string
++	RecordID   string
++	Name       string
++	Kind       string
++	ProviderID string
++	EventCount int
++	TailEvent  string
++}
++
++// CreateStep names one durable boundary inside CreateSession's four-step
++// span: the session directory, the record install, the events directory,
++// and the chain index install, in that order.
++type CreateStep string
++
++const (
++	CreateStepSessionDir CreateStep = "session-dir"
++	CreateStepRecord     CreateStep = "record"
++	CreateStepEventsDir  CreateStep = "events-dir"
++	CreateStepChain      CreateStep = "chain"
++)
++
++// Repository persists Session Records and per-session event chains under
++// one data root. All mutating entries serialize on one mutex; files are
++// content-addressed and installed no-replace, so the chain is append-only
++// by construction and there is no update or delete entry to test.
++//
++// BeforeWrite fires after validation and before the first durable byte;
++// AfterCommit fires after the chain index is durable. AfterCreateStep
++// fires after each CreateStep inside CreateSession's four-step span, so
++// an interrupted create — not only a fault outside it — is drivable.
++// All three are nil in normal operation. Tests connect them to a
++// secconftest Injector firing the owner's own points: a fault before
++// any durable byte carries safe_retry, and a fault past any durable
++// step — including every interior boundary, whose parked state the
++// identical retry resumes — carries recoverable_parked_state.
++type Repository struct {
++	root            string
++	mutex           sync.Mutex
++	BeforeWrite     func() error
++	AfterCommit     func() error
++	AfterCreateStep func(CreateStep) error
++}
++
++// Open binds a repository to the sessions namespace beneath dataRoot,
++// creating it owner-only when absent. The root must be absolute.
++func Open(dataRoot string) (*Repository, error) {
++	if !filepath.IsAbs(dataRoot) {
++		return nil, refuse(ErrRepositoryPath, "data root %q is not absolute", dataRoot)
++	}
++	root := filepath.Join(dataRoot, "sessions")
++	if err := os.MkdirAll(root, 0o700); err != nil {
++		return nil, refuse(ErrRepositoryPath, "create sessions root %q: %v", root, err)
++	}
++	return &Repository{root: root}, nil
++}
++
++// CreateSession validates recordJSON through the canonical owner and
++// persists it as a new session. The bytes are stored verbatim.
++func (repository *Repository) CreateSession(recordJSON []byte) (SessionRef, error) {
++	record, err := decodeSessionRecord(recordJSON)
++	if err != nil {
++		return SessionRef{}, err
++	}
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	if repository.BeforeWrite != nil {
++		if err := repository.BeforeWrite(); err != nil {
++			return SessionRef{}, err
++		}
++	}
++	directory := repository.sessionDir(record.sessionID)
++	if _, err := os.Stat(directory); err == nil {
++		resumed, resumeErr := repository.resumeCreateLocked(directory, record, recordJSON)
++		if resumeErr != nil {
++			return SessionRef{}, resumeErr
++		}
++		if !resumed {
++			return SessionRef{}, refuse(ErrSessionExists, "session %s already exists", record.sessionID)
++		}
++	} else {
++		if err := os.MkdirAll(directory, 0o700); err != nil {
++			return SessionRef{}, fmt.Errorf("create session directory: %w", err)
++		}
++		if err := repository.crashCreateStep(CreateStepSessionDir); err != nil {
++			return SessionRef{}, err
++		}
++		if err := writeExclusive(filepath.Join(directory, "record.json"), recordJSON); err != nil {
++			return SessionRef{}, fmt.Errorf("install session record: %w", err)
++		}
++		if err := repository.crashCreateStep(CreateStepRecord); err != nil {
++			return SessionRef{}, err
++		}
++		if err := os.MkdirAll(filepath.Join(directory, "events"), 0o700); err != nil {
++			return SessionRef{}, fmt.Errorf("create session events directory: %w", err)
++		}
++		if err := repository.crashCreateStep(CreateStepEventsDir); err != nil {
++			return SessionRef{}, err
++		}
++		if err := repository.writeChain(directory, storedChain{RecordID: record.recordID}); err != nil {
++			return SessionRef{}, err
++		}
++		if err := repository.crashCreateStep(CreateStepChain); err != nil {
++			return SessionRef{}, err
++		}
++	}
++	if repository.AfterCommit != nil {
++		if err := repository.AfterCommit(); err != nil {
++			return SessionRef{}, err
++		}
++	}
++	return SessionRef{SessionID: record.sessionID, RecordID: record.recordID}, nil
++}
++
++// crashCreateStep fires the AfterCreateStep hook after one durable create
++// step. It is nil-safe: unhooked production never faults. A hook error —
++// the injected secconftest fault in tests — propagates unwrapped so the
++// caller observes the owner's point and outcome.
++func (repository *Repository) crashCreateStep(step CreateStep) error {
++	if repository.AfterCreateStep == nil {
++		return nil
++	}
++	return repository.AfterCreateStep(step)
++}
++
++// resumeCreateLocked completes a create that crashed inside the four-step
++// span. Two parked states resume:
++//
++//   - record absent: the crash landed after the session directory and
++//     before the record install, so nothing committed. The chain index
++//     must also be absent — a chain without a record is torn foreign
++//     state, never a resume — and the retry's bytes become the record.
++//   - record present with the retried bytes and the chain still absent:
++//     the crash landed between the record write and the chain write, and
++//     the retry completes the index.
++//
++// Anything else is not a resume — a completed create, or a colliding
++// record under a live session ID — and the caller refuses it as an
++// existing session. It returns plain operational errors; refusal
++// attribution stays at the caller.
++func (repository *Repository) resumeCreateLocked(directory string, record sessionRecord, recordJSON []byte) (bool, error) {
++	existing, err := os.ReadFile(filepath.Join(directory, "record.json"))
++	if err != nil {
++		if !os.IsNotExist(err) {
++			return false, fmt.Errorf("read session record for resume: %w", err)
++		}
++		if _, statErr := os.Stat(filepath.Join(directory, "chain.json")); statErr == nil {
++			return false, nil
++		}
++		if err := writeExclusive(filepath.Join(directory, "record.json"), recordJSON); err != nil {
++			return false, fmt.Errorf("install session record on resume: %w", err)
++		}
++		if err := os.MkdirAll(filepath.Join(directory, "events"), 0o700); err != nil {
++			return false, fmt.Errorf("recreate session events directory: %w", err)
++		}
++		if err := repository.writeChain(directory, storedChain{RecordID: record.recordID}); err != nil {
++			return false, err
++		}
++		return true, nil
++	}
++	if !bytes.Equal(existing, recordJSON) {
++		return false, nil
++	}
++	if _, err := os.Stat(filepath.Join(directory, "chain.json")); err == nil {
++		return false, nil
++	}
++	if err := os.MkdirAll(filepath.Join(directory, "events"), 0o700); err != nil {
++		return false, fmt.Errorf("recreate session events directory: %w", err)
++	}
++	if err := repository.writeChain(directory, storedChain{RecordID: record.recordID}); err != nil {
++		return false, err
++	}
++	return true, nil
++}
++
++// AppendEvent validates eventJSON through the canonical owner and links it
++// onto the session chain after the continuity checks. A byte-identical
++// retry of an already chained event returns its existing reference without
++// duplicating the chain, so a retry after a crashed commit is safe.
++func (repository *Repository) AppendEvent(sessionID string, eventJSON []byte) (EventRef, error) {
++	event, err := decodeSessionEvent(eventJSON)
++	if err != nil {
++		return EventRef{}, err
++	}
++	if event.sessionID != sessionID {
++		return EventRef{}, refuse(ErrInvalidEvent, "event session %s does not match target session %s", event.sessionID, sessionID)
++	}
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	view, err := repository.loadSessionLocked(sessionID)
++	if err != nil {
++		return EventRef{}, err
++	}
++	for position, existing := range view.chain.Events {
++		if existing.EventID == event.eventID {
++			return EventRef{SessionID: sessionID, EventID: event.eventID, LeaseSequence: existing.LeaseSequence, Position: position}, nil
++		}
++	}
++	if repository.BeforeWrite != nil {
++		if err := repository.BeforeWrite(); err != nil {
++			return EventRef{}, err
++		}
++	}
++	var tail *EventSummary
++	if len(view.chain.Events) > 0 {
++		previous := view.chain.Events[len(view.chain.Events)-1]
++		tail = &previous
++	}
++	if err := checkAppend(view.chain.RecordID, tail, event); err != nil {
++		// Losing-lease branches are preserved as immutable blobs but never
++		// applied: the bytes stay addressable while the chain is untouched.
++		if errors.Is(err, ErrDivergentBranch) || errors.Is(err, ErrStaleLease) {
++			if preserveErr := installEventBlob(filepath.Join(view.directory, "events", blobFileName(event.eventID)), eventJSON); preserveErr != nil {
++				return EventRef{}, fmt.Errorf("preserve unapplied branch: %v: %w", preserveErr, err)
++			}
++		}
++		return EventRef{}, err
++	}
++	blobPath := filepath.Join(view.directory, "events", blobFileName(event.eventID))
++	if err := installEventBlob(blobPath, eventJSON); err != nil {
++		if errors.Is(err, errDigestDisagreement) {
++			return EventRef{}, refuse(ErrChainCorrupt, "digest path holds disagreeing bytes for event")
++		}
++		return EventRef{}, err
++	}
++	next := append(append([]EventSummary(nil), view.chain.Events...), eventSummary(event))
++	if err := repository.writeChain(view.directory, storedChain{RecordID: view.chain.RecordID, Events: next}); err != nil {
++		return EventRef{}, err
++	}
++	if repository.AfterCommit != nil {
++		if err := repository.AfterCommit(); err != nil {
++			return EventRef{}, err
++		}
++	}
++	return EventRef{SessionID: sessionID, EventID: event.eventID, LeaseSequence: event.leaseSeq, Position: len(next) - 1}, nil
++}
++
++// eventSummary projects the validated routing members into the chain index.
++func eventSummary(event eventView) EventSummary {
++	return EventSummary{EventID: event.eventID, EventType: event.eventType, LeaseEpoch: event.leaseEpoch, LeaseID: event.leaseID, LeaseSequence: event.leaseSeq, Predecessors: append([]string(nil), event.predecessors...)}
++}
+diff --git a/internal/sessrepo/sessrepo_test.go b/internal/sessrepo/sessrepo_test.go
+new file mode 100644
+index 0000000..4718139
+--- /dev/null
++++ b/internal/sessrepo/sessrepo_test.go
+@@ -0,0 +1,1401 @@
++package sessrepo
++
++import (
++	"encoding/json"
++	"errors"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++)
++
++// Fixed test identities. Every UUIDv7 keeps the version nibble 7 and an
++// RFC 4122 variant; every UUIDv4 keeps nibble 4. The session, host, group,
++// and workspace values are the SPEC.md Section 5.1 example identities.
++const (
++	testSessionID   = "0198f4c8-3e70-7a11-8a2b-1234567890ab"
++	testSessionIDB  = "0198f4c8-3e70-7a11-8a2b-1234567890ac"
++	testHostID      = "0198f4c8-4a10-7b22-8b3c-1234567890ab"
++	testGroupID     = "0198f4c8-5b20-7c33-8c4d-1234567890ab"
++	testWorkspaceID = "0198f4c8-6c30-7d44-8d5e-1234567890ab"
++	testLeaseID     = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
++	testLeaseIDB    = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
++	testCreatedAt   = "2026-08-19T04:00:00.000Z"
++)
++
++const zeroDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
++
++// specRecordExample is the verbatim SPEC.md Section 5.1 normative example.
++// Its record_id is the computed canonical digest, verified by
++// TestCreateSessionPersistsSpecRecordFixture below.
++const specRecordExample = `{
++  "schema": "urn:ax:schema:session-record",
++  "schema_version": "1.0.0",
++  "record_id": "sha256:d61701066a7f5dd37bf35fea0e85e7f154251355ad24a49976532d7f79ddc772",
++  "subject_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "session_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "name": "payments-api",
++  "kind": "direct",
++  "created_at": "2026-08-19T04:00:00.000Z",
++  "created_by_host_id": "0198f4c8-4a10-7b22-8b3c-1234567890ab",
++  "provider_id": "codex",
++  "workspace_group_id": "0198f4c8-5b20-7c33-8c4d-1234567890ab",
++  "execution_profile": "yolo",
++  "launch_plan": {
++    "argv": ["codex"],
++    "cwd_workspace_id": "0198f4c8-6c30-7d44-8d5e-1234567890ab",
++    "cwd_relative": "src",
++    "env_names": ["OPENAI_API_KEY"],
++    "env_literals": {},
++    "contains_secrets": false,
++    "extensions": {}
++  },
++  "task_board": null,
++  "fork_provenance": null,
++  "extensions": {}
++}`
++
++// specStoppedExample is the verbatim SPEC.md Section 5.2 normative example.
++const specStoppedExample = `{
++  "schema": "urn:ax:schema:session-event",
++  "schema_version": "1.0.0",
++  "event_id": "sha256:46d2745fe7dfce856027be36e34f1cc6a56ffc846063dc4aa6aabf3f5a85bacb",
++  "subject_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "session_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "event_type": "session.stopped",
++  "created_by_host_id": "0198f4c8-4a10-7b22-8b3c-1234567890ab",
++  "lease_epoch": 4,
++  "lease_id": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
++  "lease_sequence": 12,
++  "predecessors": [
++    "sha256:7777777777777777777777777777777777777777777777777777777777777777"
++  ],
++  "created_at": "2026-08-19T04:08:00.000Z",
++  "payload": {
++    "graceful": true,
++    "checkpoint_id": "sha256:e051996f51f13ace4f5cdebe1e30fd26fd5fe104cfd6e6a7f9f1206ba3819656",
++    "resumable": true,
++    "closure_kind": "checkpointed",
++    "process_closed": true,
++    "store_closed": true
++  },
++  "extensions": {}
++}`
++
++// openTestRepository opens a repository under a test-temporary data root.
++func openTestRepository(t *testing.T) *Repository {
++	t.Helper()
++	repository, err := Open(t.TempDir())
++	if err != nil {
++		t.Fatalf("Open(test root) error = %v", err)
++	}
++	return repository
++}
++
++// buildRecord derives a valid Session Record from the SPEC example with
++// the caller's mutations, recomputing the canonical digest through the
++// production identity entry. A mutation that breaks the closed shape fails
++// the build, so invalid vectors are crafted as raw JSON instead.
++func buildRecord(t *testing.T, mutate func(object map[string]any)) []byte {
++	t.Helper()
++	var object map[string]any
++	if err := json.Unmarshal([]byte(specRecordExample), &object); err != nil {
++		t.Fatalf("unmarshal SPEC record example: %v", err)
++	}
++	if mutate != nil {
++		mutate(object)
++	}
++	object["record_id"] = zeroDigest
++	staged, err := json.Marshal(object)
++	if err != nil {
++		t.Fatalf("marshal staged record: %v", err)
++	}
++	digest, _, err := canonicaljson.CalculateObjectIdentity(staged)
++	if err != nil {
++		t.Fatalf("CalculateObjectIdentity(staged record) error = %v", err)
++	}
++	object["record_id"] = digest.String()
++	out, err := json.Marshal(object)
++	if err != nil {
++		t.Fatalf("marshal record: %v", err)
++	}
++	if _, _, err := canonicaljson.VerifyObjectIdentity(out); err != nil {
++		t.Fatalf("VerifyObjectIdentity(built record) error = %v", err)
++	}
++	return out
++}
++
++// eventOptions selects the chain position and payload of a built event.
++type eventOptions struct {
++	sessionID    string
++	predecessors []string
++	epoch        uint64
++	leaseID      string
++	sequence     uint64
++	eventType    string
++	payload      map[string]any
++}
++
++// buildEvent derives a valid Session Event for the given chain position,
++// computing the canonical digest through the production identity entry.
++func buildEvent(t *testing.T, options eventOptions) []byte {
++	t.Helper()
++	object := map[string]any{
++		"schema": "urn:ax:schema:session-event", "schema_version": "1.0.0",
++		"event_id": zeroDigest, "subject_id": options.sessionID, "session_id": options.sessionID,
++		"event_type": options.eventType, "created_by_host_id": testHostID,
++		"lease_epoch": options.epoch, "lease_id": options.leaseID, "lease_sequence": options.sequence,
++		"predecessors": options.predecessors, "created_at": testCreatedAt,
++		"payload": options.payload, "extensions": map[string]any{},
++	}
++	staged, err := json.Marshal(object)
++	if err != nil {
++		t.Fatalf("marshal staged event: %v", err)
++	}
++	digest, _, err := canonicaljson.CalculateObjectIdentity(staged)
++	if err != nil {
++		t.Fatalf("CalculateObjectIdentity(staged event) error = %v", err)
++	}
++	object["event_id"] = digest.String()
++	out, err := json.Marshal(object)
++	if err != nil {
++		t.Fatalf("marshal event: %v", err)
++	}
++	if _, _, err := canonicaljson.VerifyObjectIdentity(out); err != nil {
++		t.Fatalf("VerifyObjectIdentity(built event) error = %v", err)
++	}
++	return out
++}
++
++// Payload builders for the event types the chain tests use. Each carries
++// exactly the Section 5.2 members for its type.
++func createdPayload(recordID string) map[string]any {
++	return map[string]any{"session_record_id": recordID, "bootstrap_operation_id": "0198f4c8-7d40-7e55-8e6f-1234567890ab", "first_checkpoint_operation_id": "0198f4c8-7d40-7e55-8e6f-1234567890ac"}
++}
++
++func idlePayload() map[string]any {
++	return map[string]any{"boundary_ref": "turn-1", "foreground_idle": true, "background_idle": true}
++}
++
++func checkpointPayload() map[string]any {
++	return map[string]any{"checkpoint_id": "sha256:e051996f51f13ace4f5cdebe1e30fd26fd5fe104cfd6e6a7f9f1206ba3819656", "kind": "manual"}
++}
++
++// createTestSession persists the SPEC record and returns its reference.
++func createTestSession(t *testing.T, repository *Repository) SessionRef {
++	t.Helper()
++	reference, err := repository.CreateSession([]byte(specRecordExample))
++	if err != nil {
++		t.Fatalf("CreateSession(SPEC record) error = %v", err)
++	}
++	return reference
++}
++
++// appendTestEvent appends one valid event at the given chain position and
++// returns its reference and bytes.
++func appendTestEvent(t *testing.T, repository *Repository, sessionID string, predecessors []string, epoch uint64, leaseID string, sequence uint64, eventType string, payload map[string]any) (EventRef, []byte) {
++	t.Helper()
++	raw := buildEvent(t, eventOptions{sessionID: sessionID, predecessors: predecessors, epoch: epoch, leaseID: leaseID, sequence: sequence, eventType: eventType, payload: payload})
++	reference, err := repository.AppendEvent(sessionID, raw)
++	if err != nil {
++		t.Fatalf("AppendEvent(seq %d) error = %v", sequence, err)
++	}
++	return reference, raw
++}
++
++// mustErrorIs fails unless err matches the sentinel with errors.Is. Every
++// negative test below names its arm this way, so a weakened gate that
++// returns a different error — or none — fails the test.
++func mustErrorIs(t *testing.T, err error, sentinel error, what string) {
++	t.Helper()
++	if !errors.Is(err, sentinel) {
++		t.Fatalf("%s error = %v, want errors.Is %v", what, err, sentinel)
++	}
++}
++
++func TestCreateSessionPersistsSpecRecordFixture(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	if reference.SessionID != testSessionID {
++		t.Fatalf("SessionID = %q, want %q", reference.SessionID, testSessionID)
++	}
++	if reference.RecordID != "sha256:d61701066a7f5dd37bf35fea0e85e7f154251355ad24a49976532d7f79ddc772" {
++		t.Fatalf("RecordID = %q, want the SPEC example digest", reference.RecordID)
++	}
++	stored, err := repository.GetRecord(testSessionID)
++	if err != nil {
++		t.Fatalf("GetRecord error = %v", err)
++	}
++	var wantCanonical, gotCanonical any
++	if err := json.Unmarshal([]byte(specRecordExample), &wantCanonical); err != nil {
++		t.Fatal(err)
++	}
++	if err := json.Unmarshal(stored, &gotCanonical); err != nil {
++		t.Fatal(err)
++	}
++	wantBytes, _ := json.Marshal(wantCanonical)
++	gotBytes, _ := json.Marshal(gotCanonical)
++	if string(wantBytes) != string(gotBytes) {
++		t.Fatal("stored record differs from the fixture")
++	}
++}
++
++func TestSessionRecordReloadsByteIdenticallyAcrossProcessBoundary(t *testing.T) {
++	root := t.TempDir()
++	first, err := Open(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	reference := createTestSession(t, first)
++	firstEvent, firstBytes := appendTestEvent(t, first, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	// A second handle over the same root is a new process for file-backed
++	// state: no memory carries over.
++	second, err := Open(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	stored, err := second.GetRecord(testSessionID)
++	if err != nil {
++		t.Fatalf("GetRecord across boundary error = %v", err)
++	}
++	if string(stored) != specRecordExample && !jsonEqual(t, stored, []byte(specRecordExample)) {
++		t.Fatal("record bytes differ across the process boundary")
++	}
++	events, err := second.ListEvents(testSessionID)
++	if err != nil {
++		t.Fatalf("ListEvents across boundary error = %v", err)
++	}
++	if len(events) != 1 || events[0].EventID != firstEvent.EventID {
++		t.Fatalf("reloaded chain = %+v, want the one appended event", events)
++	}
++	storedEvent, err := second.GetEvent(testSessionID, firstEvent.EventID)
++	if err != nil {
++		t.Fatalf("GetEvent across boundary error = %v", err)
++	}
++	if string(storedEvent) != string(firstBytes) {
++		t.Fatal("event bytes differ across the process boundary")
++	}
++	// The chain continues on the new handle: sequence 2 appends cleanly.
++	secondRef, _ := appendTestEvent(t, second, testSessionID, []string{firstEvent.EventID}, 1, testLeaseID, 2, "session.idle", idlePayload())
++	if secondRef.Position != 1 || secondRef.LeaseSequence != 2 {
++		t.Fatalf("continued ref = %+v, want position 1 sequence 2", secondRef)
++	}
++}
++
++func jsonEqual(t *testing.T, left, right []byte) bool {
++	t.Helper()
++	var l, r any
++	if err := json.Unmarshal(left, &l); err != nil {
++		return false
++	}
++	if err := json.Unmarshal(right, &r); err != nil {
++		return false
++	}
++	lb, _ := json.Marshal(l)
++	rb, _ := json.Marshal(r)
++	return string(lb) == string(rb)
++}
++
++func TestAppendEventChainInOrder(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	second, _ := appendTestEvent(t, repository, testSessionID, []string{first.EventID}, 1, testLeaseID, 2, "session.idle", idlePayload())
++	third, _ := appendTestEvent(t, repository, testSessionID, []string{second.EventID}, 1, testLeaseID, 3, "checkpoint.created", checkpointPayload())
++	events, err := repository.ListEvents(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 3 {
++		t.Fatalf("chain length = %d, want 3", len(events))
++	}
++	want := []EventRef{first, second, third}
++	for index, ref := range want {
++		if events[index].EventID != ref.EventID || events[index].LeaseSequence != uint64(index+1) {
++			t.Fatalf("chain[%d] = %+v, want %+v", index, events[index], ref)
++		}
++	}
++	if events[0].EventType != "session.created" || events[2].EventType != "checkpoint.created" {
++		t.Fatalf("event types = %q %q %q", events[0].EventType, events[1].EventType, events[2].EventType)
++	}
++}
++
++func TestAppendEventIdempotentRetry(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	raw := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{reference.RecordID}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.created", payload: createdPayload(reference.RecordID)})
++	first, err := repository.AppendEvent(testSessionID, raw)
++	if err != nil {
++		t.Fatal(err)
++	}
++	second, err := repository.AppendEvent(testSessionID, raw)
++	if err != nil {
++		t.Fatalf("idempotent retry error = %v", err)
++	}
++	if first != second {
++		t.Fatalf("retry ref = %+v, want %+v", second, first)
++	}
++	events, err := repository.ListEvents(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 1 {
++		t.Fatalf("chain length after retry = %d, want 1", len(events))
++	}
++}
++
++func TestListSessionsExposesStoredIdentityAndChainHead(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	other := buildRecord(t, func(object map[string]any) {
++		object["session_id"] = testSessionIDB
++		object["subject_id"] = testSessionIDB
++		object["name"] = "worker"
++	})
++	otherRef, err := repository.CreateSession(other)
++	if err != nil {
++		t.Fatal(err)
++	}
++	first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	summaries, err := repository.ListSessions()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(summaries) != 2 {
++		t.Fatalf("sessions = %d, want 2", len(summaries))
++	}
++	if summaries[0].SessionID != testSessionID || summaries[1].SessionID != testSessionIDB {
++		t.Fatalf("session order = %q %q, want ID order", summaries[0].SessionID, summaries[1].SessionID)
++	}
++	if summaries[0].Name != "payments-api" || summaries[0].Kind != "direct" || summaries[0].ProviderID != "codex" {
++		t.Fatalf("first summary = %+v, want stored identity", summaries[0])
++	}
++	if summaries[0].EventCount != 1 || summaries[0].TailEvent != first.EventID {
++		t.Fatalf("first head = %+v, want count 1 tail %s", summaries[0], first.EventID)
++	}
++	if summaries[1].RecordID != otherRef.RecordID || summaries[1].EventCount != 0 || summaries[1].TailEvent != "" {
++		t.Fatalf("second summary = %+v, want empty chain", summaries[1])
++	}
++	// A stray non-session file in the namespace is ignored, never listed.
++	if err := os.WriteFile(filepath.Join(repository.root, "stray.txt"), []byte("x"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	summaries, err = repository.ListSessions()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(summaries) != 2 {
++		t.Fatalf("sessions with stray file = %d, want 2", len(summaries))
++	}
++}
++
++func TestOpenRefusesNonAbsoluteRoot(t *testing.T) {
++	_, err := Open("relative/data")
++	mustErrorIs(t, err, ErrRepositoryPath, "Open(relative)")
++}
++
++func TestOpenRefusesFileAsRoot(t *testing.T) {
++	file := filepath.Join(t.TempDir(), "file")
++	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	_, err := Open(file)
++	mustErrorIs(t, err, ErrRepositoryPath, "Open(file)")
++}
++
++func TestCreateSessionRefusesMalformedFrame(t *testing.T) {
++	repository := openTestRepository(t)
++	_, err := repository.CreateSession([]byte(`{"schema": "urn:ax:schema:session-record",`))
++	mustErrorIs(t, err, ErrInvalidRecord, "CreateSession(truncated)")
++}
++
++func TestCreateSessionRefusesForeignSchema(t *testing.T) {
++	repository := openTestRepository(t)
++	// A valid session EVENT is not a session record: the schema gate fires
++	// before identity is ever consulted.
++	event := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{"sha256:d61701066a7f5dd37bf35fea0e85e7f154251355ad24a49976532d7f79ddc772"}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.idle", payload: idlePayload()})
++	_, err := repository.CreateSession(event)
++	mustErrorIs(t, err, ErrInvalidRecord, "CreateSession(event)")
++}
++
++func TestCreateSessionRefusesMissingSessionID(t *testing.T) {
++	repository := openTestRepository(t)
++	var object map[string]any
++	if err := json.Unmarshal([]byte(specRecordExample), &object); err != nil {
++		t.Fatal(err)
++	}
++	delete(object, "session_id")
++	raw, _ := json.Marshal(object)
++	_, err := repository.CreateSession(raw)
++	mustErrorIs(t, err, ErrInvalidRecord, "CreateSession(no session_id)")
++}
++
++func TestCreateSessionRefusesDigestMismatch(t *testing.T) {
++	repository := openTestRepository(t)
++	tampered := strings.Replace(specRecordExample, `"name": "payments-api"`, `"name": "payments-apj"`, 1)
++	if tampered == specRecordExample {
++		t.Fatal("tamper did not apply")
++	}
++	_, err := repository.CreateSession([]byte(tampered))
++	mustErrorIs(t, err, ErrInvalidRecord, "CreateSession(tampered)")
++}
++
++func TestCreateSessionRefusesDuplicateAndRewrite(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	// Exact duplicate create is refused: records are immutable and the
++	// repository offers no rewrite path.
++	_, err := repository.CreateSession([]byte(specRecordExample))
++	mustErrorIs(t, err, ErrSessionExists, "CreateSession(duplicate)")
++	// A different record under the same session ID is also refused: history
++	// cannot be replaced, only extended by events.
++	collision := buildRecord(t, func(object map[string]any) {
++		object["name"] = "payments-api-v2"
++	})
++	// Force the colliding session ID while keeping a valid digest.
++	var object map[string]any
++	if err := json.Unmarshal(collision, &object); err != nil {
++		t.Fatal(err)
++	}
++	object["session_id"] = testSessionID
++	object["subject_id"] = testSessionID
++	collision = reidentifyRecord(t, object)
++	_, err = repository.CreateSession(collision)
++	mustErrorIs(t, err, ErrSessionExists, "CreateSession(collision)")
++	stored, err := repository.GetRecord(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !jsonEqual(t, stored, []byte(specRecordExample)) {
++		t.Fatal("stored record changed after refused rewrite")
++	}
++}
++
++// reidentifyRecord recomputes the canonical digest after test-side surgery.
++func reidentifyRecord(t *testing.T, object map[string]any) []byte {
++	t.Helper()
++	object["record_id"] = zeroDigest
++	staged, _ := json.Marshal(object)
++	digest, _, err := canonicaljson.CalculateObjectIdentity(staged)
++	if err != nil {
++		t.Fatalf("reidentify record: %v", err)
++	}
++	object["record_id"] = digest.String()
++	out, _ := json.Marshal(object)
++	return out
++}
++
++func TestAppendEventRefusesUnknownSession(t *testing.T) {
++	repository := openTestRepository(t)
++	event := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{"sha256:d61701066a7f5dd37bf35fea0e85e7f154251355ad24a49976532d7f79ddc772"}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.idle", payload: idlePayload()})
++	_, err := repository.AppendEvent(testSessionID, event)
++	mustErrorIs(t, err, ErrUnknownSession, "AppendEvent(unknown session)")
++}
++
++func TestAppendEventRefusesMalformedFrame(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	_, err := repository.AppendEvent(testSessionID, []byte(`{"schema": "urn:ax:schema:session-event",`))
++	mustErrorIs(t, err, ErrInvalidEvent, "AppendEvent(truncated)")
++}
++
++func TestAppendEventRefusesForeignSchema(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	_, err := repository.AppendEvent(testSessionID, []byte(specRecordExample))
++	mustErrorIs(t, err, ErrInvalidEvent, "AppendEvent(record)")
++}
++
++func TestAppendEventRefusesBadMember(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	vectors := []struct {
++		name   string
++		mutate func(object map[string]any)
++	}{
++		{"zero sequence", func(object map[string]any) { object["lease_sequence"] = 0 }},
++		{"unsafe sequence", func(object map[string]any) { object["lease_sequence"] = uint64(1 << 53) }},
++		{"non-v4 lease", func(object map[string]any) { object["lease_id"] = testSessionID }},
++		{"missing predecessors", func(object map[string]any) { delete(object, "predecessors") }},
++		{"malformed predecessor", func(object map[string]any) { object["predecessors"] = []string{"not-a-digest"} }},
++		{"missing event type", func(object map[string]any) { delete(object, "event_type") }},
++	}
++	for _, vector := range vectors {
++		t.Run(vector.name, func(t *testing.T) {
++			raw := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{reference.RecordID}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.idle", payload: idlePayload()})
++			var object map[string]any
++			if err := json.Unmarshal(raw, &object); err != nil {
++				t.Fatal(err)
++			}
++			vector.mutate(object)
++			mutated, _ := json.Marshal(object)
++			_, err := repository.AppendEvent(testSessionID, mutated)
++			mustErrorIs(t, err, ErrInvalidEvent, "AppendEvent("+vector.name+")")
++		})
++	}
++}
++
++func TestAppendEventRefusesDigestMismatch(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	raw := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{reference.RecordID}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.idle", payload: idlePayload()})
++	tampered := strings.Replace(string(raw), `"foreground_idle":true`, `"foreground_idle":false`, 1)
++	if tampered == string(raw) {
++		t.Fatal("tamper did not apply")
++	}
++	_, err := repository.AppendEvent(testSessionID, []byte(tampered))
++	mustErrorIs(t, err, ErrInvalidEvent, "AppendEvent(tampered)")
++}
++
++func TestAppendEventRefusesSessionMismatch(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	foreign := buildEvent(t, eventOptions{sessionID: testSessionIDB, predecessors: []string{"sha256:d61701066a7f5dd37bf35fea0e85e7f154251355ad24a49976532d7f79ddc772"}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.idle", payload: idlePayload()})
++	_, err := repository.AppendEvent(testSessionID, foreign)
++	mustErrorIs(t, err, ErrInvalidEvent, "AppendEvent(session mismatch)")
++}
++
++func TestAppendEventRefusesSequenceGap(t *testing.T) {
++	t.Run("skipped sequence", func(t *testing.T) {
++		repository := openTestRepository(t)
++		reference := createTestSession(t, repository)
++		first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++		skipped := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{first.EventID}, epoch: 1, leaseID: testLeaseID, sequence: 3, eventType: "session.idle", payload: idlePayload()})
++		_, err := repository.AppendEvent(testSessionID, skipped)
++		mustErrorIs(t, err, ErrSequenceGap, "AppendEvent(skipped)")
++	})
++	t.Run("first sequence past one", func(t *testing.T) {
++		repository := openTestRepository(t)
++		reference := createTestSession(t, repository)
++		raw := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{reference.RecordID}, epoch: 1, leaseID: testLeaseID, sequence: 2, eventType: "session.created", payload: createdPayload(reference.RecordID)})
++		_, err := repository.AppendEvent(testSessionID, raw)
++		mustErrorIs(t, err, ErrSequenceGap, "AppendEvent(first past one)")
++	})
++	t.Run("successor lease past one", func(t *testing.T) {
++		repository := openTestRepository(t)
++		reference := createTestSession(t, repository)
++		first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++		next := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{first.EventID}, epoch: 2, leaseID: testLeaseIDB, sequence: 2, eventType: "session.idle", payload: idlePayload()})
++		_, err := repository.AppendEvent(testSessionID, next)
++		mustErrorIs(t, err, ErrSequenceGap, "AppendEvent(successor past one)")
++	})
++	t.Run("spec stopped fixture is a gap, not an invalid event", func(t *testing.T) {
++		repository := openTestRepository(t)
++		createTestSession(t, repository)
++		if _, _, err := canonicaljson.VerifyObjectIdentity([]byte(specStoppedExample)); err != nil {
++			t.Fatalf("SPEC event fixture must verify: %v", err)
++		}
++		_, err := repository.AppendEvent(testSessionID, []byte(specStoppedExample))
++		mustErrorIs(t, err, ErrSequenceGap, "AppendEvent(spec stopped)")
++	})
++}
++
++func TestAppendEventRefusesSequenceRepeat(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	// A different event at an already chained sequence is a repeat, and the
++	// two-events-at-one-sequence fork the spec forbids.
++	repeat := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{reference.RecordID}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.idle", payload: idlePayload()})
++	_, err := repository.AppendEvent(testSessionID, repeat)
++	mustErrorIs(t, err, ErrSequenceRepeat, "AppendEvent(repeat)")
++	second, _ := appendTestEvent(t, repository, testSessionID, []string{first.EventID}, 1, testLeaseID, 2, "session.idle", idlePayload())
++	stale := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{first.EventID}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.idle", payload: idlePayload()})
++	_, err = repository.AppendEvent(testSessionID, stale)
++	mustErrorIs(t, err, ErrSequenceRepeat, "AppendEvent(old sequence)")
++	events, err := repository.ListEvents(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 2 || events[1].EventID != second.EventID {
++		t.Fatalf("chain after refused repeats = %+v", events)
++	}
++}
++
++func TestAppendEventRefusesFirstPredecessorMismatch(t *testing.T) {
++	t.Run("unrelated predecessor", func(t *testing.T) {
++		repository := openTestRepository(t)
++		createTestSession(t, repository)
++		raw := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{zeroDigest}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.created", payload: createdPayload("sha256:d61701066a7f5dd37bf35fea0e85e7f154251355ad24a49976532d7f79ddc772")})
++		_, err := repository.AppendEvent(testSessionID, raw)
++		mustErrorIs(t, err, ErrPredecessorLink, "AppendEvent(unrelated predecessor)")
++	})
++	t.Run("record plus extra predecessor", func(t *testing.T) {
++		repository := openTestRepository(t)
++		reference := createTestSession(t, repository)
++		extra := "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
++		raw := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{reference.RecordID, extra}, epoch: 1, leaseID: testLeaseID, sequence: 1, eventType: "session.created", payload: createdPayload(reference.RecordID)})
++		_, err := repository.AppendEvent(testSessionID, raw)
++		mustErrorIs(t, err, ErrPredecessorLink, "AppendEvent(extra predecessor)")
++	})
++}
++
++func TestAppendEventRefusesLaterPredecessorMismatch(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	_, _ = appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	// The second event must reference the first, not skip back to the record.
++	raw := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{reference.RecordID}, epoch: 1, leaseID: testLeaseID, sequence: 2, eventType: "session.idle", payload: idlePayload()})
++	_, err := repository.AppendEvent(testSessionID, raw)
++	mustErrorIs(t, err, ErrPredecessorLink, "AppendEvent(skipped head)")
++}
++
++func TestAppendEventPreservesDivergentBranchWithoutApplying(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	_, _ = appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	// A same-epoch second lease is the concurrent-takeover fork: its bytes
++	// are preserved in the immutable namespace but never linked into the
++	// authoritative chain.
++	fork := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{reference.RecordID}, epoch: 1, leaseID: testLeaseIDB, sequence: 1, eventType: "session.idle", payload: idlePayload()})
++	_, err := repository.AppendEvent(testSessionID, fork)
++	mustErrorIs(t, err, ErrDivergentBranch, "AppendEvent(divergent)")
++	var forkID struct {
++		EventID string `json:"event_id"`
++	}
++	if err := json.Unmarshal(fork, &forkID); err != nil {
++		t.Fatal(err)
++	}
++	preserved, err := os.ReadFile(blobPathFor(t, repository, testSessionID, forkID.EventID))
++	if err != nil {
++		t.Fatalf("divergent blob was not preserved: %v", err)
++	}
++	if string(preserved) != string(fork) {
++		t.Fatal("preserved divergent bytes differ")
++	}
++	events, err := repository.ListEvents(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 1 {
++		t.Fatalf("chain after divergent fork = %d events, want 1", len(events))
++	}
++}
++
++func TestAppendEventRefusesStaleLeaseEpoch(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	_, _ = appendTestEvent(t, repository, testSessionID, []string{first.EventID}, 2, testLeaseIDB, 1, "session.idle", idlePayload())
++	// An event from the superseded epoch cannot rejoin the chain.
++	late := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{first.EventID}, epoch: 1, leaseID: testLeaseID, sequence: 2, eventType: "session.idle", payload: idlePayload()})
++	_, err := repository.AppendEvent(testSessionID, late)
++	mustErrorIs(t, err, ErrStaleLease, "AppendEvent(stale epoch)")
++}
++
++func TestAppendEventRefusesDisagreeingDigestPathBytes(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	next := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{first.EventID}, epoch: 1, leaseID: testLeaseID, sequence: 2, eventType: "session.idle", payload: idlePayload()})
++	// Plant disagreeing bytes at the path the event's digest names, then
++	// append the genuine event: the store must refuse instead of trusting
++	// either copy.
++	var parsed struct {
++		EventID string `json:"event_id"`
++	}
++	if err := json.Unmarshal(next, &parsed); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(blobPathFor(t, repository, testSessionID, parsed.EventID), []byte(`{"forged":true}`), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	_, err := repository.AppendEvent(testSessionID, next)
++	mustErrorIs(t, err, ErrChainCorrupt, "AppendEvent(disagreeing bytes)")
++	events, err := repository.ListEvents(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 1 {
++		t.Fatalf("chain after disagreeing plant = %d events, want 1", len(events))
++	}
++}
++
++// blobPathFor resolves the content-addressed path of an event blob.
++func blobPathFor(t *testing.T, repository *Repository, sessionID, eventID string) string {
++	t.Helper()
++	hex, ok := strings.CutPrefix(eventID, "sha256:")
++	if !ok {
++		t.Fatalf("event id %q has no digest prefix", eventID)
++	}
++	return filepath.Join(repository.sessionDir(sessionID), "events", hex+".json")
++}
++
++func TestGetEventLookup(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	first, firstBytes := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	stored, err := repository.GetEvent(testSessionID, first.EventID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(stored) != string(firstBytes) {
++		t.Fatal("GetEvent bytes differ from appended bytes")
++	}
++	_, err = repository.GetEvent(testSessionID, "not-a-digest")
++	mustErrorIs(t, err, ErrUnknownEvent, "GetEvent(malformed)")
++	_, err = repository.GetEvent(testSessionID, zeroDigest)
++	mustErrorIs(t, err, ErrUnknownEvent, "GetEvent(absent)")
++}
++
++func TestResolveLocalNameAndUUID(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	summary, err := repository.Resolve("payments-api")
++	if err != nil {
++		t.Fatalf("Resolve(exact) error = %v", err)
++	}
++	if summary.SessionID != testSessionID {
++		t.Fatalf("resolved = %q, want %q", summary.SessionID, testSessionID)
++	}
++	// A case-variant query still routes while the name is unambiguous.
++	variant, err := repository.Resolve("Payments-API")
++	if err != nil {
++		t.Fatalf("Resolve(folded) error = %v", err)
++	}
++	if variant.SessionID != testSessionID {
++		t.Fatalf("folded resolve = %q", variant.SessionID)
++	}
++	byUUID, err := repository.Resolve(testSessionID)
++	if err != nil {
++		t.Fatalf("Resolve(uuid) error = %v", err)
++	}
++	if byUUID.RecordID != summary.RecordID {
++		t.Fatalf("uuid resolve = %+v, want %+v", byUUID, summary)
++	}
++	_, err = repository.Resolve("no-such-session")
++	mustErrorIs(t, err, ErrNameNotFound, "Resolve(absent)")
++	// A UUID-shaped query with no session is not found, not ambiguous.
++	_, err = repository.Resolve(testSessionIDB)
++	mustErrorIs(t, err, ErrNameNotFound, "Resolve(absent uuid)")
++}
++
++func TestResolveRefusesCaseFoldCollision(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	// The colliding name carries Y, past T: a narrowed fold that stops at
++	// T would miss this collision, so the vector witnesses the full A-Z
++	// range rather than only its head.
++	other := buildRecord(t, func(object map[string]any) {
++		object["session_id"] = testSessionIDB
++		object["subject_id"] = testSessionIDB
++		object["name"] = "PAYMENTS-API"
++	})
++	if _, err := repository.CreateSession(other); err != nil {
++		t.Fatal(err)
++	}
++	_, err := repository.Resolve("payments-api")
++	mustErrorIs(t, err, ErrNameAmbiguous, "Resolve(collision)")
++	_, err = repository.Resolve("PAYMENTS-API")
++	mustErrorIs(t, err, ErrNameAmbiguous, "Resolve(collision upper)")
++}
++
++// plantCorruptedSession creates a session with two chained events and
++// applies one corruption, returning the repository for a load attempt.
++func plantCorruptedSession(t *testing.T, corrupt func(t *testing.T, repository *Repository)) *Repository {
++	t.Helper()
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	_, _ = appendTestEvent(t, repository, testSessionID, []string{first.EventID}, 1, testLeaseID, 2, "session.idle", idlePayload())
++	corrupt(t, repository)
++	return repository
++}
++
++func sessionPaths(t *testing.T, repository *Repository) (directory, chain, record string) {
++	t.Helper()
++	directory = repository.sessionDir(testSessionID)
++	return directory, filepath.Join(directory, "chain.json"), filepath.Join(directory, "record.json")
++}
++
++func TestLoadRefusesMissingChainIndex(t *testing.T) {
++	repository := plantCorruptedSession(t, func(t *testing.T, repository *Repository) {
++		_, chain, _ := sessionPaths(t, repository)
++		if err := os.Remove(chain); err != nil {
++			t.Fatal(err)
++		}
++	})
++	_, err := repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "load(missing chain)")
++}
++
++func TestLoadRefusesMalformedChainIndex(t *testing.T) {
++	repository := plantCorruptedSession(t, func(t *testing.T, repository *Repository) {
++		_, chain, _ := sessionPaths(t, repository)
++		if err := os.WriteFile(chain, []byte(`{"record_id":`), 0o600); err != nil {
++			t.Fatal(err)
++		}
++	})
++	_, err := repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "load(malformed chain)")
++}
++
++func TestLoadRefusesMissingRecord(t *testing.T) {
++	repository := plantCorruptedSession(t, func(t *testing.T, repository *Repository) {
++		_, _, record := sessionPaths(t, repository)
++		if err := os.Remove(record); err != nil {
++			t.Fatal(err)
++		}
++	})
++	_, err := repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "load(missing record)")
++}
++
++func TestLoadRefusesTamperedRecord(t *testing.T) {
++	repository := plantCorruptedSession(t, func(t *testing.T, repository *Repository) {
++		_, _, record := sessionPaths(t, repository)
++		raw, err := os.ReadFile(record)
++		if err != nil {
++			t.Fatal(err)
++		}
++		tampered := strings.Replace(string(raw), `"name": "payments-api"`, `"name": "payments-apj"`, 1)
++		if tampered == string(raw) {
++			t.Fatal("tamper did not apply")
++		}
++		if err := os.WriteFile(record, []byte(tampered), 0o600); err != nil {
++			t.Fatal(err)
++		}
++	})
++	_, err := repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "load(tampered record)")
++}
++
++func TestLoadRefusesDetachedChainIndex(t *testing.T) {
++	repository := plantCorruptedSession(t, func(t *testing.T, repository *Repository) {
++		_, chain, _ := sessionPaths(t, repository)
++		raw, err := os.ReadFile(chain)
++		if err != nil {
++			t.Fatal(err)
++		}
++		var index map[string]any
++		if err := json.Unmarshal(raw, &index); err != nil {
++			t.Fatal(err)
++		}
++		index["record_id"] = zeroDigest
++		out, _ := json.Marshal(index)
++		if err := os.WriteFile(chain, out, 0o600); err != nil {
++			t.Fatal(err)
++		}
++	})
++	_, err := repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "load(detached index)")
++}
++
++func TestLoadRefusesMissingEventBlob(t *testing.T) {
++	repository := plantCorruptedSession(t, func(t *testing.T, repository *Repository) {
++		events, err := repository.ListEvents(testSessionID)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if err := os.Remove(blobPathFor(t, repository, testSessionID, events[0].EventID)); err != nil {
++			t.Fatal(err)
++		}
++	})
++	_, err := repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "load(missing blob)")
++}
++
++func TestLoadRefusesTamperedEventBlob(t *testing.T) {
++	repository := plantCorruptedSession(t, func(t *testing.T, repository *Repository) {
++		events, err := repository.ListEvents(testSessionID)
++		if err != nil {
++			t.Fatal(err)
++		}
++		path := blobPathFor(t, repository, testSessionID, events[1].EventID)
++		raw, err := os.ReadFile(path)
++		if err != nil {
++			t.Fatal(err)
++		}
++		tampered := strings.Replace(string(raw), `"foreground_idle":true`, `"foreground_idle":false`, 1)
++		if tampered == string(raw) {
++			t.Fatal("tamper did not apply")
++		}
++		if err := os.WriteFile(path, []byte(tampered), 0o600); err != nil {
++			t.Fatal(err)
++		}
++	})
++	_, err := repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "load(tampered blob)")
++}
++
++func TestLoadRefusesReorderedChainIndex(t *testing.T) {
++	repository := plantCorruptedSession(t, func(t *testing.T, repository *Repository) {
++		_, chain, _ := sessionPaths(t, repository)
++		raw, err := os.ReadFile(chain)
++		if err != nil {
++			t.Fatal(err)
++		}
++		var index map[string]any
++		if err := json.Unmarshal(raw, &index); err != nil {
++			t.Fatal(err)
++		}
++		events := index["events"].([]any)
++		if len(events) != 2 {
++			t.Fatalf("planted chain has %d events", len(events))
++		}
++		index["events"] = []any{events[1], events[0]}
++		out, _ := json.Marshal(index)
++		if err := os.WriteFile(chain, out, 0o600); err != nil {
++			t.Fatal(err)
++		}
++	})
++	_, err := repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "load(reordered index)")
++}
++
++func TestLoadRefusesUnknownSession(t *testing.T) {
++	repository := openTestRepository(t)
++	_, err := repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrUnknownSession, "GetRecord(absent)")
++	_, err = repository.ListEvents(testSessionID)
++	mustErrorIs(t, err, ErrUnknownSession, "ListEvents(absent)")
++}
++
++func TestListSessionsFailsClosedOnCorruptSession(t *testing.T) {
++	repository := plantCorruptedSession(t, func(t *testing.T, repository *Repository) {
++		_, chain, _ := sessionPaths(t, repository)
++		if err := os.WriteFile(chain, []byte(`{"record_id":`), 0o600); err != nil {
++			t.Fatal(err)
++		}
++	})
++	_, err := repository.ListSessions()
++	mustErrorIs(t, err, ErrChainCorrupt, "ListSessions(corrupt)")
++}
++
++func TestListAndResolveRefuseMissingRoot(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	if err := os.RemoveAll(repository.root); err != nil {
++		t.Fatal(err)
++	}
++	_, err := repository.ListSessions()
++	mustErrorIs(t, err, ErrRepositoryPath, "ListSessions(missing root)")
++	_, err = repository.Resolve("payments-api")
++	mustErrorIs(t, err, ErrRepositoryPath, "Resolve(missing root)")
++}
++
++// specTaskBoardRecordExample is the verbatim SPEC.md Section 5.1
++// task-board normative example: the same Launch Plan shape with the tagged
++// task_board variant instead of null.
++const specTaskBoardRecordExample = `{
++  "schema": "urn:ax:schema:session-record",
++  "schema_version": "1.0.0",
++  "record_id": "sha256:0acd3e31635372e176f8f37b1b74aa0ebdcf2d1e4ac40d43adb8e462079b34a2",
++  "subject_id": "0198f4c8-9f60-7077-8071-1234567890ab",
++  "session_id": "0198f4c8-9f60-7077-8071-1234567890ab",
++  "name": "qwen-investigation",
++  "kind": "task_board",
++  "created_at": "2026-08-19T04:01:00.000Z",
++  "created_by_host_id": "0198f4c8-4a10-7b22-8b3c-1234567890ab",
++  "provider_id": "qwen",
++  "workspace_group_id": "0198f4c8-af70-7188-8172-1234567890ab",
++  "execution_profile": "standard",
++  "launch_plan": {
++    "argv": ["task-board", "qwen", "TASK-260819-example"],
++    "cwd_workspace_id": "0198f4c8-b080-7299-8273-1234567890ab",
++    "cwd_relative": ".",
++    "env_names": [],
++    "env_literals": {},
++    "contains_secrets": false,
++    "extensions": {}
++  },
++  "task_board": {
++    "bridge_protocol_version": "1.0.0",
++    "board": {
++      "kind": "local",
++      "logical_id": "agent-session-manager-spec",
++      "remote_url": null,
++      "extensions": {}
++    },
++    "task_element_id": "TASK-260819-example",
++    "launch_mode": "tracked_prompt",
++    "manager_session_ref": null,
++    "board_goal": null,
++    "native_goal_binding": "prompt",
++    "extensions": {}
++  },
++  "fork_provenance": null,
++  "extensions": {}
++}`
++
++func TestBothRecordKindsCoexist(t *testing.T) {
++	repository := openTestRepository(t)
++	direct := createTestSession(t, repository)
++	board, err := repository.CreateSession([]byte(specTaskBoardRecordExample))
++	if err != nil {
++		t.Fatalf("CreateSession(task_board SPEC record) error = %v", err)
++	}
++	if board.RecordID != "sha256:0acd3e31635372e176f8f37b1b74aa0ebdcf2d1e4ac40d43adb8e462079b34a2" {
++		t.Fatalf("task_board RecordID = %q, want the SPEC example digest", board.RecordID)
++	}
++	const boardSession = "0198f4c8-9f60-7077-8071-1234567890ab"
++	first, _ := appendTestEvent(t, repository, boardSession, []string{board.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(board.RecordID))
++	if first.Position != 0 {
++		t.Fatalf("task_board chain ref = %+v", first)
++	}
++	summaries, err := repository.ListSessions()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(summaries) != 2 {
++		t.Fatalf("sessions = %d, want 2", len(summaries))
++	}
++	byKind := map[string]SessionSummary{}
++	for _, summary := range summaries {
++		byKind[summary.Kind] = summary
++	}
++	if byKind["direct"].SessionID != direct.SessionID || byKind["task_board"].SessionID != boardSession {
++		t.Fatalf("kinds = %+v", summaries)
++	}
++	if byKind["task_board"].ProviderID != "qwen" || byKind["task_board"].EventCount != 1 {
++		t.Fatalf("task_board summary = %+v", byKind["task_board"])
++	}
++	resolved, err := repository.Resolve("qwen-investigation")
++	if err != nil {
++		t.Fatalf("Resolve(task_board name) error = %v", err)
++	}
++	if resolved.SessionID != boardSession {
++		t.Fatalf("resolved = %q, want %q", resolved.SessionID, boardSession)
++	}
++}
++
++func TestCreateSessionResumesInterruptedCreate(t *testing.T) {
++	repository := openTestRepository(t)
++	// Simulate a crash between the record write and the chain write: the
++	// record is durable, the index is absent.
++	directory := repository.sessionDir(testSessionID)
++	if err := os.MkdirAll(filepath.Join(directory, "events"), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(directory, "record.json"), []byte(specRecordExample), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	reference, err := repository.CreateSession([]byte(specRecordExample))
++	if err != nil {
++		t.Fatalf("resumed CreateSession error = %v", err)
++	}
++	if reference.SessionID != testSessionID {
++		t.Fatalf("resumed SessionID = %q", reference.SessionID)
++	}
++	stored, err := repository.GetRecord(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !jsonEqual(t, stored, []byte(specRecordExample)) {
++		t.Fatal("resumed record differs")
++	}
++	// A resumed-then-completed create is terminal: the next create refuses.
++	_, err = repository.CreateSession([]byte(specRecordExample))
++	mustErrorIs(t, err, ErrSessionExists, "CreateSession(after resume)")
++}
++
++// specProviderIdentityExample is the verbatim SPEC.md Section 5.5
++// normative example (Antigravity backend_conversation_uuid). It is
++// duplicated here rather than imported from the provhost test package so
++// this leaf's load-path bound stays pinned even if that package moves;
++// TestProviderIdentityPlantVerifiesUnderRecordID fails loudly on any
++// drift from the owner's example.
++const specProviderIdentityExample = `{
++  "schema": "urn:ax:schema:provider-identity",
++  "schema_version": "1.0.0",
++  "record_id": "sha256:c879d766da67a8cfb3a3f6eae2234faa5d52d8df987496eae2218f40e5e220c2",
++  "subject_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "session_id": "0198f4c8-3e70-7a11-8a2b-1234567890ab",
++  "provider_id": "antigravity",
++  "provider_version": "1.1.14",
++  "provider_version_range": ">=1.1.14 <1.2.0",
++  "native_session_id": "11111111-2222-4333-8444-555555555555",
++  "identity_kind": "backend_conversation_uuid",
++  "logical_workspace_id": "0198f4c8-6c30-7d44-8d5e-1234567890ab",
++  "backend_realm_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaad",
++  "opaque_identity": {},
++  "created_by_host_id": "0198f4c8-4a10-7b22-8b3c-1234567890ab",
++  "created_at": "2026-08-19T04:09:45.000Z",
++  "extensions": {}
++}`
++
++const specProviderIdentityDigest = "sha256:c879d766da67a8cfb3a3f6eae2234faa5d52d8df987496eae2218f40e5e220c2"
++
++// TestProviderIdentityPlantVerifiesUnderRecordID pins what the plant
++// below is: the SPEC Section 5.5 example verifies with a nil error under
++// the record_id self field, so a load path that recomputes its digest
++// matches it, and only the self-field arm can refuse it.
++func TestProviderIdentityPlantVerifiesUnderRecordID(t *testing.T) {
++	verified, field, err := canonicaljson.VerifyObjectIdentity([]byte(specProviderIdentityExample))
++	if err != nil {
++		t.Fatalf("VerifyObjectIdentity(provider-identity plant) error = %v", err)
++	}
++	if field != canonicaljson.SelfRecordID {
++		t.Fatalf("VerifyObjectIdentity(provider-identity plant) field = %q, want record_id", string(field))
++	}
++	if verified.String() != specProviderIdentityDigest {
++		t.Fatalf("VerifyObjectIdentity(provider-identity plant) = %q, want %q", verified.String(), specProviderIdentityDigest)
++	}
++}
++
++// TestLoadRefusesProviderIdentityBlobAtEventPath pins the rewritten
++// attestation bound at the load site: entry decodes gate schema before
++// Verify, but the load path re-verifies stored blobs through Verify and
++// refuses a foreign-schema record at the self-field arm. The planted
++// blob verifies cleanly (see the pin above), carries the indexed digest,
++// and replays valid routing members — the field arm is the only clause
++// that can refuse it, so weakening that arm admits the plant.
++func TestLoadRefusesProviderIdentityBlobAtEventPath(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	_, chainPath, _ := sessionPaths(t, repository)
++	index := map[string]any{
++		"record_id": reference.RecordID,
++		"events": []any{map[string]any{
++			"event_id": specProviderIdentityDigest, "event_type": "session.created",
++			"lease_epoch": 1, "lease_id": testLeaseID, "lease_sequence": 1,
++			"predecessors": []any{reference.RecordID},
++		}},
++	}
++	out, err := json.Marshal(index)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(chainPath, out, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(blobPathFor(t, repository, testSessionID, specProviderIdentityDigest), []byte(specProviderIdentityExample), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	_, err = repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "GetRecord(provider-identity blob)")
++	_, err = repository.ListEvents(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "ListEvents(provider-identity blob)")
++}
++
++// TestLoadRefusesSwappedEventBlobs drives the content-addressed
++// substitution the digest arm exists for: two chained events whose blob
++// files trade places. Both blobs verify individually and both carry the
++// event_id self field, so the digest comparison is the only clause that
++// can refuse. Weakening it admits the substitution with a nil error.
++func TestLoadRefusesSwappedEventBlobs(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	first, firstBytes := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	second, secondBytes := appendTestEvent(t, repository, testSessionID, []string{first.EventID}, 1, testLeaseID, 2, "session.idle", idlePayload())
++	if err := os.WriteFile(blobPathFor(t, repository, testSessionID, first.EventID), secondBytes, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(blobPathFor(t, repository, testSessionID, second.EventID), firstBytes, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	_, err := repository.ListEvents(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "ListEvents(swapped blobs)")
++	_, err = repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "GetRecord(swapped blobs)")
++}
++
++// TestCreateSessionRefusesResumeWithDifferingBytes proves the resume
++// byte-equality is load-bearing: an interrupted create (record durable,
++// chain absent) retried with a different record for the same session ID
++// is refused as an existing session, the parked record survives
++// byte-identically, and no chain is installed. The retry carries the
++// same byte length as the parked record, so a narrowed equality that
++// compares lengths only would admit it.
++func TestCreateSessionRefusesResumeWithDifferingBytes(t *testing.T) {
++	repository := openTestRepository(t)
++	parked := buildRecord(t, nil)
++	sameLength := buildRecord(t, func(object map[string]any) {
++		object["name"] = "payments-apx"
++	})
++	if len(sameLength) != len(parked) {
++		t.Fatalf("plant lengths differ (%d vs %d); the narrowing mutant would not be admitted", len(parked), len(sameLength))
++	}
++	directory := repository.sessionDir(testSessionID)
++	if err := os.MkdirAll(filepath.Join(directory, "events"), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(directory, "record.json"), parked, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	_, err := repository.CreateSession(sameLength)
++	mustErrorIs(t, err, ErrSessionExists, "CreateSession(resume collision, same length)")
++	longer := buildRecord(t, func(object map[string]any) {
++		object["name"] = "payments-api-v2"
++	})
++	_, err = repository.CreateSession(longer)
++	mustErrorIs(t, err, ErrSessionExists, "CreateSession(resume collision, longer)")
++	stored, err := os.ReadFile(filepath.Join(directory, "record.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(stored) != string(parked) {
++		t.Fatal("parked record changed after refused resume")
++	}
++	if _, err := os.Stat(filepath.Join(directory, "chain.json")); !os.IsNotExist(err) {
++		t.Fatalf("chain.json state after refused resume = %v, want absent", err)
++	}
++}
++
++// TestCreateSessionRefusesResumeOfChainWithoutRecord pins the other
++// resume guard: a chain index with no record beneath it is torn foreign
++// state — no crash ordering in CreateSession produces it — and a retry
++// must refuse it as an existing session rather than installing a record
++// beside it and overwriting the index. The refusal funnels through the
++// existing session-exists site; reads of the same state fail closed as
++// corrupt through the load path.
++func TestCreateSessionRefusesResumeOfChainWithoutRecord(t *testing.T) {
++	repository := openTestRepository(t)
++	directory := repository.sessionDir(testSessionID)
++	if err := os.MkdirAll(directory, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	foreign, err := json.Marshal(map[string]any{"record_id": zeroDigest, "events": []any{}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(directory, "chain.json"), foreign, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	_, err = repository.CreateSession([]byte(specRecordExample))
++	mustErrorIs(t, err, ErrSessionExists, "CreateSession(chain without record)")
++	if _, err := os.Stat(filepath.Join(directory, "record.json")); !os.IsNotExist(err) {
++		t.Fatalf("record.json state after refused resume = %v, want absent", err)
++	}
++	restored, err := os.ReadFile(filepath.Join(directory, "chain.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(restored) != string(foreign) {
++		t.Fatal("foreign chain index changed after refused resume")
++	}
++}
++
++// TestLoadRefusesMismatchedSessionBinding isolates the session-binding
++// half of the record/chain binding check: a valid record for another
++// session stored under this session's directory, with the index rebound
++// to its digest so the record-digest half stays silent. Only the
++// session-ID comparison can refuse it.
++func TestLoadRefusesMismatchedSessionBinding(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository)
++	other := buildRecord(t, func(object map[string]any) {
++		object["session_id"] = testSessionIDB
++		object["subject_id"] = testSessionIDB
++	})
++	var parsed struct {
++		RecordID string `json:"record_id"`
++	}
++	if err := json.Unmarshal(other, &parsed); err != nil {
++		t.Fatal(err)
++	}
++	_, chainPath, recordPath := sessionPaths(t, repository)
++	if err := os.WriteFile(recordPath, other, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	raw, err := os.ReadFile(chainPath)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var index map[string]any
++	if err := json.Unmarshal(raw, &index); err != nil {
++		t.Fatal(err)
++	}
++	index["record_id"] = parsed.RecordID
++	out, err := json.Marshal(index)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(chainPath, out, 0o600); err != nil {
++		t.Fatal(err)
++	}
++	_, err = repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "load(session mismatch)")
++}
++
++// TestLoadRefusesDetachedChainIndexWithReboundPredecessors isolates the
++// record-digest half of the binding check: the index names an unrelated
++// record digest, and the first indexed predecessors are rebound to that
++// same digest so the continuity fold stays silent. Only the
++// record-digest comparison can refuse it; the older detached-index test
++// passes through the continuity arm instead and does not witness this
++// clause.
++func TestLoadRefusesDetachedChainIndexWithReboundPredecessors(t *testing.T) {
++	repository := plantCorruptedSession(t, func(t *testing.T, repository *Repository) {
++		_, chain, _ := sessionPaths(t, repository)
++		raw, err := os.ReadFile(chain)
++		if err != nil {
++			t.Fatal(err)
++		}
++		var index map[string]any
++		if err := json.Unmarshal(raw, &index); err != nil {
++			t.Fatal(err)
++		}
++		index["record_id"] = zeroDigest
++		events, ok := index["events"].([]any)
++		if !ok || len(events) != 2 {
++			t.Fatalf("planted chain has %v events, want 2", index["events"])
++		}
++		first, ok := events[0].(map[string]any)
++		if !ok {
++			t.Fatal("planted first event is not an object")
++		}
++		first["predecessors"] = []any{zeroDigest}
++		out, err := json.Marshal(index)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if err := os.WriteFile(chain, out, 0o600); err != nil {
++			t.Fatal(err)
++		}
++	})
++	_, err := repository.GetRecord(testSessionID)
++	mustErrorIs(t, err, ErrChainCorrupt, "load(detached index, rebound predecessors)")
++}
++
++// TestAppendEventRefusesDisagreeingBytesAcrossHandles drives the
++// no-replace install through a fresh handle: the session is created and
++// the disagreeing bytes are planted through one repository, and the
++// adversarial append arrives through a second Open over the same root
++// that shares no mutex and no memory with the first. The refusal below
++// comes from the filesystem exclusive create alone, which is the whole
++// cross-process claim — the in-process mutex cannot see a second
++// process. The planted bytes must survive: a truncate would overwrite
++// them and extend the chain instead.
++func TestAppendEventRefusesDisagreeingBytesAcrossHandles(t *testing.T) {
++	root := t.TempDir()
++	first, err := Open(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	reference := createTestSession(t, first)
++	firstEvent, _ := appendTestEvent(t, first, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	next := buildEvent(t, eventOptions{sessionID: testSessionID, predecessors: []string{firstEvent.EventID}, epoch: 1, leaseID: testLeaseID, sequence: 2, eventType: "session.idle", payload: idlePayload()})
++	var parsed struct {
++		EventID string `json:"event_id"`
++	}
++	if err := json.Unmarshal(next, &parsed); err != nil {
++		t.Fatal(err)
++	}
++	plantPath := blobPathFor(t, first, testSessionID, parsed.EventID)
++	if err := os.WriteFile(plantPath, []byte(`{"forged":true}`), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	second, err := Open(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, err = second.AppendEvent(testSessionID, next)
++	mustErrorIs(t, err, ErrChainCorrupt, "AppendEvent(disagreeing bytes, fresh handle)")
++	preserved, err := os.ReadFile(plantPath)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if string(preserved) != `{"forged":true}` {
++		t.Fatal("planted bytes were replaced instead of refused")
++	}
++	events, err := second.ListEvents(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 1 {
++		t.Fatalf("chain after refused install = %d events, want 1", len(events))
++	}
++}
+diff --git a/internal/sessrepo/store.go b/internal/sessrepo/store.go
+new file mode 100644
+index 0000000..b61a3f3
+--- /dev/null
++++ b/internal/sessrepo/store.go
+@@ -0,0 +1,182 @@
++package sessrepo
++
++import (
++	"fmt"
++	"os"
++	"path/filepath"
++	"runtime"
++	"sort"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// syncDirectory fsyncs a directory so a rename inside it survives a crash.
++// Opening a directory fails on Windows, where the rename itself is the
++// durability boundary; there the sync is skipped, never faked.
++func syncDirectory(path string) error {
++	if runtime.GOOS == "windows" {
++		return nil
++	}
++	directory, err := os.Open(path)
++	if err != nil {
++		return fmt.Errorf("open directory for fsync: %w", err)
++	}
++	defer func() { _ = directory.Close() }()
++	if err := directory.Sync(); err != nil {
++		return fmt.Errorf("fsync directory: %w", err)
++	}
++	return nil
++}
++
++// GetRecord returns the byte-identical Session Record for a session,
++// re-verified through the canonical owner on every read.
++func (repository *Repository) GetRecord(sessionID string) ([]byte, error) {
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	view, err := repository.loadSessionLocked(sessionID)
++	if err != nil {
++		return nil, err
++	}
++	return append([]byte(nil), view.record.raw...), nil
++}
++
++// GetEvent returns the byte-identical chained event for its digest.
++func (repository *Repository) GetEvent(sessionID, eventID string) ([]byte, error) {
++	if _, err := scalar.ParseDigest(eventID); err != nil {
++		return nil, refuse(ErrUnknownEvent, "malformed event id %q", eventID)
++	}
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	view, err := repository.loadSessionLocked(sessionID)
++	if err != nil {
++		return nil, err
++	}
++	for _, indexed := range view.chain.Events {
++		if indexed.EventID == eventID {
++			blob, err := os.ReadFile(filepath.Join(view.directory, "events", blobFileName(eventID)))
++			if err != nil {
++				return nil, fmt.Errorf("read chained event for session %s: %w", sessionID, err)
++			}
++			return blob, nil
++		}
++	}
++	return nil, refuse(ErrUnknownEvent, "unknown event %q in session %s", eventID, sessionID)
++}
++
++// ListEvents returns the chain summaries in authoritative order.
++func (repository *Repository) ListEvents(sessionID string) ([]EventSummary, error) {
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	view, err := repository.loadSessionLocked(sessionID)
++	if err != nil {
++		return nil, err
++	}
++	return append([]EventSummary(nil), view.chain.Events...), nil
++}
++
++// ListSessions returns one summary per stored session in session-ID order.
++// A session whose bytes no longer verify fails the listing closed: a
++// corrupt session is reported, never skipped.
++func (repository *Repository) ListSessions() ([]SessionSummary, error) {
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	entries, err := os.ReadDir(repository.root)
++	if err != nil {
++		return nil, refuse(ErrRepositoryPath, "read sessions root: %v", err)
++	}
++	var summaries []SessionSummary
++	for _, entry := range entries {
++		if !entry.IsDir() {
++			continue
++		}
++		view, err := repository.loadSessionLocked(entry.Name())
++		if err != nil {
++			return nil, err
++		}
++		summary := SessionSummary{SessionID: view.record.sessionID, RecordID: view.record.recordID, Name: view.record.name, Kind: view.record.kind, ProviderID: view.record.provider, EventCount: len(view.chain.Events)}
++		if len(view.chain.Events) > 0 {
++			summary.TailEvent = view.chain.Events[len(view.chain.Events)-1].EventID
++		}
++		summaries = append(summaries, summary)
++	}
++	sort.Slice(summaries, func(i, j int) bool { return summaries[i].SessionID < summaries[j].SessionID })
++	return summaries, nil
++}
++
++// Resolve implements the local steps of SPEC.md Section 2.3: an exact live
++// session name in the local index wins first; a UUID query routes to its
++// session; anything else is not found. Names display with original case
++// but collide under ASCII case folding because the allowed alphabet is
++// ASCII, and a colliding query fails with ErrNameAmbiguous. Peer-learned
++// names and the interactive choice surface belong to the name-resolution
++// leaf, which builds on this entry.
++func (repository *Repository) Resolve(query string) (SessionSummary, error) {
++	repository.mutex.Lock()
++	defer repository.mutex.Unlock()
++	summaries, err := repository.listSessionsLocked()
++	if err != nil {
++		return SessionSummary{}, err
++	}
++	var folded []SessionSummary
++	for _, summary := range summaries {
++		if asciiFold(summary.Name) == asciiFold(query) {
++			folded = append(folded, summary)
++		}
++	}
++	if len(folded) > 1 {
++		return SessionSummary{}, refuse(ErrNameAmbiguous, "name %q collides across %d sessions", query, len(folded))
++	}
++	if len(folded) == 1 {
++		return folded[0], nil
++	}
++	if id, err := scalar.ParseUUIDv7(query); err == nil {
++		for _, summary := range summaries {
++			if summary.SessionID == id.String() {
++				return summary, nil
++			}
++		}
++	}
++	return SessionSummary{}, refuse(ErrNameNotFound, "no live session named %q", query)
++}
++
++// listSessionsLocked shares the listing scan with Resolve without
++// re-locking. Corrupt sessions fail it the same closed way.
++func (repository *Repository) listSessionsLocked() ([]SessionSummary, error) {
++	entries, err := os.ReadDir(repository.root)
++	if err != nil {
++		return nil, refuse(ErrRepositoryPath, "read sessions root: %v", err)
++	}
++	var summaries []SessionSummary
++	for _, entry := range entries {
++		if !entry.IsDir() {
++			continue
++		}
++		view, err := repository.loadSessionLocked(entry.Name())
++		if err != nil {
++			return nil, err
++		}
++		summary := SessionSummary{SessionID: view.record.sessionID, RecordID: view.record.recordID, Name: view.record.name, Kind: view.record.kind, ProviderID: view.record.provider, EventCount: len(view.chain.Events)}
++		if len(view.chain.Events) > 0 {
++			summary.TailEvent = view.chain.Events[len(view.chain.Events)-1].EventID
++		}
++		summaries = append(summaries, summary)
++	}
++	sort.Slice(summaries, func(i, j int) bool { return summaries[i].SessionID < summaries[j].SessionID })
++	return summaries, nil
++}
++
++// asciiFold folds ASCII uppercase to lowercase and passes every other byte
++// through. Session names match [A-Za-z0-9][A-Za-z0-9._-]{0,63} under the
++// shape owner, so the fold domain is ASCII by construction and a Unicode
++// fold table would be an unowned duplicate, not a reuse.
++func asciiFold(value string) string {
++	folded := make([]byte, 0, len(value))
++	for index := 0; index < len(value); index++ {
++		character := value[index]
++		if character >= 'A' && character <= 'Z' {
++			character += 'a' - 'A'
++		}
++		folded = append(folded, character)
++	}
++	return string(folded)
++}

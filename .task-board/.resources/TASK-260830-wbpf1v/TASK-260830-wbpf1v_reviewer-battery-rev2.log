@@ -1,0 +1,76 @@
+# Reviewer independent mutation battery — TASK-260830-wbpf1v rev2 (tree 468d2736)
+# 28 mutants applied with exact-count replacement + checksum restore.
+# Mask: go test ./internal/sessrepo -count=1 -run 'Test'  (full behavioral suite, census skipped by design)
+
+R1   narrowing  KILLED     load field arm && field != SelfRecordID       -> TestLoadRefusesProviderIdentityBlobAtEventPath
+R1b  narrowing  SURVIVED   load field arm && field != SelfCheckpointID   (class member with no corpus vector; DoD bar met by R1)
+R2   narrowing  SURVIVED   load digest arm && position > 0               (arm witnessed only at position >= 1) [N1]
+R2b  narrowing  SURVIVED   load digest arm && indexed.LeaseSequence != 1 (same slice as R2)
+R3   narrowing  KILLED     O_EXCL -> O_TRUNC                             -> DisagreeingDigestPathBytes + AcrossHandles
+R4   control    COMPILE_FAIL  bytes.Equal -> len!=len without import fix (distinct from killed/survived)
+R4b  narrowing  KILLED     resume bytes.Equal -> len!=len (+import)      -> TestCreateSessionRefusesResumeWithDifferingBytes
+R5   narrowing  KILLED     binding drops session half                    -> TestLoadRefusesMismatchedSessionBinding
+R6   narrowing  KILLED     binding drops record-digest half              -> TestLoadRefusesDetachedChainIndexWithReboundPredecessors
+R7   narrowing  KILLED     stale-lease arm epoch+1 < tail                -> TestAppendEventRefusesStaleLeaseEpoch
+R8   narrowing  SURVIVED   installEventBlob bytes.Equal -> len!=len      *** BLOCKING B1: gate has no narrowing mutant in the battery ***
+R9   narrowing  KILLED     Resolve ambiguity len(folded) > 1 -> > 2      -> TestResolveRefusesCaseFoldCollision
+R10  narrowing  KILLED     AppendEvent session match -> 1-char prefix    -> TestAppendEventRefusesSessionMismatch
+R11  narrowing  SURVIVED   GetEvent lookup == -> 8-char prefix           (near-miss digest unwitnessed; no behavior hole)
+R12  narrowing  KILLED     divergent arm gated on tail.LeaseSequence>99  -> TestAppendEventPreservesDivergentBranchWithoutApplying
+R13  deletion   SURVIVED   load verify-error arm disabled                (producer's OWN stated measured bound: confirmed accurate)
+R14  narrowing  KILLED     resume chain-present guard disabled           -> TestCreateSessionRefusesResumeOfChainWithoutRecord
+R16  narrowing  KILLED     idempotent lookup == -> 8-char prefix         -> TestAppendEventRefusesSequenceRepeat
+R17  deletion   SURVIVED   chain record_id ParseDigest disabled          (subsumed by the binding check)
+R18  narrowing  KILLED     Open IsAbs -> non-empty                       -> TestOpenRefusesNonAbsoluteRoot
+R19  narrowing  SURVIVED   first-predecessor == -> 8-char prefix         (admitted member not in corpus)
+R20  narrowing  SURVIVED   containsDigest == -> 8-char prefix            (admitted member not in corpus)
+R23  narrowing  SURVIVED   record identity field also admits event_id    (subsumed: canonicaljson resolves self field from schema)
+R24  narrowing  SURVIVED   event identity field also admits record_id    (subsumed, same reason)
+R25  deletion   SURVIVED   predecessors non-empty gate disabled          (subsumed: canonicaljson 'requires at least 1 entries')
+R26  narrowing  SURVIVED   lease_epoch lower bound 1 -> 0                (subsumed: canonicaljson 'must be greater than zero')
+R27  narrowing  SURVIVED   lease_sequence lower bound 1 -> 0             (subsumed, same)
+R28  deletion   SURVIVED   lease_id UUIDv4 gate disabled                 (subsumed: canonicaljson 'member lease_id: UUIDv4')
+R29  deletion   SURVIVED   record session_id UUIDv7 gate disabled        (subsumed: canonicaljson 'missing required member')
+R30  deletion   KILLED     ListSessions fail-closed -> continue          -> ListSessionsFailsClosedOnCorruptSession + CreateStepCrashAfterSessionDir
+
+verdicts: KILLED=13 SURVIVED=16 COMPILE_FAIL=1(control)
+survivor classification: 9 subsumed-by-an-owner/downstream-arm (measured, probe P4), 5 prefix-narrowing with no mintable member,
+                         2 genuine unwitnessed classes -> R8 (blocking B1), R2 (non-blocking N1)
+
+== reviewer probes driven through production entries (unmutated tree) ==
+P1  lease_epoch=0 with a valid digest is UNCONSTRUCTIBLE: canonicaljson refuses it at CalculateObjectIdentity.
+P2  same-length disagreeing blob at the candidate digest path:
+      AppendEvent err = session event chain is corrupt: digest path holds disagreeing bytes for event
+      planted bytes unchanged = true            (production CORRECT; only the witness is missing)
+P3  single-event chain, position-0 blob substitution:
+      GetEvent err = ...: chained event 0 ... digest sha256:66ea1c3e... disagrees with indexed event sha256:6dc4199c...
+      returned foreign bytes = false            (production CORRECT; only the witness is missing)
+P4  canonicaljson subsumption measurement for R23-R29 (all eight member classes refused by the owner first).
+P5  parked-state blast radius, driven through CreateSession/ListSessions/Resolve/GetRecord:
+      ListSessions before park            = 1 session,  err = nil
+      park at CreateStepRecord            (fired = [session-dir record])
+      ListSessions after park             = 0 sessions, err = ErrChainCorrupt (the OTHER session)
+      Resolve("healthy-one")              = "",         err = ErrChainCorrupt (the OTHER session)
+      GetRecord(healthy session, by id)   = ok
+      CreateSession(different valid bytes, same id) = ErrSessionExists   <- does NOT heal
+      ListSessions after heal attempt     = 0 sessions, err = ErrChainCorrupt
+      CreateSession(identical bytes)      = ok
+      ListSessions after identical retry  = 2 sessions, err = nil
+
+== gates re-run by this review, rev2 tree ==
+detached-index write-tree            468d27367eb88d5a9da4d3ac540ff9c5a0831700 (= CR record)
+changed paths                        exactly the 11 the CR enumerates
+untracked ungitignored               only the 7 CR files, no scratch
+go build ./...                       0
+go vet ./...                         0
+GOOS=windows go vet ./...            0
+GOOS=windows go build ./...          0
+gofmt -l internal                    clean
+tracecheck                           0 (contracts=60 acceptance=98)
+go test ./... -count=1               0, 24/24 packages ok
+go test -race, all 24 packages       0, 24 ok / 0 fail (2 groups)
+
+== real-tree allowlist plants (G-B) ==
+internal/provhost/sessrepo/plant.go  FAIL 'production call sites outside the session leaf'
+internal/xsessrepo/plant.go          FAIL, same arm
+extra Verify site inside the leaf    FAIL 'attestation sites = 4, want exactly 3'

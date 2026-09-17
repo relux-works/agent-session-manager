@@ -1,0 +1,7 @@
+Review addendum for the actual CR produced by RUN-260909-bd27d9. Read alongside TASK-260830-21gygk_reviewer-v060.md; this adds evidence questions and does not waive any acceptance criterion.
+
+The latest producer outcome explicitly says authority_heads binds only event-head digests of the selected plan source and union precedence facts are not rechecked. Compare that declared limitation against every applicable v0.6.0 SelectionPlan/revalidation requirement; prove correct behavior when another allowed source changes the authoritative winner after BuildPlan. Do not treat a declared limitation as a scope exemption. Likewise inspect lease_record_id substitution and claimed caller ownership of 14.7.3 shared summary refusal.
+
+The latest mutant outcome reports only control-before/control-after green, C-not-applied and C-compile-failure classifications. Those do not themselves demonstrate a SURVIVED result through the same instrument. Inspect actual durable harness evidence and classify claims precisely; no requirement to repeat a battery whose valid exact-candidate evidence is already complete.
+
+The source-owned checkpoint refresh completed at signed branch83640d191f78f0cd685e5f709027819799efe1cf over main8cf4aaaa190e6a11dff2661aa6806ce476128653. Review the actual CR, including replayed predecessor preservation and LOGBOOK resolution. A stray untracked --help/mutation-source tree was preserved under ignored task scratch; it must not enter the candidate diff.
