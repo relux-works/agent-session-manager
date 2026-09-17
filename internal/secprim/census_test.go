@@ -41,7 +41,7 @@ var secretTokens = []string{
 // production values.
 var censusPackages = []string{
 	"axerror", "canonicaljson", "cliresult", "config", "dirnode",
-	"environ", "localstore", "provider", "provhost", "scalar",
+	"environ", "hosttrust", "localstore", "provider", "provhost", "scalar",
 	"secprim", "sessadapter", "terminalbackend",
 }
 
@@ -438,6 +438,97 @@ func secretSiteRows() []secretSiteRow {
 				"the codex alias and the Pi report string, matched as exact argv elements — words on a " +
 				"command line, never a security token, credential, or secret value",
 			witnesses: []string{"provhost.TestUnrestrictedTokensDeriveFromTable"},
+		},
+		{
+			sites: []string{
+				"config|decl|ErrMigrationV4Credential",
+				"config|decl|checkCredentialWindow",
+				"config|decl|previewCredentialHex",
+				"config|field|CredentialID",
+				"config|lit|configuration 4.0.0 selected credential is not admitted",
+				"config|lit|credential outside validity window",
+				"config|lit|mesh.host_channel.credential_id",
+				"config|lit|select credential",
+				`config|lit|toml:"credential_id"`,
+				"config|local|credentialHex",
+				"config|param|credentialID",
+			},
+			disposition: "Configuration 4.0.0 credential-binding vocabulary: the mesh.host_channel.credential_id " +
+				"digest member, its TOML key, the selected-credential plumbing (parameter, local, helpers) and " +
+				"the static refusal clauses that name the member, never a value. CredentialID carries a SHA-256 " +
+				"digest of public leaf bytes; validity windows compare parsed certificate times; custody files " +
+				"are asserted outside replication by hosttrust tests",
+			witnesses: []string{"config.TestDecodeConfiguration4", "config.TestPreviewV4CredentialGates", "config.TestApplyV4CustodyFailure", "hosttrust.TestNoSecretReplication"},
+		},
+		{
+			sites: []string{
+				"hosttrust|decl|CredentialEntry",
+				"hosttrust|field|CredentialID",
+				"hosttrust|field|LocalCredentialID",
+				`hosttrust|lit|,"credential_id":`,
+				"hosttrust|lit|credential_id",
+				"hosttrust|local|credentialHex",
+				"hosttrust|param|credentialHex",
+				"hosttrust|param|credentialID",
+				"hosttrust|param|newCredentialID",
+			},
+			disposition: "credential-entry digest plumbing: entries bind a host UUID to SHA-256 digests of " +
+				"public leaf/SPKI/root bytes plus the bytes themselves for profile verification. Digests name " +
+				"public material; the private scalar never enters an entry, and formatting an entry renders " +
+				"a static string",
+			witnesses: []string{"hosttrust.TestDecodeTrustRoundTrip", "hosttrust.TestTrustRedaction"},
+		},
+		{
+			sites: []string{
+				"hosttrust|decl|CredentialDir",
+				"hosttrust|decl|credentialsDir",
+				"hosttrust|decl|privateKeyFile",
+				"hosttrust|lit|/credentials/",
+				"hosttrust|lit|credentials",
+				"hosttrust|lit|resolve credential directory",
+			},
+			disposition: "custody path vocabulary: the owner-only credentials directory layout and the " +
+				"private-key filename constant. Paths are 0700/0600 verified at open; private-key.pem is " +
+				"written once at issuance or rotation and asserted outside replication",
+			witnesses: []string{"hosttrust.TestIssueSelfEnrollsActive", "hosttrust.TestNoSecretReplication"},
+		},
+		{
+			sites: []string{
+				"hosttrust|decl|ErrCredentialCustody",
+				"hosttrust|decl|ErrCredentialProfile",
+				"hosttrust|lit|decode credential_id",
+				"hosttrust|lit|host credential custody check failed",
+				"hosttrust|lit|host credential profile check failed",
+				"hosttrust|lit|host credential revocation refused",
+				"hosttrust|lit|host credential rotation refused",
+				"hosttrust|lit|host trust credential entry",
+				"hosttrust|lit|issue credential",
+				"hosttrust|lit|issued host credential",
+				"hosttrust|lit|retire credential",
+				"hosttrust|lit|revoke credential",
+				"hosttrust|lit|verify credential profile",
+			},
+			disposition: "static refusal clauses and redacted renderings: operation names and error identities " +
+				"that name the credential member, never a value. Renderings of entries, issued material and " +
+				"requests emit fixed strings",
+			witnesses: []string{"hosttrust.TestVerifyProfileRefusals", "hosttrust.TestTrustRedaction", "hosttrust.TestDecodeTrustRefusals"},
+		},
+		{
+			sites: []string{
+				"hosttrust|decl|IssueCredential",
+				"hosttrust|decl|IssuedCredential",
+			},
+			disposition: "local issuance entry points: fresh P-256 keys and profile-exact certificates with " +
+				"the root key destroyed after signing. The leaf private key leaves issuance only into the " +
+				"owner-only custody file",
+			witnesses: []string{"hosttrust.TestIssueCredentialProfile", "hosttrust.TestIssueSelfEnrollsActive"},
+		},
+		{
+			sites: []string{"hosttrust|decl|cleanupCredentialDirectory"},
+			disposition: "the failed-issuance cleanup closure: an uncommitted credential directory and its " +
+				"owner-only files are removed, while the successful Issue path retains only the committed custody " +
+				"directory; no cleanup path exports or replicates private material",
+			witnesses: []string{"hosttrust.TestIssueSelfEnrollsActive", "hosttrust.TestNoSecretReplication"},
 		},
 	}
 }

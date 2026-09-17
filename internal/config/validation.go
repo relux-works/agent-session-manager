@@ -104,6 +104,50 @@ func translateV3(raw rawV3, context DecodeContext) (Configuration, error) {
 	return base, nil
 }
 
+// translateV4 reads the exact closed Configuration 4.0.0 shape. Transport
+// has no default here: a missing mesh.transport is a refusal, never legacy
+// selection. The host_channel table is required and closed.
+func translateV4(raw rawV4, context DecodeContext) (Configuration, error) {
+	if err := validateRawDirectoryPresence(raw.DirectoryInstallations, raw.DirectoryEnrichmentProfiles, raw.DirectoryPeerDisclosure); err != nil {
+		return Configuration{}, err
+	}
+	if err := validateRawTerminalPresence(raw.Terminal); err != nil {
+		return Configuration{}, err
+	}
+	if raw.Mesh.Transport == nil {
+		return Configuration{}, configError("mesh.transport", ErrConfigValidation)
+	}
+	if raw.Mesh.HostChannel == nil {
+		return Configuration{}, configError("mesh.host_channel", ErrConfigValidation)
+	}
+	base, err := translateCommon(rawCommon{
+		Schema: raw.Schema, SchemaVersion: raw.SchemaVersion, HostID: raw.HostID,
+		HostName: raw.HostName, Platform: raw.Platform,
+		Mesh: rawMesh{
+			Transport: raw.Mesh.Transport, SyncIntervalSeconds: raw.Mesh.SyncIntervalSeconds,
+			ConnectTimeoutSeconds: raw.Mesh.ConnectTimeoutSeconds, RPCTimeoutSeconds: raw.Mesh.RPCTimeoutSeconds,
+			WorkspaceReplication: raw.Mesh.WorkspaceReplication, PayloadEncryption: raw.Mesh.PayloadEncryption,
+			Peers: raw.Mesh.Peers,
+		},
+		WorkspaceRoots: raw.WorkspaceRoots, Providers: raw.Providers, Sync: raw.Sync,
+		Service: raw.Service, Restore: raw.Restore, Profiles: raw.Profiles,
+	}, context)
+	if err != nil {
+		return Configuration{}, err
+	}
+	if raw.Mesh.HostChannel.Version == nil || raw.Mesh.HostChannel.CredentialID == nil {
+		return Configuration{}, configError("mesh.host_channel required member", ErrConfigValidation)
+	}
+	base.SchemaVersion = Version4
+	base.Mesh.HostChannel = &HostChannel{Version: *raw.Mesh.HostChannel.Version, CredentialID: *raw.Mesh.HostChannel.CredentialID}
+	base.Terminal = translateTerminal(raw.Terminal, base.Platform)
+	translateDirectory(&base, raw.Directory, raw.DirectoryInstallations, raw.DirectoryEnrichmentProfiles, raw.DirectoryPeerDisclosure)
+	if err := validateConfigurationV4(&base, context); err != nil {
+		return Configuration{}, err
+	}
+	return base, nil
+}
+
 func validateRawDirectoryPresence(installations []rawDirectoryInstallation, profiles []rawDirectoryEnrichmentProfile, disclosures []rawDirectoryPeerDisclosure) error {
 	for index, entry := range installations {
 		if entry.InstallationID == nil || entry.EnvironmentID == nil || entry.ProviderID == nil || entry.AdapterID == nil || entry.ScanRootAuthorityIDs == nil || entry.Enabled == nil || entry.Extensions == nil {
@@ -412,11 +456,77 @@ func validateConfiguration(configuration *Configuration, context DecodeContext) 
 	return nil
 }
 
+// validateConfigurationV4 validates a Configuration 4.0.0 value: the
+// retained Configuration 3.0.0 contract plus the exact host-channel mesh. It
+// never accepts a downgraded transport or a missing credential binding.
+func validateConfigurationV4(configuration *Configuration, context DecodeContext) error {
+	if configuration.SchemaVersion != Version4 {
+		return configError("schema_version", ErrConfigValidation)
+	}
+	if _, err := scalar.ParseUUIDv7(configuration.HostID); err != nil {
+		return configError("host_id", errors.Join(ErrConfigValidation, err))
+	}
+	if err := validatePrintableCharacters(configuration.HostName, 1, 64); err != nil {
+		return configError("host_name", err)
+	}
+	if configuration.Platform != context.RuntimePlatform {
+		return configError("platform must match runtime probe", ErrConfigValidation)
+	}
+	if err := validateMeshV4(configuration); err != nil {
+		return err
+	}
+	if err := validateWorkspaceRoots("workspace_roots", configuration.WorkspaceRoots, configuration.Platform, -1); err != nil {
+		return err
+	}
+	if err := validateProviders(configuration); err != nil {
+		return err
+	}
+	if err := validateSync(configuration.Sync); err != nil {
+		return err
+	}
+	if err := validateDirectory(configuration); err != nil {
+		return err
+	}
+	if err := validateTerminal(configuration, context); err != nil {
+		return err
+	}
+	if !between(configuration.Service.HealthIntervalSeconds, 5, 3600) {
+		return configError("service.health_interval_seconds", ErrConfigValidation)
+	}
+	return nil
+}
+
 func validateMesh(configuration *Configuration) error {
 	mesh := configuration.Mesh
-	if mesh.Transport != "ssh" {
+	if mesh.Transport != TransportSSH {
 		return configError("mesh.transport", ErrConfigValidation)
 	}
+	return validateMeshShared(configuration)
+}
+
+// validateMeshV4 enforces the exact Configuration 4.0.0 mesh contract: the
+// required ssh_tls13 transport with no default or alternative, and the exact
+// closed host_channel table. All other closed members keep their retained
+// Configuration 3.0.0 constraints through the shared remainder.
+func validateMeshV4(configuration *Configuration) error {
+	mesh := configuration.Mesh
+	if mesh.Transport != TransportSSHTLS13 {
+		return configError("mesh.transport", ErrConfigValidation)
+	}
+	if mesh.HostChannel == nil {
+		return configError("mesh.host_channel", ErrConfigValidation)
+	}
+	if mesh.HostChannel.Version != HostChannelVersion {
+		return configError("mesh.host_channel.version", ErrConfigValidation)
+	}
+	if _, err := scalar.ParseDigest(mesh.HostChannel.CredentialID); err != nil {
+		return configError("mesh.host_channel.credential_id", errors.Join(ErrConfigValidation, err))
+	}
+	return validateMeshShared(configuration)
+}
+
+func validateMeshShared(configuration *Configuration) error {
+	mesh := configuration.Mesh
 	if !between(mesh.SyncIntervalSeconds, 5, 86_400) {
 		return configError("mesh.sync_interval_seconds", ErrConfigValidation)
 	}
@@ -429,7 +539,7 @@ func validateMesh(configuration *Configuration) error {
 	if mesh.PayloadEncryption != "none" {
 		return configError("mesh.payload_encryption", ErrConfigValidation)
 	}
-	hostIDs, names := map[string]struct{}{}, map[string]struct{}{}
+	hostIDs, names := map[string]struct{}{configuration.HostID: {}}, map[string]struct{}{}
 	for index, peer := range mesh.Peers {
 		prefix := fmt.Sprintf("mesh.peers[%d]", index)
 		if _, err := scalar.ParseUUIDv7(peer.HostID); err != nil {
@@ -937,6 +1047,10 @@ func cloneAny(value any) any {
 
 func cloneConfiguration(value Configuration) Configuration {
 	cloned := value
+	if value.Mesh.HostChannel != nil {
+		channel := *value.Mesh.HostChannel
+		cloned.Mesh.HostChannel = &channel
+	}
 	cloned.WorkspaceRoots = append([]WorkspaceRoot(nil), value.WorkspaceRoots...)
 	cloned.Providers.PluginDirs = cloneStrings(value.Providers.PluginDirs)
 	cloned.Mesh.Peers = make([]Peer, len(value.Mesh.Peers))

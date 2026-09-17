@@ -10,9 +10,15 @@ import (
 
 // EncodeCurrent validates and emits Configuration 3.0.0 TOML. It never writes
 // a file or rewrites a legacy document; durable migration is a separate owner.
+// A host-channel binding refuses here: emitting v4 content as v3 would
+// silently drop the credential binding, and Config-4 readers must not rewrite
+// historical files.
 func EncodeCurrent(configuration Configuration, context DecodeContext) ([]byte, error) {
 	configuration.Schema = SchemaID
 	configuration.SchemaVersion = CurrentVersion
+	if configuration.Mesh.HostChannel != nil {
+		return nil, configError("mesh.host_channel", errors.Join(ErrConfigEncode, ErrConfigValidation))
+	}
 	if err := validateConfiguration(&configuration, context); err != nil {
 		return nil, errors.Join(ErrConfigEncode, err)
 	}
@@ -146,6 +152,57 @@ func currentWire(configuration Configuration) rawV3 {
 		}
 	}
 	return raw
+}
+
+// EncodeVersion4 validates and emits Configuration 4.0.0 TOML: the retained
+// Configuration 3.0.0 wire plus the exact required mesh.transport and closed
+// mesh.host_channel table. It never writes a file; durable replacement is an
+// explicit ApplyV4 concern. The emitted bytes re-decode to the same value as
+// defence in depth.
+func EncodeVersion4(configuration Configuration, context DecodeContext) ([]byte, error) {
+	configuration.Schema = SchemaID
+	configuration.SchemaVersion = Version4
+	if configuration.Mesh.HostChannel == nil {
+		return nil, configError("mesh.host_channel", errors.Join(ErrConfigEncode, ErrConfigValidation))
+	}
+	if err := validateConfigurationV4(&configuration, context); err != nil {
+		return nil, errors.Join(ErrConfigEncode, err)
+	}
+	v3 := currentWire(configuration)
+	raw := rawV4{
+		Schema: v3.Schema, SchemaVersion: Version4,
+		HostID: v3.HostID, HostName: v3.HostName, Platform: v3.Platform,
+		Mesh: rawMeshV4{
+			Transport: v3.Mesh.Transport, SyncIntervalSeconds: v3.Mesh.SyncIntervalSeconds,
+			ConnectTimeoutSeconds: v3.Mesh.ConnectTimeoutSeconds, RPCTimeoutSeconds: v3.Mesh.RPCTimeoutSeconds,
+			WorkspaceReplication: v3.Mesh.WorkspaceReplication, PayloadEncryption: v3.Mesh.PayloadEncryption,
+			Peers: v3.Mesh.Peers,
+			HostChannel: &rawHostChannel{
+				Version:      pointer(configuration.Mesh.HostChannel.Version),
+				CredentialID: pointer(configuration.Mesh.HostChannel.CredentialID),
+			},
+		},
+		WorkspaceRoots: v3.WorkspaceRoots, Providers: v3.Providers, Sync: v3.Sync,
+		Terminal: v3.Terminal, Service: v3.Service, Restore: v3.Restore, Profiles: v3.Profiles,
+		Directory: v3.Directory, DirectoryInstallations: v3.DirectoryInstallations,
+		DirectoryEnrichmentProfiles: v3.DirectoryEnrichmentProfiles, DirectoryPeerDisclosure: v3.DirectoryPeerDisclosure,
+	}
+	var output bytes.Buffer
+	encoder := toml.NewEncoder(&output)
+	if err := encoder.Encode(raw); err != nil {
+		return nil, configError("TOML", errors.Join(ErrConfigEncode, err)) // config-refusal-subsumed: v4 wire TOML - the preview and the v4 validator admit only closed scalar values to this private v4 wire encoder, mirroring the legacy wire defence
+	}
+	roundTrip, err := Decode(output.Bytes(), context)
+	if err != nil {
+		return nil, errors.Join(ErrConfigEncode, err)
+	}
+	if roundTrip.SourceVersion != Version4 || roundTrip.Value.Mesh.HostChannel == nil ||
+		roundTrip.Value.Mesh.HostChannel.Version != configuration.Mesh.HostChannel.Version ||
+		roundTrip.Value.Mesh.HostChannel.CredentialID != configuration.Mesh.HostChannel.CredentialID ||
+		roundTrip.Value.Mesh.Transport != TransportSSHTLS13 {
+		return nil, configError("mesh.host_channel", errors.Join(ErrConfigEncode, ErrConfigValidation)) // config-refusal-subsumed: v4 re-read - defence in depth only; the v4 wire carries only values the closed v4 reader accepted, so no valid Configuration 4.0.0 source can produce a v4 document this re-read refuses
+	}
+	return output.Bytes(), nil
 }
 
 func wireWorkspaceRoots(values []WorkspaceRoot) []rawWorkspaceRoot {

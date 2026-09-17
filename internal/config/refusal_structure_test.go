@@ -91,10 +91,16 @@ func TestRefusalSubsumptionInventoryIsPinned(t *testing.T) {
 		"loader.go: capture working directory": "os.Getwd has no injectable seam and does not fail on a supported host",
 		"loader.go: read selected file":        "ResolvePaths populates every overrideRegistry class",
 		"loader.go: inspect selected root":     "ResolvePaths populates every overrideRegistry class",
+		"loader.go: project resolved paths":    "the pinned localstore registry and resolver always return all five classes",
+		"loader.go: resolve paths":             "every current localstore path refusal is a typed class/source error",
+		"loader.go: resolve selected file":     "every pair consumer receives the opaque five-class result minted by localstore.ResolvePaths",
 		"migration.go: encode target":          "each encoder refusal is pinned on its own clause",
 		"writer.go: terminal.backend":          "the v2 source reader admits only tmux or conpty",
 		"writer.go: v2 wire TOML":              "the v1 reader supplies only closed map-free values",
 		"writer.go: v2 re-read":                "no valid Configuration 1.0.0 source can produce a v2 document the re-read refuses",
+		"writer.go: v4 wire TOML":              "the preview and the v4 validator admit only closed scalar values to this private v4 wire encoder",
+		"writer.go: v4 re-read":                "no valid Configuration 4.0.0 source can produce a v4 document the re-read refuses",
+		"migration_v4.go: encode target":       "the v4 encoder admits only values its own clauses already accepted",
 		"schema.go: envelope TOML syntax":      "the envelope parse is subsumed by the closed-shape parse",
 	}
 	got := subsumedRefusalSites(t)

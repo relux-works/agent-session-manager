@@ -27,6 +27,7 @@ func TestBindingForPinsEveryDeclaredContainingContract(test *testing.T) {
 		{ID: "urn:ax:protocol:terminal-backend", Major: 1}:       Version130,
 		{ID: "urn:ax:protocol:provider", Major: 3}:               Version130,
 		{ID: "urn:ax:protocol:rpc", Major: 4}:                    Version130,
+		{ID: "urn:ax:protocol:rpc", Major: 5}:                    Version130,
 		{ID: "urn:ax:schema:cli-result", Major: 4}:               Version130,
 	}
 	bound := BoundContracts()
@@ -65,7 +66,7 @@ func TestBindingForRefusesUnboundContractMajor(test *testing.T) {
 		{ID: "urn:ax:protocol:provider", Major: 1},
 		{ID: "urn:ax:protocol:provider", Major: 4},
 		{ID: "urn:ax:protocol:rpc", Major: 1},
-		{ID: "urn:ax:protocol:rpc", Major: 5},
+		{ID: "urn:ax:protocol:rpc", Major: 6},
 		{ID: "urn:ax:protocol:task-board-bridge", Major: 2},
 		{ID: "urn:ax:schema:cli-result", Major: 5},
 		{ID: "urn:ax:protocol:session-adapter", Major: 2},

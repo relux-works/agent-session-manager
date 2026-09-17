@@ -17,21 +17,24 @@ import (
 // Migrate entry. The Version1 case isolates the non-upgrade-target clause: it
 // is a known configuration version, so no earlier disjunct can refuse it.
 func TestMigrateRefusesEveryTargetOutsideTheUpgradeVocabulary(t *testing.T) {
-	refused := map[string]string{
-		"empty target":                     "",
-		"unknown newer target":             "9.9.9",
-		"adopted but unimplemented target": Version4,
-		"unknown patch target":             "3.0.1",
-		"non-semver target":                "v3",
-		"known but not an upgrade target":  Version1,
+	refused := []struct {
+		name, target string
+		want         error
+	}{
+		{name: "empty target", target: "", want: ErrMigrationTarget},
+		{name: "unknown newer target", target: "9.9.9", want: ErrMigrationTarget},
+		{name: "v4 requires explicit preview and confirmation", target: Version4, want: ErrMigrationV4Explicit},
+		{name: "unknown patch target", target: "3.0.1", want: ErrMigrationTarget},
+		{name: "non-semver target", target: "v3", want: ErrMigrationTarget},
+		{name: "known but not an upgrade target", target: Version1, want: ErrMigrationTarget},
 	}
-	for name, target := range refused {
-		name, target := name, target
-		t.Run(name, func(t *testing.T) {
+	for _, test := range refused {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
 			directory, filename, original := seedMigrationSource(t, Version2)
-			_, err := Migrate(migrationInputs(directory, filename), nil, MigrationOptions{TargetVersion: target})
-			if !errors.Is(err, ErrMigrationTarget) {
-				t.Fatalf("Migrate(target=%q) error = %v, want ErrMigrationTarget", target, err)
+			_, err := Migrate(migrationInputs(directory, filename), nil, MigrationOptions{TargetVersion: test.target})
+			if !errors.Is(err, test.want) {
+				t.Fatalf("Migrate(target=%q) error = %v, want %v", test.target, err, test.want)
 			}
 			assertMigrationSourceUntouched(t, filename, original)
 			assertNoMigrationArtifacts(t, directory, filename)

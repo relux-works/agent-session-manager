@@ -390,6 +390,60 @@ its single normative clause is enumerated and discharged. Sections 3.2, 6.1,
 Section 6.5 additionally names the `required_capabilities` default defect. See
 [Specification-to-Code Ownership Gate](#specification-to-code-ownership-gate).
 
+## Host Trust Store and Configuration 4.0.0
+
+`internal/hosttrust` owns the machine-local Host Trust Store 1.0.0 and the
+Host Credential Profile 1 lifecycle. `Open` verifies custody and converges any
+pending joint commit; `Store.Issue` creates a fresh credential and keeps its
+private key only in the owner-only local custody directory. `ExportEnrollment`
+returns public leaf/root material for an explicitly selected out-of-band
+exchange. `Store.Enroll` admits only the independently authorized tuple and
+rejects duplicate credential, public-key, root, and host mappings. `Rotate`
+uses fresh key material and caps the overlap at the earlier of the 24-hour
+rotation bound and the old leaf expiry; `MarkRetiring` and `Revoke` preserve
+the public tombstone while refusing stale or repeated lifecycle changes.
+
+`AuthorizeDispatch` and `WithMutationAuthorization` bind every mutation to the
+current trust generation and the live local authorization boundary. Trust
+transactions, `ReadSnapshot`, `WithSharedSnapshot`, `JointCommit`, and
+`Recover` use the same owner-held lock and atomic staged writes. A durable
+`config-binding.json` sidecar records the one canonical configuration path
+paired with the store; `EnsureConfigBinding` establishes it explicitly and
+the configuration-side `StateRoot` is checked back against the same store.
+Every pair-bearing entry point receives the opaque `localstore.ResolvedPaths`
+minted by the single production resolver, so callers cannot supply an
+independent config/state tuple or fall back implicitly to a legacy store.
+Trust, pending-commit, lock, binding, backup, and private-key material are
+excluded from replication and diagnostics; only the explicitly exported public
+enrollment tuple may cross the out-of-band boundary.
+
+`internal/config.PreviewV4` renders the exact Configuration 4.0.0 bytes for a
+selected active local credential, every retained enrolled peer, and explicitly
+named peer removals. `ApplyV4` installs only those confirmed bytes and bumps
+the trust generation in one crash-durable joint commit; `RollbackV4` requires
+explicit acknowledgement that the legacy configuration has no Host Channel
+assurance and also bumps the generation. Direct `Migrate`/`MigrateOS` calls
+targeting v4 refuse, while the existing explicit Configuration 1/2/3 readers
+and migrations remain available. No RPC socket, TLS handshake, hello, or
+dispatch consumer is implemented by this package; those are owned by the RPC
+transport/admission task.
+
+Run the focused production and adversarial checks with:
+
+```bash
+go test ./internal/hosttrust -count=1 -v
+go test ./internal/config -count=1 -v
+go test ./internal/hosttrust -cover -count=1
+go test ./internal/config -cover -count=1
+python3 internal/hosttrust/mutations.py --output .temp/<TASK-ID>/mutations-hosttrust
+python3 internal/config/mutations_v4.py --output .temp/<TASK-ID>/mutations-config
+```
+
+The Go output, subprocess exit records, raw mutation overlays, and Markdown
+tables belong under `.temp/<TASK-ID>/`. Native Windows ACL runtime validation
+is a platform-bound check when no Windows runner is available; cross-build and
+test-compilation evidence does not claim that runtime lane.
+
 ## Provider Plugin Discovery and Trust
 
 [`internal/provider`](internal/provider) implements the Section 7.1 trusted
@@ -2993,9 +3047,9 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6
 repository gate used by CI. Its reviewed
 [`ownership.v0.6.0.json`](internal/traceability/ownership.v0.6.0.json)
 registry independently enumerates implementation owners for all 63 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 131
-executable acceptance cases, 60 exact section bindings with their declared
-coverage, 11 disclosed unowned sections, and 32 exact fixture identities or
+contract rows, 36 pinned or catalog-referenced normative section keys, 132
+executable acceptance cases, 65 exact section bindings with their declared
+coverage, 7 disclosed unowned sections, and 32 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
 and the superseded v0.5.0 registry is checked as an owned legacy projection.
 The generated v0.6.0 catalog also carries the reviewed schema/version/self-field
@@ -3095,10 +3149,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=60 full=2 partial=6 sliver=4 unevidenced=44 unmeasured=4 unowned=11 clauses_discharged=49/511
+section coverage: bindings=65 full=2 partial=6 sliver=4 unevidenced=49 unmeasured=4 unowned=7 clauses_discharged=49/535
 ```
 
-Sixty section bindings discharge 49 of the 511 normative clauses their
+Sixty-five section bindings discharge 49 of the 535 normative clauses their
 sections carry. Two bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
@@ -3124,13 +3178,18 @@ is the initiator-union maximum no takeover flow computes yet; Section
 [`internal/axerror`](internal/axerror); the three undischarged clauses there are
 the RPC hello obligation `15.1#5`, the bootstrap-row sentence `15.1#6` that
 binds the provider plugin rather than the host, and the hello-key and
-TerminalBackend-capability prohibition `15.3#3` - this repository builds no RPC
-hello frame and no provider plugin, and advertises no Structured Error as a
-TerminalBackend capability. The closed 16-capability admission registry in
+TerminalBackend-capability prohibition `15.3#3` - this repository builds no
+provider plugin, and advertises no Structured Error as a TerminalBackend
+capability. Structural RPC hello frames are built by
+[`internal/rpcwire`](internal/rpcwire), which rejects an error map key, and
+consumed by the authenticated [`internal/hostchannel`](internal/hostchannel)
+handshake, which frames failures only as Error envelopes and never as hello
+keys; neither clause is enumerated against an acceptance case, so both stay
+undischarged. The closed 16-capability admission registry in
 [`internal/terminalbackend`](internal/terminalbackend) gates which operations
 an admitted probe may confer; it is never advertised on an RPC hello path and
-carries no Structured Error code, so the prohibition holds vacuously and the
-clause stays undischarged. The same package carries the Section 4 lifecycle,
+carries no Structured Error code, so the prohibition holds and the clause
+stays undischarged. The same package carries the Section 4 lifecycle,
 attach, entrypoint, replication, and historical-translation conformance
 harness (`conformance.go`, exercised by `conformance_test.go`) and an
 AST-derived refusal-arm inventory (`refusal_arm_inventory_test.go`) that
@@ -3155,7 +3214,7 @@ single-owner, replica-restraint, winning-epoch-carriage, and
 losing-event-rejection invariants while the replication, secret, store,
 and directory invariants have no implementation), four are `unmeasured` (Sections 7.3, 13.12, 13.14.5 and 15.2, each of
 which carries a gap saying why the scanner measures zero and what is missing),
-and forty-four are `unevidenced`. Eleven sections are recorded unowned.
+and forty-nine are `unevidenced`. Seven sections are recorded unowned.
 All 13 sections added by v0.6.0 name pending task owners in the reviewed
 registry gaps; these assignments grant no runtime admission. The
 [adoption ownership map](internal/traceability/adoption-v0.6.0.md) separates
@@ -3167,7 +3226,7 @@ ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-Two admitted bindings out of sixty cover five clauses, and that is
+Two admitted bindings out of sixty-five cover five clauses, and that is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and
@@ -3312,6 +3371,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | `github.com/pelletier/go-toml/v2` | Parse and emit TOML while the repository-owned Configuration layer enforces exact versioned closed schemas | Imported by `internal/config.Decode`, `internal/config.EncodeCurrent`, and explicit `internal/config.Migrate` at pinned module version `v2.4.3` | Validated Configuration values/TOML bytes in memory; explicit migration writes a same-directory replacement plus an owner-only versioned backup |
 | `modernc.org/sqlite` | Provide the pure-Go SQLite driver for the local derived index without a CGO platform dependency | Imported by `internal/localstore.OpenProjection` at pinned module version `v1.57.0` | `<state>/index.sqlite`, its owner-only lock and WAL/SHM/journal sidecars, and `<state>/index-recovery/<uuid>/` corruption evidence |
 | `golang.org/x/sys` | Invoke OS-native no-replace rename primitives so concurrent processes cannot overwrite an immutable digest path | Imported by `internal/localstore.atomicRenameNoReplace` at pinned module version `v0.47.0` | Same-filesystem atomic rename only; no standalone artifact |
+| `golang.org/x/tools/go/packages` | Load typed production packages for the Config/Host Trust Store write-path census. Resolved OS/helper writer identities and writer-shaped indirect calls fail closed unless they are an exact backend definition, an enumerated interface-method object at an enumerated source site (with top-level hold dominance for the four pair writers), or one of the named immutable, validator, hold/recovery callback, local-alias, or external-value exceptions in the census tables; a method spelling or signature alone never grants admission. The loader covers the current Go build context, with other build-tagged platforms requiring a separate invocation | Test-only import in `internal/config/writepath_census_types_test.go` at pinned module version `v0.47.0`; exercised by `go test ./internal/config -run 'TestWritePath' -count=1` | Census diagnostics and mutant logs under `.temp/<TASK-ID>/` |
 | GitHub Actions | Enforce traceability, generated-output, test, vet, and build gates on pull requests and `main` | `.github/workflows/ci.yml` | GitHub-hosted CI check results |
 | Git | Branch, diff, and create signed commits/tags | `git status`; `git diff --check`; `git commit -S`; `git tag -s` | Git objects and refs under `.git/` |
 | GitHub CLI | Inspect and open pull requests after bootstrap | `gh pr create`; `gh pr checks` | Pull requests and checks on GitHub |
@@ -3336,3 +3396,137 @@ the work in `task-board`, use the managed `go-testing-tools` skill for Go
 changes, use the global `project-management` skill for orchestration, run
 relevant validation, and attach task-scoped evidence before review. See
 [AGENTS.md](AGENTS.md) for the full contract.
+
+## Configured Host and Peer Identity
+
+`internal/peeridentity.Load` composes the canonical config loader into an
+immutable peer directory; `FromSnapshot` reuses an existing process snapshot.
+No host ID is generated on absence or read failure. Local and peer IDs use the
+canonical UUIDv7 parser, and a peer cannot reuse the local host ID. Peer names
+remain exact printable UTF-8 aliases: duplicate IDs and duplicate names fail
+configuration loading, while a name equal to another peer's ID fails ambiguous
+resolution. Endpoint strings and discovery candidates do not add allowlist entries.
+
+`Directory.Resolve` returns a private `Target` that builds atomic SSH argv for
+`ax rpc serve --stdio`, including the canonical endpoint grammar's port and IPv6
+forms and the complete 65,536-byte argv bound. `Target.CheckProtocolHost` requires the exact selected host ID. It checks
+only the protocol identity half of §11.1; callers must first authenticate SSH.
+`KeyProvenance` reports `external_ssh`, the authority specified by §11.1. It
+reports no verified key, fingerprint, user credential, or successful connection.
+The package never reads key material. Key-file selectors stay in execution argv;
+formatting targets and directories omits those machine-local inputs.
+
+`Directory.DisclosurePolicy` selects the §6.4 policy for each of the five named
+metadata classes. It refuses unlisted recipients, local-only export, generated
+metadata with an unset upgrade choice, and raw excerpts/embeddings/model or
+runtime/auth detail classes. An absent override uses the validated default;
+malformed or incomplete overrides fail loading. `mesh_sanitized` and
+`reference_only` are policy results, not permission to send arbitrary bytes.
+The directory publisher still owns object validation, sanitization, object-level
+policy and authenticated delivery. Disclosure configuration does not authorize
+a peer or promise erasure of already replicated bytes.
+
+This read-only leaf adds no CLI/doctor availability claim, RPC transport,
+discovery, key attestation, provider authentication, or payload encryption at
+rest. No `ax` executable is shipped by this repository yet. The SSH transport slice below owns the process boundary; RPC and lifecycle
+owners still own hello/operation authorization and connection integration. No durable state
+is mutated, so crash/idempotency injection is inapplicable; read-failure recovery
+and snapshot isolation are tested.
+
+| Tool / check | Exact command | Output |
+| --- | --- | --- |
+| Identity/config behavior | `go test ./internal/peeridentity ./internal/config -count=1 -v` | Test output; task logs under `.temp/TASK-260830-2u34k1/` |
+| Identity narrowing proofs | `python3 internal/peeridentity/mutations.py --output .temp/TASK-260830-2u34k1/mutations` | Applied Go overlays, command exit codes, named failing tests, Markdown mutant table; originals remain untouched |
+
+
+## SSH stdio transport
+
+`internal/sshtransport.New` consumes the validated config snapshot. `Client.Open`
+resolves only an explicitly configured peer and executes OpenSSH with native argv
+for the fixed `ax rpc serve --stdio` command. Policy arguments precede peer
+options: strict host-key checking is enabled, implicit localhost/DNS host trust
+is disabled, and no forwarding, control-socket reuse, local command, terminal,
+or background persistence is allowed. External SSH owns known-host records and
+user authentication. AX reads no key material and writes no SSH settings.
+Unknown keys require prior operator provisioning; this headless connection never
+accepts them interactively. There is no permanent public listener.
+
+`Open` means the local process started. It is not proof of authentication or
+protocol negotiation. Frames remain untrusted until the Mesh RPC owner validates
+hello, nonce, contracts, limits and `Session.Target().CheckProtocolHost`. This
+package exposes no verified-key flag, remote capability or doctor success claim.
+There is still no `ax` executable; full RPC hello/operations, responder-side
+identity admission and hostile-network conformance remain outside this slice.
+Native `ssh -G` tests establish effective policy, not a cryptographic connection.
+
+`Session.Send`/`Receive` carry LF-delimited lines with the §11.2 8 MiB byte limit,
+excluding LF. One queued frame and one reader frame bound incoming buffering;
+sends serialize and do not queue copied payloads. The caller owns a sent byte
+slice until `Send` returns. The protocol layer validates JSON/envelope content.
+Stderr has a 64 KiB per-session budget and is discarded; excess diagnostic output
+fails the session. No raw stderr is logged, returned or persisted. EOF requires a
+successful process exit and clean stream drains. Empty/partial/oversized frames,
+read/write failures, and nonzero exit stay failures; exit 255 is an SSH failure
+of unknown authentication/network subclass, never an absent peer.
+
+The caller closes the session. Its context and the configured RPC timeout bound
+the whole session; OpenSSH receives the configured connect timeout. `CloseWrite`
+ends requests while responses drain. `Close` is idempotent and joins process wait
+and both pumps. Cancellation closes owned pipe endpoints and reaps the direct
+process, including a blocked writer or full receive queue. After direct exit,
+one second bounds inherited pipes/backpressure. Unix process groups include
+ordinary descendants; a `setsid` descendant escapes termination but cannot retain
+AX's pipe waits. Windows termination covers the direct SSH child only. Native
+Windows runtime and descendant-tree conformance are not claimed by cross-builds.
+No durable AX state is mutated; crash/write-idempotency injection is inapplicable.
+
+| Tool / check | Exact command | Output |
+| --- | --- | --- |
+| Transport behavior | `go test ./internal/sshtransport -count=1 -v` | Local process and native config-only fixtures; `.temp/TASK-260830-1tvg8e/` logs |
+| Transport races and coverage | `go test ./internal/sshtransport -race -count=1 -cover` | Race diagnostics and measured package coverage |
+| Transport narrowing | `python3 internal/sshtransport/mutations.py --output .temp/TASK-260830-1tvg8e/mutations` | Applied compiling overlays, standalone process exits, named failing tests and mutant table; source originals remain untouched |
+
+## Mesh RPC envelopes and Host Channel
+
+[`internal/rpcwire`](internal/rpcwire) validates structural Mesh RPC
+2/3/4/5 request/response envelopes: request-ID and version correlation,
+14-key hello maps with nonce echo and line/object limit floors, the exact
+historical 24/25-key maps and 6/7/8-namespace inventory vocabulary, static
+historical Structured Error bindings (1.0.0/1.2.0/1.3.0, with 1.3.0 for
+RPC majors 4 and 5), and the 8 MiB line bound. RPC 5.0.0 reuses the
+exact RPC-4 shapes with `contracts.rpc` `["5.0.0"]`.
+[`internal/hostchannel`](internal/hostchannel) is the authenticated
+consumer: mutual TLS 1.3 with ALPN `ax-host/1` over an abstract ordered
+binary stream, enrolled-certificate identity from hosttrust snapshots,
+authorized hello on both roles under the current generation, dispatch
+and mutation boundaries, and one framed Error 1.3.0 refusal per
+pre-hello violation. The ten HC-* gates of Section 11.10.4 run as
+executable positive/negative fixture families. There is no `ax`
+command, SSH process launch, or provider plugin; launch selection is a
+computed Configuration-4 argv only.
+
+The hostile-network conformance suite (`internal/hostchannel/hostile_test.go`,
+`internal/hostchannel/hostile_carrier_test.go`, acceptance case `AC-HOST-001`)
+re-derives the seven story cases through the real `Dial`/`Serve`/`Call`
+entries — unknown peers, key changes, spoofed host IDs, disconnects at every
+phase boundary, replay, oversized frames, disclosure mismatches — and measures
+the product-gate rows: a real OpenSSH loopback carrier lane (unprivileged
+`sshd` on 127.0.0.1, forced command, exact `ServeArgv` on the wire, TLS
+records first, no PTY, bounded stderr), timeout/race, custody, revocation and
+generation fencing, migration/downgrade refusals, both role failures,
+stale/failed reads, and recovery bypasses. Every vector pins the Section 15
+refusal class and carries a before/after state census. Stated bounds, recorded
+as not executed rather than passed: native Tailscale SSH, platform lanes other
+than the test host, and the Section 11.10.3 one-second self-close of an idle
+stream with zero traffic (measured: the product fences the next dispatch and
+`WatchGeneration` reports the commit; `serveLoop` carries no background
+watchdog). Section 11.10.5 upstream vectors are source evidence only.
+
+| Tool / check | Exact command | Output |
+| --- | --- | --- |
+| RPC/host-channel behavior | `go test ./internal/rpcwire ./internal/hostchannel -count=1 -v` | stdout; `.temp/TASK-260830-z1yxg9/` logs |
+| RPC/host-channel races and coverage | `go test ./internal/rpcwire ./internal/hostchannel -race -count=1 -cover` | Race diagnostics and measured package coverage |
+| RPC/host-channel narrowing | `python3 internal/rpcwire/mutations.py --output .temp/TASK-260830-z1yxg9/mutations-rpcwire` and `python3 internal/hostchannel/mutations.py --output .temp/TASK-260830-z1yxg9/mutations-hostchannel` | Applied compiling overlays, JSON events, real exits, named failing tests and mutant tables; source originals remain untouched |
+| Hostile-network conformance | `go test ./internal/hostchannel -run 'TestHostile' -count=1 -v` | Per-vector refusal classes, census assertions, and the OpenSSH loopback lane (skips with an asserted reason when `sshd` cannot bind); `.temp/TASK-260830-2x16gz/` logs |
+| Hostile narrowing | `python3 internal/hostchannel/mutations.py --output .temp/TASK-260830-2x16gz/mutations-hostchannel` | Nine added narrowing probes killed by named `TestHostile*` vectors, plus the shipped suite, in per-plant raw logs and mutant tables; source originals remain untouched |
+| RPC fuzz smoke | `go test ./internal/rpcwire -run '^$' -fuzz '^FuzzUntrustedEnvelopes$' -fuzztime=100x -parallel=1` | stdout and task log |

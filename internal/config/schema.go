@@ -15,6 +15,18 @@ const (
 	Version1       = "1.0.0"
 	Version2       = "2.0.0"
 	CurrentVersion = "3.0.0"
+	// Version4 is Configuration 4.0.0, the host-channel migration target.
+	// It retains Configuration 3.0.0 except for the exact mesh changes in
+	// Section 6.6 of the v0.6.0 normative source. CurrentVersion stays 3.0.0
+	// so legacy readers and writers keep their exact historical behavior.
+	Version4 = "4.0.0"
+	// TransportSSH is the only mesh transport for Configuration 1.0.0-3.0.0.
+	TransportSSH = "ssh"
+	// TransportSSHTLS13 is the required mesh transport for Configuration
+	// 4.0.0. There is no default and no alternative.
+	TransportSSHTLS13 = "ssh_tls13"
+	// HostChannelVersion is the only accepted mesh.host_channel version.
+	HostChannelVersion = "1.0.0"
 )
 
 var (
@@ -87,6 +99,18 @@ type Mesh struct {
 	WorkspaceReplication  bool
 	PayloadEncryption     string
 	Peers                 []Peer
+	// HostChannel is nil for Configuration 1.0.0-3.0.0 and required for
+	// Configuration 4.0.0. No per-peer override exists.
+	HostChannel *HostChannel
+}
+
+// HostChannel binds a Configuration 4.0.0 mesh to the machine-local Section
+// 11.10.2 credential selected for the local host. CredentialID is the
+// SHA-256 digest of the local leaf certificate DER. Neither certificate nor
+// private-key bytes belong in TOML.
+type HostChannel struct {
+	Version      string
+	CredentialID string
 }
 
 type Peer struct {
@@ -292,6 +316,46 @@ type rawMesh struct {
 	Peers                 []rawPeer `toml:"peers"`
 }
 
+// rawMeshV4 is the exact Configuration 4.0.0 mesh shape: the retained
+// Configuration 3.0.0 members plus the required closed host_channel table.
+// No per-peer override exists, so rawPeer is reused unchanged and any
+// peer-level host-channel key is refused by the closed decoder.
+type rawMeshV4 struct {
+	Transport             *string         `toml:"transport"`
+	SyncIntervalSeconds   *uint64         `toml:"sync_interval_seconds"`
+	ConnectTimeoutSeconds *uint64         `toml:"connect_timeout_seconds"`
+	RPCTimeoutSeconds     *uint64         `toml:"rpc_timeout_seconds"`
+	WorkspaceReplication  *bool           `toml:"workspace_replication"`
+	PayloadEncryption     *string         `toml:"payload_encryption"`
+	Peers                 []rawPeer       `toml:"peers"`
+	HostChannel           *rawHostChannel `toml:"host_channel"`
+}
+
+type rawHostChannel struct {
+	Version      *string `toml:"version"`
+	CredentialID *string `toml:"credential_id"`
+}
+
+type rawV4 struct {
+	Schema                      string                          `toml:"schema"`
+	SchemaVersion               string                          `toml:"schema_version"`
+	HostID                      *string                         `toml:"host_id"`
+	HostName                    *string                         `toml:"host_name"`
+	Platform                    *string                         `toml:"platform"`
+	Mesh                        rawMeshV4                       `toml:"mesh"`
+	WorkspaceRoots              []rawWorkspaceRoot              `toml:"workspace_roots"`
+	Providers                   rawProviders                    `toml:"providers"`
+	Sync                        rawSync                         `toml:"sync"`
+	Terminal                    rawTerminal                     `toml:"terminal"`
+	Service                     rawService                      `toml:"service"`
+	Restore                     rawRestore                      `toml:"restore"`
+	Profiles                    rawProfiles                     `toml:"profiles"`
+	Directory                   rawDirectory                    `toml:"directory"`
+	DirectoryInstallations      []rawDirectoryInstallation      `toml:"directory_installations"`
+	DirectoryEnrichmentProfiles []rawDirectoryEnrichmentProfile `toml:"directory_enrichment_profiles"`
+	DirectoryPeerDisclosure     []rawDirectoryPeerDisclosure    `toml:"directory_peer_disclosure"`
+}
+
 type rawPeer struct {
 	HostID         *string            `toml:"host_id"`
 	Name           *string            `toml:"name"`
@@ -448,6 +512,11 @@ func Decode(document []byte, context DecodeContext) (LoadedConfiguration, error)
 		var raw rawV3
 		if err = decodeStrict(document, &raw); err == nil {
 			value, err = translateV3(raw, context)
+		}
+	case Version4:
+		var raw rawV4
+		if err = decodeStrict(document, &raw); err == nil {
+			value, err = translateV4(raw, context)
 		}
 	default:
 		return LoadedConfiguration{}, configError("schema_version", ErrUnsupportedConfigVersion)

@@ -66,11 +66,21 @@ type PathDefinition struct {
 }
 
 type ResolveRequest struct {
-	Platform     scalar.Platform
-	Flags        map[string]string
-	Environment  map[string]string
+	Platform    scalar.Platform
+	Flags       map[string]string
+	Environment map[string]string
+	// LookupEnv is the captured environment seam used by production callers
+	// that cannot materialize an ambient environment map. When set, it is
+	// queried only for the registry/default variables needed by the selected
+	// precedence path; unknown variables are never enumerated.
+	LookupEnv    func(string) (string, bool)
 	HomeDir      string
 	TemporaryDir string
+	// WorkingDir is optional for compatibility with the standalone localstore
+	// resolver. Config's production loader supplies the captured directory so
+	// relative explicit overrides are normalized by this resolver as one
+	// canonical pair, rather than by a second path implementation.
+	WorkingDir string
 }
 
 type ResolvedPath struct {
@@ -83,6 +93,22 @@ type ResolvedPaths struct {
 	platform scalar.Platform
 	paths    map[PathClass]ResolvedPath
 }
+
+// PathResolutionError keeps the registry member and precedence layer attached
+// to a resolver refusal without exposing the selected machine-local value.
+// Compatibility adapters may translate the typed cause while preserving the
+// one canonical localstore resolution path.
+type PathResolutionError struct {
+	Class  PathClass
+	Source PathSource
+	Err    error
+}
+
+func (err *PathResolutionError) Error() string {
+	return fmt.Sprintf("resolve %s path from %s: %v", err.Class, err.Source, err.Err)
+}
+
+func (err *PathResolutionError) Unwrap() error { return err.Err }
 
 func (resolved ResolvedPaths) Platform() scalar.Platform { return resolved.platform }
 
@@ -260,23 +286,39 @@ func ResolvePaths(request ResolveRequest) (ResolvedPaths, error) {
 		source := PathSource("")
 		if value, present := request.Flags[definition.Flag]; present {
 			if value == "" {
-				return ResolvedPaths{}, fmt.Errorf("%w: %s must not be empty", ErrInvalidPath, definition.Flag)
+				return ResolvedPaths{}, &PathResolutionError{
+					Class:  definition.Class,
+					Source: PathSourceFlag,
+					Err:    fmt.Errorf("%w: %s must not be empty", ErrInvalidPath, definition.Flag),
+				}
 			}
 			candidate = value
 			source = PathSourceFlag
-		} else if value, present := environmentValue(request.Platform, request.Environment, definition.Environment); present && value != "" {
+		} else if value, present := environmentValue(request, definition.Environment); present && value != "" {
 			candidate = value
 			source = PathSourceEnvironment
 		} else {
 			candidate, err = platformDefault(request, definition.Class)
 			if err != nil {
-				return ResolvedPaths{}, err
+				return ResolvedPaths{}, &PathResolutionError{Class: definition.Class, Source: PathSourceDefault, Err: err}
 			}
 			source = PathSourceDefault
 		}
+		candidate, parseErr := makeAbsoluteCandidate(request.Platform, candidate, request.WorkingDir)
+		if parseErr != nil {
+			return ResolvedPaths{}, &PathResolutionError{
+				Class:  definition.Class,
+				Source: source,
+				Err:    fmt.Errorf("%w: %s: %v", ErrInvalidPath, definition.Class, parseErr),
+			}
+		}
 		absolute, parseErr := scalar.ParseAbsolutePath(request.Platform, candidate)
 		if parseErr != nil {
-			return ResolvedPaths{}, fmt.Errorf("%w: %s: %v", ErrInvalidPath, definition.Class, parseErr)
+			return ResolvedPaths{}, &PathResolutionError{
+				Class:  definition.Class,
+				Source: source,
+				Err:    fmt.Errorf("%w: %s: %v", ErrInvalidPath, definition.Class, parseErr),
+			}
 		}
 		resolved.paths[definition.Class] = ResolvedPath{Class: definition.Class, Value: absolute, Source: source}
 	}
@@ -314,7 +356,7 @@ func platformDefault(request ResolveRequest, class PathClass) (string, error) {
 		}
 	case scalar.PlatformLinux, scalar.PlatformWSL2:
 		if class == PathRuntime {
-			runtimeBase, present := environmentValue(request.Platform, request.Environment, "XDG_RUNTIME_DIR")
+			runtimeBase, present := environmentValue(request, "XDG_RUNTIME_DIR")
 			if !present || runtimeBase == "" {
 				return "", fmt.Errorf("%w: XDG_RUNTIME_DIR", ErrPathDefaultUnavailable)
 			}
@@ -354,8 +396,8 @@ func platformDefault(request ResolveRequest, class PathClass) (string, error) {
 			return join(base, "ax"), nil
 		}
 	case scalar.PlatformWindows:
-		appData, appDataPresent := environmentValue(request.Platform, request.Environment, "APPDATA")
-		localAppData, localAppDataPresent := environmentValue(request.Platform, request.Environment, "LOCALAPPDATA")
+		appData, appDataPresent := environmentValue(request, "APPDATA")
+		localAppData, localAppDataPresent := environmentValue(request, "LOCALAPPDATA")
 		if class == PathConfig {
 			if !appDataPresent || appData == "" {
 				return "", fmt.Errorf("%w: APPDATA", ErrPathDefaultUnavailable)
@@ -379,7 +421,7 @@ func platformDefault(request ResolveRequest, class PathClass) (string, error) {
 }
 
 func optionalAbsoluteEnvironment(request ResolveRequest, name, fallback string) (string, error) {
-	value, present := environmentValue(request.Platform, request.Environment, name)
+	value, present := environmentValue(request, name)
 	if !present || value == "" {
 		return fallback, nil
 	}
@@ -396,17 +438,94 @@ func requireAbsoluteInput(platform scalar.Platform, name, value string) (string,
 	return value, nil
 }
 
-func environmentValue(platform scalar.Platform, environment map[string]string, name string) (string, bool) {
-	if platform != scalar.PlatformWindows {
-		value, ok := environment[name]
+func environmentValue(request ResolveRequest, name string) (string, bool) {
+	if request.LookupEnv != nil {
+		return request.LookupEnv(name)
+	}
+	if request.Platform != scalar.PlatformWindows {
+		value, ok := request.Environment[name]
 		return value, ok
 	}
-	for key, value := range environment {
+	for key, value := range request.Environment {
 		if strings.EqualFold(key, name) {
 			return value, true
 		}
 	}
 	return "", false
+}
+
+func makeAbsoluteCandidate(platform scalar.Platform, candidate, workingDirectory string) (string, error) {
+	if candidate == "" {
+		return "", ErrInvalidPath
+	}
+	if _, err := scalar.ParseAbsolutePath(platform, candidate); err == nil {
+		return candidate, nil
+	}
+	if workingDirectory == "" {
+		return "", ErrInvalidPath
+	}
+	switch platform {
+	case scalar.PlatformWindows:
+		if strings.Contains(candidate, "/") || strings.Contains(workingDirectory, "/") ||
+			!localstoreIsWindowsAbsolute(workingDirectory) || localstoreIsWindowsAbsolute(candidate) ||
+			(len(candidate) >= 2 && candidate[1] == ':') {
+			return "", ErrInvalidPath
+		}
+		return localstoreCleanWindowsAbsolute(strings.TrimSuffix(workingDirectory, "\\") + "\\" + candidate)
+	case scalar.PlatformMacOS, scalar.PlatformLinux, scalar.PlatformWSL2:
+		if !strings.HasPrefix(workingDirectory, "/") {
+			return "", ErrInvalidPath
+		}
+		return path.Join(workingDirectory, candidate), nil
+	default:
+		return "", ErrInvalidPath
+	}
+}
+
+func localstoreIsWindowsAbsolute(value string) bool {
+	return len(value) >= 3 && localstoreIsASCIILetter(value[0]) && value[1] == ':' && value[2] == '\\' ||
+		strings.HasPrefix(value, "\\\\")
+}
+
+func localstoreCleanWindowsAbsolute(value string) (string, error) {
+	var prefix, remainder string
+	switch {
+	case len(value) >= 3 && localstoreIsASCIILetter(value[0]) && value[1] == ':' && value[2] == '\\':
+		prefix, remainder = value[:3], value[3:]
+	case strings.HasPrefix(value, "\\\\"):
+		parts := strings.Split(value[2:], "\\")
+		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+			return "", ErrInvalidPath
+		}
+		prefix, remainder = "\\\\"+parts[0]+"\\"+parts[1], strings.Join(parts[2:], "\\")
+	default:
+		return "", ErrInvalidPath
+	}
+	segments := make([]string, 0)
+	for _, segment := range strings.Split(remainder, "\\") {
+		switch segment {
+		case "", ".":
+			continue
+		case "..":
+			if len(segments) == 0 {
+				return "", ErrInvalidPath
+			}
+			segments = segments[:len(segments)-1]
+		default:
+			segments = append(segments, segment)
+		}
+	}
+	if len(segments) == 0 {
+		if strings.HasPrefix(prefix, "\\\\") {
+			return prefix, nil
+		}
+		return strings.TrimSuffix(prefix, "\\") + "\\", nil
+	}
+	return strings.TrimSuffix(prefix, "\\") + "\\" + strings.Join(segments, "\\"), nil
+}
+
+func localstoreIsASCIILetter(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
 }
 
 func joinPlatform(platform scalar.Platform, elements ...string) string {

@@ -10,8 +10,10 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
+	"github.com/relux-works/agent-session-manager/internal/localstore"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
 )
 
@@ -113,6 +115,7 @@ type Inputs struct {
 // Snapshot contains one immutable path decision and selected TOML document.
 type Snapshot struct {
 	paths         ResolvedPaths
+	localPaths    localstore.ResolvedPaths
 	document      []byte
 	configuration *LoadedConfiguration
 	configPresent bool
@@ -121,6 +124,12 @@ type Snapshot struct {
 func (snapshot Snapshot) Paths() ResolvedPaths {
 	return ResolvedPaths{values: snapshot.paths.All()}
 }
+
+// LocalPaths returns the immutable canonical pair minted by the owner-local
+// path resolver. Config readers retain Paths for legacy diagnostics, but all
+// trust/config pairing and durable mutation must use this value: its path map
+// is private to internal/localstore and cannot be forged by callers.
+func (snapshot Snapshot) LocalPaths() localstore.ResolvedPaths { return snapshot.localPaths }
 
 func (snapshot Snapshot) Document() []byte {
 	return append([]byte(nil), snapshot.document...)
@@ -180,9 +189,9 @@ func OSInputs(platform scalar.Platform) (Inputs, error) {
 	}
 	return Inputs{
 		Platform:   platform,
-		HomeDir:    home,
-		TempDir:    os.TempDir(),
-		WorkingDir: working,
+		HomeDir:    cleanCapturedPath(home),
+		TempDir:    filepath.Clean(os.TempDir()),
+		WorkingDir: filepath.Clean(working),
 		LookupEnv:  os.LookupEnv,
 		// Read-side path selection resolves symlinks and then enforces the
 		// Section 3.2 value kinds on the resolved target: a configuration file
@@ -202,6 +211,13 @@ func OSInputs(platform scalar.Platform) (Inputs, error) {
 	}, nil
 }
 
+func cleanCapturedPath(value string) string {
+	if value == "" {
+		return ""
+	}
+	return filepath.Clean(value)
+}
+
 func LoadOS(platform scalar.Platform, overrides Overrides) (Snapshot, error) {
 	inputs, err := OSInputs(platform)
 	if err != nil {
@@ -213,7 +229,7 @@ func LoadOS(platform scalar.Platform, overrides Overrides) (Snapshot, error) {
 // Load resolves all roots, then reads exactly the selected regular file or
 // admits a not-yet-created file whose parent is an existing directory.
 func Load(inputs Inputs, overrides Overrides) (Snapshot, error) {
-	paths, err := ResolvePaths(inputs, overrides)
+	paths, localPaths, err := resolvePathSnapshot(inputs, overrides)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -232,7 +248,7 @@ func Load(inputs Inputs, overrides Overrides) (Snapshot, error) {
 	info, err := inputs.Stat(filename)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return loadAbsentConfig(inputs, paths, selected)
+			return loadAbsentConfig(inputs, paths, localPaths, selected)
 		}
 		return Snapshot{}, loaderError(Error{
 			Operation: "stat selected file",
@@ -273,13 +289,14 @@ func Load(inputs Inputs, overrides Overrides) (Snapshot, error) {
 	}
 	return Snapshot{
 		paths:         ResolvedPaths{values: paths.All()},
+		localPaths:    localPaths,
 		document:      append([]byte(nil), document...),
 		configuration: &configuration,
 		configPresent: true,
 	}, nil
 }
 
-func loadAbsentConfig(inputs Inputs, paths ResolvedPaths, selected ResolvedPath) (Snapshot, error) {
+func loadAbsentConfig(inputs Inputs, paths ResolvedPaths, localPaths localstore.ResolvedPaths, selected ResolvedPath) (Snapshot, error) {
 	parent, err := configParent(inputs.Platform, selected.Value.String())
 	if err != nil {
 		return Snapshot{}, loaderError(Error{
@@ -316,8 +333,165 @@ func loadAbsentConfig(inputs Inputs, paths ResolvedPaths, selected ResolvedPath)
 	}
 	return Snapshot{
 		paths:         ResolvedPaths{values: paths.All()},
+		localPaths:    localPaths,
 		configPresent: false,
 	}, nil
+}
+
+// resolvePathSnapshot is the only configuration production path-resolution
+// entry. localstore.ResolvePaths mints one immutable five-class result; the
+// config ResolvedPaths value is a compatibility projection of those exact
+// bytes, while pair mutations retain the opaque localstore result itself.
+func resolvePathSnapshot(inputs Inputs, overrides Overrides) (ResolvedPaths, localstore.ResolvedPaths, error) {
+	if _, err := scalar.ParsePlatform(inputs.Platform.String()); err != nil || inputs.LookupEnv == nil {
+		return ResolvedPaths{}, localstore.ResolvedPaths{}, loaderError(Error{Operation: "validate inputs", Err: ErrInvalidContext})
+	}
+	if err := validateOverrideClasses(overrides); err != nil {
+		return ResolvedPaths{}, localstore.ResolvedPaths{}, err
+	}
+	resolved, err := localstore.ResolvePaths(localstore.ResolveRequest{
+		Platform:     inputs.Platform,
+		Flags:        localstoreFlags(overrides),
+		LookupEnv:    inputs.LookupEnv,
+		HomeDir:      inputs.HomeDir,
+		TemporaryDir: inputs.TempDir,
+		WorkingDir:   inputs.WorkingDir,
+	})
+	if err != nil {
+		return ResolvedPaths{}, localstore.ResolvedPaths{}, translateLocalPathError(inputs, err)
+	}
+	paths, err := projectLocalPaths(resolved)
+	if err != nil {
+		return ResolvedPaths{}, localstore.ResolvedPaths{}, err
+	}
+	return paths, resolved, nil
+}
+
+func resolveLocalPaths(inputs Inputs, overrides Overrides) (localstore.ResolvedPaths, error) {
+	_, paths, err := resolvePathSnapshot(inputs, overrides)
+	return paths, err
+}
+
+// ResolvePaths preserves the historical config-facing value/provenance API,
+// but delegates resolution to the same localstore resolver used by Load and
+// every Host Trust Store pair consumer.
+func ResolvePaths(inputs Inputs, overrides Overrides) (ResolvedPaths, error) {
+	paths, _, err := resolvePathSnapshot(inputs, overrides)
+	return paths, err
+}
+
+func localstoreFlags(overrides Overrides) map[string]string {
+	flags := make(map[string]string, len(overrides))
+	for _, specification := range overrideRegistry {
+		if value := overrides[specification.Class]; value != "" {
+			flags[specification.Flag] = value
+		}
+	}
+	return flags
+}
+
+func projectLocalPaths(localPaths localstore.ResolvedPaths) (ResolvedPaths, error) {
+	values := make(map[PathClass]ResolvedPath, len(overrideRegistry))
+	for _, specification := range overrideRegistry {
+		localClass := localPathClass(specification.Class)
+		resolved, ok := localPaths.Path(localClass)
+		if !ok {
+			return ResolvedPaths{}, loaderError(Error{Operation: "project resolved paths", Class: specification.Class, Err: ErrInvalidContext}) // config-refusal-subsumed: the pinned localstore registry and resolver always return all five classes; a missing projection member is impossible at this production boundary
+		}
+		values[specification.Class] = ResolvedPath{Value: resolved.Value, Source: configPathSource(resolved.Source)}
+	}
+	return ResolvedPaths{values: values}, nil
+}
+
+func localPathClass(class PathClass) localstore.PathClass {
+	switch class {
+	case ConfigFile:
+		return localstore.PathConfig
+	case DataRoot:
+		return localstore.PathData
+	case StateRoot:
+		return localstore.PathState
+	case CacheRoot:
+		return localstore.PathCache
+	case RuntimeRoot:
+		return localstore.PathRuntime
+	default:
+		return localstore.PathClass(class)
+	}
+}
+
+func configPathSource(source localstore.PathSource) Source {
+	switch source {
+	case localstore.PathSourceFlag:
+		return SourceFlag
+	case localstore.PathSourceEnvironment:
+		return SourceEnvironment
+	case localstore.PathSourceDefault:
+		return SourcePlatformDefault
+	default:
+		return Source("")
+	}
+}
+
+func configPathClass(class localstore.PathClass) PathClass {
+	switch class {
+	case localstore.PathConfig:
+		return ConfigFile
+	case localstore.PathData:
+		return DataRoot
+	case localstore.PathState:
+		return StateRoot
+	case localstore.PathCache:
+		return CacheRoot
+	case localstore.PathRuntime:
+		return RuntimeRoot
+	default:
+		return PathClass(class)
+	}
+}
+
+func translateLocalPathError(inputs Inputs, err error) error {
+	var pathErr *localstore.PathResolutionError
+	if !errors.As(err, &pathErr) {
+		cause := error(ErrInvalidContext)
+		if errors.Is(err, localstore.ErrInvalidPath) || errors.Is(err, localstore.ErrUnsupportedPlatform) {
+			cause = ErrInvalidContext
+		} else {
+			cause = errors.Join(ErrInvalidContext, err)
+		}
+		return loaderError(Error{Operation: "resolve paths", Err: cause}) // config-refusal-subsumed: every current localstore path refusal is a typed class/source error; this defensive branch only covers a corrupt registry or future resolver error outside that contract
+	}
+	configClass := configPathClass(pathErr.Class)
+	source := configPathSource(pathErr.Source)
+	cause := error(ErrInvalidContext)
+	operation := "resolve absolute path"
+	if errors.Is(pathErr.Err, localstore.ErrPathDefaultUnavailable) {
+		cause = ErrPlatformDefaultUnavailable
+		operation = "resolve platform default"
+		if pathErr.Source == localstore.PathSourceDefault && inputs.HomeDir == "" && inputs.homeDirError != nil && homeDerivedPathClass(inputs.Platform, configClass) {
+			cause = errors.Join(ErrPlatformDefaultUnavailable, inputs.homeDirError)
+		}
+	}
+	return loaderError(Error{Operation: operation, Class: configClass, Source: source, Err: cause})
+}
+
+func homeDerivedPathClass(platform scalar.Platform, class PathClass) bool {
+	switch platform {
+	case scalar.PlatformMacOS, scalar.PlatformLinux, scalar.PlatformWSL2:
+		switch class {
+		case ConfigFile, DataRoot, StateRoot, CacheRoot:
+			return true
+		}
+	}
+	return false
+}
+
+func configPathFromLocalPaths(paths localstore.ResolvedPaths) (string, error) {
+	selected, ok := paths.Path(localstore.PathConfig)
+	if !ok || selected.Value.String() == "" {
+		return "", loaderError(Error{Operation: "resolve selected file", Class: ConfigFile, Err: ErrInvalidContext}) // config-refusal-subsumed: every pair consumer receives the opaque five-class result minted by localstore.ResolvePaths
+	}
+	return selected.Value.String(), nil
 }
 
 func validateRootKinds(paths ResolvedPaths, stat func(string) (fs.FileInfo, error)) error {
@@ -353,36 +527,6 @@ func validateRootKinds(paths ResolvedPaths, stat func(string) (fs.FileInfo, erro
 	return nil
 }
 
-// ResolvePaths applies flag, exact AX_* environment, then platform-default
-// precedence for every registry member.
-func ResolvePaths(inputs Inputs, overrides Overrides) (ResolvedPaths, error) {
-	if _, err := scalar.ParsePlatform(inputs.Platform.String()); err != nil || inputs.LookupEnv == nil {
-		return ResolvedPaths{}, loaderError(Error{Operation: "validate inputs", Err: ErrInvalidContext})
-	}
-	if err := validateOverrideClasses(overrides); err != nil {
-		return ResolvedPaths{}, err
-	}
-
-	resolved := make(map[PathClass]ResolvedPath, len(overrideRegistry))
-	for _, specification := range overrideRegistry {
-		candidate, source, err := selectCandidate(inputs, overrides, specification)
-		if err != nil {
-			return ResolvedPaths{}, err
-		}
-		absolute, err := makeAbsolute(inputs.Platform, candidate, inputs.WorkingDir)
-		if err != nil {
-			return ResolvedPaths{}, loaderError(Error{
-				Operation: "resolve absolute path",
-				Class:     specification.Class,
-				Source:    source,
-				Err:       err,
-			})
-		}
-		resolved[specification.Class] = ResolvedPath{Value: absolute, Source: source}
-	}
-	return ResolvedPaths{values: resolved}, nil
-}
-
 func validateOverrideClasses(overrides Overrides) error {
 	known := make(map[PathClass]struct{}, len(overrideRegistry))
 	for _, specification := range overrideRegistry {
@@ -394,252 +538,6 @@ func validateOverrideClasses(overrides Overrides) error {
 		}
 	}
 	return nil
-}
-
-func selectCandidate(inputs Inputs, overrides Overrides, specification OverrideSpec) (string, Source, error) {
-	if value := overrides[specification.Class]; value != "" {
-		return value, SourceFlag, nil
-	}
-	if value, ok := inputs.LookupEnv(specification.Environment); ok && value != "" {
-		return value, SourceEnvironment, nil
-	}
-	value, err := platformDefault(inputs, specification.Class)
-	if err != nil {
-		return "", SourcePlatformDefault, loaderError(Error{
-			Operation: "resolve platform default",
-			Class:     specification.Class,
-			Source:    SourcePlatformDefault,
-			Err:       err,
-		})
-	}
-	return value, SourcePlatformDefault, nil
-}
-
-func platformDefault(inputs Inputs, class PathClass) (string, error) {
-	switch inputs.Platform {
-	case scalar.PlatformMacOS:
-		return macOSDefault(inputs, class)
-	case scalar.PlatformLinux, scalar.PlatformWSL2:
-		return linuxDefault(inputs, class)
-	case scalar.PlatformWindows:
-		return windowsDefault(inputs, class)
-	default:
-		return "", ErrInvalidContext
-	}
-}
-
-func macOSDefault(inputs Inputs, class PathClass) (string, error) {
-	switch class {
-	case ConfigFile:
-		base := nonEmptyEnvironment(inputs, "XDG_CONFIG_HOME")
-		if base == "" {
-			if inputs.HomeDir == "" {
-				return "", errors.Join(ErrPlatformDefaultUnavailable, inputs.homeDirError)
-			}
-			base = join(inputs.Platform, inputs.HomeDir, ".config")
-		}
-		return join(inputs.Platform, base, "ax", "config.toml"), nil
-	case DataRoot:
-		if inputs.HomeDir == "" {
-			return "", errors.Join(ErrPlatformDefaultUnavailable, inputs.homeDirError)
-		}
-		return join(inputs.Platform, inputs.HomeDir, "Library", "Application Support", "ax"), nil
-	case StateRoot:
-		if inputs.HomeDir == "" {
-			return "", errors.Join(ErrPlatformDefaultUnavailable, inputs.homeDirError)
-		}
-		return join(inputs.Platform, inputs.HomeDir, "Library", "Application Support", "ax", "state"), nil
-	case CacheRoot:
-		if inputs.HomeDir == "" {
-			return "", errors.Join(ErrPlatformDefaultUnavailable, inputs.homeDirError)
-		}
-		return join(inputs.Platform, inputs.HomeDir, "Library", "Caches", "ax"), nil
-	case RuntimeRoot:
-		if inputs.TempDir == "" {
-			return "", ErrPlatformDefaultUnavailable
-		}
-		return join(inputs.Platform, inputs.TempDir, "ax"), nil
-	default:
-		return "", ErrUnknownPathClass
-	}
-}
-
-func linuxDefault(inputs Inputs, class PathClass) (string, error) {
-	var base string
-	switch class {
-	case ConfigFile:
-		base = nonEmptyEnvironment(inputs, "XDG_CONFIG_HOME")
-		if base == "" {
-			if inputs.HomeDir == "" {
-				return "", errors.Join(ErrPlatformDefaultUnavailable, inputs.homeDirError)
-			}
-			base = join(inputs.Platform, inputs.HomeDir, ".config")
-		}
-		return join(inputs.Platform, base, "ax", "config.toml"), nil
-	case DataRoot:
-		base = nonEmptyEnvironment(inputs, "XDG_DATA_HOME")
-		if base == "" {
-			if inputs.HomeDir == "" {
-				return "", errors.Join(ErrPlatformDefaultUnavailable, inputs.homeDirError)
-			}
-			base = join(inputs.Platform, inputs.HomeDir, ".local", "share")
-		}
-	case StateRoot:
-		base = nonEmptyEnvironment(inputs, "XDG_STATE_HOME")
-		if base == "" {
-			if inputs.HomeDir == "" {
-				return "", errors.Join(ErrPlatformDefaultUnavailable, inputs.homeDirError)
-			}
-			base = join(inputs.Platform, inputs.HomeDir, ".local", "state")
-		}
-	case CacheRoot:
-		base = nonEmptyEnvironment(inputs, "XDG_CACHE_HOME")
-		if base == "" {
-			if inputs.HomeDir == "" {
-				return "", errors.Join(ErrPlatformDefaultUnavailable, inputs.homeDirError)
-			}
-			base = join(inputs.Platform, inputs.HomeDir, ".cache")
-		}
-	case RuntimeRoot:
-		base = nonEmptyEnvironment(inputs, "XDG_RUNTIME_DIR")
-		if base == "" {
-			return "", ErrPlatformDefaultUnavailable
-		}
-	default:
-		return "", ErrUnknownPathClass
-	}
-	return join(inputs.Platform, base, "ax"), nil
-}
-
-func windowsDefault(inputs Inputs, class PathClass) (string, error) {
-	switch class {
-	case ConfigFile:
-		base := nonEmptyEnvironment(inputs, "APPDATA")
-		if base == "" {
-			return "", ErrPlatformDefaultUnavailable
-		}
-		return join(inputs.Platform, base, "ax", "config.toml"), nil
-	case DataRoot, StateRoot, CacheRoot:
-		base := nonEmptyEnvironment(inputs, "LOCALAPPDATA")
-		if base == "" {
-			return "", ErrPlatformDefaultUnavailable
-		}
-		leaf := map[PathClass]string{
-			DataRoot:  "data",
-			StateRoot: "state",
-			CacheRoot: "cache",
-		}[class]
-		return join(inputs.Platform, base, "ax", leaf), nil
-	case RuntimeRoot:
-		if inputs.TempDir == "" {
-			return "", ErrPlatformDefaultUnavailable
-		}
-		return join(inputs.Platform, inputs.TempDir, "ax"), nil
-	default:
-		return "", ErrUnknownPathClass
-	}
-}
-
-func nonEmptyEnvironment(inputs Inputs, name string) string {
-	value, ok := inputs.LookupEnv(name)
-	if !ok || value == "" {
-		return ""
-	}
-	return value
-}
-
-func join(platform scalar.Platform, elements ...string) string {
-	if platform == scalar.PlatformWindows {
-		return strings.Join(elements, "\\")
-	}
-	return path.Join(elements...)
-}
-
-func makeAbsolute(platform scalar.Platform, candidate, workingDirectory string) (scalar.AbsolutePath, error) {
-	if candidate == "" {
-		return scalar.AbsolutePath{}, ErrInvalidContext
-	}
-	var absolute string
-	switch platform {
-	case scalar.PlatformWindows:
-		var err error
-		absolute, err = absoluteWindowsPath(candidate, workingDirectory)
-		if err != nil {
-			return scalar.AbsolutePath{}, err
-		}
-	default:
-		if strings.HasPrefix(candidate, "/") {
-			absolute = path.Clean(candidate)
-		} else {
-			if !strings.HasPrefix(workingDirectory, "/") {
-				return scalar.AbsolutePath{}, ErrInvalidContext
-			}
-			absolute = path.Join(workingDirectory, candidate)
-		}
-	}
-	return scalar.ParseAbsolutePath(platform, absolute)
-}
-
-func absoluteWindowsPath(candidate, workingDirectory string) (string, error) {
-	if strings.Contains(candidate, "/") || strings.Contains(workingDirectory, "/") {
-		return "", ErrInvalidContext
-	}
-	if isWindowsAbsolute(candidate) {
-		return cleanWindowsAbsolute(candidate)
-	}
-	if len(candidate) >= 2 && candidate[1] == ':' {
-		return "", ErrInvalidContext
-	}
-	if !isWindowsAbsolute(workingDirectory) {
-		return "", ErrInvalidContext
-	}
-	return cleanWindowsAbsolute(strings.TrimSuffix(workingDirectory, "\\") + "\\" + candidate)
-}
-
-func isWindowsAbsolute(value string) bool {
-	return len(value) >= 3 && isASCIILetter(value[0]) && value[1] == ':' && value[2] == '\\' ||
-		strings.HasPrefix(value, "\\\\")
-}
-
-func cleanWindowsAbsolute(value string) (string, error) {
-	var prefix string
-	var remainder string
-	switch {
-	case len(value) >= 3 && isASCIILetter(value[0]) && value[1] == ':' && value[2] == '\\':
-		prefix = value[:3]
-		remainder = value[3:]
-	case strings.HasPrefix(value, "\\\\"):
-		parts := strings.Split(value[2:], "\\")
-		if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
-			return "", ErrInvalidContext
-		}
-		prefix = "\\\\" + parts[0] + "\\" + parts[1]
-		remainder = strings.Join(parts[2:], "\\")
-	default:
-		return "", ErrInvalidContext
-	}
-
-	segments := make([]string, 0)
-	for _, segment := range strings.Split(remainder, "\\") {
-		switch segment {
-		case "", ".":
-			continue
-		case "..":
-			if len(segments) == 0 {
-				return "", ErrInvalidContext
-			}
-			segments = segments[:len(segments)-1]
-		default:
-			segments = append(segments, segment)
-		}
-	}
-	if len(segments) == 0 {
-		if strings.HasPrefix(prefix, "\\\\") {
-			return prefix, nil
-		}
-		return strings.TrimSuffix(prefix, "\\") + "\\", nil
-	}
-	return strings.TrimSuffix(prefix, "\\") + "\\" + strings.Join(segments, "\\"), nil
 }
 
 func configParent(platform scalar.Platform, filename string) (string, error) {

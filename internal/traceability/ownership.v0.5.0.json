@@ -2798,6 +2798,190 @@
           "declaration": "TestJournalSurvivesRestart"
         }
       ]
+    },
+    {
+      "id": "peer-host-identity",
+      "production": {
+        "path": "internal/peeridentity/identity.go",
+        "declaration": "Load"
+      },
+      "tests": [
+        {
+          "path": "internal/peeridentity/identity_test.go",
+          "declaration": "TestLoadPeerIdentityVersions"
+        },
+        {
+          "path": "internal/peeridentity/identity_test.go",
+          "declaration": "TestLoadIdentityRefusals"
+        }
+      ]
+    },
+    {
+      "id": "peer-alias-resolution",
+      "production": {
+        "path": "internal/peeridentity/identity.go",
+        "declaration": "Resolve"
+      },
+      "tests": [
+        {
+          "path": "internal/peeridentity/identity_test.go",
+          "declaration": "TestResolveAllowlistAndAliasAmbiguity"
+        }
+      ]
+    },
+    {
+      "id": "peer-ssh-target",
+      "production": {
+        "path": "internal/peeridentity/identity.go",
+        "declaration": "RPCArgv"
+      },
+      "tests": [
+        {
+          "path": "internal/peeridentity/identity_test.go",
+          "declaration": "TestSSHTargetAtomicArgv"
+        }
+      ]
+    },
+    {
+      "id": "peer-key-provenance",
+      "production": {
+        "path": "internal/peeridentity/identity.go",
+        "declaration": "KeyProvenance"
+      },
+      "tests": [
+        {
+          "path": "internal/peeridentity/identity_test.go",
+          "declaration": "TestLoadAbsenceReadFailureAndRecovery"
+        }
+      ]
+    },
+    {
+      "id": "peer-allowlist-identity",
+      "production": {
+        "path": "internal/peeridentity/identity.go",
+        "declaration": "CheckProtocolHost"
+      },
+      "tests": [
+        {
+          "path": "internal/peeridentity/identity_test.go",
+          "declaration": "TestProtocolIdentityRefusal"
+        }
+      ]
+    },
+    {
+      "id": "peer-disclosure-policy",
+      "production": {
+        "path": "internal/peeridentity/identity.go",
+        "declaration": "DisclosurePolicy"
+      },
+      "tests": [
+        {
+          "path": "internal/peeridentity/identity_test.go",
+          "declaration": "TestDisclosurePolicyRefusals"
+        },
+        {
+          "path": "internal/peeridentity/identity_test.go",
+          "declaration": "TestSnapshotIsolationAndDisclosureBinding"
+        }
+      ]
+    },
+    {
+      "id": "peer-identity-read-recovery",
+      "production": {
+        "path": "internal/peeridentity/identity.go",
+        "declaration": "Load"
+      },
+      "tests": [
+        {
+          "path": "internal/peeridentity/identity_test.go",
+          "declaration": "TestLoadAbsenceReadFailureAndRecovery"
+        }
+      ]
+    },
+    {
+      "id": "ssh-command-entry",
+      "production": {
+        "path": "internal/sshtransport/transport.go",
+        "declaration": "Open"
+      },
+      "tests": [
+        {
+          "path": "internal/sshtransport/transport_test.go",
+          "declaration": "TestOpenStructuredCommand"
+        },
+        {
+          "path": "internal/sshtransport/transport_test.go",
+          "declaration": "TestOpenRefusesBeforeStart"
+        },
+        {
+          "path": "internal/sshtransport/transport_test.go",
+          "declaration": "TestOpenComposedArgvBound"
+        }
+      ]
+    },
+    {
+      "id": "ssh-effective-auth-policy",
+      "production": {
+        "path": "internal/sshtransport/transport.go",
+        "declaration": "Open"
+      },
+      "tests": [
+        {
+          "path": "internal/sshtransport/transport_test.go",
+          "declaration": "TestOpenNativeSSHPolicy"
+        }
+      ]
+    },
+    {
+      "id": "ssh-bounded-duplex",
+      "production": {
+        "path": "internal/sshtransport/transport.go",
+        "declaration": "Receive"
+      },
+      "tests": [
+        {
+          "path": "internal/sshtransport/transport_test.go",
+          "declaration": "TestDuplexAndSendBoundaries"
+        },
+        {
+          "path": "internal/sshtransport/transport_test.go",
+          "declaration": "TestReceiveFailureAndLimits"
+        }
+      ]
+    },
+    {
+      "id": "ssh-process-cancellation",
+      "production": {
+        "path": "internal/sshtransport/transport.go",
+        "declaration": "Close"
+      },
+      "tests": [
+        {
+          "path": "internal/sshtransport/transport_test.go",
+          "declaration": "TestCancellationAndCleanup"
+        }
+      ]
+    },
+    {
+      "id": "ssh-stream-failure-recovery",
+      "production": {
+        "path": "internal/sshtransport/transport.go",
+        "declaration": "Wait"
+      },
+      "tests": [
+        {
+          "path": "internal/sshtransport/process_unix_test.go",
+          "declaration": "TestReadFailureAndRecovery"
+        },
+        {
+          "path": "internal/sshtransport/process_unix_test.go",
+          "declaration": "TestInheritedPipeCleanup"
+        },
+        {
+          "path": "internal/sshtransport/process_unix_test.go",
+          "declaration": "TestCancelExitRace"
+        }
+      ]
     }
   ],
   "ownership": [
@@ -3078,10 +3262,18 @@
       },
       "acceptance_cases": [
         "config-versioned-readers",
-        "config-current-writer"
+        "config-current-writer",
+        "peer-host-identity",
+        "peer-alias-resolution",
+        "peer-ssh-target",
+        "peer-key-provenance",
+        "peer-allowlist-identity",
+        "peer-identity-read-recovery",
+        "ssh-command-entry",
+        "ssh-effective-auth-policy"
       ],
       "coverage": "unevidenced",
-      "gap": "validateConfiguration enforces many Section 6.3 field constraints, but no clause of Section 6.3 is enumerated against an acceptance case, so the registry makes no clause-level claim about its obligations."
+      "gap": "validateConfiguration and peeridentity own configuration/allowlist resolution. sshtransport.Open composes the snapshot into native foreground SSH with strict effective host-key policy and fixed command argv. No clause of Section 6.3 is enumerated, and no cryptographic handshake or complete mesh authorization conformance is claimed by local process/configuration fixtures."
     },
     {
       "kind": "section_binding",
@@ -3095,10 +3287,11 @@
       "acceptance_cases": [
         "config-versioned-readers",
         "config-durable-migration",
-        "config-durable-migration-os-entry"
+        "config-durable-migration-os-entry",
+        "peer-disclosure-policy"
       ],
       "coverage": "unevidenced",
-      "gap": "Migrate writes the Section 6.4 durable migration with an owner-only backup and atomic replacement, but no clause of Section 6.4 is enumerated against an acceptance case."
+      "gap": "Migrate writes the Section 6.4 durable migration with an owner-only backup and atomic replacement, but no clause of Section 6.4 is enumerated against an acceptance case. internal/peeridentity resolves per-peer metadata policy and denies local-only or unchosen generated disclosure; payload sanitization and directory publication remain outside this slice."
     },
     {
       "kind": "section_binding",
@@ -3622,10 +3815,13 @@
         "declaration": "ForRelease"
       },
       "acceptance_cases": [
-        "catalog-v050-exact"
+        "catalog-v050-exact",
+        "ssh-bounded-duplex",
+        "ssh-process-cancellation",
+        "ssh-stream-failure-recovery"
       ],
       "coverage": "unevidenced",
-      "gap": "ForRelease only returns the reviewed typed catalog rows that reference 11.2; no clause of 11.2 is enumerated against an acceptance case, so the registry makes no clause-level claim about the 5 obligations it carries."
+      "gap": "ForRelease owns the pinned contract catalog. sshtransport provides bounded 8 MiB LF framing, duplex stdio and process failure/cancellation handling, but does not decode hello, negotiate contracts, bind nonces or admit operations. No clause of Section 11.2 is enumerated; its 5 keyword obligations remain unevidenced as full RPC behavior."
     },
     {
       "kind": "section_binding",

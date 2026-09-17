@@ -130,3 +130,32 @@ rewrite automated implementation/conformance work.
 - Closed historical wire contracts are preserved. Unknown or unproven
   platform/provider/backend capabilities remain disabled and visible.
 - No implementation claim exists merely because a board Task is present.
+
+## Host/peer identity implementation slice
+
+`TASK-260830-2u34k1` in `STORY-260830-1kiyj6` implements the read-only
+configuration/identity portion of §§6, 11.1 and 16.1 through
+`internal/peeridentity.Load`, `Directory.Resolve`, `Target.RPCArgv`,
+`Target.CheckProtocolHost`, `Target.KeyProvenance` and
+`Directory.DisclosurePolicy`. Existing `internal/config`, `internal/scalar`
+and SSH argument/endpoint owners retain grammar authority. Seven executable
+acceptance bindings in the ownership registry cover this slice; they do not
+claim full section conformance. External SSH cryptography, full RPC handshake,
+peer lifecycle, directory object sanitization/publication and doctor capability
+integration remain with their owning tasks. There is no AX-owned key registry
+or successful-key-attestation claim in the pinned contract.
+
+
+## SSH process/command implementation slice
+
+`TASK-260830-1tvg8e` adds `internal/sshtransport.New`, `Client.Open` and
+`Session.Send/Receive/Close/Wait`. Five additional executable acceptance bindings
+cover fixed native argv, strict effective SSH policy, bounded duplex streams,
+cancellation and process/pipe failure recovery. The source remains v0.5.0 at
+`28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c`, specifically §§6, 11.1 and 16.1,
+with the §11.2 framing constant reused. OpenSSH performs host-key/user
+verification; config resolution and process start are never authenticated host-ID
+evidence. Full hello, responder identity admission, RPC operations and
+hostile-network conformance remain separate owning scopes. No new keyword-clause
+coverage, doctor capability, at-rest encryption or provider-auth success is
+claimed. See README for process ownership and platform bounds.

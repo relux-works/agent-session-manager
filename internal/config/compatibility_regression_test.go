@@ -13,9 +13,8 @@ import (
 	"github.com/relux-works/agent-session-manager/internal/scalar"
 )
 
-// Version4 labels adopted census rows whose runtime reader is not implemented.
-const Version4 = "4.0.0"
-
+// Version4 is the production Configuration 4.0.0 version: the runtime reader
+// is implemented, so version-pair rows involving it exercise real behavior.
 type closedMapMemberCase struct {
 	configure func(*Configuration) BackendSettingsValidator
 	omit      func(*rawV3)
@@ -166,9 +165,10 @@ func TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes(t *testing.T) {
 			platform scalar.Platform
 			path     string
 			backend  string
+			plugdir  string
 		}{
-			{platform: scalar.PlatformWindows, path: `D:\Developer\ReluxWorks`, backend: "ax.conpty"},
-			{platform: scalar.PlatformWSL2, path: "/srv/relux", backend: "ax.tmux"},
+			{platform: scalar.PlatformWindows, path: `D:\Developer\ReluxWorks`, backend: "ax.conpty", plugdir: `C:\Users\test\.local\libexec\ax\providers`},
+			{platform: scalar.PlatformWSL2, path: "/srv/relux", backend: "ax.tmux", plugdir: "/home/test/.local/libexec/ax/providers"},
 		} {
 			platformCase := platformCase
 			t.Run(version+"/"+platformCase.platform.String(), func(t *testing.T) {
@@ -178,11 +178,31 @@ logical_root = "relux"
 path = %q
 `, platformCase.path))...)
 				if version == Version4 {
-					// SPEC 6.6: a 3.0.0 reader refuses 4.0.0 documents on
-					// every platform lane rather than selecting legacy
-					// behavior for a mesh it cannot secure.
-					if _, err := loadConfigDocument(document, platformCase.platform, nil); !errors.Is(err, ErrUnsupportedConfigVersion) {
-						t.Fatalf("Load(%s %s native path) error = %v, want unsupported-version refusal", version, platformCase.platform, err)
+					// The 4.0.0 reader is implemented, so this lane loads
+					// a complete v4 document with native paths instead of
+					// refusing the version. Required members carry no
+					// defaults, so the bare census document above cannot
+					// serve as the positive lane.
+					configuration := validV4Configuration()
+					configuration.Platform = platformCase.platform
+					configuration.WorkspaceRoots = []WorkspaceRoot{{LogicalRoot: "relux", Path: platformCase.path}}
+					configuration.Terminal.BackendID = platformCase.backend
+					configuration.Providers.PluginDirs = []string{platformCase.plugdir}
+					encoded, err := EncodeVersion4(configuration, DecodeContext{RuntimePlatform: platformCase.platform})
+					if err != nil {
+						t.Fatalf("EncodeVersion4(%s lane) error = %v", platformCase.platform, err)
+					}
+					snapshot, err := loadConfigDocument(encoded, platformCase.platform, nil)
+					if err != nil {
+						t.Fatalf("Load(%s %s native path) error = %v", version, platformCase.platform, err)
+					}
+					loaded, ok := snapshot.Configuration()
+					if !ok || loaded.SourceVersion != Version4 {
+						t.Fatalf("Load(%s %s) source = %q, present=%v, want 4.0.0", version, platformCase.platform, loaded.SourceVersion, ok)
+					}
+					channel := loaded.Value.Mesh.HostChannel
+					if channel == nil || channel.Version != HostChannelVersion {
+						t.Fatalf("Load(%s %s) host_channel = %+v, want version %q", version, platformCase.platform, channel, HostChannelVersion)
 					}
 					return
 				}
@@ -208,11 +228,12 @@ func TestLegacyConPTYTranslationIsPinnedForEveryLegacyReader(t *testing.T) {
 		}
 		document := append(minimalValidConfigVersion(scalar.PlatformWindows, version), []byte("\n[terminal]\nbackend = \"conpty\"\n")...)
 		if version == Version4 {
-			// SPEC 6.6: the version refusal fires before any member
-			// translation, so even a familiar terminal table on a 4.0.0
-			// document is refused rather than read as legacy.
-			if _, err := loadConfigDocument(document, scalar.PlatformWindows, nil); !errors.Is(err, ErrUnsupportedConfigVersion) {
-				t.Fatalf("Load(%s explicit conpty) error = %v, want unsupported-version refusal", version, err)
+			// The 4.0.0 reader is implemented, so no version refusal
+			// fires: the legacy terminal member is refused by the
+			// closed v4 shape instead, before any member translation.
+			_, err := loadConfigDocument(document, scalar.PlatformWindows, nil)
+			if !errors.Is(err, ErrConfigDecode) || errors.Is(err, ErrUnsupportedConfigVersion) {
+				t.Fatalf("Load(%s explicit conpty) error = %v, want closed-shape refusal without version refusal", version, err)
 			}
 			continue
 		}

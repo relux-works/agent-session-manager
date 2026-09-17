@@ -51,13 +51,31 @@ func TestLoadSupportsEveryPinnedConfigurationVersionAndTranslatesLegacyAtProduct
 				t.Fatalf("pinned Configuration version %s has no production reader fixture", version)
 			}
 			if version == Version4 {
-				// SPEC 6.6 makes a 4.0.0 document on a 3.0.0 reader a
-				// refusal, never legacy selection: translating one down to
-				// 3.0.0 would silently drop the mandatory mesh.transport
-				// and mesh.host_channel members, so Load must refuse with
-				// the unsupported-version refusal instead of translating.
-				if _, err := loadConfigDocument(document, scalar.PlatformMacOS, nil); !errors.Is(err, ErrUnsupportedConfigVersion) {
-					t.Fatalf("Load(%s) error = %v, want unsupported-version refusal", version, err)
+				// The 4.0.0 reader is implemented, so Load reads v4
+				// documents natively instead of refusing the version.
+				// Required members still carry no defaults: the bare
+				// census document is refused at the mesh.transport gate
+				// rather than selected as legacy, and a complete v4
+				// document loads with its version and credential binding
+				// intact instead of translating down to 3.0.0.
+				if _, err := loadConfigDocument(document, scalar.PlatformMacOS, nil); !errors.Is(err, ErrConfigValidation) {
+					t.Fatalf("Load(%s bare) error = %v, want required-member refusal", version, err)
+				}
+				encoded, err := EncodeVersion4(validV4Configuration(), DecodeContext{RuntimePlatform: scalar.PlatformMacOS})
+				if err != nil {
+					t.Fatalf("EncodeVersion4() error = %v", err)
+				}
+				snapshot, err := loadConfigDocument(encoded, scalar.PlatformMacOS, nil)
+				if err != nil {
+					t.Fatalf("Load(%s) error = %v", version, err)
+				}
+				loaded, ok := snapshot.Configuration()
+				if !ok || loaded.SourceVersion != Version4 || loaded.Value.SchemaVersion != Version4 {
+					t.Fatalf("Load(%s) versions = source %q/value %q, present=%v", version, loaded.SourceVersion, loaded.Value.SchemaVersion, ok)
+				}
+				channel := loaded.Value.Mesh.HostChannel
+				if channel == nil || channel.Version != HostChannelVersion || loaded.Value.Mesh.Transport != TransportSSHTLS13 {
+					t.Fatalf("Load(%s) mesh = transport %q host_channel %+v", version, loaded.Value.Mesh.Transport, channel)
 				}
 				return
 			}
@@ -188,11 +206,11 @@ func TestLoadRefusesUnknownClosedMembersUnsupportedVersionsAndMalformedReads(t *
 		})
 	}
 	for name, document := range map[string][]byte{
-		"unsupported major": minimalValidConfigVersion(scalar.PlatformMacOS, "4.0.0"),
-		"unsupported minor": minimalValidConfigVersion(scalar.PlatformMacOS, "3.1.0"),
-		"wrong schema":      []byte("schema = \"urn:ax:schema:not-config\"\nschema_version = \"1.0.0\"\n"),
-		"duplicate member":  append(minimalValidConfigVersion(scalar.PlatformMacOS, Version1), []byte("host_name = \"second\"\n")...),
-		"partial read":      []byte("schema = \"urn:ax:schema:config\"\nschema_version = \"1.0.0\"\nhost_id ="),
+		"v4 bare census document": minimalValidConfigVersion(scalar.PlatformMacOS, "4.0.0"),
+		"unsupported minor":       minimalValidConfigVersion(scalar.PlatformMacOS, "3.1.0"),
+		"wrong schema":            []byte("schema = \"urn:ax:schema:not-config\"\nschema_version = \"1.0.0\"\n"),
+		"duplicate member":        append(minimalValidConfigVersion(scalar.PlatformMacOS, Version1), []byte("host_name = \"second\"\n")...),
+		"partial read":            []byte("schema = \"urn:ax:schema:config\"\nschema_version = \"1.0.0\"\nhost_id ="),
 	} {
 		name, document := name, document
 		t.Run(name, func(t *testing.T) {

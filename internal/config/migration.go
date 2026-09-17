@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/relux-works/agent-session-manager/internal/hosttrust"
+	"github.com/relux-works/agent-session-manager/internal/localstore"
 	"github.com/relux-works/agent-session-manager/internal/scalar"
 )
 
@@ -26,6 +28,19 @@ var (
 	ErrMigrationRecovery       = errors.New("configuration migration recovery failed")
 	ErrCompatibilityReader     = errors.New("unsupported configuration reader version")
 	ErrCompatibilityAssessment = errors.New("configuration compatibility assessment failed")
+	// ErrMigrationV4Explicit reports a direct Migrate call targeting
+	// Configuration 4.0.0. Migration to v4 is never a one-shot upgrade: it
+	// requires PreviewV4, explicit operator confirmation, and ApplyV4.
+	ErrMigrationV4Explicit = errors.New("configuration 4.0.0 migration requires explicit preview and confirmation")
+	// ErrMigrationV4Source reports a v4 migration requested from a
+	// Configuration 1.0.0 or 2.0.0 source. Older inputs first use the
+	// existing explicit migrations to Configuration 3.0.0.
+	ErrMigrationV4Source = errors.New("configuration 4.0.0 migration requires a configuration 3.0.0 source")
+	// ErrMigrationStaleSource reports a legacy migration whose source
+	// changed between selection and the durable replacement: another
+	// migration or a joint Configuration 4.0.0 commit landed first. The
+	// delayed write refuses instead of overwriting the committed state.
+	ErrMigrationStaleSource = errors.New("configuration migration source changed during migration")
 )
 
 // MigrationOptions are the explicit choices supplied by the ax migrate config
@@ -124,7 +139,7 @@ type semverCore struct{ major, minor, patch uint64 }
 
 func knownConfigVersion(value string) (semverCore, bool) {
 	switch value {
-	case Version1, Version2, CurrentVersion:
+	case Version1, Version2, CurrentVersion, Version4:
 		parsed, _ := parseSemverCore(value)
 		return parsed, true
 	default:
@@ -185,6 +200,9 @@ func migrate(inputs Inputs, overrides Overrides, options MigrationOptions, files
 	if !targetKnown || options.TargetVersion == Version1 {
 		return MigrationResult{}, migrationError(MigrationError{Operation: "select target", Err: ErrMigrationTarget})
 	}
+	if options.TargetVersion == Version4 {
+		return MigrationResult{}, migrationError(MigrationError{Operation: "select target", Err: ErrMigrationV4Explicit})
+	}
 	snapshot, err := Load(inputs, overrides)
 	if err != nil {
 		return MigrationResult{}, err
@@ -218,15 +236,95 @@ func migrate(inputs Inputs, overrides Overrides, options MigrationOptions, files
 	if err != nil {
 		return result, migrationError(MigrationError{Operation: "encode target", Err: err}) // config-refusal-subsumed: every encoder refusal below this propagation is pinned on its own clause, at writer.go terminal.backend and writer.go v2 wire TOML for the v2 encoder, at writer.go v2 re-read for its defence-in-depth round trip, and by the EncodeCurrent validation suite for v3
 	}
-	selected, _ := snapshot.Paths().Path(ConfigFile)
-	filename := selected.Value.String()
+	localPaths := snapshot.LocalPaths()
+	filename, err := configPathFromLocalPaths(localPaths)
+	if err != nil {
+		return result, err
+	}
 	backup := filename + ".bak." + loaded.SourceVersion
 	result.BackupPath = backup
-	if err := replaceDurably(filesystem, filename, backup, snapshot.Document(), replacement); err != nil {
+	// A successful Load always resolves the state directory, so the
+	// coordinating store always exists: opening it converges interrupted
+	// joint intent and creates the owner-only skeleton when absent.
+	store, err := openLegacyStore(localPaths)
+	if err != nil {
+		return result, err
+	}
+	if err := store.EnsureConfigBinding(localPaths); err != nil {
+		return result, err
+	}
+	// The durable replacement runs inside the shared authorization
+	// transaction: the exclusive hold serializes this writer with joint
+	// commits and other legacy migrations, and the source revalidation
+	// under the hold refuses a delayed write whose source already moved
+	// (including a completed Configuration 4.0.0 commit).
+	if err := store.WithExclusiveHoldForConfig(localPaths, func(hold hosttrust.HeldExclusive) error {
+		if err := revalidateLegacySource(inputs, overrides, snapshot); err != nil {
+			return err
+		}
+		return replaceDurably(hold, filesystem, localPaths, backup, snapshot.Document(), replacement)
+	}); err != nil {
 		return result, err
 	}
 	result.Changed = true
 	return result, nil
+}
+
+// openLegacyStore opens the machine-local store coordinating one legacy
+// migration with joint commits. Opening converges interrupted joint
+// intent and creates the owner-only store skeleton when absent; a store
+// that cannot open (unsafe custody, unresolvable intent) fails the
+// migration closed instead of writing beside unknown authority.
+func openLegacyStore(paths localstore.ResolvedPaths) (*hosttrust.Store, error) {
+	store, err := hosttrust.Open(paths)
+	if err != nil {
+		return nil, migrationError(MigrationError{Operation: "open trust store", Err: err})
+	}
+	return store, nil
+}
+
+// revalidateLegacySource repeats the selected source pins inside the
+// authorization transaction: the current document must still carry the
+// selected version and byte-exact bytes. It runs under the exclusive
+// hold, so no trust or config commit can land between this revalidation
+// and the replacement it guards.
+func revalidateLegacySource(inputs Inputs, overrides Overrides, snapshot Snapshot) error {
+	current, err := Load(inputs, overrides)
+	if err != nil {
+		return err
+	}
+	currentLoaded, decoded := current.Configuration()
+	if !current.ConfigPresent() || !decoded {
+		return migrationError(MigrationError{Operation: "revalidate source", Err: ErrMigrationSourceAbsent})
+	}
+	loaded, _ := snapshot.Configuration()
+	if currentLoaded.SourceVersion != loaded.SourceVersion {
+		return migrationError(MigrationError{Operation: "revalidate source", Err: ErrMigrationStaleSource})
+	}
+	if !bytes.Equal(current.Document(), snapshot.Document()) {
+		return migrationError(MigrationError{Operation: "revalidate source", Err: ErrMigrationStaleSource})
+	}
+	return nil
+}
+
+// requireHold refuses a pair mutation attempted without a live exclusive
+// authorization hold. The hold itself is constructed only by the lock
+// acquisition path; this package can pass it along but never forge one.
+func requireHold(hold hosttrust.HeldExclusive) error {
+	if !hold.Valid() {
+		return migrationError(MigrationError{Operation: "require exclusive hold", Err: hosttrust.ErrExclusiveHoldRequired})
+	}
+	return nil
+}
+
+func requireHoldForConfig(hold hosttrust.HeldExclusive, paths localstore.ResolvedPaths) error {
+	if err := requireHold(hold); err != nil {
+		return err
+	}
+	if err := hold.ValidateConfigPaths(paths); err != nil {
+		return migrationError(MigrationError{Operation: "require configuration hold resource", Err: err})
+	}
+	return nil
 }
 
 type migrationFile interface {
@@ -276,7 +374,27 @@ func (osMigrationFileSystem) OpenDirectory(name string) (migrationDirectory, err
 	return os.Open(name)
 }
 
-func replaceDurably(filesystem migrationFileSystem, filename, backup string, original, replacement []byte) error {
+// replaceDurably publishes a byte-exact backup of the pre-migration
+// configuration document, then installs the replacement, under a live
+// exclusive authorization hold. A forged, absent or released hold refuses
+// before anything durable is written. Backup contents classification: the
+// backup is a copy of configuration bytes only (host and peer UUIDs,
+// names, endpoints, SSH arguments) and never carries private key
+// material, which lives exclusively under
+// STATE_DIR/host-channel/credentials/. The custody contract for backups is:
+// staged 0600 with group/world-clean verification (Unix owner-only), and
+// published names matched by hosttrust.ExcludedConfigDirName so every
+// replication, snapshot, clone or diagnostic surface must drop them. On
+// Windows the backup DACL inherits the user-profile ACL; that inheritance
+// is a stated bound, not owner-only evidence.
+func replaceDurably(hold hosttrust.HeldExclusive, filesystem migrationFileSystem, paths localstore.ResolvedPaths, backup string, original, replacement []byte) error {
+	if err := requireHoldForConfig(hold, paths); err != nil {
+		return err
+	}
+	filename, err := configPathFromLocalPaths(paths)
+	if err != nil {
+		return err
+	}
 	directory := filepath.Dir(filename)
 	// Re-inspect the selected file before anything durable is written. Load
 	// resolved and validated it through the symlink-following read seam; this

@@ -159,7 +159,7 @@ func TestResolvePathsUsesNormativePlatformDefaults(t *testing.T) {
 				DataRoot:    "C:\\Users\\test\\AppData\\Local\\ax\\data",
 				StateRoot:   "C:\\Users\\test\\AppData\\Local\\ax\\state",
 				CacheRoot:   "C:\\Users\\test\\AppData\\Local\\ax\\cache",
-				RuntimeRoot: "C:\\Users\\test\\AppData\\Local\\Temp\\ax",
+				RuntimeRoot: "C:\\Users\\test\\AppData\\Local\\ax\\runtime",
 			},
 		},
 	}

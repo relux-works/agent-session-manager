@@ -39,6 +39,8 @@ type ContainingContract struct {
 //     RPC 3, CLI Result 3, and Directory Query 1".
 //   - 15.3: "Terminal Backend Protocol 1.0.0, Provider Protocol 3.0.0, Mesh RPC
 //     4.0.0, and CLI Result 4.0.0 statically bind Structured Error 1.3.0."
+//   - 11.10.1: RPC 5 has the exact RPC-4 shapes and "Structured Error
+//     remains statically bound to 1.3.0."
 var staticBindings = map[ContainingContract]Version{
 	{ID: "urn:ax:protocol:provider", Major: 2}:               Version100,
 	{ID: "urn:ax:protocol:provider", Major: 3}:               Version130,
@@ -46,6 +48,7 @@ var staticBindings = map[ContainingContract]Version{
 	{ID: "urn:ax:protocol:rpc", Major: 2}:                    Version100,
 	{ID: "urn:ax:protocol:rpc", Major: 3}:                    Version120,
 	{ID: "urn:ax:protocol:rpc", Major: 4}:                    Version130,
+	{ID: "urn:ax:protocol:rpc", Major: 5}:                    Version130,
 	{ID: "urn:ax:protocol:session-adapter", Major: 1}:        Version110,
 	{ID: "urn:ax:schema:cli-result", Major: 1}:               Version100,
 	{ID: "urn:ax:schema:cli-result", Major: 2}:               Version110,
