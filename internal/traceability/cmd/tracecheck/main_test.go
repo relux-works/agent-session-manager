@@ -22,8 +22,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := "traceability ok: contracts=63 normative_sections=36 acceptance_cases=101 fixtures=32 compatibility_contracts=55 assigned_scopes=0\n" +
-		"section coverage: bindings=56 full=1 partial=3 sliver=1 unevidenced=48 unmeasured=3 unowned=12 clauses_discharged=17/463\n"
+	want := "traceability ok: contracts=63 normative_sections=36 acceptance_cases=113 fixtures=32 compatibility_contracts=55 assigned_scopes=0\n" +
+		"section coverage: bindings=56 full=2 partial=4 sliver=3 unevidenced=44 unmeasured=3 unowned=12 clauses_discharged=29/463\n"
 	if output.String() != want {
 		t.Fatalf("run() output = %q, want %q", output.String(), want)
 	}
@@ -55,8 +55,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run(assigned sections) error = %v", err)
 	}
-	want = "traceability ok: contracts=63 normative_sections=36 acceptance_cases=101 fixtures=32 compatibility_contracts=55 assigned_scopes=1\n" +
-		"section coverage: bindings=56 full=1 partial=3 sliver=1 unevidenced=48 unmeasured=3 unowned=12 clauses_discharged=17/463\n"
+	want = "traceability ok: contracts=63 normative_sections=36 acceptance_cases=113 fixtures=32 compatibility_contracts=55 assigned_scopes=1\n" +
+		"section coverage: bindings=56 full=2 partial=4 sliver=3 unevidenced=44 unmeasured=3 unowned=12 clauses_discharged=29/463\n"
 	if output.String() != want {
 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
 	}
@@ -78,8 +78,9 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 
 // TestRunAdmitsOnlyAssignedSectionsWhoseBindingDischargesTheWholeSection is the
 // admitted arm of the coverage gate at the command entry point. Section 6.2
-// discharges the one normative clause its pinned section carries. It is the
-// only section in the shipped registry the command admits.
+// discharges the one normative clause its pinned section carries, and Section
+// 2.4 discharges all four of its clauses. They are the only sections in the
+// shipped registry the command admits.
 //
 // Section 13.14.5 was admitted here too, on the ground that its pinned section
 // "carries none of its own". That was an artefact of the obligation scanner
@@ -90,7 +91,7 @@ func TestRunAdmitsOnlyAssignedSectionsWhoseBindingDischargesTheWholeSection(t *t
 	t.Parallel()
 
 	repositoryRoot := filepath.Join("..", "..", "..", "..")
-	for _, section := range []string{"6.2"} {
+	for _, section := range []string{"6.2", "2.4"} {
 		var output bytes.Buffer
 		if err := run([]string{"-root", repositoryRoot, "-section", section}, &output); err != nil {
 			t.Errorf("run(-section %s) error = %v", section, err)
@@ -123,7 +124,6 @@ func TestRunRefusesEveryAssignedSectionThatOnlySlivers(t *testing.T) {
 		{"2.1", "discharges 0/1 normative clauses, which is unevidenced coverage"},
 		{"2.2", `binding "section:2.2" is recorded unowned:`},
 		{"2.3", "discharges 0/7 normative clauses, which is unevidenced coverage"},
-		{"2.4", "discharges 0/4 normative clauses, which is unevidenced coverage"},
 		{"3.2", "discharges 0/13 normative clauses, which is unevidenced coverage"},
 		{"3.3", "discharges 0/4 normative clauses, which is unevidenced coverage"},
 		{"5.1", "discharges 0/9 normative clauses, which is unevidenced coverage"},
@@ -178,7 +178,7 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
 		{"1.6", "internal/scalar/scalar.go", "ErrInvalidScalar", "var ErrInvalidScalar", "var RenamedErrInvalidScalar"},
 		{"2.1", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
 		{"2.3", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
-		{"2.4", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
+		{"2.4", "internal/sessprofile/profile.go", "Derive", "func Derive(", "func renamedDerive("},
 		{"3.2", "internal/localstore/paths.go", "ResolvePaths", "func ResolvePaths(", "func RenamedResolvePaths("},
 		{"3.3", "internal/localstore/projection.go", "OpenProjection", "func OpenProjection(", "func RenamedOpenProjection("},
 		{"5.1", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordWithDerivation", "func validateSessionRecordWithDerivation(", "func renamedValidateSessionRecordWithDerivation("},
@@ -198,6 +198,9 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
 			want := `section binding "section:` + test.section + `" production owner: declaration "` + test.declaration + `" is absent`
 			if test.declaration == "OpenProjection" {
 				want = `acceptance case "localstore-sqlite-projection" production owner: declaration "OpenProjection" is absent`
+			}
+			if test.declaration == "Derive" {
+				want = `acceptance case "sessprofile-derive" production owner: declaration "Derive" is absent`
 			}
 			if err == nil || !strings.Contains(output, want) || strings.Contains(output, "traceability ok:") {
 				t.Fatalf("tracecheck -section %s error = %v output = %q, want refusal %q", test.section, err, output, want)

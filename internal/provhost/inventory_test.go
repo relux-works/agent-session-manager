@@ -41,6 +41,7 @@ func TestMain(main *testing.M) {
 	}
 	origInvalid, origProtocol, origMismatch := failInvalid, failProtocol, failMismatch
 	origProcess, origTimeout, origIntegrity := failProcess, failTimeout, failIntegrity
+	origMapping := failMappingUnavailable
 	failInvalid = func(detail string) (*axerror.Error, error) {
 		failure, err := origInvalid(detail)
 		if err == nil {
@@ -83,6 +84,13 @@ func TestMain(main *testing.M) {
 		}
 		return failure, err
 	}
+	failMappingUnavailable = func(detail, providerID, providerVersion, profile string) (*axerror.Error, error) {
+		failure, err := origMapping(detail, providerID, providerVersion, profile)
+		if err == nil {
+			recordRefusalSite(string(failure.Code()))
+		}
+		return failure, err
+	}
 	code := main.Run()
 	if code == 0 && fullPackageTestRun() {
 		if failures := auditRefusalInventory(); len(failures) != 0 {
@@ -103,7 +111,7 @@ func fullPackageTestRun() bool {
 // auditRefusalInventory derives the refusal inventory from package
 // source, never from memory: every production call to a refusal
 // constructor must have an exercised negative path, no Structured Error
-// may be built outside the six constructors, no raw error may be minted,
+// may be built outside the seven constructors, no raw error may be minted,
 // and the observed code set must equal the closed code set exactly.
 func auditRefusalInventory() []string {
 	directory, err := os.Getwd()
@@ -153,7 +161,7 @@ func auditRefusalInventory() []string {
 		failures = append(failures, "provhost refusal call sites without an exercised negative path: "+strings.Join(missing, ", "))
 	}
 	codes := refusalRecorder.Codes()
-	want := []string{"incompatible_protocol", "integrity_failure", "invalid_config", "provider_process_failed", "provider_protocol_error", "provider_timeout"}
+	want := []string{"incompatible_protocol", "integrity_failure", "invalid_config", "profile_mapping_unavailable", "provider_process_failed", "provider_protocol_error", "provider_timeout"}
 	if fmt.Sprintf("%v", codes) != fmt.Sprintf("%v", want) {
 		failures = append(failures, fmt.Sprintf("observed refusal codes = %v, want closed set %v", codes, want))
 	}
@@ -179,12 +187,13 @@ type refusalInventory struct {
 }
 
 var refusalConstructors = map[string]bool{
-	"failInvalid":   true,
-	"failProtocol":  true,
-	"failMismatch":  true,
-	"failProcess":   true,
-	"failTimeout":   true,
-	"failIntegrity": true,
+	"failInvalid":            true,
+	"failProtocol":           true,
+	"failMismatch":           true,
+	"failProcess":            true,
+	"failTimeout":            true,
+	"failIntegrity":          true,
+	"failMappingUnavailable": true,
 }
 
 func deriveRefusalInventory(directory string) (refusalInventory, error) {
@@ -505,6 +514,7 @@ func TestRefusalConstructorsAreTotal(t *testing.T) {
 		{"process without cause", func() (*axerror.Error, error) { return failProcess("fake", nil) }, "provider_process_failed"},
 		{"timeout", func() (*axerror.Error, error) { return failTimeout("fake", 100) }, "provider_timeout"},
 		{"integrity", func() (*axerror.Error, error) { return failIntegrity("fake", "unknown", "m", "t") }, "integrity_failure"},
+		{"mapping", func() (*axerror.Error, error) { return failMappingUnavailable("fake", "codex", "0.147.0", "yolo") }, "profile_mapping_unavailable"},
 	} {
 		t.Run(kase.name, func(t *testing.T) {
 			failure, err := kase.call()

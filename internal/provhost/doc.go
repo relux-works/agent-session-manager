@@ -53,8 +53,10 @@
 // values are evidence labels, not host behavior: the host pins the
 // fail-closed direction (conditional, unsupported, and unknown are
 // never usable) for every capability-by-status tuple rather than one
-// cell value. Section 8.2 store-exclusion roots and the remaining
-// Section 7.5 request vocabularies have no host production yet.
+// cell value, resolves the Section 8.2 documented store roots for
+// discovery binding, and refuses the Section 8.4 disabled resume
+// tuples. Section 8.2 store exclusions and the remaining Section 7.5
+// request vocabularies have no host production yet.
 //
 // Provider Protocol 3.0.0 (§7.A), which the v0.5.0 catalog pins
 // alongside 2.0.0, is owned by internal/terminalbackend, not by this

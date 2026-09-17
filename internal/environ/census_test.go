@@ -267,6 +267,7 @@ var grammarSiteLedger = map[string]bool{
 	"semver-grammar|provhost|manifest.go|semverPattern":                   true,
 	"extensions-grammar|environ|decode.go|reverseDNSPattern":              true,
 	"extensions-grammar|canonicaljson|closed_shapes.go|reverseDNSPattern": true,
+	"extensions-grammar|provhost|identity_create.go|reverseDNSPattern":    true,
 	"provider-id-grammar|scalar|names.go|providerIDPattern":               true,
 	"provider-id-grammar|provhost|manifest.go|providerIDPattern":          true,
 	"provider-id-grammar|sessadapter|decode.go|providerIDPattern":         true,

@@ -143,6 +143,14 @@ var failIntegrity = func(detail string, statusState string, materializationID st
 	return axerror.New(axerror.Spec{Version: axerror.Version100, Code: "integrity_failure", Message: "provider status observation is not durable state: " + detail, Details: axerror.Details{"status_state": statusState, "materialization_id": materializationID, "transaction_id": transactionID}})
 }
 
+// failMappingUnavailable reports the Section 2.4 resume failure:
+// the adapter cannot map the stored profile for the probed
+// provider version. The details name the provider, the exact
+// probed version, and the profile that had no mapping.
+var failMappingUnavailable = func(detail string, providerID string, providerVersion string, profile string) (*axerror.Error, error) {
+	return axerror.New(axerror.Spec{Version: axerror.Version100, Code: "profile_mapping_unavailable", Message: "provider host cannot map the stored profile: " + detail, Details: axerror.Details{"provider_id": providerID, "provider_version": providerVersion, "profile": profile}})
+}
+
 // Request is one Section 7.2 request envelope. Body crosses the transport
 // opaquely: it must be a JSON object, and its members are interpreted by
 // the operation layer, except for the status recovery read.

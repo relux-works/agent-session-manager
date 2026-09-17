@@ -5,11 +5,140 @@
 
 ## 2026-09-17
 
+### TASK-260830-2zvo8m — native-resume smoke framework (story-final leaf)
+
+- PRODUCTION: new `internal/resumesmoke` (`Run` drives probe,
+  identify-session, discovery-bind, quiescence-precondition, and
+  resume-plan through `provhost.Host.Call`; `ResumeCell` reads the
+  Section 8.4 native-resume direction with Appendix B version gates;
+  `VerifyRecord` enforces the closed smoke record, omit-self digest,
+  and verdict consistency; `Store`/`Load` install content-addressed,
+  no-replace, fsynced evidence) plus two zero-refusal-site provhost
+  replay accessors (`ProbeBuild`, `SplitIdentifyResult`) that consume
+  validated members, never the body.
+- REFUSAL DIRECTION: U/? tuples refuse before any adapter call; C
+  tuples gather read-only evidence and gate the resume plan with the
+  Section 19.3 citation; only A cells pass. No smoke API promotes a
+  gated cell, and passing smoke advertises no capability (no
+  capability map, no doctor surface; Section 8.3 stays the only
+  authority). Muse off-pin reads unknown (Appendix B unsettled),
+  matching the landed tuple gate.
+- MUTANTS: committed `TestSmokeMutantsAreKilled` kills 10/10
+  narrowing mutants (resume gate, probe drift, confidence, bind,
+  digest scope, consistency, disagreement length, quiescence,
+  mapping, matrix) with the harmless comment control SURVIVED. Each
+  mutant runs in a private module copy: the first harness patched
+  the checkout in place and raced parallel tree-walking censuses
+  (`specdoc` read a half-written file under `go test ./...`), so
+  the shipped harness never writes the checkout.
+- DEFECTS FOUND BY TESTS (fixed): record verification carried two
+  equivalent integrity checks (canonical reconstruction subsumed the
+  omit-self digest compare, which could never fire independently) -
+  dropped reconstruction, kept the owner-idiom digest compare; crash
+  test scanned a 19-char prefix of a 20-char filename and missed the
+  killed install.
+- IDEMPOTENCY/CRASH: identical inputs replay byte-identical records;
+  identical Store retries reuse the path; disagreeing bytes refuse
+  for quarantine; real-kill test (`SIGKILL` between write and fsync
+  via re-executed helper) recovers byte-identical evidence.
+- TRACEABILITY (story-close): bindings for 2.4 (full 4/4), 5.5
+  (sliver 1/3), 7.7 (partial 3/4), 8 (sliver 4/12) with 12 new
+  acceptance cases; `tracecheck` now 113 cases, 29/463 clauses;
+  `-section 2.4` admitted alongside 6.2; README figures and pin
+  tests updated deliberately.
+- BOUNDS (stated): native-Windows bind rows need a Windows host
+  (host separator vs platform-native proof rule) and skip loudly on
+  POSIX with cells still pinned by derivation; quiescence consumed
+  as valid-and-safe only (proof-to-tuple binding belongs to the
+  quiescence owner); record integrity detects tampering, not a
+  digest-plus-checklist forgery (local evidence, no adversary).
+- COVERAGE: 16 of 16 AC rows driven through production entries;
+  results, conformance matrix, and producer evidence tarball
+  attached to the task; candidate left uncommitted.
+
 ### TASK-260917-3lt2xv — release-agnostic cataloggen check via -adopted
 - CONTRACT: validation command 21 was pinned to explicit v0.6.0 inputs, so a Story re-pointing the catalog at a new revision failed construction at its own gate. The fix declares the adopted release once (`catalog.Adopted`, consumed by `Current()`) and adds a cataloggen `-adopted` mode deriving `internal/catalog/catalog.<adopted>.json` and `internal/specpin/<adopted>.lock.json` relative to `-root` (default "."). Mixed `-adopted` with explicit `-metadata`/`-contracts`, a missing derived input (message names the derived path), and a lock whose source release differs from adopted are refused before generation; otherwise the same Generate call and `-check`/`-output` semantics run byte-identically to the explicit form.
 - GATE: command 21 is now `go run ./internal/catalog/cmd/cataloggen -adopted -output internal/catalog/catalog_gen.go -check`; every other validation command unchanged. No catalog content, metadata, lock, or generated-output change.
 - TESTS: adopted positives, byte-identity (adopted vs explicit v0.6.0 vs committed), and all refusals driven through the production `run` entry; the configured-command test asserts the `-adopted` shape and runs it rooted at the repo. Narrowing mutants per refusal plus a byte-identity derivation mutant, all killed; harmless control SURVIVED. Both the candidate `-adopted` command and trunk's explicit command are green on the tree.
 - DOCS: README regenerate block and tool row document the `-adopted` form and the explicit equivalent. No behavior or availability claims added.
+### TASK-260830-3uzfyn — profile resolution, set-profile, and provider mapping
+- PRODUCTION: new `internal/sessprofile` (Section 2.4 derivation over
+  the session head and the checkpoint event-head closure, `Projector`
+  over the sessrepo entries, pure `MintChangeEvent`, `Transactor`
+  set-profile with replay-on-retry, reducer-level pair
+  projections/checks, `ResolveCreationProfile`) plus provhost
+  `ResolveMapping`/`ProjectLaunchArgv` and the seventh refusal
+  constructor `failMappingUnavailable` (Section 2.4 code, exit 6).
+  Sections 2.4/7.7 are textually identical in v0.5.0/v0.6.0.
+- GATES: 12 new derived refusal arms (10 `invalid_config`, 2
+  `profile_mapping_unavailable`), all witnessed (floor 217 -> 229);
+  runtime audit extended to the seventh constructor and the closed
+  code set; secprim secret-site census gained the reviewed
+  `unrestrictedTokens` argv-words row. No traceability row touched.
+- MUTANTS: shipped `internal/sessprofile/testdata/mutate_profile.py`
+  reports 20/20 applied N plants killed on the exact final source
+  (one token-preserving: Pi `0.73.1` admits exactly `0.74.0`),
+  harmless control `SURVIVED`, `NOT_APPLIED` and
+  `COMPILE_OR_HARNESS_FAILURE` outside the numerator. The first
+  battery run caught two plant bugs before they shipped: a vacuous
+  alias-set plant (the alias dedupes with muse's table flag) and a
+  source-presence plant subsumed by the equality arm (now
+  message-pinned).
+- DEFECTS FOUND BY TESTS (fixed): Pi's report-only mapping leaked
+  into projected argv; the row-membership arm was unreachable behind
+  the tuple gate (reordered: caller argument classified first);
+  set-profile replay compared the derived from-end and could never
+  fire (envelope is target/lease/author/instant only).
+- SPEC GAPS (stated, not invented): `ax start --profile` has no
+  spec'd absent default (CLI leaf owns it; empty refuses here);
+  `provider.launched profile_mapping` requires 1..512 chars while
+  standard omits every flag, so no standard spelling exists
+  (fixtures carry the profile word; the pair checks never read the
+  member); sessquery's closure capability is unexported, so
+  sessprofile defines its closure input explicitly with identical
+  semantics.
+- IDEMPOTENCY/CRASH: byte-identical retry replays the committed
+  change (`TestSetProfileRetryReplaysCommittedChange`); prepare
+  fault admits nothing and the retry appends, commit fault counts
+  as committed and the retry replays (crash_test.go, owner
+  injector through the landed repo hooks).
+- COVERAGE: 16 of 16 AC rows driven through production entries;
+  results, conformance matrix, and producer evidence tarball
+  attached to the task; candidate left uncommitted.
+
+### TASK-260830-kp4zpu — provider identity creation and binding
+- PRODUCTION (`internal/provhost/identity_create.go`,
+  `identity_bind.go`): `CreateIdentity` builds Section 5.5 records
+  with the true omit-self `record_id` via the owner's
+  `CalculateObjectIdentity`; `DecodeNativeDiscovery` decodes the
+  Section 7.5 proof; `StoreRootFor` resolves the six Section 8.2
+  documented roots (Muse XDG-aware, Antigravity backend-only);
+  `CheckResumeTuple` refuses unknown/unsupported/unverified-version
+  Section 8.4 tuples; `VerifyIdentityBuild`/`VerifyIdentityDiscovery`
+  bind records to exact build, root, realm, and discovery facts.
+- GATES: 50 new refusal arms, all `invalid_config` except the seven
+  proof-shape `provider_protocol_error` arms; 217/217 derived arms
+  witnessed (floor raised 166 -> 217); every constructor site
+  carries an exercised negative path; two new vocabulary
+  derivations (`resumeProviders` from the Section 8.2 table,
+  `discoveryMembers` from the Section 7.5 type row).
+- MUTANTS: shipped `internal/provhost/testdata/mutate_identity.py`
+  reports 24/24 applied N plants killed on the exact final source
+  (two token-preserving: opaque `/` suffix-swap, muse `0.1.0`
+  admission), harmless control `SURVIVED`, `NOT_APPLIED` and
+  `COMPILE_OR_HARNESS_FAILURE` outside the numerator. The first
+  battery run caught two inverted mutant conditions before they
+  shipped.
+- IDEMPOTENCY: `TestCreateIdentityIsByteIdentical` proves 25
+  identical emissions; creation is pure with no durable writes, so
+  crash/restart evidence is a stated bound, not a gap.
+- BOUNDS: Section 2.4 profile authority stays sibling-owned
+  (TASK-260830-3uzfyn); version ranges stay opaque; only Muse
+  carries a cell-level version pin; no CLI or capability
+  advertisement added. Coverage 9 of 10 AC rows driven plus the
+  crash bound; see `internal/provhost/TRACEABILITY.md`.
+- HANDOFF: results, conformance matrix, and producer evidence
+  tarball attached to the task; candidate left uncommitted.
 
 ### TASK-260830-21gygk — rev16 rework: normalize Go aliases in the sealed-capability census
 - REVIEW FINDING CLOSED (CR15 P2-A): the package-wide `go/types` census

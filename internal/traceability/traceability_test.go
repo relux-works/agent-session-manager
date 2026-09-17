@@ -29,18 +29,18 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 	want := Report{
 		Contracts:              63,
 		NormativeSections:      36,
-		AcceptanceCases:        101,
+		AcceptanceCases:        113,
 		Fixtures:               32,
 		CompatibilityContracts: 55,
 		SectionBindings:        56,
-		FullCoverage:           1,
-		PartialCoverage:        3,
-		SliverCoverage:         1,
-		UnevidencedCoverage:    48,
+		FullCoverage:           2,
+		PartialCoverage:        4,
+		SliverCoverage:         3,
+		UnevidencedCoverage:    44,
 		UnmeasuredCoverage:     3,
 		UnownedSections:        12,
 		NormativeClauses:       463,
-		DischargedClauses:      17,
+		DischargedClauses:      29,
 	}
 	if !reflect.DeepEqual(report, want) {
 		t.Fatalf("VerifyRepository() report = %#v, want %#v", report, want)
@@ -50,7 +50,8 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 // TestVerifyAssignedSectionsBindsGranularScopeToOwnersAndExecutableCases pins
 // the admitted arm of assigned-scope admission. Section 6.2 is admitted because
 // it discharges the one normative clause its pinned section carries against an
-// executable acceptance case. It is the only shipped binding that is.
+// executable acceptance case, and Section 2.4 is admitted because it discharges
+// all four of its clauses. They are the only shipped bindings that are.
 //
 // Section 13.14.5 used to be admitted here on the ground that its pinned
 // section "carries no RFC 2119 obligation of its own". That was false: the
@@ -73,7 +74,7 @@ func TestVerifyAssignedSectionsBindsGranularScopeToOwnersAndExecutableCases(t *t
 		t.Fatalf("VerifyAssignedSections() assigned scopes = %d, want 1", report.AssignedScopes)
 	}
 
-	for _, scope := range []string{"6.2", "§6.2"} {
+	for _, scope := range []string{"6.2", "§6.2", "2.4", "§2.4"} {
 		report, err := VerifyAssignedSections(repositorySnapshot(t), []string{scope})
 		if err != nil {
 			t.Errorf("VerifyAssignedSections(%q) error = %v", scope, err)
@@ -662,7 +663,6 @@ func TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers(t *testing.T) 
 		{"2.1", `binding "section:2.1" discharges 0/1 normative clauses, which is unevidenced coverage`},
 		{"2.2", `binding "section:2.2" is recorded unowned:`},
 		{"2.3", `binding "section:2.3" discharges 0/7 normative clauses, which is unevidenced coverage`},
-		{"2.4", `binding "section:2.4" discharges 0/4 normative clauses, which is unevidenced coverage`},
 		{"3.2", `binding "section:3.2" discharges 0/13 normative clauses, which is unevidenced coverage`},
 		{"3.3", `binding "section:3.3" discharges 0/4 normative clauses, which is unevidenced coverage`},
 		{"5.1", `binding "section:5.1" discharges 0/9 normative clauses, which is unevidenced coverage`},

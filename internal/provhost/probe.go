@@ -376,6 +376,31 @@ func CapabilityUsable(status string, enabled bool) bool {
 	return status == CapabilityAvailable && enabled
 }
 
+// ProbeBuild decodes one probe-operation success body and replays the
+// exact probed build tuple it carries: provider ID, provider version,
+// platform, and architecture. It consumes decodeValidatedProbe
+// members, never the body, following the RequireCapability pattern
+// below, so validation and use cannot drift. Callers comparing the
+// replayed tuple against a claimed build fail closed on any mismatch,
+// because a mapping or resume decision made for one build must never
+// silently apply to another.
+func ProbeBuild(body []byte) (BuildTuple, error) {
+	members, err := decodeValidatedProbe(body)
+	if err != nil {
+		return BuildTuple{}, err
+	}
+	provider, _ := rawString(members["provider_id"])
+	version, _ := rawString(members["provider_version"])
+	platform, _ := rawString(members["platform"])
+	architecture, _ := rawString(members["architecture"])
+	return BuildTuple{
+		ProviderID:      provider,
+		ProviderVersion: version,
+		Platform:        platform,
+		Architecture:    architecture,
+	}, nil
+}
+
 // RequireCapability decodes one probe body and requires the named
 // capability usable. A malformed probe is a provider_protocol_error;
 // a well-formed probe that does not establish the capability is an

@@ -485,7 +485,16 @@ literals disjoint from inherited names, and a `profile_mapping`
 equal to the Section 7.7 mapping), the Section 5.5 Provider Identity
 Record with the identify-session wrapper, and the single
 `(operation, operation_id)` mutation key (keyed operations derived
-per-row from the Section 7.5 table). A lost mutation retried with
+per-row from the Section 7.5 table). The host also constructs Section
+5.5 records itself (`CreateIdentity` computes the true omit-self
+`record_id` for host-side params, byte-identical for identical
+inputs) and binds records to exact native facts before use: the
+probed build tuple (`VerifyIdentityBuild` refuses version drift),
+the Section 8.2 store root with the Section 7.5 discovery proof
+(`VerifyIdentityDiscovery` refuses absent, mismatched, or unresolved
+discovery), and the Section 8.4 resume direction (`CheckResumeTuple`
+refuses unknown, unsupported, and unverified-version tuples without
+advertising any cell as usable). A lost mutation retried with
 identical bytes returns byte-identical results across fresh
 processes; a changed body surfaces the bound `idempotency_mismatch`
 child with no further frame sent. Mutation receipts themselves live
@@ -1830,6 +1839,163 @@ on the normal package suite and adds compiler/subprocess time. Task validation
 logs and mutation artifacts are attached to `TASK-260830-1r9wrr`; scratch
 outputs live under `.temp/TASK-260830-1r9wrr/`.
 
+## Execution profiles: derivation, set-profile, and provider mapping
+
+[`internal/sessprofile`](internal/sessprofile) derives and persists the
+Section 2.4 effective execution profile: the Session Record creation value
+followed by the newest authoritative `profile.changed` event in
+lease/sequence order (pinned v0.6.0 Sections 2.4, 5.1-5.2, 5.4, 7.7, 9.3;
+Sections 2.4 and 7.7 are textually identical in v0.5.0). `Derive` folds a
+validated record with its authoritative chain into the session-head pair
+(the profile spelling plus the nullable source event digest);
+`DeriveForHeads` derives over a checkpoint's transitive event-head
+closure, consulting only closure events, so a later local-only change
+never affects the pair and the derivation never falls back to the
+creation value while the closure holds a change. Chain continuity is
+re-checked over the input for the same reason the lifecycle reducer
+re-checks it: a chain-forbidden reordering refuses with
+`invalid_state_transition` instead of silently deriving a different pair,
+and a losing-lease or ambiguous event refuses instead of changing the
+derivation. Confirmation is a publication rule, not derivation input: a
+chained change is authoritative by construction and the fold reads only
+its target. `Projector` binds the pure reducer to a repository through
+`ListSessions`, `GetRecord`, `ListEvents`, and `GetEvent` only, so a
+parked session refuses with its blocking reason and retry, never with an
+unknown. There is no time-expiring ownership lease in the pinned Section
+5.3, so "losing or expired" means the acting lease no longer equals the
+chain-head lease.
+
+`Transactor.SetProfile` validates one profile change and appends it as a
+new event under the current lease through the `sessrepo` append/attest
+path. The from end is the session-head effective profile, never the
+creation value alone. Refusals, in order: an unknown or parked session, a
+target outside the `standard|yolo` vocabulary, an acting lease that is
+not the chain-head lease (a stale epoch, a divergent token, or a
+greater epoch — lease succession arrives through takeover flows, never
+through a profile event), an unconfirmed change to `yolo`, and a change
+from a profile to itself. Minting is a pure function of the request
+(`MintChangeEvent` computes the omit-self digest through
+`canonicaljson.CalculateObjectIdentity` and never verifies, so the
+no-attestation-outside-the-leaf bound holds), which makes a retry
+idempotent: a retry of an already-committed change replays the committed
+bytes when the newest authoritative change carries the request envelope,
+and only the append mutates durable state, so the landed crash semantics
+apply unchanged — a fault before the durable write admits nothing and
+the identical retry appends, while a fault after it counts as committed
+and the identical retry replays instead of duplicating or refusing.
+
+The reducer-level pair projections (`BundlePair`, `ForkProjection`,
+`FinalizePair`, and the `CheckLaunchPair`, `CheckResumedPair`,
+`CheckForkPair`, `CheckBundlePair`, `CheckResumeRequestProfile`,
+`CheckFinalizeParams`, and `CheckBridgeProfile` checks) bind the pairs
+the seven Section 2.4 fixtures require — bundle, plugin resume,
+resumed/fork, materialization finalize, and bridge — to their derived
+expectation, refusing a divergent value or source with
+`integrity_failure`. Takeover, resume, fork, materialization, and bridge
+transactions stay with their owning leaves; those transactions call
+these projections for the pair they must carry.
+`ResolveCreationProfile` admits one `ax start --profile` flag value as
+the Session Record creation profile and refuses anything else, including
+empty: the pinned specification states no absent-flag default, so
+defaulting belongs to the CLI-surface leaf. No named profile registry
+exists in the pinned specification — the vocabulary is exactly the
+`standard|yolo` enum — and no `ax` command, doctor result, or runtime
+capability claim is added here.
+
+[`internal/provhost`](internal/provhost) resolves the Section 7.7
+adapter mapping against the exact probed build (`ResolveMapping`
+requires the `BuildTuple` to pass the Section 8.4 resume gate, binds
+it to the resolved provider, and refuses an unmappable
+provider/version with the Section 2.4
+`profile_mapping_unavailable` failure) and projects the sanitized
+launch argv (`ProjectLaunchArgv` emits the unrestricted flag only for
+`yolo` and only the exact table token, refuses a duplicate, changed,
+or standard-mode flag — including the documented codex alias — and
+enforces the Section 5.1 numeric argv bounds as the host-side twin of
+the SpawnPlan wire bounds, pinned by an agreement test that drives
+identical vectors at each limit through both entries). Pi resolves
+both profiles to the provider's default full tool set with the
+equivalence disclosed in the resolution; its mapping is report-only
+and never an argv token.
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/sessprofile -count=1
+go test ./internal/sessprofile -cover -count=1
+go test ./internal/provhost -count=1 -run 'TestResolveMapping|TestProjectLaunchArgv|TestProjectedArgvBounds|TestUnrestrictedTokens'
+```
+
+The 20-plant narrowing battery (every gate weakened to admit exactly
+one member of the class it must reject, plus the applied harmless
+control) runs from the committed harness without touching the
+checkout:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 internal/sessprofile/testdata/mutate_profile.py /tmp/profile-mutants
+```
+
+Task validation logs and mutation artifacts are attached to
+`TASK-260830-3uzfyn`; scratch outputs live under
+`.temp/TASK-260830-3uzfyn/`.
+
+## Native-resume smoke: provider checks and tuple refusals
+
+[`internal/resumesmoke`](internal/resumesmoke) runs the host-side bounded
+native-resume smoke the pinned specification names as a target-write
+precondition (v0.6.0 Section 7.8): a provider-specific probe,
+identify-session, discovery-bind, and resume-plan sequence against one
+provider adapter through `provhost.Host.Call`, recorded as one closed
+Native Resume Smoke record (`urn:ax:schema:native-resume-smoke 1.0.0`).
+Quiescence (Section 7.6) and the discovery proof enter as read-only
+precondition inputs the smoke validates and binds but never produces.
+
+Refusal is the point. `ResumeCell` reads the Section 8.4 native-resume
+cell for the exact tuple, refined by the Appendix B version gates
+(Muse macOS arm64 accepts only the probed 0.1.0; Qwen direct is
+unsupported everywhere; unknown tuples start disabled, and unknown is
+never rewritten as unsupported). Unsupported and unknown tuples refuse
+before any adapter call; conditional tuples gather read-only probe,
+identify, and binding evidence and then gate the resume plan with the
+Section 19.3 promotion citation; only an available cell with an
+exact-version probe, exact-confidence identity, bound discovery proof,
+and valid spawn plan passes. No smoke API promotes a gated or refused
+cell, and a passing smoke never advertises a capability: the Section
+8.3 matrix stays the only capability authority, so the package carries
+no capability map and no doctor surface.
+
+Records carry the tuple, the cell, the verdict, digests of the probe,
+discovery proof, identity record, and spawn plan, the store root, every
+check with its pass, fail, or skipped outcome, and timestamps - no
+secrets and no raw native references. `VerifyRecord` enforces the
+closed shape, the omit-self digest, and the verdict consistency rule,
+so tampered bytes and verdict-only or resigned promotions refuse on
+re-read. `Store` installs verified records content-addressed,
+no-replace, and fsynced, following the session repository discipline:
+an identical retry reuses the path, disagreeing bytes refuse for
+quarantine, and a real-kill test proves the retry recovers
+byte-identical evidence after a kill between the write and the fsync.
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/resumesmoke -count=1
+go test ./internal/resumesmoke -cover -count=1
+```
+
+The row verdicts derive every Section 8.4 row from the pinned
+specification text rather than retyping it, and the committed
+narrowing-mutant harness (`TestSmokeMutantsAreKilled`, skipped only
+under `-short`) weakens every gate to admit exactly one member of the
+class it must reject, plus the applied harmless control; each mutant
+runs in a private module copy, so the harness never touches the
+checkout. Native-Windows
+bind rows need a Windows host and skip loudly elsewhere; their cells
+stay pinned by the derivation test on every host.
+
+Task validation logs and conformance artifacts are attached to
+`TASK-260830-2zvo8m`.
+
 ## Session selector, read summaries, and selection plans
 
 `internal/sessquery` is the single shared selector API over the persisted
@@ -2604,7 +2770,7 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6
 repository gate used by CI. Its reviewed
 [`ownership.v0.6.0.json`](internal/traceability/ownership.v0.6.0.json)
 registry independently enumerates implementation owners for all 63 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 101
+contract rows, 36 pinned or catalog-referenced normative section keys, 113
 executable acceptance cases, 56 exact section bindings with their declared
 coverage, 12 disclosed unowned sections, and 32 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
@@ -2706,19 +2872,23 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=56 full=1 partial=3 sliver=1 unevidenced=48 unmeasured=3 unowned=12 clauses_discharged=17/463
+section coverage: bindings=56 full=2 partial=4 sliver=3 unevidenced=44 unmeasured=3 unowned=12 clauses_discharged=29/463
 ```
 
-Fifty-six section bindings discharge 17 of the 463 normative clauses their
-sections carry. One binding is `full` (Section 6.2, whose single clause is the
+Fifty-six section bindings discharge 29 of the 463 normative clauses their
+sections carry. Two bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
 with the negative `TestDecodeRefusesNonConptyBackendOnNativeWindows` legacy
-refusal arm), three are
+refusal arm; and Section 2.4 at 4/4, bound to
+[`internal/sessprofile`](internal/sessprofile), whose derivation, checkpoint
+closure, fork projection, and mapping-failure clauses are discharged by the
+profile derivation, heads, fork-pair, and mapping-resolution acceptance
+cases), four are
 `partial` (Section 14.2 at 8/9, bound to
 [`internal/cliresult`](internal/cliresult), whose undischarged clause `14.2#6`
-is the process exit status this repository has no binary to produce; and
-Section 15.1 at 5/7 and Section 15.3 at 2/3, both bound to
+is the process exit status this repository has no binary to produce; Section
+15.1 at 5/7 and Section 15.3 at 2/3, both bound to
 [`internal/axerror`](internal/axerror); the three undischarged clauses there are
 the RPC hello obligation `15.1#5`, the bootstrap-row sentence `15.1#6` that
 binds the provider plugin rather than the host, and the hello-key and
@@ -2734,29 +2904,42 @@ harness (`conformance.go`, exercised by `conformance_test.go`) and an
 AST-derived refusal-arm inventory (`refusal_arm_inventory_test.go`) that
 requires every production refusal arm to be declared with a resolving named
 asserting test in both directions; behavioral proof stays with each row's
-named test, which the inventory resolves textually),
-one is
+named test, which the inventory resolves textually; and Section 7.7 at 3/4,
+bound to [`internal/provhost`](internal/provhost), whose undischarged clause
+`7.7#2` is the machine-local-alias sentence - the omit rule is enforced, but a
+shell word that expands to unrestricted mode without spelling a table token is
+beyond argv inspection),
+three are
 `sliver` (Section 10.3, whose chunk offset invariant is
 enforced by `validateBlobDescriptor` while its two receiver clauses have no
-implementation), three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of
+implementation; Section 5.5 at 1/3, whose discharged negative-battery clause
+is enforced by identity creation and checking while the opaque-map content
+rule stays half-decided; and Section 8 at 4/12, whose discharged probe,
+label-integrity, and row-separation clauses are enforced by the resume tuple
+gate and the native-resume smoke while every materialization rule stays
+unimplemented), three are `unmeasured` (Sections 7.3, 13.14.5 and 15.2, each of
 which carries a gap saying why the scanner measures zero and what is missing),
-and forty-eight are `unevidenced`. Twelve sections are recorded unowned.
+and forty-four are `unevidenced`. Twelve sections are recorded unowned.
 All 13 sections added by v0.6.0 name pending task owners in the reviewed
 registry gaps; these assignments grant no runtime admission. The
 [adoption ownership map](internal/traceability/adoption-v0.6.0.md) separates
 shared runtime APIs, their callers, product conformance and upstream source
 publication validators, and preserves historical acceptance obligations.
 Assigned-scope admission therefore succeeds today for `-section 6.2` and
-nothing else; every other assignment is refused with its ratio and its gap.
+`-section 2.4` and nothing else; every other assignment is refused with its
+ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-One admitted binding out of fifty-six covers a single clause, and it is
+Two admitted bindings out of fifty-six cover five clauses, and that is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and
 `TestDecodeRefusesNonConptyBackendOnNativeWindows` the legacy refusal arm,
 both registered against the `config-versioned-readers` acceptance case.
+Section 2.4 is the first multi-clause admission: its four clauses are
+discharged by the `sessprofile-derive`, `sessprofile-derive-heads`,
+`sessprofile-fork-pair`, and `provhost-mapping-resolution` acceptance cases.
 
 That is a disclosure of the shipped state, not a target that was met.
 `TestRunRefusesEveryAssignedSectionThatOnlySlivers` and

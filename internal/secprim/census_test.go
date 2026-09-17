@@ -430,6 +430,15 @@ func secretSiteRows() []secretSiteRow {
 				"to false, gating source-local bounded grep per Section 16.7 — not a transcript value",
 			witnesses: []string{"config.TestLoadAcceptsExactV2DirectoryAndV3TerminalShapes"},
 		},
+		{
+			sites: []string{
+				"provhost|decl|unrestrictedTokens",
+			},
+			disposition: "the launch projection's refused argv-word set: Section 7.7 flag spellings plus " +
+				"the codex alias and the Pi report string, matched as exact argv elements — words on a " +
+				"command line, never a security token, credential, or secret value",
+			witnesses: []string{"provhost.TestUnrestrictedTokensDeriveFromTable"},
+		},
 	}
 }
 

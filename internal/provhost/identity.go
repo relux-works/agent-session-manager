@@ -409,54 +409,87 @@ var identifyConfidences = []string{"exact", "strong", "weak"}
 // identifyEvidence is the closed matched-evidence vocabulary.
 var identifyEvidence = []string{"native_id", "store_path", "provider_event", "backend_lookup"}
 
+// IdentifyOutcome is one validated identify-session result replayed
+// for use: the nested Provider Identity Record bytes and the closed
+// confidence the adapter reported. The identity bytes are a copy of
+// the validated member, never an alias into the response buffer.
+type IdentifyOutcome struct {
+	Identity   []byte
+	Confidence string
+}
+
 // DecodeIdentifyResult validates one identify-session success body:
 // the Provider Identity Record for the expected provider, a closed
 // confidence, and 1..4 sorted unique matched-evidence members.
 func DecodeIdentifyResult(body []byte, wantProviderID string) error {
+	_, err := decodeValidatedIdentify(body, wantProviderID)
+	return err
+}
+
+// SplitIdentifyResult validates one identify-session success body
+// and replays the nested identity record and confidence for use
+// sites that bind the identity further, such as discovery binding.
+// It consumes decodeValidatedIdentify members, never the body, so
+// validation and use cannot drift.
+func SplitIdentifyResult(body []byte, wantProviderID string) (IdentifyOutcome, error) {
+	members, err := decodeValidatedIdentify(body, wantProviderID)
+	if err != nil {
+		return IdentifyOutcome{}, err
+	}
+	confidence, _ := rawString(members["confidence"])
+	identity := append([]byte(nil), members["identity"]...)
+	return IdentifyOutcome{Identity: identity, Confidence: confidence}, nil
+}
+
+// decodeValidatedIdentify is the single site that decodes an
+// identify-session body into members: every check
+// DecodeIdentifyResult performs lives here, and the validated
+// members are returned for use sites to consume.
+func decodeValidatedIdentify(body []byte, wantProviderID string) (map[string]json.RawMessage, error) {
 	members, fault := decodeStrictObject(body)
 	if fault != nil {
 		failure, err := failProtocol(fault.detail, fault.member)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if name, unknown := unknownMember(members, identifyMembers); unknown {
 		failure, err := failProtocol("identify result carries unknown member", name)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if name, missing := missingMember(members, identifyRequired); missing {
 		failure, err := failProtocol("identify result misses a required member", name)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	confidence, ok := rawString(members["confidence"])
 	if !ok || !isIdentifyConfidence(confidence) {
 		failure, err := failProtocol("identify confidence is not exact strong or weak", "confidence")
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if err := checkIdentifyEvidence(members["matched_evidence"]); err != nil {
-		return err
+		return nil, err
 	}
 	if !isJSONObject(members["identity"]) {
 		failure, err := failProtocol("identify identity is not an object", "identity")
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return failure
+		return nil, failure
 	}
 	if err := CheckIdentity(members["identity"], wantProviderID); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return members, nil
 }
 
 func isIdentifyConfidence(value string) bool {

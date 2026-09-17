@@ -34,7 +34,7 @@ import (
 // frame detail set, so each wrapped refusal is its own obligation; every
 // rejection branch of parseMajor (a return 0, false) yields
 // parse|<enclosing condition source>; every literal first argument to one
-// of the six refusal constructors yields ctor|<constructor>|<detail>.
+// of the seven refusal constructors yields ctor|<constructor>|<detail>.
 // A non-literal frameFault detail or integrity argument lands as an
 // expr:<source> obligation rather than passing silently; a non-literal
 // constructor first argument is a fault conduit (fault.detail, a detail
@@ -69,8 +69,17 @@ import (
 // new arm witnessed in declaredOperationWitnesses below, then 162 ->
 // 164 by the lone-surrogate gate and 164 -> 166 by the UTF-8 gate:
 // one frame arm in decodeStrictObject plus its status-body integrity
-// expansion each, every one witnessed above.
-const refusalArmCensusFloor = 166
+// expansion each, every one witnessed above. Raised 166 -> 216 by the
+// provider-identity creation leaf (CreateIdentity, the discovery
+// decoder, store roots, the resume-tuple gate, and the build and
+// discovery bindings), each new arm witnessed in
+// declaredOperationWitnessesIdentityCreate. The pre-existing domain
+// derived 167 against the 166 floor, so 167 + 50 pins 217 exactly.
+// Raised 217 -> 229 by the profile-resolution leaf
+// (ResolveMapping, ProjectLaunchArgv, and the Section 2.4
+// profile_mapping_unavailable constructor), each new arm witnessed
+// in declaredOperationWitnessesProfileResolve.
+const refusalArmCensusFloor = 229
 
 func deriveRefusalArms(t *testing.T) map[string]struct{} {
 	t.Helper()
@@ -193,7 +202,7 @@ func refusalArmsIn(directory string) (map[string]struct{}, []string, error) {
 					return true
 				}
 				arms["integrity|expr:"+nodeSource(source, fileSet, call.Args[0])] = struct{}{}
-			case "failInvalid", "failProtocol", "failMismatch", "failProcess", "failTimeout":
+			case "failInvalid", "failProtocol", "failMismatch", "failProcess", "failTimeout", "failMappingUnavailable":
 				if literal, ok := call.Args[0].(*ast.BasicLit); ok && literal.Kind == token.STRING {
 					detail, err := strconv.Unquote(literal.Value)
 					if err != nil {
@@ -779,7 +788,7 @@ func declaredParseWitnesses() []armWitness {
 func TestDerivedRefusalArmsAreAllWitnessed(t *testing.T) {
 	derived := deriveRefusalArms(t)
 	witnessed := map[string]int{}
-	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...)...)...) {
+	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...), append(declaredOperationWitnessesIdentityCreate(), declaredOperationWitnessesProfileResolve()...)...)...)...) {
 		witnessed[witness.arm]++
 	}
 	var missing []string
@@ -802,7 +811,7 @@ func TestDerivedRefusalArmsAreAllWitnessed(t *testing.T) {
 func TestWitnessedArmsAreAllDerived(t *testing.T) {
 	derived := deriveRefusalArms(t)
 	var orphans []string
-	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...)...)...) {
+	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...), append(declaredOperationWitnessesIdentityCreate(), declaredOperationWitnessesProfileResolve()...)...)...)...) {
 		if _, ok := derived[witness.arm]; !ok {
 			orphans = append(orphans, witness.arm+" ("+witness.name+")")
 		}
@@ -816,7 +825,7 @@ func TestWitnessedArmsAreAllDerived(t *testing.T) {
 // TestEveryArmWitnessRefusesAtTheProductionEntry drives every witness
 // through its production entry point and requires the attributed refusal.
 func TestEveryArmWitnessRefusesAtTheProductionEntry(t *testing.T) {
-	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...)...)...) {
+	for _, witness := range append(append(append(declaredArmWitnesses(), declaredIntegrityWitnesses()...), declaredParseWitnesses()...), append(declaredOperationWitnesses(), append(append(declaredOperationWitnessesQuiesce(), declaredOperationWitnessesIdentity()...), append(declaredOperationWitnessesIdentityCreate(), declaredOperationWitnessesProfileResolve()...)...)...)...) {
 		t.Run(witness.arm+"/"+witness.name, func(t *testing.T) {
 			witness.prove(t)
 		})

@@ -780,6 +780,8 @@ func registeredVocabularyDerivations() []vocabularyDerivation {
 		{name: "responseMembers", prove: TestResponseMembersAreDerivedFromSpec},
 		{name: "profileNames", prove: TestProfileNamesAreDerivedFromSpec},
 		{name: "statusStates", prove: TestStatusStatesAreDerivedFromSpec},
+		{name: "resumeProviders", prove: TestResumeProvidersAreDerivedFromSpec},
+		{name: "discoveryMembers", prove: TestDiscoveryMembersAreDerivedFromSpec},
 	}
 }
 
@@ -874,5 +876,15 @@ func TestClosedMemberSetsRefuseExtraMembers(t *testing.T) {
 		body := statusBody(testMaterializationID, testTransactionID, testAuthorityID, testPlanID, "bogus", testRollbackToken, testDiscovery)
 		_, err := DecodeStatusOutcome(body, testStatusIDs())
 		requireLocalRefusal(t, err, "integrity_failure", "status state is not a registry member")
+	})
+	t.Run("discovery proof carries bogus", func(t *testing.T) {
+		body := []byte(`{"native_session_id": "x", "discovered": true, "discovery_root": null, "backend_resolved": false, "bogus": 1}`)
+		_, err := DecodeNativeDiscovery(body, "macos")
+		requireFrameRefusal(t, err, "bogus", "unknown member")
+	})
+	t.Run("resume gate names bogus provider", func(t *testing.T) {
+		tuple := validBuildTuple()
+		tuple.ProviderID = "bogus"
+		requireLocalRefusal(t, CheckResumeTuple(tuple), "invalid_config", "unknown provider")
 	})
 }
