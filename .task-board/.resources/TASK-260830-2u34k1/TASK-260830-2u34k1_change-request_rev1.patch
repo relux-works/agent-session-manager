@@ -1,0 +1,1177 @@
+diff --git a/.spec/README.md b/.spec/README.md
+index 2e05858..a20c2fc 100644
+--- a/.spec/README.md
++++ b/.spec/README.md
+@@ -130,3 +130,17 @@ rewrite automated implementation/conformance work.
+ - Closed historical wire contracts are preserved. Unknown or unproven
+   platform/provider/backend capabilities remain disabled and visible.
+ - No implementation claim exists merely because a board Task is present.
++
++## Host/peer identity implementation slice
++
++`TASK-260830-2u34k1` in `STORY-260830-1kiyj6` implements the read-only
++configuration/identity portion of §§6, 11.1 and 16.1 through
++`internal/peeridentity.Load`, `Directory.Resolve`, `Target.RPCArgv`,
++`Target.CheckProtocolHost`, `Target.KeyProvenance` and
++`Directory.DisclosurePolicy`. Existing `internal/config`, `internal/scalar`
++and SSH argument/endpoint owners retain grammar authority. Seven executable
++acceptance bindings in the ownership registry cover this slice; they do not
++claim full section conformance. External SSH authentication, live transport,
++peer lifecycle, directory object sanitization/publication and doctor capability
++integration remain with their owning tasks. There is no AX-owned key registry
++or successful-key-attestation claim in the pinned contract.
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 99f7d8b..3935673 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -3,6 +3,17 @@
+ > Institutional memory. Concise, factual, high-signal.
+ > Newest entries first. One block per insight.
+ 
++## 2026-09-08
++
++### TASK-260830-2u34k1 — configured peer identity and honest SSH authority
++
++- SCOPE: read-only host/peer identity in STORY-260830-1kiyj6, pinned AX v0.5.0 §§6, 11.1, 16.1. Canonical config/scalar/SSH owners are reused. Duplicate peer identity includes reuse of the local host ID; aliases remain exact, and ID/alias collisions refuse ambiguous resolution.
++- AUTHORITY: §11.1 leaves host-key and user authentication to external SSH. No AX key-provenance TOML member, private-key reader, caller-minted verification flag, live connection, discovery authorization, or at-rest encryption claim was added. The returned SSH target and policy are configuration inputs, not authentication or payload-validation evidence.
++- NEGATIVE EVIDENCE: first narrowing run exposed a weak raw-class test: local_only default refused export even after the class registry admitted raw_excerpts. Added a permissive-default negative; the same compiling plant now fails TestDisclosurePolicyRefusals. The grammar-only protocol-ID mutant survives because exact equality to an already-validated configured UUID still refuses it; its scope is explicitly reported, not counted as a kill.
++- VALIDATION DISCIPLINE: an initial full test run overlapped the ownership-registry update and failed tracecheck with the old compiled digest against the new file. That run is reported exit 1; the next run exposed a missed tracecheck output-count fixture (98 instead of 105), which was corrected. Stable-tree reruns own handoff evidence. Original files remain untouched during mutants (Go overlays), with a green neutral and compiling known-bad control.
++- BOARD: task-board validate exited 0 while reporting 225 shared activity/mirror issues; none named this leaf or its Story. The exit status is recorded, but it is not represented as an issue-free board. Shared board repair is outside this leaf.
++- BOUNDS: no durable mutation, hence no crash-write injection. Read failure/absence/recovery and immutable snapshots are driven through Load. Sibling transport/lifecycle and directory publication tasks own authenticated connection and payload enforcement. Outcome and per-command/mutant logs use the task ID on the board.
++
+ ## 2026-09-07
+ 
+ ### 9ny4xl: R1–R6 closed — probe-availability claims corrected, marker census measures effect, catalog directive pinned
+diff --git a/README.md b/README.md
+index 3629512..604961f 100644
+--- a/README.md
++++ b/README.md
+@@ -2235,7 +2235,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
+ registry independently enumerates implementation owners for all 60 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 98
++contract rows, 36 pinned or catalog-referenced normative section keys, 105
+ executable acceptance cases, 53 exact section bindings with their declared
+ coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
+ Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
+@@ -2530,3 +2530,44 @@ the work in `task-board`, use the managed `go-testing-tools` skill for Go
+ changes, use the global `project-management` skill for orchestration, run
+ relevant validation, and attach task-scoped evidence before review. See
+ [AGENTS.md](AGENTS.md) for the full contract.
++
++## Configured Host and Peer Identity
++
++`internal/peeridentity.Load` composes the canonical config loader into an
++immutable peer directory; `FromSnapshot` reuses an existing process snapshot.
++No host ID is generated on absence or read failure. Local and peer IDs use the
++canonical UUIDv7 parser, and a peer cannot reuse the local host ID. Peer names
++remain exact printable UTF-8 aliases: duplicate IDs and duplicate names fail
++configuration loading, while a name equal to another peer's ID fails ambiguous
++resolution. Endpoint strings and discovery candidates do not add allowlist entries.
++
++`Directory.Resolve` returns a private `Target` that builds atomic SSH argv for
++`ax rpc serve --stdio`, including the canonical endpoint grammar's port and IPv6
++forms and the complete 65,536-byte argv bound. `Target.CheckProtocolHost` requires the exact selected host ID. It checks
++only the protocol identity half of §11.1; callers must first authenticate SSH.
++`KeyProvenance` reports `external_ssh`, the authority specified by §11.1. It
++reports no verified key, fingerprint, user credential, or successful connection.
++The package never reads key material. Key-file selectors stay in execution argv;
++formatting targets and directories omits those machine-local inputs.
++
++`Directory.DisclosurePolicy` selects the §6.4 policy for each of the five named
++metadata classes. It refuses unlisted recipients, local-only export, generated
++metadata with an unset upgrade choice, and raw excerpts/embeddings/model or
++runtime/auth detail classes. An absent override uses the validated default;
++malformed or incomplete overrides fail loading. `mesh_sanitized` and
++`reference_only` are policy results, not permission to send arbitrary bytes.
++The directory publisher still owns object validation, sanitization, object-level
++policy and authenticated delivery. Disclosure configuration does not authorize
++a peer or promise erasure of already replicated bytes.
++
++This read-only leaf adds no CLI/doctor availability claim, RPC transport,
++discovery, key attestation, provider authentication, or payload encryption at
++rest. No `ax` executable is shipped by this repository yet. The sibling transport
++and lifecycle tasks own connection/authentication integration. No durable state
++is mutated, so crash/idempotency injection is inapplicable; read-failure recovery
++and snapshot isolation are tested.
++
++| Tool / check | Exact command | Output |
++| --- | --- | --- |
++| Identity/config behavior | `go test ./internal/peeridentity ./internal/config -count=1 -v` | Test output; task logs under `.temp/TASK-260830-2u34k1/` |
++| Identity narrowing proofs | `python3 internal/peeridentity/mutations.py --output .temp/TASK-260830-2u34k1/mutations` | Applied Go overlays, command exit codes, named failing tests, Markdown mutant table; originals remain untouched |
+diff --git a/internal/config/peer_local_identity_test.go b/internal/config/peer_local_identity_test.go
+new file mode 100644
+index 0000000..1d7bec0
+--- /dev/null
++++ b/internal/config/peer_local_identity_test.go
+@@ -0,0 +1,13 @@
++package config
++
++import (
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"strings"
++	"testing"
++)
++
++func TestLoadRefusesLocalHostAsPeer(t *testing.T) {
++	doc := strings.Replace(string(peerDocumentWithSSHArgs()), testPeerID, testHostID, 1)
++	_, err := loadConfigDocument([]byte(doc), scalar.PlatformMacOS, nil)
++	requireConfigClause(t, err, "mesh.peers duplicate host_id")
++}
+diff --git a/internal/config/validation.go b/internal/config/validation.go
+index 3cd0762..d734a0d 100644
+--- a/internal/config/validation.go
++++ b/internal/config/validation.go
+@@ -429,7 +429,7 @@ func validateMesh(configuration *Configuration) error {
+ 	if mesh.PayloadEncryption != "none" {
+ 		return configError("mesh.payload_encryption", ErrConfigValidation)
+ 	}
+-	hostIDs, names := map[string]struct{}{}, map[string]struct{}{}
++	hostIDs, names := map[string]struct{}{configuration.HostID: {}}, map[string]struct{}{}
+ 	for index, peer := range mesh.Peers {
+ 		prefix := fmt.Sprintf("mesh.peers[%d]", index)
+ 		if _, err := scalar.ParseUUIDv7(peer.HostID); err != nil {
+diff --git a/internal/peeridentity/identity.go b/internal/peeridentity/identity.go
+new file mode 100644
+index 0000000..ddb4a7d
+--- /dev/null
++++ b/internal/peeridentity/identity.go
+@@ -0,0 +1,220 @@
++// Package peeridentity resolves explicitly configured mesh identities. It does
++// not discover hosts, authenticate SSH connections, or read key material.
++package peeridentity
++
++import (
++	"errors"
++	"fmt"
++	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/config"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++var (
++	ErrConfigurationRequired = errors.New("peer identity requires an existing valid configuration")
++	ErrNotAllowlisted        = errors.New("peer_not_allowlisted")
++	ErrAmbiguousAlias        = errors.New("peer alias is ambiguous with a configured host ID")
++	ErrHostIdentityMismatch  = errors.New("host_identity_mismatch")
++	ErrDisclosureDenied      = errors.New("peer metadata disclosure refused")
++	ErrSSHArgvTooLarge       = errors.New("peer SSH argv exceeds configuration byte bound")
++)
++
++// Directory is an immutable configuration snapshot. Its zero value admits no
++// peers. Construct it with Load or FromSnapshot, never from a discovered host.
++type Directory struct {
++	local         Host
++	peers         []config.Peer
++	sourceVersion string
++	defaultPolicy string
++	summaryChoice string
++	disclosure    []config.DirectoryPeerDisclosure
++}
++
++// Host is stable identity plus a display alias, not authentication evidence.
++type Host struct {
++	ID       string
++	Name     string
++	Platform scalar.Platform
++}
++
++// Load uses the canonical configuration loader, including path precedence and
++// failed-read handling. Missing configuration never creates a host identity.
++func Load(inputs config.Inputs, overrides config.Overrides) (Directory, error) {
++	snapshot, err := config.Load(inputs, overrides)
++	if err != nil {
++		return Directory{}, err
++	}
++	return FromSnapshot(snapshot)
++}
++
++// FromSnapshot reuses the process-lifetime configuration decision. Snapshot's
++// private state prevents an unvalidated Configuration from becoming an allowlist.
++func FromSnapshot(snapshot config.Snapshot) (Directory, error) {
++	loaded, ok := snapshot.Configuration()
++	if !ok {
++		return Directory{}, ErrConfigurationRequired
++	}
++	c := loaded.Value
++	return Directory{
++		local: Host{c.HostID, c.HostName, c.Platform}, peers: c.Mesh.Peers,
++		sourceVersion: loaded.SourceVersion, defaultPolicy: c.Directory.DefaultMetadataPolicy,
++		summaryChoice: c.Directory.GeneratedSummaryUpgradeChoice, disclosure: c.DirectoryPeerDisclosure,
++	}, nil
++}
++
++func (d Directory) Local() Host { return d.local }
++
++// Formatting a directory must not expose its retained SSH execution inputs.
++func (d Directory) String() string                    { return "configured peer directory" }
++func (d Directory) GoString() string                  { return d.String() }
++func (d Directory) Format(state fmt.State, verb rune) { _, _ = state.Write([]byte(d.String())) }
++
++// Resolve selects an exact configured host ID or exact display alias. Aliases
++// are not case-folded or normalized. A name equal to another peer's ID is
++// ambiguous, even though the two individually unique registries are valid.
++func (d Directory) Resolve(selector string) (Target, error) {
++	match := -1
++	for i, peer := range d.peers {
++		if peer.HostID != selector && peer.Name != selector {
++			continue
++		}
++		if match >= 0 {
++			return Target{}, ErrAmbiguousAlias
++		}
++		match = i
++	}
++	if match < 0 {
++		return Target{}, ErrNotAllowlisted
++	}
++	peer := d.peers[match]
++	return Target{host: Host{peer.HostID, peer.Name, peer.Platform}, endpoint: peer.Endpoint,
++		args: append([]string(nil), peer.SSHArgs...)}, nil
++}
++
++// Target can only be obtained from a Directory. It is a connection plan, never
++// proof that SSH authenticated a host or that a peer's protocol assertion is true.
++// Endpoint and identity-file selectors are machine-local execution inputs; the
++// formatting methods deliberately exclude them from logs and diagnostics.
++type Target struct {
++	host     Host
++	endpoint string
++	args     []string
++}
++
++func (t Target) Host() Host                        { return t.host }
++func (t Target) String() string                    { return "configured SSH target" }
++func (t Target) GoString() string                  { return t.String() }
++func (t Target) Format(state fmt.State, verb rune) { _, _ = state.Write([]byte(t.String())) }
++
++// KeyProvenance reports the authority boundary, not an observed key or a
++// fingerprint. The pinned contract delegates both host-key and user-key policy
++// to external SSH. No AX key registry, private-key reader, or verification flag
++// is invented here. Empty targets have no provenance.
++func (t Target) KeyProvenance() string {
++	if t.endpoint == "" {
++		return ""
++	}
++	return "external_ssh"
++}
++
++// RPCArgv returns an isolated atomic argv for the Section 11.1 fixed command.
++// The canonical endpoint grammar permits :port; OpenSSH needs that port as -p,
++// not as part of the destination. Brackets protect IPv6 while parsing the
++// endpoint and are removed from the OpenSSH destination. Endpoint port wins
++// over ssh_args port, as it is the explicitly configured target.
++// The transport owner must execute via a native argv API and authenticate SSH;
++// this method starts no process and asserts no successful authentication.
++func (t Target) RPCArgv() ([]string, error) {
++	if t.endpoint == "" {
++		return nil, ErrNotAllowlisted
++	}
++	destination := t.endpoint
++	port := ""
++	if colon := strings.LastIndexByte(destination, ':'); colon >= 0 && !strings.HasSuffix(destination, "]") {
++		port, destination = destination[colon+1:], destination[:colon]
++	}
++	if opening := strings.IndexByte(destination, '['); opening >= 0 {
++		destination = destination[:opening] + strings.TrimSuffix(destination[opening+1:], "]")
++	}
++	args := []string{"-T"}
++	if port != "" {
++		args = append(args, "-p", port)
++	}
++	args = append(args, t.args...)
++	args = append(args, destination, "ax", "rpc", "serve", "--stdio")
++	// Config admission bounds the supplied endpoint/options. Count again here
++	// because the fixed RPC command and generated options are also SSH argv.
++	totalBytes := 0
++	for _, arg := range args {
++		totalBytes += len(arg)
++	}
++	if totalBytes > 65_536 {
++		return nil, ErrSSHArgvTooLarge
++	}
++	return args, nil
++}
++
++// CheckProtocolHost checks only the identity half of Section 11.1, after the
++// transport owner has authenticated the configured SSH endpoint. It is not an
++// authentication entry point and accepts no caller-minted "verified" flag.
++// Matching the endpoint, alias, or another allowlisted ID cannot substitute for
++// an exact match to this target's stable host ID.
++func (t Target) CheckProtocolHost(hostID string) error {
++	if t.endpoint == "" {
++		return ErrNotAllowlisted
++	}
++	if _, err := scalar.ParseUUIDv7(hostID); err != nil {
++		return ErrHostIdentityMismatch
++	}
++	if hostID != t.host.ID {
++		return ErrHostIdentityMismatch
++	}
++	return nil
++}
++
++// DisclosurePolicy resolves only the Configuration 2/3 policy for the five
++// metadata classes in Section 6.4. It is not a payload sanitizer or permission
++// to send arbitrary bytes. The directory publisher must still validate object
++// schemas, apply redaction and object policy, and authenticate the recipient.
++// local_only refuses export. Unset generated-summary choice cannot authorize
++// replication. A disclosure entry alone never adds a peer to the allowlist.
++func (d Directory) DisclosurePolicy(selector, class string) (string, error) {
++	target, err := d.Resolve(selector)
++	if err != nil {
++		return "", err
++	}
++	switch class {
++	case "environment_observations", "native_observations", "manual_metadata", "generated_metadata", "job_operation_status":
++	default:
++		return "", ErrDisclosureDenied
++	}
++	if d.sourceVersion == config.Version1 {
++		return "", ErrDisclosureDenied
++	}
++	if class == "generated_metadata" && d.summaryChoice == "unset" {
++		return "", ErrDisclosureDenied
++	}
++	policy := d.defaultPolicy
++	for _, entry := range d.disclosure {
++		if entry.HostID != target.host.ID {
++			continue
++		}
++		switch class {
++		case "environment_observations":
++			policy = entry.EnvironmentObservations
++		case "native_observations":
++			policy = entry.NativeObservations
++		case "manual_metadata":
++			policy = entry.ManualMetadata
++		case "generated_metadata":
++			policy = entry.GeneratedMetadata
++		case "job_operation_status":
++			policy = entry.JobOperationStatus
++		}
++	}
++	if policy != "mesh_sanitized" && policy != "reference_only" {
++		return "", ErrDisclosureDenied
++	}
++	return policy, nil
++}
+diff --git a/internal/peeridentity/identity_test.go b/internal/peeridentity/identity_test.go
+new file mode 100644
+index 0000000..1c5c1da
+--- /dev/null
++++ b/internal/peeridentity/identity_test.go
+@@ -0,0 +1,506 @@
++package peeridentity_test
++
++import (
++	"errors"
++	"fmt"
++	"io/fs"
++	"reflect"
++	"strings"
++	"testing"
++	"testing/fstest"
++
++	"github.com/relux-works/agent-session-manager/internal/config"
++	"github.com/relux-works/agent-session-manager/internal/peeridentity"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/specdoc"
++)
++
++const localID = "0198f4c8-4a10-7b22-8b3c-1234567890ab"
++const peerID = "0198f4c8-7d40-7e55-8e6f-1234567890ab"
++const otherID = "0198f4c8-a070-7188-9172-1234567890ab"
++
++func document(version string) string {
++	return fmt.Sprintf(`schema = "urn:ax:schema:config"
++schema_version = %q
++host_id = %q
++host_name = "local"
++platform = "macos"
++`, version, localID) + peer(peerID, "workstation", "ivan@workstation.example")
++}
++func peer(id, name, endpoint string) string {
++	return fmt.Sprintf(`
++[[mesh.peers]]
++host_id = %q
++name = %q
++endpoint = %q
++platform = "linux"
++`, id, name, endpoint)
++}
++func inputs(doc string) config.Inputs {
++	files := fstest.MapFS{"config.toml": &fstest.MapFile{Data: []byte(doc), Mode: 0600}}
++	return config.Inputs{Platform: scalar.PlatformMacOS, HomeDir: "/home", TempDir: "/tmp", WorkingDir: "/",
++		LookupEnv: func(string) (string, bool) { return "", false },
++		Stat:      func(path string) (fs.FileInfo, error) { return fs.Stat(files, strings.TrimPrefix(path, "/")) },
++		ReadFile:  func(path string) ([]byte, error) { return fs.ReadFile(files, strings.TrimPrefix(path, "/")) },
++	}
++}
++func load(doc string) (peeridentity.Directory, error) {
++	return peeridentity.Load(inputs(doc), config.Overrides{config.ConfigFile: "/config.toml"})
++}
++func requireLoad(t *testing.T, doc string) peeridentity.Directory {
++	t.Helper()
++	d, err := load(doc)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return d
++}
++func requireTarget(t *testing.T, d peeridentity.Directory, selector string) peeridentity.Target {
++	t.Helper()
++	target, err := d.Resolve(selector)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return target
++}
++
++func TestLoadPeerIdentityVersions(t *testing.T) {
++	for _, version := range []string{config.Version1, config.Version2, config.CurrentVersion} {
++		t.Run(version, func(t *testing.T) {
++			d := requireLoad(t, document(version))
++			if got := d.Local(); got.ID != localID || got.Name != "local" || got.Platform != scalar.PlatformMacOS {
++				t.Fatalf("local = %+v", got)
++			}
++			for _, selector := range []string{peerID, "workstation"} {
++				target := requireTarget(t, d, selector)
++				if got := target.Host(); got.ID != peerID || got.Name != "workstation" || got.Platform != scalar.PlatformLinux {
++					t.Fatalf("host = %+v", got)
++				}
++				if target.KeyProvenance() != "external_ssh" {
++					t.Fatal("key authority must remain external SSH")
++				}
++				argv, err := target.RPCArgv()
++				want := []string{"-T", "ivan@workstation.example", "ax", "rpc", "serve", "--stdio"}
++				if err != nil || !reflect.DeepEqual(argv, want) {
++					t.Fatalf("argv = %q, %v", argv, err)
++				}
++				if err := target.CheckProtocolHost(peerID); err != nil {
++					t.Fatal(err)
++				}
++			}
++		})
++	}
++}
++
++func TestLoadIdentityRefusals(t *testing.T) {
++	base := document(config.CurrentVersion)
++	for _, tc := range []struct{ name, doc, clause string }{
++		{"malformed local UUID", strings.Replace(base, localID, "bad-local-secret", 1), "host_id"},
++		{"wrong UUID version", strings.Replace(base, peerID, strings.Replace(peerID, "7e55", "4e55", 1), 1), "mesh.peers[0].host_id"},
++		{"uppercase UUID", strings.Replace(base, peerID, strings.ToUpper(peerID), 1), "mesh.peers[0].host_id"},
++		{"empty peer ID", strings.Replace(base, peerID, "", 1), "mesh.peers[0].host_id"},
++		{"missing peer ID", strings.Replace(base, fmt.Sprintf("host_id = %q", peerID), "", 1), "mesh.peers[0] required member"},
++		{"local identity reused", strings.Replace(base, peerID, localID, 1), "mesh.peers duplicate host_id"},
++		{"duplicate identity", base + peer(peerID, "different alias", "elsewhere.example"), "mesh.peers duplicate host_id"},
++		{"duplicate alias", base + peer(otherID, "workstation", "elsewhere.example"), "mesh.peers duplicate name"},
++		{"empty alias", strings.Replace(base, `name = "workstation"`, `name = ""`, 1), "mesh.peers[0].name"},
++		{"long alias", strings.Replace(base, `name = "workstation"`, fmt.Sprintf("name = %q", strings.Repeat("界", 65)), 1), "mesh.peers[0].name"},
++		{"control alias", strings.Replace(base, `name = "workstation"`, `name = "bad\u001bname"`, 1), "mesh.peers[0].name"},
++		{"bad peer platform", strings.Replace(base, `platform = "linux"`, `platform = "ios"`, 1), "mesh.peers[0].platform"},
++		{"empty endpoint", strings.Replace(base, "ivan@workstation.example", "", 1), "mesh.peers[0].endpoint"},
++		{"missing endpoint", strings.Replace(base, `endpoint = "ivan@workstation.example"`, "", 1), "mesh.peers[0] required member"},
++		{"option endpoint", strings.Replace(base, "ivan@workstation.example", "-oStrictHostKeyChecking=no", 1), "mesh.peers[0].endpoint option-like value"},
++		{"credential endpoint", strings.Replace(base, "ivan@workstation.example", "ivan:private-secret@workstation.example", 1), "mesh.peers[0].endpoint user"},
++		{"invalid port", strings.Replace(base, "ivan@workstation.example", "host.example:65536", 1), "mesh.peers[0].endpoint port"},
++		{"host key bypass", base + `ssh_args = ["-o", "StrictHostKeyChecking=no"]`, "mesh.peers[0].ssh_args host authentication bypass"},
++		{"grouped host key bypass", base + `ssh_args = ["-voStrictHostKeyChecking=no"]`, "mesh.peers[0].ssh_args host authentication bypass"},
++		{"known hosts bypass", base + `ssh_args = ["-o", "UserKnownHostsFile=/dev/null"]`, "mesh.peers[0].ssh_args host authentication bypass"},
++		{"proxy bypass", base + `ssh_args = ["-o", "ProxyCommand=private-secret"]`, "mesh.peers[0].ssh_args unpermitted option"},
++		{"malformed optional args", base + `ssh_args = ""`, "closed TOML shape"},
++		{"invented key provenance", base + `key_provenance = "verified"`, "closed TOML shape"},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			d, err := load(tc.doc)
++			if err == nil {
++				t.Fatal("invalid identity admitted")
++			}
++			var de *config.DocumentError
++			if !errors.As(err, &de) || !strings.Contains(de.Clause, tc.clause) {
++				t.Fatalf("wrong refusal: %v (%+v)", err, de)
++			}
++			if _, err := d.Resolve("workstation"); !errors.Is(err, peeridentity.ErrNotAllowlisted) {
++				t.Fatal("failed load returned usable peer")
++			}
++			if strings.Contains(fmt.Sprint(err), "private-secret") {
++				t.Fatal("error leaked secret")
++			}
++		})
++	}
++}
++
++func TestResolveAllowlistAndAliasAmbiguity(t *testing.T) {
++	d := requireLoad(t, document(config.CurrentVersion)+peer(otherID, peerID, "other.example"))
++	if _, err := d.Resolve(peerID); !errors.Is(err, peeridentity.ErrAmbiguousAlias) {
++		t.Fatalf("ambiguous alias accepted: %v", err)
++	}
++	if requireTarget(t, d, "workstation").Host().ID != peerID {
++		t.Fatal("unambiguous alias lost identity")
++	}
++	if requireTarget(t, d, otherID).Host().ID != otherID {
++		t.Fatal("unambiguous stable identity lost")
++	}
++	for _, selector := range []string{"", localID, "local", "Workstation", "workstation.example", "discovered.example", "workstation "} {
++		if _, err := d.Resolve(selector); !errors.Is(err, peeridentity.ErrNotAllowlisted) {
++			t.Fatalf("unlisted selector admitted: %v", err)
++		}
++	}
++	for _, name := range []string{"界", strings.Repeat("界", 64), "Workstation"} {
++		d := requireLoad(t, document(config.CurrentVersion)+peer(otherID, name, "other.example"))
++		if requireTarget(t, d, name).Host().Name != name {
++			t.Fatal("alias changed")
++		}
++	}
++}
++
++func TestProtocolIdentityRefusal(t *testing.T) {
++	d := requireLoad(t, document(config.CurrentVersion)+peer(otherID, "other", "other.example"))
++	target := requireTarget(t, d, peerID)
++	for _, id := range []string{"", localID, otherID, "workstation", "ivan@workstation.example", "private-secret", strings.ToUpper(peerID)} {
++		err := target.CheckProtocolHost(id)
++		if !errors.Is(err, peeridentity.ErrHostIdentityMismatch) {
++			t.Fatal("protocol identity not bound to target")
++		}
++		if strings.Contains(err.Error(), id) && id != "" {
++			t.Fatal("identity leaked in refusal")
++		}
++	}
++	var zero peeridentity.Target
++	if err := zero.CheckProtocolHost(peerID); !errors.Is(err, peeridentity.ErrNotAllowlisted) {
++		t.Fatal("zero target admitted")
++	}
++	if _, err := zero.RPCArgv(); !errors.Is(err, peeridentity.ErrNotAllowlisted) {
++		t.Fatal("zero target produced argv")
++	}
++	if zero.KeyProvenance() != "" {
++		t.Fatal("zero target claims provenance")
++	}
++}
++
++func TestSSHTargetAtomicArgv(t *testing.T) {
++	for _, tc := range []struct {
++		endpoint    string
++		destination string
++		port        string
++	}{
++		{"host.example", "host.example", ""}, {"u@host.example:1", "u@host.example", "1"},
++		{"host.example:65535", "host.example", "65535"}, {"[2001:db8::1]", "2001:db8::1", ""},
++		{"u@[2001:db8::1]:2222", "u@2001:db8::1", "2222"},
++	} {
++		t.Run(tc.endpoint, func(t *testing.T) {
++			doc := strings.Replace(document(config.CurrentVersion), "ivan@workstation.example", tc.endpoint, 1) + `ssh_args = ["-o", "BatchMode=yes", "-i", "/fixture/private-selector", "-p", "22"]`
++			target := requireTarget(t, requireLoad(t, doc), peerID)
++			want := []string{"-T"}
++			if tc.port != "" {
++				want = append(want, "-p", tc.port)
++			}
++			want = append(want, "-o", "BatchMode=yes", "-i", "/fixture/private-selector", "-p", "22", tc.destination, "ax", "rpc", "serve", "--stdio")
++			got, err := target.RPCArgv()
++			if err != nil || !reflect.DeepEqual(got, want) {
++				t.Fatalf("argv %q, %v", got, err)
++			}
++			got[0] = "mutated"
++			again, _ := target.RPCArgv()
++			if !reflect.DeepEqual(again, want) {
++				t.Fatal("argv exposed shared state")
++			}
++			for _, format := range []string{"%v", "%+v", "%#v", "%s", "%q"} {
++				rendered := fmt.Sprintf(format, target)
++				if strings.Contains(rendered, "private-selector") || strings.Contains(rendered, tc.endpoint) {
++					t.Fatal("target formatting leaked execution inputs")
++				}
++			}
++		})
++	}
++}
++
++func disclosure(id, policy string) string {
++	return fmt.Sprintf(`
++[[directory_peer_disclosure]]
++host_id = %q
++environment_observations = %q
++native_observations = %q
++manual_metadata = %q
++generated_metadata = %q
++job_operation_status = %q
++extensions = {}
++`, id, policy, policy, policy, policy, policy)
++}
++
++var classes = []string{"environment_observations", "native_observations", "manual_metadata", "generated_metadata", "job_operation_status"}
++
++func TestDisclosurePolicyRefusals(t *testing.T) {
++	base := document(config.CurrentVersion)
++	for _, policy := range []string{"mesh_sanitized", "reference_only"} {
++		d := requireLoad(t, base+"\n[directory]\ngenerated_summary_upgrade_choice = \"local_only\"\n"+disclosure(peerID, policy))
++		for _, class := range classes {
++			got, err := d.DisclosurePolicy(peerID, class)
++			if err != nil || got != policy {
++				t.Fatalf("%s policy=%s error=%v", class, got, err)
++			}
++		}
++	}
++	for _, tc := range []struct {
++		name, doc, selector, class string
++		want                       error
++	}{
++		{"default local only", base, peerID, "manual_metadata", peeridentity.ErrDisclosureDenied},
++		{"explicit local only", base + "\n[directory]\ndefault_metadata_policy = \"mesh_sanitized\"\n" + disclosure(peerID, "local_only"), peerID, "manual_metadata", peeridentity.ErrDisclosureDenied},
++		{"unset summary choice", base + disclosure(peerID, "mesh_sanitized"), peerID, "generated_metadata", peeridentity.ErrDisclosureDenied},
++		{"legacy version", document(config.Version1), peerID, "manual_metadata", peeridentity.ErrDisclosureDenied},
++		{"disclosure does not authorize", base + disclosure(otherID, "mesh_sanitized"), otherID, "manual_metadata", peeridentity.ErrNotAllowlisted},
++		{"raw excerpts", base + disclosure(peerID, "mesh_sanitized"), peerID, "raw_excerpts", peeridentity.ErrDisclosureDenied},
++		{"embeddings", base + disclosure(peerID, "mesh_sanitized"), peerID, "embeddings", peeridentity.ErrDisclosureDenied},
++		{"model payloads", base + disclosure(peerID, "mesh_sanitized"), peerID, "model_payloads", peeridentity.ErrDisclosureDenied},
++		{"runtime paths", base + disclosure(peerID, "mesh_sanitized"), peerID, "runtime_paths", peeridentity.ErrDisclosureDenied},
++		{"auth detail", base + disclosure(peerID, "mesh_sanitized"), peerID, "auth_status_details", peeridentity.ErrDisclosureDenied},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			d := requireLoad(t, tc.doc)
++			got, err := d.DisclosurePolicy(tc.selector, tc.class)
++			if !errors.Is(err, tc.want) || got != "" {
++				t.Fatalf("disclosure admitted: %q %v", got, err)
++			}
++		})
++	}
++	d := requireLoad(t, base+"\n[directory]\ndefault_metadata_policy = \"reference_only\"\n")
++	if p, err := d.DisclosurePolicy("workstation", "manual_metadata"); p != "reference_only" || err != nil {
++		t.Fatal("default lost")
++	}
++	// The class gate must refuse raw material even with a permissive default;
++	// local_only must not accidentally be the reason a raw-class test passes.
++	for _, class := range []string{"raw_excerpts", "embeddings", "model_payloads", "auth_status_details", "runtime_paths", ""} {
++		if _, err := d.DisclosurePolicy(peerID, class); !errors.Is(err, peeridentity.ErrDisclosureDenied) {
++			t.Fatal("unknown class escaped through permissive default")
++		}
++	}
++	for _, entry := range []string{
++		disclosure(peerID, "raw"), disclosure(peerID, "mesh_sanitized") + disclosure(peerID, "reference_only"),
++		strings.Replace(disclosure(peerID, "mesh_sanitized"), `manual_metadata = "mesh_sanitized"`, "", 1),
++		disclosure(peerID, "mesh_sanitized") + "raw_excerpts = true\n",
++	} {
++		if _, err := load(base + entry); err == nil {
++			t.Fatal("malformed disclosure accepted")
++		}
++	}
++}
++
++func TestLoadAbsenceReadFailureAndRecovery(t *testing.T) {
++	doc := document(config.CurrentVersion)
++	good := inputs(doc)
++	for _, kind := range []string{"missing", "stat failure", "partial read", "empty", "malformed"} {
++		t.Run(kind, func(t *testing.T) {
++			in := inputs(doc)
++			switch kind {
++			case "missing":
++				in.Stat = func(path string) (fs.FileInfo, error) { return fs.Stat(fstest.MapFS{}, strings.TrimPrefix(path, "/")) }
++				// The selected parent exists, while config and infrastructure roots do not.
++				in.Stat = func(path string) (fs.FileInfo, error) {
++					if path == "/" {
++						return fs.Stat(fstest.MapFS{}, ".")
++					}
++					return nil, fs.ErrNotExist
++				}
++			case "stat failure":
++				in.Stat = func(string) (fs.FileInfo, error) { return nil, errors.New("private-secret") }
++			case "partial read":
++				in.ReadFile = func(string) ([]byte, error) { return []byte(doc), errors.New("private-secret") }
++			case "empty":
++				in.ReadFile = func(string) ([]byte, error) { return []byte{}, nil }
++			case "malformed":
++				in.ReadFile = func(string) ([]byte, error) { return []byte("host_id ="), nil }
++			}
++			d, err := peeridentity.Load(in, config.Overrides{config.ConfigFile: "/config.toml"})
++			if err == nil {
++				t.Fatal("missing/failed configuration admitted")
++			}
++			if kind == "missing" && !errors.Is(err, peeridentity.ErrConfigurationRequired) {
++				t.Fatalf("absence: %v", err)
++			}
++			if kind != "missing" && errors.Is(err, peeridentity.ErrConfigurationRequired) {
++				t.Fatal("read failure treated as absence")
++			}
++			if strings.Contains(fmt.Sprintf("%+v", err), "private-secret") {
++				t.Fatal("read error leaked secret")
++			}
++			if _, err := d.Resolve(peerID); !errors.Is(err, peeridentity.ErrNotAllowlisted) {
++				t.Fatal("failed load authorized")
++			}
++			recovered, err := peeridentity.Load(good, config.Overrides{config.ConfigFile: "/config.toml"})
++			if err != nil {
++				t.Fatal(err)
++			}
++			requireTarget(t, recovered, peerID)
++		})
++	}
++	if _, err := peeridentity.FromSnapshot(config.Snapshot{}); !errors.Is(err, peeridentity.ErrConfigurationRequired) {
++		t.Fatal("zero snapshot admitted")
++	}
++	// Key provenance never inspects a private key: the only read is selected TOML.
++	reads := 0
++	in := inputs(doc + `ssh_args = ["-i", "/fixture/unreadable-key"]`)
++	reader := in.ReadFile
++	in.ReadFile = func(path string) ([]byte, error) {
++		reads++
++		if path != "/config.toml" {
++			t.Fatal("unexpected credential read")
++		}
++		return reader(path)
++	}
++	d, err := peeridentity.Load(in, config.Overrides{config.ConfigFile: "/config.toml"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	target := requireTarget(t, d, peerID)
++	if target.KeyProvenance() != "external_ssh" || reads != 1 {
++		t.Fatal("incorrect key provenance")
++	}
++}
++
++func TestSnapshotIsolationAndDisclosureBinding(t *testing.T) {
++	doc := document(config.CurrentVersion) + peer(otherID, "other", "other.example") + `ssh_args = ["-i", "/fixture/private-selector"]` + "\n[directory]\ngenerated_summary_upgrade_choice = \"mesh_sanitized\"\n" + disclosure(otherID, "local_only") + disclosure(peerID, "mesh_sanitized")
++	snapshot, err := config.Load(inputs(doc), config.Overrides{config.ConfigFile: "/config.toml"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	loaded, _ := snapshot.Configuration()
++	loaded.Value.Mesh.Peers[0].HostID = otherID
++	bytes := snapshot.Document()
++	bytes[0] = '!'
++	d, err := peeridentity.FromSnapshot(snapshot)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if requireTarget(t, d, "workstation").Host().ID != peerID {
++		t.Fatal("snapshot mutated")
++	}
++	for _, class := range classes {
++		if p, err := d.DisclosurePolicy(peerID, class); err != nil || p != "mesh_sanitized" {
++			t.Fatal("policy bound to wrong peer")
++		}
++		if _, err := d.DisclosurePolicy(otherID, class); !errors.Is(err, peeridentity.ErrDisclosureDenied) {
++			t.Fatal("other peer policy escaped")
++		}
++	}
++	if strings.Contains(fmt.Sprintf("%#v", d), "private-selector") {
++		t.Fatal("directory formatting leaked key selector")
++	}
++	// One peer matching by both its name and ID is still one identity.
++	same := requireLoad(t, strings.Replace(document(config.Version1), `name = "workstation"`, fmt.Sprintf("name = %q", peerID), 1))
++	requireTarget(t, same, peerID)
++}
++
++// Drive the actual pinned TOML fixture; this must not become a hand-maintained
++// approximation of the configuration example.
++func TestLoadPinnedPeerConfigurationExample(t *testing.T) {
++	spec, err := specdoc.Load()
++	if err != nil {
++		t.Fatal(err)
++	}
++	var body strings.Builder
++	inExample, inTOML := false, false
++	for line := 1; line <= spec.LineCount(); line++ {
++		text, _ := spec.Line(line)
++		if text == "### 6.2 Normative example" {
++			inExample = true
++			continue
++		}
++		if !inExample {
++			continue
++		}
++		if text == "~~~toml" {
++			inTOML = true
++			continue
++		}
++		if inTOML && text == "~~~" {
++			break
++		}
++		if inTOML {
++			body.WriteString(text)
++			body.WriteByte('\n')
++		}
++	}
++	if body.Len() == 0 {
++		t.Fatal("pinned TOML example absent")
++	}
++	d := requireLoad(t, body.String())
++	target := requireTarget(t, d, "workstation")
++	argv, err := target.RPCArgv()
++	want := []string{"-T", "-o", "BatchMode=yes", "ivan@workstation.tailnet.ts.net", "ax", "rpc", "serve", "--stdio"}
++	if err != nil || !reflect.DeepEqual(argv, want) {
++		t.Fatalf("pinned SSH target: %q, %v", argv, err)
++	}
++	if err := target.CheckProtocolHost(peerID); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestSSHTotalArgvByteBound(t *testing.T) {
++	baseline := requireTarget(t, requireLoad(t, document(config.CurrentVersion)), peerID)
++	argv, _ := baseline.RPCArgv()
++	fixed := 0
++	for _, arg := range argv {
++		fixed += len(arg)
++	}
++	for _, total := range []int{65_536, 65_537} {
++		remaining := total - fixed
++		var quoted []string
++		for remaining > 0 {
++			size := remaining - 2
++			if size > 4096 {
++				size = 4096
++			}
++			if remaining-size-2 > 0 && remaining-size-2 < 3 {
++				size -= 3
++			}
++			quoted = append(quoted, fmt.Sprintf("%q", "-i"), fmt.Sprintf("%q", strings.Repeat("a", size)))
++			remaining -= size + 2
++		}
++		doc := document(config.CurrentVersion) + "ssh_args = [" + strings.Join(quoted, ",") + "]"
++		target := requireTarget(t, requireLoad(t, doc), peerID)
++		got, err := target.RPCArgv()
++		if total == 65_536 {
++			if err != nil {
++				t.Fatal(err)
++			}
++			size := 0
++			for _, arg := range got {
++				size += len(arg)
++			}
++			if size != total {
++				t.Fatalf("argv bytes %d", size)
++			}
++		} else if !errors.Is(err, peeridentity.ErrSSHArgvTooLarge) || got != nil {
++			t.Fatal("oversized composed argv admitted")
++		}
++	}
++}
++
++func TestDisclosureClassPolicyBinding(t *testing.T) {
++	for _, allowed := range classes {
++		t.Run(allowed, func(t *testing.T) {
++			entry := disclosure(peerID, "local_only")
++			entry = strings.Replace(entry, allowed+` = "local_only"`, allowed+` = "mesh_sanitized"`, 1)
++			d := requireLoad(t, document(config.CurrentVersion)+"\n[directory]\ngenerated_summary_upgrade_choice = \"mesh_sanitized\"\n"+entry)
++			for _, class := range classes {
++				policy, err := d.DisclosurePolicy(peerID, class)
++				if class == allowed {
++					if err != nil || policy != "mesh_sanitized" {
++						t.Fatal("class lost its own policy")
++					}
++				} else if !errors.Is(err, peeridentity.ErrDisclosureDenied) || policy != "" {
++					t.Fatal("class borrowed another class policy")
++				}
++			}
++		})
++	}
++}
+diff --git a/internal/peeridentity/mutations.py b/internal/peeridentity/mutations.py
+new file mode 100644
+index 0000000..5ad9221
+--- /dev/null
++++ b/internal/peeridentity/mutations.py
+@@ -0,0 +1,108 @@
++#!/usr/bin/env python3
++"""Task-scoped behavioral narrowing probes using Go overlays, without editing sources."""
++import argparse
++import json
++from pathlib import Path
++import subprocess
++import sys
++
++ROOT = Path(__file__).resolve().parents[2]
++IDENTITY = "internal/peeridentity/identity.go"
++CONFIG = "internal/config/validation.go"
++TESTS = "TestLoadPeerIdentityVersions|TestLoadIdentityRefusals|TestResolveAllowlistAndAliasAmbiguity|TestProtocolIdentityRefusal|TestSSHTargetAtomicArgv|TestDisclosurePolicyRefusals|TestLoadAbsenceReadFailureAndRecovery|TestSnapshotIsolationAndDisclosureBinding|TestLoadRefusesLocalHostAsPeer|TestSSHTotalArgvByteBound|TestDisclosureClassPolicyBinding"
++
++# Each plant retains the gate and admits one specific forbidden fixture value
++# or route. Neutral and known-bad controls validate the overlay instrument.
++PROBES = [
++    ("disclosure-class-binding", IDENTITY, 'policy = entry.NativeObservations', 'policy = entry.ManualMetadata', "Allows native observations to borrow manual metadata permission", "TestDisclosureClassPolicyBinding/manual_metadata"),
++    ("composed-argv-bound", IDENTITY, 'totalBytes > 65_536', 'totalBytes > 65_537', "Admits exactly 65537 composed SSH argv bytes", "TestSSHTotalArgvByteBound"),
++    ("neutral", IDENTITY, 'return "external_ssh"', 'return ("external_ssh")', "Equivalent expression", None),
++    ("known-bad", IDENTITY, '"ax", "rpc", "serve", "--stdio"', '"wrong-command", "rpc", "serve", "--stdio"', "Fixed command changed, code still compiles", "TestLoadPeerIdentityVersions"),
++    ("local-duplicate", CONFIG, 'map[string]struct{}{configuration.HostID: {}}', 'map[string]struct{}{}', "Peer-peer uniqueness retained; admits the local identity as a remote peer", "TestLoadRefusesLocalHostAsPeer"),
++    ("peer-duplicate", CONFIG, 'if _, exists := hostIDs[peer.HostID]; exists {', 'if _, exists := hostIDs[peer.HostID]; exists && peer.Name != "different alias" {', "Admits duplicate identity with the different-alias fixture", "TestLoadIdentityRefusals/duplicate_identity"),
++    ("alias-duplicate", CONFIG, 'if _, exists := names[peer.Name]; exists {', 'if _, exists := names[peer.Name]; exists && peer.HostID != "0198f4c8-a070-7188-9172-1234567890ab" {', "Admits duplicate alias for one peer ID", "TestLoadIdentityRefusals/duplicate_alias"),
++    ("local-id-grammar", CONFIG, 'scalar.ParseUUIDv7(configuration.HostID); err != nil {', 'scalar.ParseUUIDv7(configuration.HostID); err != nil && configuration.HostID != "bad-local-secret" {', "Admits one malformed local host ID", "TestLoadIdentityRefusals/malformed_local_UUID"),
++    ("peer-id-grammar", CONFIG, 'scalar.ParseUUIDv7(peer.HostID); err != nil {', 'scalar.ParseUUIDv7(peer.HostID); err != nil && peer.HostID != "" {', "Admits explicitly empty peer ID", "TestLoadIdentityRefusals/empty_peer_ID"),
++    ("alias-bound", CONFIG, 'validatePrintableCharacters(peer.Name, 1, 64)', 'validatePrintableCharacters(peer.Name, 1, 65)', "Admits 65-character aliases", "TestLoadIdentityRefusals/long_alias"),
++    ("endpoint-grammar", CONFIG, 'reason != endpointAdmitted {', 'reason != endpointAdmitted && peer.Endpoint != "-oStrictHostKeyChecking=no" {', "Admits one option-shaped endpoint", "TestLoadIdentityRefusals/option_endpoint"),
++    ("ssh-auth-policy", CONFIG, 'reason != sshArgumentAdmitted {', 'reason != sshArgumentAdmitted && !(len(peer.SSHArgs) == 1 && peer.SSHArgs[0] == "-voStrictHostKeyChecking=no") {', "Admits one grouped host-key bypass", "TestLoadIdentityRefusals/grouped_host_key_bypass"),
++    ("selector-allowlist", IDENTITY, 'peer.HostID != selector && peer.Name != selector {', 'peer.HostID != selector && peer.Name != selector && selector != "discovered.example" {', "Admits one discovery candidate", "TestResolveAllowlistAndAliasAmbiguity"),
++    ("alias-ambiguity", IDENTITY, 'if match >= 0 {', 'if match >= 0 && selector != "0198f4c8-7d40-7e55-8e6f-1234567890ab" {', "Admits one ID/alias collision", "TestResolveAllowlistAndAliasAmbiguity"),
++    ("protocol-grammar", IDENTITY, 'if _, err := scalar.ParseUUIDv7(hostID); err != nil {', 'if _, err := scalar.ParseUUIDv7(hostID); err != nil && hostID != "workstation" {', "Allows one malformed protocol ID through grammar only; exact identity gate subsumes it", None),
++    ("protocol-id", IDENTITY, 'if hostID != t.host.ID {', 'if hostID != t.host.ID && hostID != "0198f4c8-a070-7188-9172-1234567890ab" {', "Admits one other allowlisted peer ID", "TestProtocolIdentityRefusal"),
++    ("disclosure-class", IDENTITY, 'case "environment_observations", "native_observations", "manual_metadata", "generated_metadata", "job_operation_status":', 'case "environment_observations", "native_observations", "manual_metadata", "generated_metadata", "job_operation_status", "raw_excerpts":', "Admits raw excerpts to the policy class registry", "TestDisclosurePolicyRefusals"),
++    ("disclosure-unset", IDENTITY, 'class == "generated_metadata" && d.summaryChoice == "unset"', 'class == "generated_metadata" && d.summaryChoice == "unset" && selector != "0198f4c8-7d40-7e55-8e6f-1234567890ab"', "Admits unset summary choice for one peer", "TestDisclosurePolicyRefusals/unset_summary_choice"),
++    ("disclosure-local", IDENTITY, 'policy != "mesh_sanitized" && policy != "reference_only"', 'policy != "mesh_sanitized" && policy != "reference_only" && !(policy == "local_only" && class == "manual_metadata")', "Admits local-only manual metadata", "TestDisclosurePolicyRefusals/default_local_only"),
++    ("disclosure-binding", IDENTITY, 'entry.HostID != target.host.ID {', 'entry.HostID != target.host.ID && entry.HostID != "0198f4c8-7d40-7e55-8e6f-1234567890ab" {', "Allows one peer override to affect another peer", "TestSnapshotIsolationAndDisclosureBinding"),
++    ("read-error", 'internal/config/loader.go', 'document, err := inputs.ReadFile(filename)\n\tif err != nil {', 'document, err := inputs.ReadFile(filename)\n\tif err != nil && len(document) == 0 {', "Admits full-looking bytes returned together with a failed read", "TestLoadAbsenceReadFailureAndRecovery/partial_read"),
++]
++
++# Survivors are explicitly bounded, never represented as behavioral kills.
++BOUNDS = {
++    "protocol-grammar": "Grammar alone is subsumed by exact target-ID equality; malformed IDs still fail equality. No independent grammar kill claimed.",
++}
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--output", required=True)
++    opts = parser.parse_args()
++    out = Path(opts.output).resolve()
++    out.mkdir(parents=True, exist_ok=True)
++    results = []
++    unexpected = False
++    for name, path, old, new, narrows, expected_test in PROBES:
++        source = ROOT / path
++        original = source.read_bytes()
++        text = original.decode()
++        if text.count(old) != 1:
++            raise RuntimeError(f"{name}: plant must match exactly once, got {text.count(old)}")
++        folder = out / name
++        folder.mkdir(exist_ok=True)
++        replacement = folder / source.name
++        replacement.write_text(text.replace(old, new, 1))
++        overlay = folder / "overlay.json"
++        overlay.write_text(json.dumps({"Replace": {str(source): str(replacement)}}))
++        command = ["go", "test", "-overlay", str(overlay), "./internal/peeridentity", "./internal/config", "-count=1", "-json", "-run", TESTS]
++        proc = subprocess.run(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
++        (folder / "test.log").write_bytes(proc.stdout)
++        events = []
++        for line in proc.stdout.decode(errors="replace").splitlines():
++            try:
++                events.append(json.loads(line))
++            except json.JSONDecodeError:
++                pass
++        failed = [e["Test"] for e in events if e.get("Action") == "fail" and "Test" in e]
++        passed = [e["Test"] for e in events if e.get("Action") == "pass" and "Test" in e]
++        killed = proc.returncode != 0 and bool(failed) and (expected_test is None or expected_test in failed)
++        if name == "neutral":
++            valid = proc.returncode == 0 and bool(passed)
++            state = "neutral passed" if valid else "invalid control"
++        elif name in BOUNDS:
++            valid = proc.returncode == 0 and bool(passed)
++            state = "survived" if valid else "unexpected result"
++        else:
++            valid = killed
++            state = "killed" if killed else "survived" if proc.returncode == 0 and passed else "invalid instrument/compile failure"
++        if not valid:
++            unexpected = True
++        if source.read_bytes() != original:
++            raise RuntimeError(f"{name}: source changed during overlay run")
++        row = {"mutant": name, "narrowing": narrows, "exit_code": proc.returncode, "result": state,
++               "named_failing_tests": failed, "expected_test": expected_test,
++               "bound": BOUNDS.get(name, "" if killed or name == "neutral" else "No named failing test established; this gate member is unproven."),
++               "command": command}
++        results.append(row)
++        print(f"{name}: {state}, exit={proc.returncode}, tests={','.join(failed)}", flush=True)
++        (out / "results.json").write_text(json.dumps(results, indent=2) + "\n")
++    rows = ["| Mutant | What the gate is narrowed to admit | Named failing test | Exit | Result / surviving bound |",
++            "| --- | --- | --- | ---: | --- |"]
++    for r in results:
++        tests = r["expected_test"] if r["expected_test"] in r["named_failing_tests"] else ", ".join(r["named_failing_tests"])
++        rows.append(f'| {r["mutant"]} | {r["narrowing"]} | {tests or "none"} | {r["exit_code"]} | {r["result"]}: {r["bound"]} |')
++    (out / "table.md").write_text("\n".join(rows)+"\n")
++    return int(unexpected)
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index b492687..5eb170c 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=98 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
++	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=105 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
+ 		"section coverage: bindings=53 full=1 partial=3 sliver=1 unevidenced=45 unmeasured=3 unowned=2 clauses_discharged=17/428\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+@@ -55,7 +55,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=98 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
++	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=105 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
+ 		"section coverage: bindings=53 full=1 partial=3 sliver=1 unevidenced=45 unmeasured=3 unowned=2 clauses_discharged=17/428\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 6a90bfd..a906dde 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -2798,6 +2798,105 @@
+           "declaration": "TestJournalSurvivesRestart"
+         }
+       ]
++    },
++    {
++      "id": "peer-host-identity",
++      "production": {
++        "path": "internal/peeridentity/identity.go",
++        "declaration": "Load"
++      },
++      "tests": [
++        {
++          "path": "internal/peeridentity/identity_test.go",
++          "declaration": "TestLoadPeerIdentityVersions"
++        },
++        {
++          "path": "internal/peeridentity/identity_test.go",
++          "declaration": "TestLoadIdentityRefusals"
++        }
++      ]
++    },
++    {
++      "id": "peer-alias-resolution",
++      "production": {
++        "path": "internal/peeridentity/identity.go",
++        "declaration": "Resolve"
++      },
++      "tests": [
++        {
++          "path": "internal/peeridentity/identity_test.go",
++          "declaration": "TestResolveAllowlistAndAliasAmbiguity"
++        }
++      ]
++    },
++    {
++      "id": "peer-ssh-target",
++      "production": {
++        "path": "internal/peeridentity/identity.go",
++        "declaration": "RPCArgv"
++      },
++      "tests": [
++        {
++          "path": "internal/peeridentity/identity_test.go",
++          "declaration": "TestSSHTargetAtomicArgv"
++        }
++      ]
++    },
++    {
++      "id": "peer-key-provenance",
++      "production": {
++        "path": "internal/peeridentity/identity.go",
++        "declaration": "KeyProvenance"
++      },
++      "tests": [
++        {
++          "path": "internal/peeridentity/identity_test.go",
++          "declaration": "TestLoadAbsenceReadFailureAndRecovery"
++        }
++      ]
++    },
++    {
++      "id": "peer-allowlist-identity",
++      "production": {
++        "path": "internal/peeridentity/identity.go",
++        "declaration": "CheckProtocolHost"
++      },
++      "tests": [
++        {
++          "path": "internal/peeridentity/identity_test.go",
++          "declaration": "TestProtocolIdentityRefusal"
++        }
++      ]
++    },
++    {
++      "id": "peer-disclosure-policy",
++      "production": {
++        "path": "internal/peeridentity/identity.go",
++        "declaration": "DisclosurePolicy"
++      },
++      "tests": [
++        {
++          "path": "internal/peeridentity/identity_test.go",
++          "declaration": "TestDisclosurePolicyRefusals"
++        },
++        {
++          "path": "internal/peeridentity/identity_test.go",
++          "declaration": "TestSnapshotIsolationAndDisclosureBinding"
++        }
++      ]
++    },
++    {
++      "id": "peer-identity-read-recovery",
++      "production": {
++        "path": "internal/peeridentity/identity.go",
++        "declaration": "Load"
++      },
++      "tests": [
++        {
++          "path": "internal/peeridentity/identity_test.go",
++          "declaration": "TestLoadAbsenceReadFailureAndRecovery"
++        }
++      ]
+     }
+   ],
+   "ownership": [
+@@ -3078,10 +3177,16 @@
+       },
+       "acceptance_cases": [
+         "config-versioned-readers",
+-        "config-current-writer"
++        "config-current-writer",
++        "peer-host-identity",
++        "peer-alias-resolution",
++        "peer-ssh-target",
++        "peer-key-provenance",
++        "peer-allowlist-identity",
++        "peer-identity-read-recovery"
+       ],
+       "coverage": "unevidenced",
+-      "gap": "validateConfiguration enforces many Section 6.3 field constraints, but no clause of Section 6.3 is enumerated against an acceptance case, so the registry makes no clause-level claim about its obligations."
++      "gap": "validateConfiguration enforces many Section 6.3 field constraints, but no clause of Section 6.3 is enumerated against an acceptance case, so the registry makes no clause-level claim about its obligations. internal/peeridentity composes Load, exact alias/host-ID resolution, SSH argv planning and protocol-ID comparison; SSH authentication and runtime mesh transport remain outside this configuration slice."
+     },
+     {
+       "kind": "section_binding",
+@@ -3095,10 +3200,11 @@
+       "acceptance_cases": [
+         "config-versioned-readers",
+         "config-durable-migration",
+-        "config-durable-migration-os-entry"
++        "config-durable-migration-os-entry",
++        "peer-disclosure-policy"
+       ],
+       "coverage": "unevidenced",
+-      "gap": "Migrate writes the Section 6.4 durable migration with an owner-only backup and atomic replacement, but no clause of Section 6.4 is enumerated against an acceptance case."
++      "gap": "Migrate writes the Section 6.4 durable migration with an owner-only backup and atomic replacement, but no clause of Section 6.4 is enumerated against an acceptance case. internal/peeridentity resolves per-peer metadata policy and denies local-only or unchosen generated disclosure; payload sanitization and directory publication remain outside this slice."
+     },
+     {
+       "kind": "section_binding",
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 3056626..34b19df 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "caaca4c9b2d0a2ddb225810dba757807474230cf20e39cb3676c902f83fd9faa"
++	reviewedOwnershipCanonicalSHA256 = "a61fe65807bc7cd32bcb82b6dc6bc4ad694435b54cc3b443597c6fb9f46124f1"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 66bbeae..772adfe 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -29,7 +29,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              60,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        98,
++		AcceptanceCases:        105,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 		SectionBindings:        53,

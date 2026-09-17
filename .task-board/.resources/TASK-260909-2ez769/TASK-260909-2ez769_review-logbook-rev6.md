@@ -1,0 +1,4 @@
+# CR6 review logbook
+
+2026-09-16, RUN-260916-c3e675, immutable candidate b0bb3d9d600d4c323aa12480b3285512f96167c7.
+Changes requested: P1 delayed legacy writer overwrites completed Config4 without a generation change; P1 failed replacement plus failed restore removes pending intent and exposes changed config with old generation (both apply and rollback); P2 census misses 3/4 executable rogue-writer shapes. Repeat-of CR3/CR4/CR5 transaction family, distinct paths. CR5 compensation repair passes six asynchronous races; original seven probes pass. Native Windows and export consumer bounds unchanged. Reviewed candidate untouched. See TASK-260909-2ez769_review-verdict-rev6.md and TASK-260909-2ez769_review-evidence-rev6.zip for reproduction, exact exits, census coverage and AC ratio. Route to-dev; no accept_cr/commit/checkpoint/integration.

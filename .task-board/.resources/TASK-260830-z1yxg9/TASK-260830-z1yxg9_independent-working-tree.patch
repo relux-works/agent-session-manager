@@ -1,0 +1,1545 @@
+diff --git a/README.md b/README.md
+index e662afb..1ea37a1 100644
+--- a/README.md
++++ b/README.md
+@@ -2352,8 +2352,8 @@ Section 15.1 at 5/7 and Section 15.3 at 2/3, both bound to
+ [`internal/axerror`](internal/axerror); the three undischarged clauses there are
+ the RPC hello obligation `15.1#5`, the bootstrap-row sentence `15.1#6` that
+ binds the provider plugin rather than the host, and the hello-key and
+-TerminalBackend-capability prohibition `15.3#3` - this repository builds no RPC
+-hello frame and no provider plugin, and advertises no Structured Error as a
++TerminalBackend-capability prohibition `15.3#3` - this repository has no authenticated RPC hello consumer or provider plugin,
++and advertises no Structured Error as a
+ TerminalBackend capability. The closed 16-capability admission registry in
+ [`internal/terminalbackend`](internal/terminalbackend) gates which operations
+ an admitted probe may confer; it is never advertised on an RPC hello path and
+@@ -2619,3 +2619,29 @@ No durable AX state is mutated; crash/write-idempotency injection is inapplicabl
+ | Transport behavior | `go test ./internal/sshtransport -count=1 -v` | Local process and native config-only fixtures; `.temp/TASK-260830-1tvg8e/` logs |
+ | Transport races and coverage | `go test ./internal/sshtransport -race -count=1 -cover` | Race diagnostics and measured package coverage |
+ | Transport narrowing | `python3 internal/sshtransport/mutations.py --output .temp/TASK-260830-1tvg8e/mutations` | Applied compiling overlays, standalone process exits, named failing tests and mutant table; source originals remain untouched |
++
++## Untrusted RPC wire components (staged)
++
++`internal/rpcwire` implements typed request/response envelopes, request-ID and
++version correlation, structural hello maps and nonce echo, offered limit minima,
++`inventory.roots` namespace/cardinality checks, and statically bound historical
++errors for the exact pinned RPC 2.0.0, 3.0.0 and 4.0.0 wire shapes. The public
++codec returns LF-free bytes for the existing SSH stream boundary; it does not
++open a transport or dispatch an operation. Contract profiles describe syntax,
++not installed capabilities. Received identities and limits remain untrusted.
++
++This is uncommitted staged work for TASK-260830-z1yxg9. The full task remains
++blocked on the independent inbound SSH identity association decision. There is
++no authenticated responder, successful runtime handshake, pending-request/replay
++state, negotiated object exchange, or new doctor/capability availability claim.
++Other operation bodies remain opaque JSON for their owners to validate. The
++existing SSH transport owns partial I/O and configured timeout/cancellation.
++See [wire traceability and bounds](internal/rpcwire/README.md) for the exact
++implemented surface and incomplete seven-row acceptance accounting.
++
++| Tool | Exact command | Output |
++| --- | --- | --- |
++| RPC codec tests | `go test ./internal/rpcwire -count=1 -v` | stdout; logs under `.temp/TASK-260830-z1yxg9/` |
++| RPC race/coverage | `go test ./internal/rpcwire -race -count=1 -cover` | stdout and task log |
++| RPC narrowing | `python3 internal/rpcwire/mutations.py --output .temp/TASK-260830-z1yxg9/mutations` | Overlays, real child exits, named failing tests, survivor bounds and Markdown table |
++| RPC bounded fuzz | `go test ./internal/rpcwire -run=^$ -fuzz=^FuzzUntrustedEnvelopes$ -fuzztime=100x -parallel=1` | stdout and task log; registered in worktree validation |
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index 039a030..88345f8 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -3821,7 +3821,7 @@
+         "ssh-stream-failure-recovery"
+       ],
+       "coverage": "unevidenced",
+-      "gap": "ForRelease owns the pinned contract catalog. sshtransport provides bounded 8 MiB LF framing, duplex stdio and process failure/cancellation handling, but does not decode hello, negotiate contracts, bind nonces or admit operations. No clause of Section 11.2 is enumerated; its 5 keyword obligations remain unevidenced as full RPC behavior."
++      "gap": "ForRelease owns the pinned contract catalog. sshtransport provides bounded 8 MiB LF framing, duplex stdio and process failure/cancellation handling, and retains configured deadlines. TASK-260830-z1yxg9 adds rpcwire.DecodeRequest/DecodeResponse structural hello maps, nonce echo, ID correlation, limits and historical framing; internal/rpcwire/README.md maps component tests to the pin. No authenticated consumer, bilateral admission, negotiated session or dispatch exists. No clause of Section 11.2 is enumerated; its 5 keyword obligations remain unevidenced as full RPC behavior."
+     },
+     {
+       "kind": "section_binding",
+@@ -3836,7 +3836,7 @@
+         "catalog-v050-exact"
+       ],
+       "coverage": "unevidenced",
+-      "gap": "ForRelease only returns the reviewed typed catalog rows that reference 11.3; no clause of 11.3 is enumerated against an acceptance case, so the registry makes no clause-level claim about the 27 obligations it carries."
++      "gap": "ForRelease returns the reviewed typed catalog rows that reference 11.3. rpcwire now validates inventory.roots namespace/cardinality and matches roots to requested namespaces, without Merkle or object-membership verification or operation dispatch. No clause of 11.3 is enumerated against an acceptance case, so the registry makes no clause-level claim about the 27 obligations it carries."
+     },
+     {
+       "kind": "section_binding",
+@@ -3923,7 +3923,7 @@
+         "structured-error-common-data-model"
+       ],
+       "coverage": "partial",
+-      "gap": "Two of the seven Section 15.1 clauses stay unimplemented here. Clause 15.1#5 is the RPC hello obligation - an error contract key must never be advertised or negotiated in a hello frame - and New builds a failure object rather than a hello frame; this repository contains no RPC hello builder at all, so BindingFor is a static table with no negotiation path rather than a refusal of one. Clause 15.1#6 is the Provider JSON-over-stdio bootstrap row, whose only RFC 2119 sentence is that the plugin MUST NOT masquerade a different-major object as v2; that obligation binds the provider plugin and this repository builds no provider plugin, only the cataloggen and tracecheck binaries. LocalFromUntrusted implements the host half of the same row, but that half states no RFC 2119 keyword, so it discharges nothing the clause scanner measures and is claimed for clause 15.1#7 instead.",
++      "gap": "Two of the seven Section 15.1 clauses stay unimplemented here. Clause 15.1#5 is the RPC hello obligation - an error contract key must never be advertised or negotiated in a hello frame - and New builds a failure object rather than a hello frame; rpcwire now builds and rejects structural hello/error frames through its public codec, but no authenticated runtime hello consumer invokes it. BindingFor remains static and no complete handshake clause is discharged by codec tests. Clause 15.1#6 is the Provider JSON-over-stdio bootstrap row, whose only RFC 2119 sentence is that the plugin MUST NOT masquerade a different-major object as v2; that obligation binds the provider plugin and this repository builds no provider plugin, only the cataloggen and tracecheck binaries. LocalFromUntrusted implements the host half of the same row, but that half states no RFC 2119 keyword, so it discharges nothing the clause scanner measures and is claimed for clause 15.1#7 instead.",
+       "clauses": [
+         {
+           "id": "15.1#1",
+@@ -4007,7 +4007,7 @@
+         "structured-error-exit-status-fan-in"
+       ],
+       "coverage": "partial",
+-      "gap": "Clause 15.3#3 additionally forbids Structured Error from appearing as an RPC hello key or a TerminalBackend capability, and ExitCodeFor resolves a code-to-exit mapping rather than building either advertisement. No RPC hello frame is built anywhere in this repository, and the closed 16-capability admission registry in internal/terminalbackend is never advertised on an RPC hello path and carries no Structured Error code, so Section 15.3 keeps that clause unimplemented.",
++      "gap": "Clause 15.3#3 additionally forbids Structured Error from appearing as an RPC hello key or a TerminalBackend capability, and ExitCodeFor resolves a code-to-exit mapping rather than building either advertisement. rpcwire builds structural hello frames and rejects an error map key, but no authenticated runtime hello consumer exists. The closed 16-capability admission registry in internal/terminalbackend is never advertised on an RPC hello path and carries no Structured Error code, so Section 15.3 keeps that clause unimplemented.",
+       "clauses": [
+         {
+           "id": "15.3#1",
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 4ee55d7..e944866 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "cd00dfd9d6378a7f384e69e540300346ad3ffd72371cc0feebcc58cd1fedfa0a"
++	reviewedOwnershipCanonicalSHA256 = "77d3017b035a62f1e33bfb591ca6f70d2b4b1a1fb06a4baf856914f4dff78625"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/task-board.config.json b/task-board.config.json
+index 1a2b314..873ab46 100644
+--- a/task-board.config.json
++++ b/task-board.config.json
+@@ -198,6 +198,7 @@
+           "go test ./... -count=1 -v",
+           "go test ./... -race -count=1",
+           "go test ./... -cover -count=1",
++          "go test ./internal/rpcwire -run=^$ -fuzz=^FuzzUntrustedEnvelopes$ -fuzztime=100x -parallel=1",
+           "go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1",
+           "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1",
+           "go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1",
+diff --git a/internal/rpcwire/README.md b/internal/rpcwire/README.md
+new file mode 100644
+index 0000000..9040aa5
+--- /dev/null
++++ b/internal/rpcwire/README.md
+@@ -0,0 +1,80 @@
++# Untrusted Mesh RPC wire components
++
++Owner: TASK-260830-z1yxg9 in STORY-260830-1kiyj6. Authority: embedded AX
++v0.5.0 SPEC.md, commit `28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c`.
++This is staged implementation; the complete task remains blocked on the
++independent inbound SSH identity-to-configured-host association decision.
++
++`EncodeRequest` / `DecodeRequest` and `EncodeSuccess` / `EncodeFailure` /
++`DecodeResponse` implement the reusable wire surface. `EncodeRejection` can
++frame a supported-version bootstrap failure despite an invalid body; it returns
++no bytes for an unframeable identity/version/JSON/size. All output is LF-free
++for `sshtransport.Session.Send`; input is one line from `Session.Receive`.
++The codec does not open SSH or invoke those transport methods itself.
++
++The package owns no responder, handshake state, authenticated identity,
++capability advertisement, operation dispatch, or pending-request queue. Its
++success means structural validity only. In particular, `Request.Hello().HostID`
++is an untrusted claim, `Response.OK()` means only the envelope's `ok=true`, and
++`OfferedLimits` computes minima without making them authenticated or installing
++them on a connection. Repeating `DecodeResponse` is possible; this codec does
++not claim replay resistance. Received randomness/freshness cannot be proven by
++nonce shape validation. `NewNonce` obtains 256 random bits from crypto/rand.
++
++## Implemented surface and traceability
++
++| Pinned rule | Production call site | Named test | Bound |
++| --- | --- | --- | --- |
++| 11.2 exact envelopes, UUIDv7 ID echo; 17.1 containing version first | DecodeRequest, DecodeResponse, EncodeRequest, EncodeSuccess | TestPinnedHelloProfiles, TestRequestRefusals, TestResponseRefusals | Correlation of one supplied request; no connection sequencing |
++| 1.6 closed objects and common JSON model | DecodeRequest/DecodeResponse through object/exact | TestFrameRefusals, TestRequestRefusals | Shared canonicaljson validates bytes; opaque operation semantics remain with operation owners |
++| 11.2 fourteen-key hello map, nonce/echo and limit floors | DecodeRequest, DecodeResponse, Request.Hello, OfferedLimits | TestHelloRefusals, TestLimitsAndUntrustedIsolation | v2 arrays have 1–16 bytewise sorted unique semvers; selecting mutually supported versions remains TASK-260830-219okr |
++| 11.8/11.9 exact historical 24/25-key maps | DecodeRequest/DecodeResponse | TestPinnedHelloProfiles, TestHelloRefusals | Exact pinned 2.0.0/3.0.0/4.0.0 syntax; no automatic major or minor negotiation |
++| 11.3/11.8/11.9 inventory.roots 6/7/8 namespace vocabulary and bounds | DecodeRequest, DecodeResponse, EncodeSuccess | TestInventoryNamespacesAndCardinality | Explicit subsets remain valid; results must match requested namespaces. No Merkle digest verification, schema membership or object exchange |
++| 11.2/15.1/17 static historical errors and bootstrap framing | EncodeFailure, DecodeResponse, EncodeRejection -> axerror.DecodeBound | TestHistoricalFailureBindings, TestBootstrapRejectionFraming | No responder chooses/sends the error or performs the required one-frame close |
++| 11.2 8 MiB line bound | DecodeRequest, EncodeRequest, DecodeResponse | TestFrameRefusals, TestWriterAndAccessorBounds | Codec line limit; partial I/O is owned by sshtransport |
++
++**0 of 7 full RPC AC rows are proven through an authenticated runtime consumer.**
++Five rows have new component evidence (correlation, hello maps/nonce, inventory
++namespace/cardinality, offered limits, historical errors). Bilateral admission
++has no implementation; connection deadlines/recovery have predecessor transport
++evidence only. Codec tests do not discharge the complete seven-row deliverable.
++Tests are in the uncommitted task delta, awaiting the managed review/checkpoint
++flow after the unresolved decision is supplied.
++
++Other operation bodies are retained as isolated raw JSON objects, without
++schema or permission validation. No caller may dispatch from this library's
++success. Object limits are advertised structural offers; object decoding,
++negotiated transfer enforcement and durable mutation/recovery remain with their
++operation owners. There is no durable state change in this package, hence no
++new crash/idempotency behavior to attest.
++
++## Existing owners and unchanged decision
++
++`sshtransport` already owns the fixed 8 MiB LF framing, bounded partial I/O,
++process teardown and earlier-of-caller/configured RPC timeout. Section 6.2
++provides the 300-second default and 10–3600-second configuration range; sections
++11.2–11.3 do not define an additional numeric hello timeout. This package adds
++no competing timer or stream pump. `peeridentity` retains configured identity
++selection/comparison; `axerror` retains error validation and static binding.
++
++The eventual responder still needs an independently authoritative association
++between externally authenticated SSH identity/invocation and one configured
++host, or an explicit human decision accepting membership-only semantics with
++its cross-listed-host impersonation bound. The membership-only interpretation
++is withdrawn. No expected-peer injection, verified flag, claim-selected target
++or fallback is introduced here. TASK-260830-219okr and TASK-260830-2x16gz retain
++their complete subsequent negotiation and hostile-peer obligations.
++
++## Verification tools
++
++| Purpose | Command | Output |
++| --- | --- | --- |
++| Component behavior | `go test ./internal/rpcwire -count=1 -v` | stdout; task logs in `.temp/TASK-260830-z1yxg9/` |
++| Races and coverage | `go test ./internal/rpcwire -race -count=1 -cover` | stdout and task log |
++| Behavioral narrowing and controls | `python3 internal/rpcwire/mutations.py --output .temp/TASK-260830-z1yxg9/mutations` | Per-mutant Go overlay, JSON events, real exit, named failures and Markdown table; source remains unchanged |
++| Bounded fuzz smoke | `go test ./internal/rpcwire -run '^$' -fuzz '^FuzzUntrustedEnvelopes$' -fuzztime=100x -parallel=1` | stdout and task log |
++
++The overlay harness accepts `--only NAME,NAME` for bounded reruns. A kill requires
++an actual named failing behavioral test. Compile errors, empty test selections
++and instrumentation failures are not kills. Survivors must retain explicit
++bounds in the task outcome. No source-only check is added by this package.
+diff --git a/internal/rpcwire/envelope.go b/internal/rpcwire/envelope.go
+new file mode 100644
+index 0000000..eaf6bd9
+--- /dev/null
++++ b/internal/rpcwire/envelope.go
+@@ -0,0 +1,257 @@
++// Package rpcwire encodes and inspects untrusted Mesh RPC frames. Structural
++// validity and correlation are never authentication, handshake completion or
++// permission to dispatch. No connection, responder or operation executor lives
++// here. The eventual bilateral admission consumer must supply those boundaries.
++package rpcwire
++
++import (
++	"bytes"
++	"encoding/json"
++	"errors"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/sshtransport"
++)
++
++const Protocol = "urn:ax:protocol:rpc"
++const MaxLineBytes = sshtransport.MaxLineBytes
++const MinObjectBytes = 5 * 1024 * 1024
++
++var (
++	ErrFrame       = errors.New("invalid RPC frame")
++	ErrVersion     = errors.New("unsupported RPC wire version")
++	ErrCorrelation = errors.New("RPC response does not match request")
++	ErrHello       = errors.New("incompatible RPC hello structure")
++	ErrInventory   = errors.New("invalid RPC inventory structure")
++)
++
++// Request retains an isolated envelope. Body bytes for operations other than
++// hello and inventory.roots are opaque: their operation owners must validate
++// them. A zero Request cannot be encoded or used as a response expectation.
++type Request struct {
++	version, id, operation string
++	body                   json.RawMessage
++}
++
++func (r Request) Version() string       { return r.version }
++func (r Request) ID() string            { return r.id }
++func (r Request) Operation() string     { return r.operation }
++func (r Request) Body() json.RawMessage { return bytes.Clone(r.body) }
++
++// Response is correlated but still untrusted. A success body has the same
++// operation-validation bounds as Request. A failure uses the containing major's
++// static Structured Error binding, never a version supplied by its body.
++type Response struct {
++	request Request
++	body    json.RawMessage
++	failure *axerror.Error
++}
++
++func (r Response) OK() bool                { return r.failure == nil && r.body != nil }
++func (r Response) Body() json.RawMessage   { return bytes.Clone(r.body) }
++func (r Response) Failure() *axerror.Error { return r.failure }
++
++func major(version string) (int, error) {
++	switch version {
++	case "2.0.0":
++		return 2, nil
++	case "3.0.0":
++		return 3, nil
++	case "4.0.0":
++		return 4, nil
++	default:
++		return 0, ErrVersion
++	}
++}
++
++// object refuses duplicate members, non-integral numbers and other
++// non-I-JSON input using the existing common data-model owner. Keep original
++// bytes; canonicalization must not launder invalid numeric lexical forms.
++func object(data []byte) (map[string]json.RawMessage, error) {
++	if _, err := canonicaljson.Canonicalize(data); err != nil {
++		return nil, ErrFrame
++	}
++	var m map[string]json.RawMessage
++	if json.Unmarshal(data, &m) != nil || m == nil {
++		return nil, ErrFrame
++	}
++	return m, nil
++}
++func exact(m map[string]json.RawMessage, keys ...string) bool {
++	if len(m) != len(keys) {
++		return false
++	}
++	for _, k := range keys {
++		if _, ok := m[k]; !ok {
++			return false
++		}
++	}
++	return true
++}
++func stringValue(raw json.RawMessage) string {
++	var value string
++	if json.Unmarshal(raw, &value) != nil {
++		return ""
++	}
++	return value
++}
++func envelope(data []byte) (map[string]json.RawMessage, string, string, error) {
++	if len(data) == 0 || len(data) > MaxLineBytes || bytes.ContainsAny(data, "\n") {
++		return nil, "", "", ErrFrame
++	}
++	m, err := object(data)
++	if err != nil {
++		return nil, "", "", err
++	}
++	if stringValue(m["protocol"]) != Protocol {
++		return nil, "", "", ErrFrame
++	}
++	version := stringValue(m["protocol_version"])
++	if !semver.MatchString(version) {
++		return nil, "", "", ErrFrame
++	}
++	if _, err = major(version); err != nil {
++		return nil, "", "", err
++	}
++	id := stringValue(m["request_id"])
++	if _, err = scalar.ParseUUIDv7(id); err != nil {
++		return nil, "", "", ErrFrame
++	}
++	return m, version, id, nil
++}
++
++// DecodeRequest inspects one LF-free line, as returned by SSH Session.Receive.
++// It never marks a hello successful or opens an operation-dispatch path.
++func DecodeRequest(line []byte) (Request, error) {
++	m, version, id, err := envelope(line)
++	if err != nil {
++		return Request{}, err
++	}
++	if !exact(m, "protocol", "protocol_version", "request_id", "operation", "body") {
++		return Request{}, ErrFrame
++	}
++	op := stringValue(m["operation"])
++	if op == "" {
++		return Request{}, ErrFrame
++	}
++	if _, err = object(m["body"]); err != nil {
++		return Request{}, err
++	}
++	if op == "hello" {
++		_, err = decodeHello(version, m["body"], false)
++	}
++	if op == "inventory.roots" {
++		_, err = decodeNamespaces(version, m["body"])
++	}
++	if err != nil {
++		return Request{}, err
++	}
++	return Request{version, id, op, bytes.Clone(m["body"])}, nil
++}
++
++// EncodeRequest validates the same structural surface as DecodeRequest and
++// returns one line without LF for SSH Session.Send. It does not send it.
++func EncodeRequest(version, id, operation string, body json.RawMessage) ([]byte, error) {
++	line, err := json.Marshal(map[string]any{"protocol": Protocol, "protocol_version": version, "request_id": id, "operation": operation, "body": body})
++	if err != nil {
++		return nil, ErrFrame
++	}
++	if _, err = DecodeRequest(line); err != nil {
++		return nil, err
++	}
++	return line, nil
++}
++
++// DecodeResponse compares identity/version before examining the success or
++// error payload. It does not consume a pending request or provide replay
++// protection; connection sequencing remains the admission consumer's job.
++func DecodeResponse(line []byte, request Request) (Response, error) {
++	if request.id == "" {
++		return Response{}, ErrCorrelation
++	}
++	m, version, id, err := envelope(line)
++	if err != nil {
++		return Response{}, err
++	}
++	if version != request.version {
++		return Response{}, ErrVersion
++	}
++	if id != request.id {
++		return Response{}, ErrCorrelation
++	}
++	switch string(m["ok"]) {
++	case "true":
++		if !exact(m, "protocol", "protocol_version", "request_id", "ok", "body") {
++			return Response{}, ErrFrame
++		}
++		if _, err = object(m["body"]); err != nil {
++			return Response{}, err
++		}
++		if request.operation == "hello" {
++			var h Hello
++			h, err = decodeHello(version, m["body"], true)
++			if err == nil {
++				sent, _ := request.Hello()
++				if h.NonceEcho != sent.Nonce {
++					err = ErrCorrelation
++				}
++			}
++		}
++		if request.operation == "inventory.roots" {
++			err = validateRoots(version, m["body"], request.body)
++		}
++		if err != nil {
++			return Response{}, err
++		}
++		return Response{request: request, body: bytes.Clone(m["body"])}, nil
++	case "false":
++		if !exact(m, "protocol", "protocol_version", "request_id", "ok", "error") {
++			return Response{}, ErrFrame
++		}
++		n, _ := major(version)
++		failure, err := axerror.DecodeBound(axerror.ContainingContract{ID: Protocol, Major: n}, m["error"])
++		if err != nil {
++			return Response{}, err
++		}
++		return Response{request: request, failure: failure}, nil
++	default:
++		return Response{}, ErrFrame
++	}
++}
++
++func EncodeSuccess(request Request, body json.RawMessage) ([]byte, error) {
++	return encodeResponse(request, true, "body", body)
++}
++func EncodeFailure(request Request, failure *axerror.Error) ([]byte, error) {
++	return encodeResponse(request, false, "error", failure)
++}
++func encodeResponse(request Request, ok bool, key string, payload any) ([]byte, error) {
++	line, err := json.Marshal(map[string]any{"protocol": Protocol, "protocol_version": request.version, "request_id": request.id, "ok": ok, key: payload})
++	if err != nil {
++		return nil, ErrFrame
++	}
++	if _, err = DecodeResponse(line, request); err != nil {
++		return nil, err
++	}
++	return line, nil
++}
++
++// EncodeRejection frames a failure for a parseable supported-version request,
++// even when its operation or body is invalid (Section 15.1 bootstrap framing).
++// Missing/invalid protocol, version or request ID and unparseable lines return
++// no frame. This only encodes bytes: the eventual responder must choose the
++// correct failure and close after its one pre-handshake rejection. It never
++// returns a Request that could be mistaken for a validated hello.
++func EncodeRejection(line []byte, failure *axerror.Error) ([]byte, error) {
++	m, version, id, err := envelope(line)
++	if err != nil {
++		return nil, err
++	}
++	// A response or arbitrary object is not a request to which we may reply.
++	if _, ok := m["operation"]; !ok {
++		return nil, ErrFrame
++	}
++	return EncodeFailure(Request{version: version, id: id}, failure)
++}
+diff --git a/internal/rpcwire/envelope_test.go b/internal/rpcwire/envelope_test.go
+new file mode 100644
+index 0000000..a74a876
+--- /dev/null
++++ b/internal/rpcwire/envelope_test.go
+@@ -0,0 +1,546 @@
++package rpcwire_test
++
++import (
++	"bytes"
++	"encoding/base64"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"os"
++	"slices"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/rpcwire"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const id = "0198f4c8-a070-7188-9172-1234567890ab"
++const otherID = "0198f4c8-a070-7188-9172-2234567890ab"
++
++func wire(t *testing.T, v any) []byte {
++	t.Helper()
++	b, e := json.Marshal(v)
++	if e != nil {
++		t.Fatal(e)
++	}
++	return b
++}
++func fixture(t *testing.T, name string) map[string]any {
++	t.Helper()
++	b, e := os.ReadFile("testdata/" + name + ".json")
++	if e != nil {
++		t.Fatal(e)
++	}
++	var m map[string]any
++	if e = json.Unmarshal(b, &m); e != nil {
++		t.Fatal(e)
++	}
++	return m
++}
++func hello(t *testing.T, version string, response bool) map[string]any {
++	name := "hello-request-v2"
++	if response {
++		name = "hello-response-v2"
++	}
++	m := fixture(t, name)
++	m["protocol_version"] = version
++	if version != "2.0.0" {
++		m["body"].(map[string]any)["contracts"] = fixture(t, "contracts-v"+version[:1])
++	}
++	return m
++}
++func request(t *testing.T, m map[string]any) rpcwire.Request {
++	t.Helper()
++	r, e := rpcwire.DecodeRequest(wire(t, m))
++	if e != nil {
++		t.Fatal(e)
++	}
++	return r
++}
++func TestPinnedHelloProfiles(t *testing.T) {
++	for _, v := range []string{"2.0.0", "3.0.0", "4.0.0"} {
++		t.Run(v, func(t *testing.T) {
++			q := hello(t, v, false)
++			r := request(t, q)
++			if r.ID() != id || r.Version() != v || r.Operation() != "hello" {
++				t.Fatal("wrong envelope")
++			}
++			h, e := r.Hello()
++			if e != nil {
++				t.Fatal(e)
++			}
++			profile, e := rpcwire.ContractProfile(v)
++			if e != nil {
++				t.Fatal(e)
++			}
++			if !bytes.Equal(wire(t, profile), wire(t, h.Contracts)) {
++				t.Fatal("profile differs from normative fixture")
++			}
++			encoded, e := rpcwire.EncodeRequest(v, id, "hello", r.Body())
++			if e != nil {
++				t.Fatal(e)
++			}
++			if !bytes.Equal(encoded, wire(t, q)) {
++				t.Fatal("request fixture roundtrip")
++			}
++			p := hello(t, v, true)
++			resp, e := rpcwire.DecodeResponse(wire(t, p), r)
++			if e != nil {
++				t.Fatal(e)
++			}
++			if !resp.OK() || resp.Failure() != nil {
++				t.Fatal("success shape")
++			}
++			body, e := resp.Hello()
++			if e != nil || body.HostID == h.HostID {
++				t.Fatal("response identity")
++			}
++			encoded, e = rpcwire.EncodeSuccess(r, resp.Body())
++			if e != nil || !bytes.Equal(encoded, wire(t, p)) {
++				t.Fatal("response fixture roundtrip", e)
++			}
++			limits, e := rpcwire.OfferedLimits(r, resp)
++			if e != nil || limits.LineBytes != 8388608 || limits.ObjectBytes != 5242880 {
++				t.Fatal(limits, e)
++			}
++			// Copies are not live capability or identity handles.
++			h.Contracts["rpc"][0] = "9.0.0"
++			profile["rpc"][0] = "8.0.0"
++			b := r.Body()
++			b[0] = '!'
++			b = resp.Body()
++			b[0] = '!'
++			if _, e = r.Hello(); e != nil {
++				t.Fatal("request alias", e)
++			}
++			if _, e = resp.Hello(); e != nil {
++				t.Fatal("response alias", e)
++			}
++		})
++	}
++}
++func TestRequestRefusals(t *testing.T) {
++	tests := []struct {
++		name string
++		edit func(map[string]any)
++	}{
++		{"protocol", func(m map[string]any) { m["protocol"] = "urn:other" }},
++		{"missing-version", func(m map[string]any) { delete(m, "protocol_version") }},
++		{"major", func(m map[string]any) { m["protocol_version"] = "5.0.0" }},
++		{"unknown-minor", func(m map[string]any) { m["protocol_version"] = "2.1.0" }},
++		{"uuid", func(m map[string]any) { m["request_id"] = "0198f4c8-a070-4188-9172-1234567890ab" }},
++		{"missing-id", func(m map[string]any) { delete(m, "request_id") }},
++		{"extra", func(m map[string]any) { m["extra"] = true }},
++		{"case-alias", func(m map[string]any) { m["Operation"] = "hello"; delete(m, "operation") }},
++		{"null-operation", func(m map[string]any) { m["operation"] = nil }},
++		{"missing-body", func(m map[string]any) { delete(m, "body") }},
++		{"array-body", func(m map[string]any) { m["body"] = []any{} }},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			m := hello(t, "2.0.0", false)
++			tt.edit(m)
++			if _, e := rpcwire.DecodeRequest(wire(t, m)); e == nil {
++				t.Fatal("admitted invalid request")
++			}
++		})
++	}
++}
++func TestFrameRefusals(t *testing.T) {
++	good := wire(t, hello(t, "2.0.0", false))
++	tests := map[string][]byte{
++		"duplicate": append([]byte(`{"protocol":"urn:other",`), good[1:]...),
++		"newline":   append(bytes.Clone(good), '\n'), "empty": {}, "null": []byte("null"),
++		"trailing": append(bytes.Clone(good), []byte(" {}")...),
++		"utf8":     bytes.Replace(good, []byte("macos"), []byte{'m', 0xff}, 1),
++		"float":    bytes.Replace(good, []byte("8388608"), []byte("8388608.0"), 1),
++		"oversize": append(good, bytes.Repeat([]byte(" "), rpcwire.MaxLineBytes+1-len(good))...),
++	}
++	for name, line := range tests {
++		t.Run(name, func(t *testing.T) {
++			if _, e := rpcwire.DecodeRequest(line); e == nil {
++				t.Fatal("admitted invalid frame")
++			}
++		})
++	}
++	exact := append(bytes.Clone(good), bytes.Repeat([]byte(" "), rpcwire.MaxLineBytes-len(good))...)
++	if _, e := rpcwire.DecodeRequest(exact); e != nil {
++		t.Fatal("exact line boundary", e)
++	}
++	if _, e := rpcwire.DecodeRequest(append(good, '\r')); e != nil {
++		t.Fatal("CRLF transport compatibility", e)
++	}
++}
++func TestHelloRefusals(t *testing.T) {
++	tests := []struct {
++		name string
++		edit func(map[string]any)
++	}{
++		{"host", func(b map[string]any) { b["host_id"] = otherID[:8] }},
++		{"platform", func(b map[string]any) { b["platform"] = "ios" }},
++		{"ax-version", func(b map[string]any) { b["ax_version"] = "01.0.0" }},
++		{"nonce-short", func(b map[string]any) { b["nonce"] = base64.RawURLEncoding.EncodeToString(make([]byte, 15)) }},
++		{"nonce-padding", func(b map[string]any) { b["nonce"] = "YWJjZGVmZ2hpamtsbW5vcA==" }},
++		{"nonce-pad-bits", func(b map[string]any) { b["nonce"] = "YWJjZGVmZ2hpamtsbW5vcB" }},
++		{"line-floor", func(b map[string]any) { b["max_line_bytes"] = 8388607 }},
++		{"object-floor", func(b map[string]any) { b["max_object_bytes"] = 5242879 }},
++		{"null-limit", func(b map[string]any) { b["max_line_bytes"] = nil }},
++		{"extra-body", func(b map[string]any) { b["extra"] = true }},
++		{"request-echo", func(b map[string]any) { b["nonce_echo"] = b["nonce"] }},
++		{"error-key", func(b map[string]any) { b["contracts"].(map[string]any)["error"] = []string{"1.0.0"} }},
++		{"missing-key", func(b map[string]any) { delete(b["contracts"].(map[string]any), "lease") }},
++		{"replace-key", func(b map[string]any) {
++			c := b["contracts"].(map[string]any)
++			delete(c, "lease")
++			c["config"] = []string{"1.0.0"}
++		}},
++		{"empty-versions", func(b map[string]any) { b["contracts"].(map[string]any)["lease"] = []string{} }},
++		{"duplicate-versions", func(b map[string]any) { b["contracts"].(map[string]any)["lease"] = []string{"1.0.0", "1.0.0"} }},
++		{"unsorted-versions", func(b map[string]any) { b["contracts"].(map[string]any)["lease"] = []string{"2.0.0", "1.0.0"} }},
++		{"invalid-version", func(b map[string]any) { b["contracts"].(map[string]any)["lease"] = []string{"v1.0.0"} }},
++		{"seventeen-versions", func(b map[string]any) {
++			vs := []string{}
++			for i := 0; i < 17; i++ {
++				vs = append(vs, fmt.Sprintf("1.%d.0", i))
++			}
++			slices.Sort(vs)
++			b["contracts"].(map[string]any)["lease"] = vs
++		}},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			m := hello(t, "2.0.0", false)
++			tt.edit(m["body"].(map[string]any))
++			if _, e := rpcwire.DecodeRequest(wire(t, m)); e == nil {
++				t.Fatal("admitted invalid hello")
++			}
++		})
++	}
++	for _, v := range []string{"3.0.0", "4.0.0"} {
++		t.Run("exact-map-"+v, func(t *testing.T) {
++			m := hello(t, v, false)
++			m["body"].(map[string]any)["contracts"].(map[string]any)["lease"] = []string{"1.0.0", "1.1.0"}
++			if _, e := rpcwire.DecodeRequest(wire(t, m)); e == nil {
++				t.Fatal("nonexact map")
++			}
++		})
++	}
++}
++func TestResponseRefusals(t *testing.T) {
++	r := request(t, hello(t, "2.0.0", false))
++	tests := []struct {
++		name string
++		edit func(map[string]any)
++	}{
++		{"id", func(m map[string]any) { m["request_id"] = otherID }},
++		{"version", func(m map[string]any) { m["protocol_version"] = "3.0.0"; m["body"] = hello(t, "3.0.0", true)["body"] }},
++		{"major-before-error", func(m map[string]any) {
++			m["protocol_version"] = "5.0.0"
++			m["ok"] = false
++			m["error"] = map[string]any{"retryable": true, "code": "anything"}
++		}},
++		{"nonce-echo", func(m map[string]any) { m["body"].(map[string]any)["nonce_echo"] = "cXJzdHV2d3h5ejAxMjM0NQ" }},
++		{"missing-echo", func(m map[string]any) { delete(m["body"].(map[string]any), "nonce_echo") }},
++		{"response-nonce", func(m map[string]any) { m["body"].(map[string]any)["nonce"] = "bad" }},
++		{"ok-null", func(m map[string]any) { m["ok"] = nil }},
++		{"ok-string", func(m map[string]any) { m["ok"] = "true" }},
++		{"success-error", func(m map[string]any) { m["error"] = nil }},
++		{"failure-body", func(m map[string]any) { m["ok"] = false; m["error"] = nil }},
++		{"body-null", func(m map[string]any) { m["body"] = nil }},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			m := hello(t, "2.0.0", true)
++			tt.edit(m)
++			_, e := rpcwire.DecodeResponse(wire(t, m), r)
++			if e == nil {
++				t.Fatal("admitted invalid response")
++			}
++			if tt.name == "major-before-error" && !errors.Is(e, rpcwire.ErrVersion) {
++				t.Fatal("read foreign payload", e)
++			}
++		})
++	}
++	if _, e := rpcwire.DecodeResponse(wire(t, hello(t, "2.0.0", true)), rpcwire.Request{}); e == nil {
++		t.Fatal("zero expectation")
++	}
++	if _, e := rpcwire.EncodeSuccess(r, json.RawMessage(`null`)); e == nil {
++		t.Fatal("encoded null")
++	}
++}
++func TestHistoricalFailureBindings(t *testing.T) {
++	for i, v := range []string{"2.0.0", "3.0.0", "4.0.0"} {
++		t.Run(v, func(t *testing.T) {
++			r := request(t, hello(t, v, false))
++			bound := []axerror.Version{axerror.Version100, axerror.Version120, axerror.Version130}[i]
++			f, e := axerror.New(axerror.Spec{Version: bound, Code: "incompatible_protocol", Message: "incompatible", Details: axerror.Details{}, IDs: axerror.NoIDs(), Cause: errors.New("secret cause")})
++			if e != nil {
++				t.Fatal(e)
++			}
++			line, e := rpcwire.EncodeFailure(r, f)
++			if e != nil {
++				t.Fatal(e)
++			}
++			if bytes.Contains(line, []byte("secret cause")) || bytes.Contains(line, []byte(`"body"`)) {
++				t.Fatal("failure leak/shape")
++			}
++			resp, e := rpcwire.DecodeResponse(line, r)
++			if e != nil || resp.OK() || resp.Failure().Version() != bound {
++				t.Fatal(resp, e)
++			}
++			for _, wrong := range []axerror.Version{axerror.Version100, axerror.Version110, axerror.Version120, axerror.Version130} {
++				if wrong == bound {
++					continue
++				}
++				f, e = axerror.New(axerror.Spec{Version: wrong, Code: "incompatible_protocol", Message: "wrong", Details: axerror.Details{}})
++				if e != nil {
++					t.Fatal(e)
++				}
++				if _, e = rpcwire.EncodeFailure(r, f); e == nil {
++					t.Fatal("wrong historical binding")
++				}
++			}
++			if _, e = rpcwire.EncodeFailure(r, nil); e == nil {
++				t.Fatal("nil failure")
++			}
++		})
++	}
++}
++func TestLimitsAndUntrustedIsolation(t *testing.T) {
++	q := hello(t, "2.0.0", false)
++	b := q["body"].(map[string]any)
++	b["max_line_bytes"] = 10 * 1024 * 1024
++	b["max_object_bytes"] = 7 * 1024 * 1024
++	vs := []string{}
++	for i := 0; i < 16; i++ {
++		vs = append(vs, fmt.Sprintf("1.%d.0", i))
++	}
++	slices.Sort(vs)
++	b["contracts"].(map[string]any)["lease"] = vs
++	r := request(t, q)
++	p := hello(t, "2.0.0", true)
++	p["body"].(map[string]any)["max_object_bytes"] = 6 * 1024 * 1024
++	resp, e := rpcwire.DecodeResponse(wire(t, p), r)
++	if e != nil {
++		t.Fatal(e)
++	}
++	limits, e := rpcwire.OfferedLimits(r, resp)
++	if e != nil || limits.LineBytes != 8388608 || limits.ObjectBytes != 6*1024*1024 {
++		t.Fatal(limits, e)
++	}
++	q["request_id"] = otherID
++	r2 := request(t, q)
++	if _, e = rpcwire.OfferedLimits(r2, resp); e == nil {
++		t.Fatal("cross-request limits")
++	}
++	// No authentication claim: arbitrary structurally valid claimed host is retained.
++	b["host_id"] = otherID
++	r = request(t, q)
++	h, e := r.Hello()
++	if e != nil || h.HostID != otherID {
++		t.Fatal("untrusted host retention")
++	}
++	n := rpcwire.NewNonce()
++	decoded, e := base64.RawURLEncoding.DecodeString(n)
++	if e != nil || len(decoded) != 32 {
++		t.Fatal("nonce generation")
++	}
++	if _, e = rpcwire.ContractProfile("5.0.0"); e == nil {
++		t.Fatal("unknown profile")
++	}
++	if _, e = rpcwire.Namespaces("5.0.0"); e == nil {
++		t.Fatal("unknown namespace profile")
++	}
++}
++func TestInventoryNamespacesAndCardinality(t *testing.T) {
++	for _, v := range []string{"2.0.0", "3.0.0", "4.0.0"} {
++		t.Run(v, func(t *testing.T) {
++			names, e := rpcwire.Namespaces(v)
++			if e != nil {
++				t.Fatal(e)
++			}
++			if len(names) != int(v[0]-'0')+4 {
++				t.Fatal("wrong cardinality")
++			}
++			q := map[string]any{"protocol": rpcwire.Protocol, "protocol_version": v, "request_id": id, "operation": "inventory.roots", "body": map[string]any{"namespaces": names}}
++			r := request(t, q)
++			roots := []any{}
++			for _, name := range names {
++				roots = append(roots, map[string]any{"namespace": name, "count": 0, "root_id": "sha256:" + strings.Repeat("0", 64)})
++			}
++			if _, e = rpcwire.EncodeSuccess(r, wire(t, map[string]any{"roots": roots})); e != nil {
++				t.Fatal(e)
++			}
++			for _, bad := range [][]string{{}, {"blob", "blob"}, {"event", "blob"}, {"credential"}, append(slices.Clone(names), "zzz")} {
++				q["body"] = map[string]any{"namespaces": bad}
++				if _, e = rpcwire.DecodeRequest(wire(t, q)); e == nil {
++					t.Fatal("invalid namespaces", bad)
++				}
++			}
++			for name, bad := range map[string]any{"missing": roots[:len(roots)-1], "extra": append(slices.Clone(roots), roots[0]), "null": nil} {
++				t.Run(name, func(t *testing.T) {
++					if _, e = rpcwire.EncodeSuccess(r, wire(t, map[string]any{"roots": bad})); e == nil {
++						t.Fatal("invalid cardinality")
++					}
++				})
++			}
++			root := roots[0].(map[string]any)
++			for _, field := range []string{"namespace", "count", "root_id"} {
++				old := root[field]
++				root[field] = nil
++				if _, e = rpcwire.EncodeSuccess(r, wire(t, map[string]any{"roots": roots})); e == nil {
++					t.Fatal("null root field", field)
++				}
++				root[field] = old
++			}
++			root["namespace"] = "event"
++			if _, e = rpcwire.EncodeSuccess(r, wire(t, map[string]any{"roots": roots})); e == nil {
++				t.Fatal("wrong namespace")
++			}
++			root["namespace"] = names[0]
++			root["extra"] = true
++			if _, e = rpcwire.EncodeSuccess(r, wire(t, map[string]any{"roots": roots})); e == nil {
++				t.Fatal("extra root field")
++			}
++			delete(root, "extra")
++			root["count"] = scalar.MaxUint53
++			if _, e = rpcwire.EncodeSuccess(r, wire(t, map[string]any{"roots": roots})); e != nil {
++				t.Fatal("uint53 max", e)
++			}
++			root["count"] = scalar.MaxUint53 + 1
++			if _, e = rpcwire.EncodeSuccess(r, wire(t, map[string]any{"roots": roots})); e == nil {
++				t.Fatal("uint53 overflow")
++			}
++			// An explicit one-namespace subset is valid in every major; it is not a
++			// complete inventory and is never reported as one by this codec.
++			q["body"] = map[string]any{"namespaces": []string{"blob"}}
++			r = request(t, q)
++			if _, e = rpcwire.EncodeSuccess(r, []byte(`{"roots":[{"namespace":"blob","count":0,"root_id":"sha256:`+strings.Repeat("0", 64)+`"}]}`)); e != nil {
++				t.Fatal(e)
++			}
++		})
++	}
++}
++func TestOpaqueOperationBoundary(t *testing.T) {
++	body := json.RawMessage(`{"extensions":{"vendor.example":{"future":"retained"}}}`)
++	line, e := rpcwire.EncodeRequest("2.0.0", id, "future.operation", body)
++	if e != nil {
++		t.Fatal(e)
++	}
++	r, e := rpcwire.DecodeRequest(line)
++	if e != nil || !bytes.Equal(r.Body(), body) {
++		t.Fatal("opaque body altered", e)
++	}
++	if _, e = r.Hello(); e == nil {
++		t.Fatal("opaque operation is not hello")
++	}
++	if _, e = rpcwire.EncodeSuccess(r, body); e != nil {
++		t.Fatal(e)
++	}
++	if _, e = rpcwire.EncodeRequest("2.0.0", id, "future.operation", []byte("{")); e == nil {
++		t.Fatal("malformed outbound")
++	}
++}
++
++func TestBootstrapRejectionFraming(t *testing.T) {
++	f, e := axerror.New(axerror.Spec{Version: axerror.Version100, Code: "incompatible_protocol", Message: "hello required", Details: axerror.Details{}})
++	if e != nil {
++		t.Fatal(e)
++	}
++	expectation := request(t, hello(t, "2.0.0", false))
++	for _, kind := range []string{"non-hello", "missing-contract", "invalid-body"} {
++		t.Run(kind, func(t *testing.T) {
++			m := hello(t, "2.0.0", false)
++			switch kind {
++			case "non-hello":
++				m["operation"] = "health.get"
++				m["body"] = map[string]any{}
++			case "missing-contract":
++				delete(m["body"].(map[string]any)["contracts"].(map[string]any), "lease")
++			case "invalid-body":
++				m["body"] = nil
++			}
++			line, e := rpcwire.EncodeRejection(wire(t, m), f)
++			if e != nil {
++				t.Fatal(e)
++			}
++			result, e := rpcwire.DecodeResponse(line, expectation)
++			if e != nil || result.OK() || result.Failure().Version() != axerror.Version100 {
++				t.Fatal("bootstrap failure", e)
++			}
++		})
++	}
++	for _, kind := range []string{"major", "protocol", "id", "json", "oversize", "response"} {
++		t.Run(kind, func(t *testing.T) {
++			m := hello(t, "2.0.0", false)
++			switch kind {
++			case "major":
++				m["protocol_version"] = "5.0.0"
++			case "protocol":
++				delete(m, "protocol")
++			case "id":
++				delete(m, "request_id")
++			case "response":
++				delete(m, "operation")
++			}
++			b := wire(t, m)
++			if kind == "json" {
++				b = []byte("{")
++			}
++			if kind == "oversize" {
++				b = append(b, bytes.Repeat([]byte(" "), rpcwire.MaxLineBytes+1-len(b))...)
++			}
++			b, e = rpcwire.EncodeRejection(b, f)
++			if e == nil || b != nil {
++				t.Fatal("unframeable rejection emitted", e)
++			}
++		})
++	}
++}
++
++func TestWriterAndAccessorBounds(t *testing.T) {
++	r := request(t, hello(t, "2.0.0", false))
++	if _, e := rpcwire.EncodeSuccess(r, json.RawMessage(`{"nonce":`)); e == nil {
++		t.Fatal("invalid raw success")
++	}
++	if _, e := rpcwire.EncodeRequest("5.0.0", id, "health.get", []byte(`{}`)); e == nil {
++		t.Fatal("invalid outbound version")
++	}
++	if _, e := rpcwire.EncodeSuccess(rpcwire.Request{}, []byte(`{}`)); e == nil {
++		t.Fatal("zero request")
++	}
++	if _, e := (rpcwire.Response{}).Hello(); e == nil {
++		t.Fatal("zero response")
++	}
++	if _, e := rpcwire.OfferedLimits(rpcwire.Request{}, rpcwire.Response{}); e == nil {
++		t.Fatal("zero pair")
++	}
++	if _, e := rpcwire.OfferedLimits(r, rpcwire.Response{}); e == nil {
++		t.Fatal("zero response pair")
++	}
++	huge := wire(t, map[string]any{"data": strings.Repeat("x", rpcwire.MaxLineBytes)})
++	if _, e := rpcwire.EncodeRequest("2.0.0", id, "objects.get", huge); e == nil {
++		t.Fatal("oversized outbound frame")
++	}
++}
++
++func FuzzUntrustedEnvelopes(f *testing.F) {
++	f.Add([]byte(`{"protocol":"urn:ax:protocol:rpc","protocol_version":"2.0.0","request_id":"` + id + `","operation":"health.get","body":{}}`))
++	f.Add([]byte(`{"protocol_version":"5.0.0","error":{"retryable":true}}`))
++	f.Fuzz(func(t *testing.T, b []byte) {
++		r, e := rpcwire.DecodeRequest(b)
++		if e != nil {
++			return
++		}
++		round, e := rpcwire.EncodeRequest(r.Version(), r.ID(), r.Operation(), r.Body())
++		if e != nil {
++			t.Fatal(e)
++		}
++		if _, e = rpcwire.DecodeRequest(round); e != nil {
++			t.Fatal(e)
++		}
++		_, _ = rpcwire.DecodeResponse(b, r)
++	})
++}
+diff --git a/internal/rpcwire/hello.go b/internal/rpcwire/hello.go
+new file mode 100644
+index 0000000..a2d5e5f
+--- /dev/null
++++ b/internal/rpcwire/hello.go
+@@ -0,0 +1,147 @@
++package rpcwire
++
++import (
++	"crypto/rand"
++	"encoding/base64"
++	"encoding/json"
++	"regexp"
++	"slices"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++var semver = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
++
++// Hello is a structural claim, including the untrusted HostID and limits.
++// Received nonce randomness and freshness cannot be established by a codec.
++type Hello struct {
++	HostID         string              `json:"host_id"`
++	Platform       string              `json:"platform"`
++	AXVersion      string              `json:"ax_version"`
++	Nonce          string              `json:"nonce"`
++	NonceEcho      string              `json:"nonce_echo,omitempty"`
++	Contracts      map[string][]string `json:"contracts"`
++	MaxLineBytes   scalar.Uint53       `json:"max_line_bytes"`
++	MaxObjectBytes scalar.Uint53       `json:"max_object_bytes"`
++}
++
++// NewNonce produces 256 random bits without accepting caller-supplied entropy.
++func NewNonce() string {
++	var nonce [32]byte
++	_, _ = rand.Read(nonce[:]) // crypto/rand.Read is infallible in Go 1.25.
++	return base64.RawURLEncoding.EncodeToString(nonce[:])
++}
++
++// ContractProfile describes the pinned wire shape, not installed capabilities.
++// Returning a fresh map prevents one caller from changing another's validator.
++func ContractProfile(version string) (map[string][]string, error) {
++	n, err := major(version)
++	if err != nil {
++		return nil, err
++	}
++	m := map[string][]string{}
++	for _, key := range []string{"rpc", "session_record", "session_event", "lease", "checkpoint", "workspace_group", "provider_identity", "blob", "transfer_manifest", "chunk", "materialization_plan", "tombstone", "tombstone_ack", "task_board_bundle"} {
++		m[key] = []string{"1.0.0"}
++	}
++	m["rpc"] = []string{version}
++	if n >= 3 {
++		m["session_record"] = []string{"1.0.0", "2.0.0", "3.0.0"}
++		m["session_event"] = []string{"1.0.0", "2.0.0", "3.0.0"}
++		m["materialization_plan"] = []string{"1.0.0", "2.0.0"}
++		for _, key := range []string{"environment_observation", "native_session_observation", "session_inventory_batch", "conversation_lineage_link", "session_annotation", "session_enrichment_profile", "session_enrichment_job_request", "session_enrichment_job_receipt", "session_continuation_plan", "session_directory_operation_receipt"} {
++			m[key] = []string{"1.0.0"}
++		}
++	}
++	if n == 4 {
++		m["session_event"] = append(m["session_event"], "4.0.0")
++		m["terminal_backend_evidence"] = []string{"1.0.0"}
++	}
++	return m, nil
++}
++
++func validNonce(s string) bool {
++	b, err := base64.RawURLEncoding.Strict().DecodeString(s)
++	return err == nil && len(b) >= 16 && base64.RawURLEncoding.EncodeToString(b) == s
++}
++func decodeHello(version string, data []byte, response bool) (Hello, error) {
++	m, err := object(data)
++	if err != nil {
++		return Hello{}, ErrHello
++	}
++	keys := []string{"host_id", "platform", "ax_version", "nonce", "contracts", "max_line_bytes", "max_object_bytes"}
++	if response {
++		keys = append(keys, "nonce_echo")
++	}
++	if !exact(m, keys...) {
++		return Hello{}, ErrHello
++	}
++	var h Hello
++	if json.Unmarshal(data, &h) != nil {
++		return Hello{}, ErrHello
++	}
++	if _, err = scalar.ParseUUIDv7(h.HostID); err != nil {
++		return Hello{}, ErrHello
++	}
++	if _, err = scalar.ParsePlatform(h.Platform); err != nil {
++		return Hello{}, ErrHello
++	}
++	if !semver.MatchString(h.AXVersion) || !validNonce(h.Nonce) || (response && !validNonce(h.NonceEcho)) {
++		return Hello{}, ErrHello
++	}
++	if h.MaxLineBytes.Uint64() < MaxLineBytes || h.MaxObjectBytes.Uint64() < MinObjectBytes {
++		return Hello{}, ErrHello
++	}
++	profile, _ := ContractProfile(version)
++	if len(h.Contracts) != len(profile) {
++		return Hello{}, ErrHello
++	}
++	for key, expected := range profile {
++		versions := h.Contracts[key]
++		if len(versions) < 1 || len(versions) > 16 {
++			return Hello{}, ErrHello
++		}
++		for i, v := range versions {
++			if !semver.MatchString(v) || (i > 0 && versions[i-1] >= v) {
++				return Hello{}, ErrHello
++			}
++		}
++		// v2 permits 1..16 supported versions for every required key; later
++		// pinned maps specify exact arrays. Selecting a common minor is separate.
++		if version != "2.0.0" && !slices.Equal(versions, expected) {
++			return Hello{}, ErrHello
++		}
++	}
++	return h, nil
++}
++
++func (r Request) Hello() (Hello, error) {
++	if r.operation != "hello" {
++		return Hello{}, ErrHello
++	}
++	return decodeHello(r.version, r.body, false)
++}
++func (r Response) Hello() (Hello, error) {
++	if !r.OK() || r.request.operation != "hello" {
++		return Hello{}, ErrHello
++	}
++	return decodeHello(r.request.version, r.body, true)
++}
++
++// Limits is only the smaller pair of structural offers. It is not a negotiated
++// or authenticated connection. The transport's fixed 8 MiB cap still applies.
++type Limits struct{ LineBytes, ObjectBytes uint64 }
++
++func OfferedLimits(request Request, response Response) (Limits, error) {
++	a, err := request.Hello()
++	if err != nil {
++		return Limits{}, err
++	}
++	b, err := response.Hello()
++	if err != nil {
++		return Limits{}, err
++	}
++	if response.request.id != request.id || response.request.version != request.version || a.Nonce != b.NonceEcho {
++		return Limits{}, ErrCorrelation
++	}
++	return Limits{min(a.MaxLineBytes.Uint64(), b.MaxLineBytes.Uint64()), min(a.MaxObjectBytes.Uint64(), b.MaxObjectBytes.Uint64())}, nil
++}
+diff --git a/internal/rpcwire/inventory.go b/internal/rpcwire/inventory.go
+new file mode 100644
+index 0000000..7d1af05
+--- /dev/null
++++ b/internal/rpcwire/inventory.go
+@@ -0,0 +1,80 @@
++package rpcwire
++
++import (
++	"encoding/json"
++	"slices"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// Namespaces is the wire vocabulary for an explicitly chosen pinned version.
++// It does not advertise support, compute inventory or authorize object exchange.
++func Namespaces(version string) ([]string, error) {
++	n, err := major(version)
++	if err != nil {
++		return nil, err
++	}
++	names := []string{"blob", "event", "manifest", "record", "tombstone", "tombstone_ack"}
++	if n >= 3 {
++		names = append(names, "directory_record")
++	}
++	if n == 4 {
++		names = append(names, "terminal_backend_evidence")
++	}
++	slices.Sort(names)
++	return names, nil
++}
++func decodeNamespaces(version string, data []byte) ([]string, error) {
++	m, err := object(data)
++	if err != nil || !exact(m, "namespaces") {
++		return nil, ErrInventory
++	}
++	var names []string
++	if json.Unmarshal(m["namespaces"], &names) != nil {
++		return nil, ErrInventory
++	}
++	allowed, _ := Namespaces(version)
++	if len(names) < 1 || len(names) > len(allowed) {
++		return nil, ErrInventory
++	}
++	for i, name := range names {
++		if !slices.Contains(allowed, name) || (i > 0 && names[i-1] >= name) {
++			return nil, ErrInventory
++		}
++	}
++	return names, nil
++}
++
++// Root carries a claimed digest/count, not a verified Merkle root. Merkle
++// verification and schema-to-namespace membership belong to object exchange.
++type Root struct {
++	Namespace string        `json:"namespace"`
++	Count     scalar.Uint53 `json:"count"`
++	RootID    scalar.Digest `json:"root_id"`
++}
++
++func validateRoots(version string, data, request []byte) error {
++	names, err := decodeNamespaces(version, request)
++	if err != nil {
++		return err
++	}
++	m, err := object(data)
++	if err != nil || !exact(m, "roots") {
++		return ErrInventory
++	}
++	var roots []json.RawMessage
++	if json.Unmarshal(m["roots"], &roots) != nil || len(roots) != len(names) {
++		return ErrInventory
++	}
++	for i, raw := range roots {
++		item, err := object(raw)
++		if err != nil || !exact(item, "namespace", "count", "root_id") {
++			return ErrInventory
++		}
++		var root Root
++		if json.Unmarshal(raw, &root) != nil || root.Namespace != names[i] {
++			return ErrInventory
++		}
++	}
++	return nil
++}
+diff --git a/internal/rpcwire/mutations.py b/internal/rpcwire/mutations.py
+new file mode 100644
+index 0000000..1d97567
+--- /dev/null
++++ b/internal/rpcwire/mutations.py
+@@ -0,0 +1,120 @@
++#!/usr/bin/env python3
++"""RPC structural gate overlays. Every kill requires a named behavioral failure."""
++import argparse
++import json
++from pathlib import Path
++import subprocess
++import sys
++ROOT = Path(__file__).resolve().parents[2]
++TESTS = "Test"
++E = "internal/rpcwire/envelope.go"
++H = "internal/rpcwire/hello.go"
++I = "internal/rpcwire/inventory.go"
++PROBES = []
++BOUNDS = {}
++def probe(name,path,old,new,bound,test):
++    PROBES.append((name,path,old,new,bound,test))
++probe('neutral',E,'return 2, nil','return int(2), nil','Equivalent major value',None)
++probe('known-bad',E,'return r.id','return "wrong"','Wrong request accessor','TestPinnedHelloProfiles/2.0.0')
++probe('line-plus-one',E,'len(data) > MaxLineBytes','len(data) > MaxLineBytes+1','Admits exactly 8388609 bytes','TestFrameRefusals/oversize')
++probe('lf',E,'bytes.ContainsAny(data, "\\n")','(bytes.ContainsAny(data, "\\n") && data[len(data)-1] != \'\\n\')','Admits final LF in a line payload','TestFrameRefusals/newline')
++probe('protocol',E,'stringValue(m["protocol"]) != Protocol','stringValue(m["protocol"]) != Protocol && stringValue(m["protocol"]) != "urn:other"','Admits urn:other only','TestRequestRefusals/protocol')
++probe('request-uuid',E,'err != nil {\n\t\treturn nil, "", "", ErrFrame\n\t}\n\treturn m, version, id','err != nil && id != "0198f4c8-a070-4188-9172-1234567890ab" {\n\t\treturn nil, "", "", ErrFrame\n\t}\n\treturn m, version, id','Admits one UUIDv4 request ID','TestRequestRefusals/uuid')
++probe('closed-extra',E,'len(m) != len(keys)','len(m) != len(keys) && !(len(m) == len(keys)+1 && string(m["extra"]) == "true")','Admits one extra=true member','TestRequestRefusals/extra')
++probe('correlation-id',E,'id != request.id','(id != request.id && id != "0198f4c8-a070-7188-9172-2234567890ab")','Admits one mismatched request ID','TestResponseRefusals/id')
++probe('correlation-version',E,'version != request.version','(version != request.version && version != "3.0.0")','Admits mismatched response version 3 only','TestResponseRefusals/version')
++probe('nonce-echo',E,'h.NonceEcho != sent.Nonce','h.NonceEcho != sent.Nonce && h.NonceEcho != "cXJzdHV2d3h5ejAxMjM0NQ"','Admits the wrong echo fixture only','TestResponseRefusals/nonce-echo')
++probe('failure-binding',E,'n, _ := major(version)','n, _ := major(version)\n if n == 3 { n = 2 }','Admits Error 1.0 in RPC3 while retaining other bindings','TestHistoricalFailureBindings/3.0.0')
++probe('rejection-shape',E,'if _, ok := m["operation"]; !ok {','if _, ok := m["operation"]; !ok && m["body"] == nil {','Admits request-shaped object without operation','TestBootstrapRejectionFraming/response')
++probe('hello-host',H,'err != nil {\n\t\treturn Hello{}, ErrHello\n\t}\n\tif _, err = scalar.ParsePlatform','err != nil && h.HostID != "0198f4c8" {\n\t\treturn Hello{}, ErrHello\n\t}\n\tif _, err = scalar.ParsePlatform','Admits one malformed host ID','TestHelloRefusals/host')
++probe('hello-platform',H,'scalar.ParsePlatform(h.Platform); err != nil','scalar.ParsePlatform(h.Platform); err != nil && h.Platform != "ios"','Admits ios only','TestHelloRefusals/platform')
++probe('hello-version',H,'!semver.MatchString(h.AXVersion)','(!semver.MatchString(h.AXVersion) && h.AXVersion != "01.0.0")','Admits one leading-zero version','TestHelloRefusals/ax-version')
++probe('nonce-short',H,'len(b) >= 16','len(b) >= 15','Admits exactly 120 nonce bits','TestHelloRefusals/nonce-short')
++probe('line-floor',H,'h.MaxLineBytes.Uint64() < MaxLineBytes','h.MaxLineBytes.Uint64() < MaxLineBytes-1','Admits line floor minus one','TestHelloRefusals/line-floor')
++probe('object-floor',H,'h.MaxObjectBytes.Uint64() < MinObjectBytes','h.MaxObjectBytes.Uint64() < MinObjectBytes-1','Admits object floor minus one','TestHelloRefusals/object-floor')
++probe('contract-extra',H,'len(h.Contracts) != len(profile)','len(h.Contracts) != len(profile) && !(len(h.Contracts)==len(profile)+1 && h.Contracts["error"] != nil)','Admits one forbidden error map key','TestHelloRefusals/error-key')
++probe('contract-seventeen',H,'len(versions) > 16','len(versions) > 17','Admits exactly 17 versions','TestHelloRefusals/seventeen-versions')
++probe('contract-empty',H,'len(versions) < 1','len(versions) < 1 && versions == nil','Admits present empty version array','TestHelloRefusals/empty-versions')
++probe('contract-duplicate',H,'versions[i-1] >= v','versions[i-1] > v','Admits duplicate adjacent versions','TestHelloRefusals/duplicate-versions')
++probe('contract-unsorted',H,'versions[i-1] >= v','(versions[i-1] >= v && !(versions[i-1] == "2.0.0" && v == "1.0.0"))','Admits one descending adjacent pair','TestHelloRefusals/unsorted-versions')
++probe('contract-semver',H,'!semver.MatchString(v)','(!semver.MatchString(v) && v != "v1.0.0")','Admits v1.0.0 version string only','TestHelloRefusals/invalid-version')
++probe('v3-exact',H,'version != "2.0.0" && !slices.Equal(versions, expected)','version != "2.0.0" && !slices.Equal(versions, expected) && !(version == "3.0.0" && key == "lease")','Admits nonexact v3 lease array','TestHelloRefusals/exact-map-3.0.0')
++probe('v4-exact',H,'version != "2.0.0" && !slices.Equal(versions, expected)','version != "2.0.0" && !slices.Equal(versions, expected) && !(version == "4.0.0" && key == "lease")','Admits nonexact v4 lease array','TestHelloRefusals/exact-map-4.0.0')
++probe('offered-pair',H,'response.request.id != request.id','(response.request.id != request.id && request.id != "0198f4c8-a070-7188-9172-2234567890ab")','Admits one cross-request limit pair','TestLimitsAndUntrustedIsolation')
++probe('namespace-empty',I,'len(names) < 1','len(names) < 1 && names == nil','Admits nonnil empty namespace array','TestInventoryNamespacesAndCardinality/2.0.0')
++probe('namespace-member',I,'!slices.Contains(allowed, name)','(!slices.Contains(allowed, name) && name != "credential")','Admits credential namespace only','TestInventoryNamespacesAndCardinality/2.0.0')
++probe('namespace-duplicate',I,'names[i-1] >= name','names[i-1] > name','Admits duplicate namespaces','TestInventoryNamespacesAndCardinality/2.0.0')
++probe('namespace-sort',I,'names[i-1] >= name','(names[i-1] >= name && !(names[i-1] == "event" && name == "blob"))','Admits event/blob descending pair','TestInventoryNamespacesAndCardinality/2.0.0')
++probe('roots-missing',I,'len(roots) != len(names)','len(roots) != len(names) && len(roots) != len(names)-1','Admits one missing requested root','TestInventoryNamespacesAndCardinality/2.0.0/missing')
++probe('root-association',I,'root.Namespace != names[i]','root.Namespace != names[i] && !(i==0 && root.Namespace=="event")','Admits event root in blob slot','TestInventoryNamespacesAndCardinality/2.0.0')
++
++probe('common-data-model',E,'canonicaljson.Canonicalize(data); err != nil','canonicaljson.Canonicalize(data); err != nil && !bytes.HasPrefix(data, []byte(`{"protocol":"urn:other",`))','Admits the duplicate protocol fixture while retaining the canonicalization call','TestFrameRefusals/duplicate')
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--output", required=True)
++    parser.add_argument("--only", help="Comma-separated probe names for a bounded follow-up")
++    opts = parser.parse_args()
++    if opts.only and not set(opts.only.split(",")).issubset({p[0] for p in PROBES}):
++        parser.error("--only contains an unknown probe")
++    out = Path(opts.output).resolve()
++    out.mkdir(parents=True, exist_ok=True)
++    results = []
++    unexpected = False
++    for name, path, old, new, narrows, expected_test in PROBES:
++        if opts.only and name not in opts.only.split(","):
++            continue
++        source = ROOT / path
++        original = source.read_bytes()
++        text = original.decode()
++        if text.count(old) != 1:
++            raise RuntimeError(f"{name}: plant must match exactly once, got {text.count(old)}")
++        folder = out / name
++        folder.mkdir(exist_ok=True)
++        replacement = folder / source.name
++        replacement.write_text(text.replace(old, new, 1))
++        overlay = folder / "overlay.json"
++        overlay.write_text(json.dumps({"Replace": {str(source): str(replacement)}}))
++        command = ["go", "test", "-overlay", str(overlay), "./internal/rpcwire", "-count=1", "-json", "-timeout=20s", "-run", TESTS]
++        proc = subprocess.run(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
++        (folder / "test.log").write_bytes(proc.stdout)
++        events = []
++        for line in proc.stdout.decode(errors="replace").splitlines():
++            try:
++                events.append(json.loads(line))
++            except json.JSONDecodeError:
++                pass
++        failed = [e["Test"] for e in events if e.get("Action") == "fail" and "Test" in e]
++        passed = [e["Test"] for e in events if e.get("Action") == "pass" and "Test" in e]
++        killed = proc.returncode != 0 and bool(failed) and (expected_test is None or expected_test in failed)
++        if name == "neutral":
++            valid = proc.returncode == 0 and bool(passed)
++            state = "neutral passed" if valid else "invalid control"
++        elif name in BOUNDS:
++            valid = proc.returncode == 0 and bool(passed)
++            state = "survived" if valid else "unexpected result"
++        else:
++            valid = killed
++            state = "killed" if killed else "survived" if proc.returncode == 0 and passed else "invalid instrument/compile failure"
++        if not valid:
++            unexpected = True
++        if source.read_bytes() != original:
++            raise RuntimeError(f"{name}: source changed during overlay run")
++        row = {"mutant": name, "narrowing": narrows, "exit_code": proc.returncode, "result": state,
++               "named_failing_tests": failed, "expected_test": expected_test,
++               "bound": BOUNDS.get(name, "" if killed or name == "neutral" else "No named failing test established; this gate member is unproven."),
++               "command": command}
++        results.append(row)
++        print(f"{name}: {state}, exit={proc.returncode}, tests={','.join(failed)}", flush=True)
++        (out / "results.json").write_text(json.dumps(results, indent=2) + "\n")
++    rows = ["| Mutant | What the gate is narrowed to admit | Named failing test | Exit | Result / surviving bound |",
++            "| --- | --- | --- | ---: | --- |"]
++    for r in results:
++        tests = r["expected_test"] if r["expected_test"] in r["named_failing_tests"] else ", ".join(r["named_failing_tests"])
++        rows.append(f'| {r["mutant"]} | {r["narrowing"]} | {tests or "none"} | {r["exit_code"]} | {r["result"]}: {r["bound"]} |')
++    (out / "table.md").write_text("\n".join(rows)+"\n")
++    return int(unexpected)
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/internal/rpcwire/testdata/contracts-v3.json b/internal/rpcwire/testdata/contracts-v3.json
+new file mode 100644
+index 0000000..c8dff03
+--- /dev/null
++++ b/internal/rpcwire/testdata/contracts-v3.json
+@@ -0,0 +1,26 @@
++{
++  "rpc": ["3.0.0"],
++  "session_record": ["1.0.0", "2.0.0", "3.0.0"],
++  "session_event": ["1.0.0", "2.0.0", "3.0.0"],
++  "lease": ["1.0.0"],
++  "checkpoint": ["1.0.0"],
++  "workspace_group": ["1.0.0"],
++  "provider_identity": ["1.0.0"],
++  "blob": ["1.0.0"],
++  "transfer_manifest": ["1.0.0"],
++  "chunk": ["1.0.0"],
++  "materialization_plan": ["1.0.0", "2.0.0"],
++  "tombstone": ["1.0.0"],
++  "tombstone_ack": ["1.0.0"],
++  "task_board_bundle": ["1.0.0"],
++  "environment_observation": ["1.0.0"],
++  "native_session_observation": ["1.0.0"],
++  "session_inventory_batch": ["1.0.0"],
++  "conversation_lineage_link": ["1.0.0"],
++  "session_annotation": ["1.0.0"],
++  "session_enrichment_profile": ["1.0.0"],
++  "session_enrichment_job_request": ["1.0.0"],
++  "session_enrichment_job_receipt": ["1.0.0"],
++  "session_continuation_plan": ["1.0.0"],
++  "session_directory_operation_receipt": ["1.0.0"]
++}
+diff --git a/internal/rpcwire/testdata/contracts-v4.json b/internal/rpcwire/testdata/contracts-v4.json
+new file mode 100644
+index 0000000..b55b950
+--- /dev/null
++++ b/internal/rpcwire/testdata/contracts-v4.json
+@@ -0,0 +1,27 @@
++{
++  "rpc": ["4.0.0"],
++  "session_record": ["1.0.0", "2.0.0", "3.0.0"],
++  "session_event": ["1.0.0", "2.0.0", "3.0.0", "4.0.0"],
++  "lease": ["1.0.0"],
++  "checkpoint": ["1.0.0"],
++  "workspace_group": ["1.0.0"],
++  "provider_identity": ["1.0.0"],
++  "blob": ["1.0.0"],
++  "transfer_manifest": ["1.0.0"],
++  "chunk": ["1.0.0"],
++  "materialization_plan": ["1.0.0", "2.0.0"],
++  "tombstone": ["1.0.0"],
++  "tombstone_ack": ["1.0.0"],
++  "task_board_bundle": ["1.0.0"],
++  "environment_observation": ["1.0.0"],
++  "native_session_observation": ["1.0.0"],
++  "session_inventory_batch": ["1.0.0"],
++  "conversation_lineage_link": ["1.0.0"],
++  "session_annotation": ["1.0.0"],
++  "session_enrichment_profile": ["1.0.0"],
++  "session_enrichment_job_request": ["1.0.0"],
++  "session_enrichment_job_receipt": ["1.0.0"],
++  "session_continuation_plan": ["1.0.0"],
++  "session_directory_operation_receipt": ["1.0.0"],
++  "terminal_backend_evidence": ["1.0.0"]
++}
+diff --git a/internal/rpcwire/testdata/hello-request-v2.json b/internal/rpcwire/testdata/hello-request-v2.json
+new file mode 100644
+index 0000000..40af01f
+--- /dev/null
++++ b/internal/rpcwire/testdata/hello-request-v2.json
+@@ -0,0 +1,30 @@
++{
++  "protocol": "urn:ax:protocol:rpc",
++  "protocol_version": "2.0.0",
++  "request_id": "0198f4c8-a070-7188-9172-1234567890ab",
++  "operation": "hello",
++  "body": {
++    "host_id": "0198f4c8-4a10-7b22-8b3c-1234567890ab",
++    "platform": "macos",
++    "ax_version": "0.2.1",
++    "nonce": "YWJjZGVmZ2hpamtsbW5vcA",
++    "contracts": {
++      "rpc": ["2.0.0"],
++      "session_record": ["1.0.0"],
++      "session_event": ["1.0.0"],
++      "lease": ["1.0.0"],
++      "checkpoint": ["1.0.0"],
++      "workspace_group": ["1.0.0"],
++      "provider_identity": ["1.0.0"],
++      "blob": ["1.0.0"],
++      "transfer_manifest": ["1.0.0"],
++      "chunk": ["1.0.0"],
++      "materialization_plan": ["1.0.0"],
++      "tombstone": ["1.0.0"],
++      "tombstone_ack": ["1.0.0"],
++      "task_board_bundle": ["1.0.0"]
++    },
++    "max_line_bytes": 8388608,
++    "max_object_bytes": 5242880
++  }
++}
+diff --git a/internal/rpcwire/testdata/hello-response-v2.json b/internal/rpcwire/testdata/hello-response-v2.json
+new file mode 100644
+index 0000000..50d2a69
+--- /dev/null
++++ b/internal/rpcwire/testdata/hello-response-v2.json
+@@ -0,0 +1,31 @@
++{
++  "protocol": "urn:ax:protocol:rpc",
++  "protocol_version": "2.0.0",
++  "request_id": "0198f4c8-a070-7188-9172-1234567890ab",
++  "ok": true,
++  "body": {
++    "host_id": "0198f4c8-7d40-7e55-8e6f-1234567890ab",
++    "platform": "linux",
++    "ax_version": "0.2.1",
++    "nonce": "cXJzdHV2d3h5ejAxMjM0NQ",
++    "nonce_echo": "YWJjZGVmZ2hpamtsbW5vcA",
++    "contracts": {
++      "rpc": ["2.0.0"],
++      "session_record": ["1.0.0"],
++      "session_event": ["1.0.0"],
++      "lease": ["1.0.0"],
++      "checkpoint": ["1.0.0"],
++      "workspace_group": ["1.0.0"],
++      "provider_identity": ["1.0.0"],
++      "blob": ["1.0.0"],
++      "transfer_manifest": ["1.0.0"],
++      "chunk": ["1.0.0"],
++      "materialization_plan": ["1.0.0"],
++      "tombstone": ["1.0.0"],
++      "tombstone_ack": ["1.0.0"],
++      "task_board_bundle": ["1.0.0"]
++    },
++    "max_line_bytes": 8388608,
++    "max_object_bytes": 5242880
++  }
++}
+diff --git a/UNRESOLVED_QUESTIONS.md b/UNRESOLVED_QUESTIONS.md
+new file mode 100644
+index 0000000..ff7a4ae
+--- /dev/null
++++ b/UNRESOLVED_QUESTIONS.md
+@@ -0,0 +1,25 @@
++# Unresolved implementation decisions
++
++## Inbound RPC identity association
++
++Owner: primary coordinator for TASK-260830-z1yxg9, within
++STORY-260830-1kiyj6. Status: unresolved; membership-only interpretation withdrawn.
++
++Pinned AX v0.5.0 section 11.1 requires bilateral protocol host-ID verification
++following external SSH authentication. The outbound transport independently
++selects its configured Target. The fixed inbound `ax rpc serve --stdio` command
++and current configuration do not define how the responder independently selects
++the configured expected peer before reading its claimed host ID.
++
++Required decision: approve an external SSH identity/invocation-to-configured-host
++association contract, or explicitly accept membership-only inbound admission
++with the bound that an authenticated SSH user can claim any listed host. The
++second choice must be reconciled with the existing cross-listed-host spoofing
++requirement; it is not currently approved. The independent association is the
++recommended route for retaining that requirement.
++
++`internal/rpcwire` now provides untrusted structural components. They do not
++answer this question or authorize operation dispatch. Full RPC negotiation,
++bilateral admission and TASK-260830-2x16gz hostile-peer conformance remain open.
++The board's `TASK-260830-z1yxg9_independent-stop-packet.md` records evidence,
++options, command exits and the preserved partial delta.

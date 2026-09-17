@@ -1,0 +1,12 @@
+# TASK-260830-1tvg8e reviewer logbook — CR1
+
+- Reviewed exact tree f1dbf8f2dcd80ec8fdee9c0e7e1822cd921d41ac. Managed workspace was read-only; all probes and overlays stayed below task-scoped .temp.
+- Project-managed Go testing skill was absent inside this isolated worktree, but present at the authoritative repository root under .agents/skills/go-testing-tools; read that Curator-managed copy. No install/sync or shared tool repair was required.
+- Initial compact board read used the unknown operation task(); the CLI refused it. Read documented get(ID) and retried successfully. This failed read was not treated as missing task data.
+- First probe command could not start because its disposable working directory had not yet been created. It executed no tests. Created the directory from the candidate, then reran successfully; not counted as a test failure or behavioral kill.
+- All 37 mutation probes reproduced: 33 narrowing kills, one known-bad kill, one neutral pass, two justified dominated-policy survivors. Both batches and extra pressure/default-route/priority/retry probes passed their expected outcomes.
+- Native isolated SSH parsing confirmed endpoint-port priority. A separate synthetic -l bob / alice@::1 observation resolved user bob; explicit ssh_args account selection follows native SSH semantics. Neither configuration identity nor that parser output was represented as authenticated host evidence.
+- Full local tests/coverage/race, builds/vet, metadata gates, 13 fuzz smokes pass. Five explicit suite skips are existing canonicaljson diagnostic/corpus bounds; no SSH fixture skipped. Windows and Linux checks are cross-checks, not runtime validation.
+- Board validation reports exit 0 with 237 shared issues; none names this task or Story. The producer handoff validation log had a different historical shared count (1324). This review neither infers zero issues from exit 0 nor edits the shared infrastructure.
+- OpenSSH crypto and RPC hello/host-ID binding remain explicitly delegated/downstream. Local transport delivers only provisional frames, starts no authorized RPC operation, and exposes no successful authentication or capability attestation. Accepted scoped implementation does not assert those missing end-to-end properties.
+- Decision: accept CR1 with exact candidate/evidence. No code edit, subagent, manual commit/publication, checkpoint or integration was performed.

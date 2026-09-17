@@ -1,0 +1,9 @@
+# TASK-260830-z1yxg9 recovery logbook — RUN-260908-92c832
+
+- First lifecycle mutation set development as assigned. Live notes subsequently revealed automatic recovery from the unresolved inbound-identity decision; no new scope decision or directive arrived.
+- Used project-management and Curator-managed Go testing skills from installed/main-checkout paths. The managed worktree lacks .claude/skills and .agents/bin; no install or runtime replacement attempted.
+- Inspection shell returned exit2 when rg included absent skill/directory paths. Two compact queries used unsupported acceptanceCriteria/instructionResources fields, and another used resources; each query failed before returning data. Corrected to supported compact status/notes/checklist/outcomeResources projections and read scoped get schema. No failed read was treated as absence. Direct prerequisite resource file reads succeeded.
+- Re-read prior blocked outcome, both independent accepted CR1 verdicts, seven-case map and pinned sections6.3,11.1–11.3,17. The current host association APIs remain unchanged. The ordering repair is valid and is not the present blocker.
+- Fresh focused prerequisite tests and build passed. Both checkpoint signatures verified. Positive independent-selection control passed; claim-selected association counterexample remained expected-red exit1. Real exits/logs are attached. No real SSH crypto or RPC consumer claim.
+- Exact choice remains primary-owned: provision independent inbound expected-peer association, or explicitly accept membership-only trust with cross-listed-host attribution bound. Do not implement a fabricated verified flag, claim-selected target, or endpoint-equality proxy.
+- This task and all downstream acceptance criteria remain intact. No product/index/branch changes; full final-tree gates skipped because no implementation started. All research/outcome evidence lives outside the managed worktree. Handoff is not ready.

@@ -1,0 +1,1457 @@
+diff --git a/.spec/README.md b/.spec/README.md
+index a20c2fc..3e35502 100644
+--- a/.spec/README.md
++++ b/.spec/README.md
+@@ -140,7 +140,22 @@ configuration/identity portion of §§6, 11.1 and 16.1 through
+ `Directory.DisclosurePolicy`. Existing `internal/config`, `internal/scalar`
+ and SSH argument/endpoint owners retain grammar authority. Seven executable
+ acceptance bindings in the ownership registry cover this slice; they do not
+-claim full section conformance. External SSH authentication, live transport,
++claim full section conformance. External SSH cryptography, full RPC handshake,
+ peer lifecycle, directory object sanitization/publication and doctor capability
+ integration remain with their owning tasks. There is no AX-owned key registry
+ or successful-key-attestation claim in the pinned contract.
++
++
++## SSH process/command implementation slice
++
++`TASK-260830-1tvg8e` adds `internal/sshtransport.New`, `Client.Open` and
++`Session.Send/Receive/Close/Wait`. Five additional executable acceptance bindings
++cover fixed native argv, strict effective SSH policy, bounded duplex streams,
++cancellation and process/pipe failure recovery. The source remains v0.5.0 at
++`28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c`, specifically §§6, 11.1 and 16.1,
++with the §11.2 framing constant reused. OpenSSH performs host-key/user
++verification; config resolution and process start are never authenticated host-ID
++evidence. Full hello, responder identity admission, RPC operations and
++hostile-network conformance remain separate owning scopes. No new keyword-clause
++coverage, doctor capability, at-rest encryption or provider-auth success is
++claimed. See README for process ownership and platform bounds.
+diff --git a/README.md b/README.md
+index 604961f..e662afb 100644
+--- a/README.md
++++ b/README.md
+@@ -2235,7 +2235,7 @@ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/catalogg
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.5.0.json`](internal/traceability/ownership.v0.5.0.json)
+ registry independently enumerates implementation owners for all 60 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 105
++contract rows, 36 pinned or catalog-referenced normative section keys, 110
+ executable acceptance cases, 53 exact section bindings with their declared
+ coverage, 2 disclosed unowned sections, and 30 exact fixture identities or
+ Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset.
+@@ -2562,8 +2562,8 @@ a peer or promise erasure of already replicated bytes.
+ 
+ This read-only leaf adds no CLI/doctor availability claim, RPC transport,
+ discovery, key attestation, provider authentication, or payload encryption at
+-rest. No `ax` executable is shipped by this repository yet. The sibling transport
+-and lifecycle tasks own connection/authentication integration. No durable state
++rest. No `ax` executable is shipped by this repository yet. The SSH transport slice below owns the process boundary; RPC and lifecycle
++owners still own hello/operation authorization and connection integration. No durable state
+ is mutated, so crash/idempotency injection is inapplicable; read-failure recovery
+ and snapshot isolation are tested.
+ 
+@@ -2571,3 +2571,51 @@ and snapshot isolation are tested.
+ | --- | --- | --- |
+ | Identity/config behavior | `go test ./internal/peeridentity ./internal/config -count=1 -v` | Test output; task logs under `.temp/TASK-260830-2u34k1/` |
+ | Identity narrowing proofs | `python3 internal/peeridentity/mutations.py --output .temp/TASK-260830-2u34k1/mutations` | Applied Go overlays, command exit codes, named failing tests, Markdown mutant table; originals remain untouched |
++
++
++## SSH stdio transport
++
++`internal/sshtransport.New` consumes the validated config snapshot. `Client.Open`
++resolves only an explicitly configured peer and executes OpenSSH with native argv
++for the fixed `ax rpc serve --stdio` command. Policy arguments precede peer
++options: strict host-key checking is enabled, implicit localhost/DNS host trust
++is disabled, and no forwarding, control-socket reuse, local command, terminal,
++or background persistence is allowed. External SSH owns known-host records and
++user authentication. AX reads no key material and writes no SSH settings.
++Unknown keys require prior operator provisioning; this headless connection never
++accepts them interactively. There is no permanent public listener.
++
++`Open` means the local process started. It is not proof of authentication or
++protocol negotiation. Frames remain untrusted until the Mesh RPC owner validates
++hello, nonce, contracts, limits and `Session.Target().CheckProtocolHost`. This
++package exposes no verified-key flag, remote capability or doctor success claim.
++There is still no `ax` executable; full RPC hello/operations, responder-side
++identity admission and hostile-network conformance remain outside this slice.
++Native `ssh -G` tests establish effective policy, not a cryptographic connection.
++
++`Session.Send`/`Receive` carry LF-delimited lines with the §11.2 8 MiB byte limit,
++excluding LF. One queued frame and one reader frame bound incoming buffering;
++sends serialize and do not queue copied payloads. The caller owns a sent byte
++slice until `Send` returns. The protocol layer validates JSON/envelope content.
++Stderr has a 64 KiB per-session budget and is discarded; excess diagnostic output
++fails the session. No raw stderr is logged, returned or persisted. EOF requires a
++successful process exit and clean stream drains. Empty/partial/oversized frames,
++read/write failures, and nonzero exit stay failures; exit 255 is an SSH failure
++of unknown authentication/network subclass, never an absent peer.
++
++The caller closes the session. Its context and the configured RPC timeout bound
++the whole session; OpenSSH receives the configured connect timeout. `CloseWrite`
++ends requests while responses drain. `Close` is idempotent and joins process wait
++and both pumps. Cancellation closes owned pipe endpoints and reaps the direct
++process, including a blocked writer or full receive queue. After direct exit,
++one second bounds inherited pipes/backpressure. Unix process groups include
++ordinary descendants; a `setsid` descendant escapes termination but cannot retain
++AX's pipe waits. Windows termination covers the direct SSH child only. Native
++Windows runtime and descendant-tree conformance are not claimed by cross-builds.
++No durable AX state is mutated; crash/write-idempotency injection is inapplicable.
++
++| Tool / check | Exact command | Output |
++| --- | --- | --- |
++| Transport behavior | `go test ./internal/sshtransport -count=1 -v` | Local process and native config-only fixtures; `.temp/TASK-260830-1tvg8e/` logs |
++| Transport races and coverage | `go test ./internal/sshtransport -race -count=1 -cover` | Race diagnostics and measured package coverage |
++| Transport narrowing | `python3 internal/sshtransport/mutations.py --output .temp/TASK-260830-1tvg8e/mutations` | Applied compiling overlays, standalone process exits, named failing tests and mutant table; source originals remain untouched |
+diff --git a/internal/sshtransport/mutations.py b/internal/sshtransport/mutations.py
+new file mode 100644
+index 0000000..77c0605
+--- /dev/null
++++ b/internal/sshtransport/mutations.py
+@@ -0,0 +1,134 @@
++#!/usr/bin/env python3
++"""SSH transport behavioral overlays; no source-only or compile-error kills."""
++import argparse
++import json
++from pathlib import Path
++import subprocess
++import sys
++
++ROOT = Path(__file__).resolve().parents[2]
++TRANSPORT = "internal/sshtransport/transport.go"
++UNIX = "internal/sshtransport/process_unix.go"
++TESTS = "Test"
++PROBES = [
++ ("neutral", TRANSPORT, "size := 0", "size := int(0)", "Equivalent size accumulator", None),
++ ("known-bad", TRANSPORT, "exec.Command(c.executable, argv...)", 'exec.Command(c.executable, append(argv, "unexpected")...)', "Adds a remote command token", "TestOpenStructuredCommand"),
++ ("argv-plus-one", TRANSPORT, "size > 65_536", "size > 65_537", "Admits exactly 65537 composed bytes", "TestOpenComposedArgvBound/65537"),
++ ("send-plus-one", TRANSPORT, "len(line) > MaxLineBytes", "len(line) > MaxLineBytes+1", "Admits exactly one excess outbound byte", "TestDuplexAndSendBoundaries/oversize"),
++ ("read-plus-one", TRANSPORT, "len(line)+len(part) > MaxLineBytes", "len(line)+len(part) > MaxLineBytes+1", "Admits exactly one excess inbound byte", "TestReceiveFailureAndLimits/oversize"),
++ ("send-empty", TRANSPORT, "len(line) == 0 ||", "(len(line) == 0 && line == nil) ||", "Admits a non-nil empty outbound line", "TestDuplexAndSendBoundaries/empty"),
++ ("send-two-lines", TRANSPORT, "bytes.IndexByte(line, '\\n') >= 0", '(bytes.IndexByte(line, \'\\n\') >= 0 && string(line) != "{}\\n{}")', "Admits the two-frame outbound fixture", "TestDuplexAndSendBoundaries/newline"),
++ ("read-empty", TRANSPORT, "if len(line) == 0 {", "if len(line) == 0 && line != nil {", "Admits the initial empty inbound frame", "TestReceiveFailureAndLimits/blank"),
++ ("read-partial", TRANSPORT, "if len(line) != 0 {", 'if len(line) != 0 && string(line) != `{"ok":true}` {', "Treats one unterminated success-shaped frame as EOF", "TestReceiveFailureAndLimits/partial"),
++ ("stderr-plus-one", TRANSPORT, "n > StderrLimit", "n > StderrLimit+1", "Admits exactly one excess stderr byte", "TestReceiveFailureAndLimits/stderr-over"),
++ ("exit255", TRANSPORT, "if err != nil {\n\t\t\t\tcause = ErrExit", "if err != nil && exitCode != 255 {\n\t\t\t\tcause = ErrExit", "Treats SSH exit 255 alone as successful EOF", "TestReceiveFailureAndLimits/exit255"),
++ ("cancel-as-success", TRANSPORT, "if cause != nil {\n\t\ts.result =", "if cause != nil && !errors.Is(cause, context.Canceled) {\n\t\ts.result =", "Suppresses explicit cancellation but keeps other failures", "TestCancellationAndCleanup/stall"),
++ ("drain-as-success", TRANSPORT, "if cause != nil {\n\t\ts.result =", "if cause != nil && cause != ErrDrain {\n\t\ts.result =", "Suppresses inherited-pipe failure only", "TestInheritedPipeCleanup/descendant"),
++ ("read-as-absence", TRANSPORT, "if cause != nil {\n\t\ts.result =", "if cause != nil && cause != ErrStream {\n\t\ts.result =", "Suppresses OS stream errors only", "TestReadFailureAndRecovery"),
++ ("direct-child-only", UNIX, "_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)", "_ = syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)", "Kills direct child but admits inherited pipe descendants", "TestInheritedPipeCleanup/descendant"),
++]
++
++PROBES += [
++ ("connect-timeout", TRANSPORT, "strconv.FormatUint(c.connectSeconds, 10)", "strconv.FormatUint(c.connectSeconds+1, 10)", "Allows one extra second before connection timeout", "TestOpenNativeSSHPolicy"),
++ ("rpc-timeout", TRANSPORT, "context.WithTimeout(ctx, c.rpcTimeout)", "context.WithTimeout(ctx, c.rpcTimeout+time.Second)", "Allows one extra second of process lifetime", "TestCancellationAndCleanup/deadline"),
++]
++
++# Effective-policy plants preserve all other options and the host-key gate.
++# Native OpenSSH -G evaluates behavior against a conflicting hermetic config.
++POLICY = {
++ "StrictHostKeyChecking=yes": "StrictHostKeyChecking=accept-new",
++ "NoHostAuthenticationForLocalhost=no": "NoHostAuthenticationForLocalhost=yes",
++ "VerifyHostKeyDNS=no": "VerifyHostKeyDNS=yes",
++ "UpdateHostKeys=no": "UpdateHostKeys=yes",
++ "BatchMode=yes": "BatchMode=no",
++ "NumberOfPasswordPrompts=0": "NumberOfPasswordPrompts=1",
++ "ControlMaster=no": "ControlMaster=auto",
++ "ControlPath=none": "ControlPath=/fixture/control",
++ "ControlPersist=no": "ControlPersist=1",
++ "ClearAllForwardings=yes": "ClearAllForwardings=no",
++ "ForwardAgent=no": "ForwardAgent=yes",
++ "ForwardX11=no": "ForwardX11=yes",
++ "Tunnel=no": "Tunnel=point-to-point",
++ "PermitLocalCommand=no": "PermitLocalCommand=yes",
++ "RemoteCommand=none": "RemoteCommand=false",
++ "RequestTTY=no": "RequestTTY=force",
++ "SessionType=default": "SessionType=none",
++ "ForkAfterAuthentication=no": "ForkAfterAuthentication=yes",
++ "StdinNull=no": "StdinNull=yes",
++ "ConnectionAttempts=1": "ConnectionAttempts=2",
++}
++for old, new in POLICY.items():
++ PROBES.append(("policy-"+old.split("=")[0], TRANSPORT, '"'+old+'"', '"'+new+'"', "Admits "+new+" while preserving all other SSH policy", "TestOpenNativeSSHPolicy"))
++BOUNDS = {
++ "policy-Tunnel": "Native ClearAllForwardings=yes suppresses tunnels too; the ClearAllForwardings mutant is killed. No independent Tunnel-policy kill claimed.",
++ "policy-RequestTTY": "The fixed trailing -T from peeridentity overrides RequestTTY; no independent RequestTTY-policy kill claimed.",
++}
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--output", required=True)
++    parser.add_argument("--only", help="Comma-separated probe names for a bounded follow-up")
++    opts = parser.parse_args()
++    if opts.only and not set(opts.only.split(",")).issubset({p[0] for p in PROBES}):
++        parser.error("--only contains an unknown probe")
++    out = Path(opts.output).resolve()
++    out.mkdir(parents=True, exist_ok=True)
++    results = []
++    unexpected = False
++    for name, path, old, new, narrows, expected_test in PROBES:
++        if opts.only and name not in opts.only.split(","):
++            continue
++        source = ROOT / path
++        original = source.read_bytes()
++        text = original.decode()
++        if text.count(old) != 1:
++            raise RuntimeError(f"{name}: plant must match exactly once, got {text.count(old)}")
++        folder = out / name
++        folder.mkdir(exist_ok=True)
++        replacement = folder / source.name
++        replacement.write_text(text.replace(old, new, 1))
++        overlay = folder / "overlay.json"
++        overlay.write_text(json.dumps({"Replace": {str(source): str(replacement)}}))
++        command = ["go", "test", "-overlay", str(overlay), "./internal/sshtransport", "-count=1", "-json", "-timeout=20s", "-run", TESTS]
++        proc = subprocess.run(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)
++        (folder / "test.log").write_bytes(proc.stdout)
++        events = []
++        for line in proc.stdout.decode(errors="replace").splitlines():
++            try:
++                events.append(json.loads(line))
++            except json.JSONDecodeError:
++                pass
++        failed = [e["Test"] for e in events if e.get("Action") == "fail" and "Test" in e]
++        passed = [e["Test"] for e in events if e.get("Action") == "pass" and "Test" in e]
++        killed = proc.returncode != 0 and bool(failed) and (expected_test is None or expected_test in failed)
++        if name == "neutral":
++            valid = proc.returncode == 0 and bool(passed)
++            state = "neutral passed" if valid else "invalid control"
++        elif name in BOUNDS:
++            valid = proc.returncode == 0 and bool(passed)
++            state = "survived" if valid else "unexpected result"
++        else:
++            valid = killed
++            state = "killed" if killed else "survived" if proc.returncode == 0 and passed else "invalid instrument/compile failure"
++        if not valid:
++            unexpected = True
++        if source.read_bytes() != original:
++            raise RuntimeError(f"{name}: source changed during overlay run")
++        row = {"mutant": name, "narrowing": narrows, "exit_code": proc.returncode, "result": state,
++               "named_failing_tests": failed, "expected_test": expected_test,
++               "bound": BOUNDS.get(name, "" if killed or name == "neutral" else "No named failing test established; this gate member is unproven."),
++               "command": command}
++        results.append(row)
++        print(f"{name}: {state}, exit={proc.returncode}, tests={','.join(failed)}", flush=True)
++        (out / "results.json").write_text(json.dumps(results, indent=2) + "\n")
++    rows = ["| Mutant | What the gate is narrowed to admit | Named failing test | Exit | Result / surviving bound |",
++            "| --- | --- | --- | ---: | --- |"]
++    for r in results:
++        tests = r["expected_test"] if r["expected_test"] in r["named_failing_tests"] else ", ".join(r["named_failing_tests"])
++        rows.append(f'| {r["mutant"]} | {r["narrowing"]} | {tests or "none"} | {r["exit_code"]} | {r["result"]}: {r["bound"]} |')
++    (out / "table.md").write_text("\n".join(rows)+"\n")
++    return int(unexpected)
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/internal/sshtransport/process_unix.go b/internal/sshtransport/process_unix.go
+new file mode 100644
+index 0000000..1f90fe0
+--- /dev/null
++++ b/internal/sshtransport/process_unix.go
+@@ -0,0 +1,11 @@
++//go:build !windows
++
++package sshtransport
++
++import (
++	"os/exec"
++	"syscall"
++)
++
++func configureProcess(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} }
++func killProcess(cmd *exec.Cmd)      { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+diff --git a/internal/sshtransport/process_unix_test.go b/internal/sshtransport/process_unix_test.go
+new file mode 100644
+index 0000000..6d81fab
+--- /dev/null
++++ b/internal/sshtransport/process_unix_test.go
+@@ -0,0 +1,109 @@
++//go:build !windows
++
++package sshtransport
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"os"
++	"os/exec"
++	"syscall"
++	"testing"
++	"time"
++)
++
++func fixtureDescendant(mode string) {
++	executable, _ := os.Executable()
++	cmd := exec.Command(executable)
++	cmd.Env = []string{"AX_SSH_FIXTURE=hold", "GOCOVERDIR=" + os.Getenv("GOCOVERDIR"), "GORACE=atexit_sleep_ms=0"}
++	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
++	if mode == "detached" {
++		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
++	}
++	if err := cmd.Start(); err != nil {
++		os.Exit(91)
++	}
++	_ = json.NewEncoder(os.Stdout).Encode(map[string]int{"pid": cmd.Process.Pid})
++}
++
++func TestInheritedPipeCleanup(t *testing.T) {
++	for _, mode := range []string{"descendant", "detached"} {
++		t.Run(mode, func(t *testing.T) {
++			s := open(t, client(t, mode, ""))
++			line, err := s.Receive()
++			if err != nil {
++				t.Fatal(err)
++			}
++			var identity struct {
++				PID int `json:"pid"`
++			}
++			if json.Unmarshal(line, &identity) != nil || identity.PID <= 0 {
++				t.Fatal("missing fixture identity")
++			}
++			t.Cleanup(func() { _ = syscall.Kill(identity.PID, syscall.SIGKILL) })
++			if err = s.Wait(); !errors.Is(err, ErrDrain) {
++				t.Fatalf("inherited pipe: %v", err)
++			}
++			if s.cmd.ProcessState == nil {
++				t.Fatal("direct process not reaped")
++			}
++			if mode == "descendant" {
++				deadline := time.Now().Add(2 * time.Second)
++				for syscall.Kill(identity.PID, 0) == nil && time.Now().Before(deadline) {
++					time.Sleep(5 * time.Millisecond)
++				}
++				if err := syscall.Kill(identity.PID, 0); err != syscall.ESRCH {
++					t.Fatal("owned group descendant survived")
++				}
++			} else if syscall.Kill(identity.PID, 0) != nil {
++				t.Fatal("detached descendant unexpectedly within ownership; bound fixture invalid")
++			}
++		})
++	}
++}
++
++func TestReadFailureAndRecovery(t *testing.T) {
++	for _, stream := range []string{"stdout", "stderr"} {
++		t.Run(stream, func(t *testing.T) {
++			c := client(t, "stall", "")
++			s := open(t, c)
++			if _, err := s.Receive(); err != nil {
++				t.Fatal(err)
++			}
++			// Fault the real owned OS pipe, not a parser or a fake Runner.
++			if stream == "stdout" {
++				_ = s.stdout.Close()
++			} else {
++				_ = s.stderr.Close()
++			}
++			if err := s.Wait(); !errors.Is(err, ErrStream) {
++				t.Fatal(err)
++			}
++			c.env[0] = "AX_SSH_FIXTURE=empty"
++			next := open(t, c)
++			if err := next.Wait(); err != nil {
++				t.Fatalf("recovery: %v", err)
++			}
++		})
++	}
++}
++
++func TestCancelExitRace(t *testing.T) {
++	c := client(t, "empty", "")
++	for i := 0; i < 20; i++ {
++		ctx, cancel := context.WithCancel(context.Background())
++		s, err := c.Open(ctx, "peer")
++		if err != nil {
++			t.Fatal(err)
++		}
++		cancel()
++		err = s.Wait()
++		if err != nil && !errors.Is(err, context.Canceled) {
++			t.Fatal(err)
++		}
++		if s.cmd.ProcessState == nil {
++			t.Fatal("direct child not reaped")
++		}
++	}
++}
+diff --git a/internal/sshtransport/process_windows.go b/internal/sshtransport/process_windows.go
+new file mode 100644
+index 0000000..d64332a
+--- /dev/null
++++ b/internal/sshtransport/process_windows.go
+@@ -0,0 +1,8 @@
++package sshtransport
++
++import "os/exec"
++
++// Windows uses os/exec's native CreateProcess argument encoding. Descendant
++// termination is not claimed here; local SSH is the directly owned process.
++func configureProcess(cmd *exec.Cmd) {}
++func killProcess(cmd *exec.Cmd)      { _ = cmd.Process.Kill() }
+diff --git a/internal/sshtransport/process_windows_test.go b/internal/sshtransport/process_windows_test.go
+new file mode 100644
+index 0000000..c25b3de
+--- /dev/null
++++ b/internal/sshtransport/process_windows_test.go
+@@ -0,0 +1,5 @@
++package sshtransport
++
++import "os"
++
++func fixtureDescendant(mode string) { os.Exit(98) }
+diff --git a/internal/sshtransport/transport.go b/internal/sshtransport/transport.go
+new file mode 100644
+index 0000000..9d6e1f9
+--- /dev/null
++++ b/internal/sshtransport/transport.go
+@@ -0,0 +1,367 @@
++// Package sshtransport owns a single foreground OpenSSH stdio process and its
++// bounded duplex streams. It does not implement Mesh RPC hello or operations.
++// Frames are untrusted protocol input, never authentication or capability facts.
++package sshtransport
++
++import (
++	"bufio"
++	"bytes"
++	"context"
++	"errors"
++	"io"
++	"os"
++	"os/exec"
++	"strconv"
++	"sync"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/config"
++	"github.com/relux-works/agent-session-manager/internal/peeridentity"
++)
++
++const (
++	MaxLineBytes = 8 * 1024 * 1024 // Section 11.2, excluding LF.
++	StderrLimit  = 64 * 1024       // Local diagnostic budget; never protocol input.
++	drainTimeout = time.Second     // Also bounds inherited pipes after direct exit.
++)
++
++var (
++	ErrLine        = errors.New("SSH RPC line is empty, oversized, or unterminated")
++	ErrStderrLimit = errors.New("SSH diagnostic byte budget exceeded")
++	ErrStream      = errors.New("SSH stream failed")
++	ErrStart       = errors.New("SSH process could not start")
++	ErrExit        = errors.New("SSH process exited unsuccessfully")
++	ErrClosed      = errors.New("SSH session closed")
++	ErrDrain       = errors.New("SSH pipes remained open after process exit")
++)
++
++// Failure deliberately excludes argv, raw stderr and operating-system errors
++// that may disclose machine-local paths. ExitCode is -1 when no exit was seen.
++// OpenSSH exit 255 cannot distinguish authentication from other SSH failures;
++// it is never interpreted as an absent peer or as an authenticated empty result.
++type Failure struct {
++	Kind     error
++	ExitCode int
++}
++
++func (e *Failure) Error() string { return e.Kind.Error() }
++func (e *Failure) Unwrap() error { return e.Kind }
++
++// Client retains the validated config timeout and allowlist snapshot. The zero
++// value cannot start a process. New uses the installed OpenSSH from PATH; this
++// executable and the local operator's SSH configuration are trusted inputs.
++type Client struct {
++	directory      peeridentity.Directory
++	connectSeconds uint64
++	rpcTimeout     time.Duration
++	executable     string
++	env            []string
++}
++
++func New(snapshot config.Snapshot) (*Client, error) {
++	directory, err := peeridentity.FromSnapshot(snapshot)
++	if err != nil {
++		return nil, err
++	}
++	loaded, _ := snapshot.Configuration()
++	return &Client{directory: directory, connectSeconds: loaded.Value.Mesh.ConnectTimeoutSeconds,
++		rpcTimeout: time.Duration(loaded.Value.Mesh.RPCTimeoutSeconds) * time.Second, executable: "ssh"}, nil
++}
++
++// policy precedes configured options because OpenSSH uses the first value.
++// Keep external known_hosts/user-key selection, but prohibit implicit host trust,
++// reuse of a potentially differently authenticated control socket, forwarding,
++// local commands, background persistence and replacement of the fixed command.
++func (c *Client) argv(target peeridentity.Target) ([]string, error) {
++	args, err := target.RPCArgv()
++	if err != nil {
++		return nil, err
++	}
++	policy := []string{
++		"StrictHostKeyChecking=yes", "NoHostAuthenticationForLocalhost=no", "VerifyHostKeyDNS=no",
++		"UpdateHostKeys=no", "BatchMode=yes", "NumberOfPasswordPrompts=0",
++		"ControlMaster=no", "ControlPath=none", "ControlPersist=no",
++		"ClearAllForwardings=yes", "ForwardAgent=no", "ForwardX11=no", "Tunnel=no",
++		"PermitLocalCommand=no", "RemoteCommand=none", "RequestTTY=no", "SessionType=default",
++		"ForkAfterAuthentication=no", "StdinNull=no", "ConnectionAttempts=1",
++		"ConnectTimeout=" + strconv.FormatUint(c.connectSeconds, 10),
++	}
++	out := make([]string, 0, 2*len(policy)+len(args))
++	for _, option := range policy {
++		out = append(out, "-o", option)
++	}
++	out = append(out, args...)
++	size := 0
++	for _, arg := range out {
++		size += len(arg)
++	}
++	if size > 65_536 {
++		return nil, peeridentity.ErrSSHArgvTooLarge
++	}
++	return out, nil
++}
++
++// Open resolves the explicit allowlist and starts the fixed remote command via
++// the native process API (also on Windows). Success means only process start.
++// OpenSSH itself checks the host key before it can run the remote command.
++// The RPC owner MUST validate hello, including Target.CheckProtocolHost, before
++// admitting operations. No remote shell argument comes from protocol payloads.
++// The caller owns Close; its context and configured RPC timeout bound the whole
++// session, including blocked reads/writes. It may impose a shorter deadline.
++func (c *Client) Open(ctx context.Context, selector string) (*Session, error) {
++	target, err := c.directory.Resolve(selector)
++	if err != nil {
++		return nil, err
++	}
++	argv, err := c.argv(target)
++	if err != nil {
++		return nil, err
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++	life, cancel := context.WithTimeout(ctx, c.rpcTimeout)
++	cmd := exec.Command(c.executable, argv...)
++	cmd.Env = c.env
++	configureProcess(cmd)
++	// Own all six pipe endpoints, including failures before Start. exec.Wait
++	// must never close a read endpoint while our pump is still draining it.
++	var pipes []*os.File
++	pipe := func() (*os.File, *os.File, error) {
++		r, w, e := os.Pipe()
++		if e == nil {
++			pipes = append(pipes, r, w)
++		}
++		return r, w, e
++	}
++	inR, inW, err := pipe()
++	if err == nil {
++		var outR, outW, errR, errW *os.File
++		outR, outW, err = pipe()
++		if err == nil {
++			errR, errW, err = pipe()
++		}
++		if err == nil {
++			cmd.Stdin, cmd.Stdout, cmd.Stderr = inR, outW, errW
++			if err = cmd.Start(); err == nil {
++				_ = inR.Close()
++				_ = outW.Close()
++				_ = errW.Close()
++				s := &Session{target: target, cmd: cmd, ctx: life, cancel: cancel,
++					stdin: inW, stdout: outR, stderr: errR, frames: make(chan []byte, 1),
++					done: make(chan struct{}), fault: make(chan error, 1)}
++				go s.supervise()
++				return s, nil
++			}
++		}
++	}
++	for _, p := range pipes {
++		_ = p.Close()
++	}
++	cancel()
++	return nil, &Failure{Kind: ErrStart, ExitCode: -1}
++}
++
++// Session permits one sending goroutine and one receiving goroutine at a time;
++// sends are serialized. Close/Wait may run concurrently with either direction.
++// At most one queued line plus the current reader line is retained. Stderr is
++// counted and discarded, never returned, formatted, logged or persisted.
++type Session struct {
++	target                peeridentity.Target
++	cmd                   *exec.Cmd
++	ctx                   context.Context
++	cancel                context.CancelFunc
++	stdin, stdout, stderr *os.File
++	frames                chan []byte
++	fault                 chan error
++	done                  chan struct{}
++	sendMu                sync.Mutex
++	result                error // written once, published by closing done
++}
++
++// Target is still a plan, not an authenticated identity or successful hello.
++func (s *Session) Target() peeridentity.Target { return s.target }
++func (s *Session) Wait() error                 { <-s.done; return s.result }
++func (s *Session) Close() error                { s.fail(ErrClosed); return s.Wait() }
++func (s *Session) fail(err error) {
++	select {
++	case s.fault <- err:
++	default:
++	}
++}
++
++func (s *Session) Send(line []byte) error {
++	if len(line) == 0 || len(line) > MaxLineBytes || bytes.IndexByte(line, '\n') >= 0 {
++		s.fail(ErrLine)
++		return ErrLine
++	}
++	s.sendMu.Lock()
++	defer s.sendMu.Unlock()
++	select {
++	case <-s.done:
++		if s.result != nil {
++			return s.result
++		}
++		return ErrClosed
++	default:
++	}
++	// The caller retains ownership and must not mutate line until Send returns.
++	for _, part := range [][]byte{line, {'\n'}} {
++		if n, err := s.stdin.Write(part); err != nil || n != len(part) {
++			s.fail(ErrStream)
++			err := s.Wait()
++			if err != nil {
++				return err
++			}
++			return ErrStream
++		}
++	}
++	return nil
++}
++
++// CloseWrite signals EOF while allowing pending responses to drain.
++func (s *Session) CloseWrite() error {
++	s.sendMu.Lock()
++	defer s.sendMu.Unlock()
++	if err := s.stdin.Close(); err != nil {
++		return ErrStream
++	}
++	return nil
++}
++
++// Receive returns complete LF-delimited lines only. EOF is returned only after
++// a successful exit and both drains; partial/read/exit failures are errors.
++// Earlier frames are provisional protocol input: an eventual failure cannot
++// retroactively undo caller actions. The RPC layer owns transactional semantics.
++func (s *Session) Receive() ([]byte, error) {
++	line, ok := <-s.frames
++	if ok {
++		select {
++		case <-s.done:
++			if s.result != nil {
++				return nil, s.result
++			}
++		default:
++		}
++		return line, nil
++	}
++	if err := s.Wait(); err != nil {
++		return nil, err
++	}
++	return nil, io.EOF
++}
++
++func (s *Session) readLines() error {
++	defer close(s.frames)
++	reader := bufio.NewReaderSize(s.stdout, 32*1024)
++	var line []byte
++	for {
++		part, err := reader.ReadSlice('\n')
++		complete := len(part) > 0 && part[len(part)-1] == '\n'
++		if complete {
++			part = part[:len(part)-1]
++		}
++		if len(line)+len(part) > MaxLineBytes {
++			return ErrLine
++		}
++		line = append(line, part...)
++		if complete {
++			if len(line) == 0 {
++				return ErrLine
++			}
++			select {
++			case s.frames <- line:
++				line = nil
++			case <-s.ctx.Done():
++				return s.ctx.Err()
++			}
++		}
++		if err == nil || errors.Is(err, bufio.ErrBufferFull) {
++			continue
++		}
++		if errors.Is(err, io.EOF) {
++			if len(line) != 0 {
++				return ErrLine
++			}
++			return nil
++		}
++		return ErrStream
++	}
++}
++func (s *Session) readStderr() error {
++	n, err := io.Copy(io.Discard, io.LimitReader(s.stderr, StderrLimit+1))
++	if n > StderrLimit {
++		return ErrStderrLimit
++	}
++	if err != nil {
++		return ErrStream
++	}
++	return nil
++}
++
++func (s *Session) supervise() {
++	stdoutDone, stderrDone := make(chan error, 1), make(chan error, 1)
++	waitDone := make(chan error, 1)
++	go func() { stdoutDone <- s.readLines() }()
++	go func() { stderrDone <- s.readStderr() }()
++	go func() { waitDone <- s.cmd.Wait() }()
++	var cause error
++	var timer *time.Timer
++	var expired <-chan time.Time
++	exitCode := -1
++	for stdoutDone != nil || stderrDone != nil || waitDone != nil {
++		select {
++		case <-s.ctx.Done():
++			cause = s.ctx.Err()
++		case cause = <-s.fault:
++		case err := <-stdoutDone:
++			stdoutDone = nil
++			if err != nil {
++				cause = err
++			}
++		case err := <-stderrDone:
++			stderrDone = nil
++			if err != nil {
++				cause = err
++			}
++		case err := <-waitDone:
++			waitDone = nil
++			exitCode = s.cmd.ProcessState.ExitCode()
++			if err != nil {
++				cause = ErrExit
++			} else {
++				timer = time.NewTimer(drainTimeout)
++				expired = timer.C
++			}
++		case <-expired:
++			cause = ErrDrain
++		}
++		if cause != nil {
++			break
++		}
++	}
++	if timer != nil {
++		timer.Stop()
++	}
++	// Stop the entire owned process group on Unix, even if the direct process
++	// already exited with inherited pipes. Windows owns the direct child only.
++	killProcess(s.cmd)
++	s.cancel()
++	_ = s.stdin.Close()
++	_ = s.stdout.Close()
++	_ = s.stderr.Close()
++	if waitDone != nil {
++		<-waitDone
++		exitCode = s.cmd.ProcessState.ExitCode()
++	}
++	if stdoutDone != nil {
++		<-stdoutDone
++	}
++	if stderrDone != nil {
++		<-stderrDone
++	}
++	if cause != nil {
++		s.result = &Failure{Kind: cause, ExitCode: exitCode}
++	}
++	close(s.done)
++}
+diff --git a/internal/sshtransport/transport_test.go b/internal/sshtransport/transport_test.go
+new file mode 100644
+index 0000000..7c74754
+--- /dev/null
++++ b/internal/sshtransport/transport_test.go
+@@ -0,0 +1,502 @@
++package sshtransport
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"io/fs"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"reflect"
++	"strings"
++	"testing"
++	"testing/fstest"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/config"
++	"github.com/relux-works/agent-session-manager/internal/peeridentity"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const peerID = "0198f4c8-7d40-7e55-8e6f-1234567890ab"
++
++// The fixture is an executable process, not a fake Runner. It never connects to
++// SSH, reads credentials, or claims to emulate cryptographic authentication.
++func TestMain(m *testing.M) {
++	mode := os.Getenv("AX_SSH_FIXTURE")
++	if mode == "" {
++		os.Exit(m.Run())
++	}
++	switch mode {
++	case "argv":
++		b, _ := json.Marshal(os.Args[1:])
++		fmt.Println(string(b))
++	case "echo":
++		_, _ = io.Copy(os.Stdout, os.Stdin)
++	case "sink":
++		_, _ = io.Copy(io.Discard, os.Stdin)
++	case "exit255":
++		fmt.Fprint(os.Stderr, "credential-canary")
++		os.Exit(255)
++	case "exit7":
++		fmt.Fprintln(os.Stdout, `{"ok":true}`)
++		os.Exit(7)
++	case "empty":
++	case "partial":
++		fmt.Fprint(os.Stdout, `{"ok":true}`)
++	case "blank":
++		fmt.Fprintln(os.Stdout)
++	case "oversize":
++		_, _ = os.Stdout.Write(bytes.Repeat([]byte{'x'}, MaxLineBytes+1))
++		fmt.Println()
++	case "max":
++		_, _ = os.Stdout.Write(bytes.Repeat([]byte{'x'}, MaxLineBytes))
++		fmt.Println()
++	case "stderr-max":
++		_, _ = os.Stderr.Write(bytes.Repeat([]byte{'s'}, StderrLimit))
++	case "stderr-over":
++		_, _ = os.Stderr.Write(bytes.Repeat([]byte{'s'}, StderrLimit+1))
++		time.Sleep(10 * time.Second)
++	case "stall":
++		fmt.Fprintln(os.Stdout, `{"ready":true}`)
++		time.Sleep(30 * time.Second)
++	case "flood":
++		for {
++			fmt.Fprintln(os.Stdout, `{"flood":true}`)
++		}
++	case "close-input":
++		_ = os.Stdin.Close()
++		fmt.Fprintln(os.Stdout, `{"ready":true}`)
++		time.Sleep(30 * time.Second)
++	case "descendant", "detached":
++		fixtureDescendant(mode)
++	case "hold":
++		time.Sleep(30 * time.Second)
++	case "config":
++		// Native OpenSSH config evaluation only. Explicit file suppresses ambient
++		// config. -G exits without a connection or private key access.
++		args := append([]string{"-G", "-F", os.Getenv("AX_SSH_CONFIG")}, os.Args[1:]...)
++		cmd := exec.Command(os.Getenv("AX_SSH_BINARY"), args...)
++		cmd.Stdout = os.Stdout
++		cmd.Stderr = os.Stderr
++		if err := cmd.Run(); err != nil {
++			os.Exit(1)
++		}
++	default:
++		os.Exit(99)
++	}
++	os.Exit(0)
++}
++
++func document(extra string) string {
++	return `schema = "urn:ax:schema:config"
++schema_version = "3.0.0"
++host_id = "0198f4c8-4a10-7b22-8b3c-1234567890ab"
++host_name = "local"
++platform = "macos"
++[mesh]
++connect_timeout_seconds = 7
++rpc_timeout_seconds = 10
++[[mesh.peers]]
++host_id = "` + peerID + `"
++name = "peer"
++endpoint = "alice@[::1]:2222"
++platform = "linux"
++` + extra
++}
++func snapshot(t *testing.T, doc string) config.Snapshot {
++	t.Helper()
++	files := fstest.MapFS{"config.toml": &fstest.MapFile{Data: []byte(doc), Mode: 0600}}
++	in := config.Inputs{Platform: scalar.PlatformMacOS, HomeDir: "/home", TempDir: "/tmp", WorkingDir: "/",
++		LookupEnv: func(string) (string, bool) { return "", false },
++		Stat:      func(p string) (fs.FileInfo, error) { return fs.Stat(files, strings.TrimPrefix(p, "/")) },
++		ReadFile:  func(p string) ([]byte, error) { return fs.ReadFile(files, strings.TrimPrefix(p, "/")) }}
++	s, err := config.Load(in, config.Overrides{config.ConfigFile: "/config.toml"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	return s
++}
++func client(t *testing.T, mode, extra string) *Client {
++	t.Helper()
++	c, err := New(snapshot(t, document(extra)))
++	if err != nil {
++		t.Fatal(err)
++	}
++	c.executable, err = os.Executable()
++	if err != nil {
++		t.Fatal(err)
++	}
++	c.env = []string{"AX_SSH_FIXTURE=" + mode, "GOCOVERDIR=" + t.TempDir(), "GORACE=atexit_sleep_ms=0"}
++	return c
++}
++func open(t *testing.T, c *Client) *Session {
++	t.Helper()
++	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
++	t.Cleanup(cancel)
++	s, err := c.Open(ctx, "peer")
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { _ = s.Close() })
++	return s
++}
++func drain(s *Session) ([][]byte, error) {
++	var lines [][]byte
++	for {
++		line, err := s.Receive()
++		if err != nil {
++			return lines, err
++		}
++		lines = append(lines, line)
++	}
++}
++
++func TestOpenStructuredCommand(t *testing.T) {
++	c := client(t, "argv", `ssh_args = ["-i", "/fixture/key;$(do-not-run)", "-o", "ConnectTimeout=99"]`)
++	s := open(t, c)
++	lines, err := drain(s)
++	if err != io.EOF || len(lines) != 1 {
++		t.Fatalf("lines=%d err=%v", len(lines), err)
++	}
++	var args []string
++	if err := json.Unmarshal(lines[0], &args); err != nil {
++		t.Fatal(err)
++	}
++	want := []string{"-T", "-p", "2222", "-i", "/fixture/key;$(do-not-run)", "-o", "ConnectTimeout=99", "alice@::1", "ax", "rpc", "serve", "--stdio"}
++	if !reflect.DeepEqual(args[len(args)-len(want):], want) {
++		t.Fatalf("atomic tail=%q", args)
++	}
++	if s.Target().Host().ID != peerID || s.Target().CheckProtocolHost("peer") == nil {
++		t.Fatal("protocol identity obligation lost")
++	}
++	if c.connectSeconds != 7 || c.rpcTimeout != 10*time.Second {
++		t.Fatal("config timeout not composed")
++	}
++}
++
++func TestOpenRefusesBeforeStart(t *testing.T) {
++	c := client(t, "argv", "")
++	for _, selector := range []string{"", "alice@[::1]:2222", "discovered"} {
++		s, err := c.Open(context.Background(), selector)
++		if s != nil || !errors.Is(err, peeridentity.ErrNotAllowlisted) {
++			t.Fatalf("%q: %v", selector, err)
++		}
++	}
++	if _, err := New(config.Snapshot{}); !errors.Is(err, peeridentity.ErrConfigurationRequired) {
++		t.Fatal(err)
++	}
++	var zero Client
++	if _, err := zero.Open(context.Background(), "peer"); !errors.Is(err, peeridentity.ErrNotAllowlisted) {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	cancel()
++	if _, err := c.Open(ctx, "peer"); !errors.Is(err, context.Canceled) {
++		t.Fatal(err)
++	}
++	c.executable = filepath.Join(t.TempDir(), "missing-sensitive-executable")
++	if s, err := c.Open(context.Background(), "peer"); s != nil || !errors.Is(err, ErrStart) || strings.Contains(err.Error(), "sensitive") {
++		t.Fatalf("start=%v", err)
++	}
++}
++
++func TestDuplexAndSendBoundaries(t *testing.T) {
++	s := open(t, client(t, "echo", ""))
++	want := bytes.Repeat([]byte{'x'}, MaxLineBytes)
++	sent := make(chan error, 1)
++	go func() { sent <- s.Send(want) }()
++	got, err := s.Receive()
++	if err != nil || !bytes.Equal(got, want) {
++		t.Fatalf("max receive=%d %v", len(got), err)
++	}
++	if err := <-sent; err != nil {
++		t.Fatal(err)
++	}
++	if err := s.Send([]byte(`{"second":true}`)); err != nil {
++		t.Fatal(err)
++	}
++	got, err = s.Receive()
++	if err != nil || string(got) != `{"second":true}` {
++		t.Fatal(err)
++	}
++	if err := s.CloseWrite(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := s.Receive(); err != io.EOF {
++		t.Fatal(err)
++	}
++	if err := s.Wait(); err != nil {
++		t.Fatal(err)
++	}
++	if err := s.Close(); err != nil {
++		t.Fatal(err)
++	}
++	if err := s.Send([]byte("late")); !errors.Is(err, ErrClosed) {
++		t.Fatal(err)
++	}
++	for name, line := range map[string][]byte{"empty": {}, "oversize": bytes.Repeat([]byte{'x'}, MaxLineBytes+1), "newline": []byte("{}\n{}")} {
++		t.Run(name, func(t *testing.T) {
++			// A sink cannot mask a missing send gate with a receive refusal.
++			s := open(t, client(t, "sink", ""))
++			if err := s.Send(line); !errors.Is(err, ErrLine) {
++				t.Fatal(err)
++			}
++			if !errors.Is(s.Wait(), ErrLine) {
++				t.Fatal("session was not terminated")
++			}
++		})
++	}
++}
++
++func TestReceiveFailureAndLimits(t *testing.T) {
++	for _, tc := range []struct {
++		mode string
++		want error
++		code int
++	}{
++		{"empty", io.EOF, 0}, {"max", io.EOF, 0}, {"stderr-max", io.EOF, 0},
++		{"partial", ErrLine, 0}, {"blank", ErrLine, 0}, {"oversize", ErrLine, 0}, {"stderr-over", ErrStderrLimit, 0},
++		{"exit255", ErrExit, 255}, {"exit7", ErrExit, 7},
++	} {
++		t.Run(tc.mode, func(t *testing.T) {
++			s := open(t, client(t, tc.mode, ""))
++			lines, err := drain(s)
++			if !errors.Is(err, tc.want) {
++				t.Fatalf("got %v want %v", err, tc.want)
++			}
++			if tc.mode == "max" && (len(lines) != 1 || len(lines[0]) != MaxLineBytes) {
++				t.Fatal("max line lost")
++			}
++			if tc.code != 0 {
++				var failure *Failure
++				if !errors.As(err, &failure) || failure.ExitCode != tc.code {
++					t.Fatalf("exit=%#v", err)
++				}
++			}
++			if strings.Contains(fmt.Sprint(err), "credential-canary") {
++				t.Fatal("diagnostic disclosure")
++			}
++		})
++	}
++}
++
++func TestCancellationAndCleanup(t *testing.T) {
++	for _, mode := range []string{"stall", "flood"} {
++		t.Run(mode, func(t *testing.T) {
++			c := client(t, mode, "")
++			ctx, cancel := context.WithCancel(context.Background())
++			s, err := c.Open(ctx, "peer")
++			if err != nil {
++				t.Fatal(err)
++			}
++			t.Cleanup(func() { _ = s.Close() })
++			if _, err = s.Receive(); err != nil {
++				t.Fatal(err)
++			}
++			cancel()
++			if err = s.Wait(); !errors.Is(err, context.Canceled) {
++				t.Fatal(err)
++			}
++			if s.cmd.ProcessState == nil {
++				t.Fatal("direct child not reaped")
++			}
++			if _, err = s.Receive(); !errors.Is(err, context.Canceled) {
++				t.Fatal(err)
++			}
++			if err = s.Close(); !errors.Is(err, context.Canceled) {
++				t.Fatal(err)
++			}
++		})
++	}
++	t.Run("blocked-write", func(t *testing.T) {
++		c := client(t, "stall", "")
++		ctx, cancel := context.WithCancel(context.Background())
++		s, err := c.Open(ctx, "peer")
++		if err != nil {
++			t.Fatal(err)
++		}
++		t.Cleanup(func() { _ = s.Close() })
++		if _, err = s.Receive(); err != nil {
++			t.Fatal(err)
++		}
++		sent := make(chan error, 1)
++		go func() { sent <- s.Send(bytes.Repeat([]byte{'x'}, MaxLineBytes)) }()
++		cancel()
++		if err = <-sent; !errors.Is(err, context.Canceled) {
++			t.Fatal(err)
++		}
++		if s.cmd.ProcessState == nil {
++			t.Fatal("not reaped")
++		}
++	})
++	t.Run("deadline", func(t *testing.T) {
++		c := client(t, "stall", "")
++		c.rpcTimeout = 50 * time.Millisecond
++		before := time.Now()
++		s := open(t, c)
++		after := time.Now()
++		deadline, ok := s.ctx.Deadline()
++		if !ok || deadline.Before(before.Add(c.rpcTimeout)) || deadline.After(after.Add(c.rpcTimeout)) {
++			t.Fatal("configured RPC lifetime not applied to the process context")
++		}
++		if !errors.Is(s.Wait(), context.DeadlineExceeded) {
++			t.Fatal("timeout lost")
++		}
++	})
++	t.Run("closed-input", func(t *testing.T) {
++		s := open(t, client(t, "close-input", ""))
++		if _, err := s.Receive(); err != nil {
++			t.Fatal(err)
++		}
++		if err := s.Send(bytes.Repeat([]byte{'x'}, MaxLineBytes)); !errors.Is(err, ErrStream) {
++			t.Fatal(err)
++		}
++	})
++	t.Run("explicit-close", func(t *testing.T) {
++		s := open(t, client(t, "stall", ""))
++		if err := s.Close(); !errors.Is(err, ErrClosed) {
++			t.Fatal(err)
++		}
++		if err := s.Close(); !errors.Is(err, ErrClosed) {
++			t.Fatal(err)
++		}
++	})
++}
++
++func TestOpenNativeSSHPolicy(t *testing.T) {
++	ssh, err := exec.LookPath("ssh")
++	if err != nil {
++		t.Skip("OpenSSH unavailable; native effective-policy evaluation unverified")
++	}
++	c := client(t, "config", `ssh_args = ["-o", "ConnectTimeout=99"]`)
++	file := filepath.Join(t.TempDir(), "ssh_config")
++	hostile := `Host *
++ StrictHostKeyChecking no
++ NoHostAuthenticationForLocalhost yes
++ VerifyHostKeyDNS yes
++ UpdateHostKeys yes
++ ControlMaster auto
++ ControlPath /fixture/control
++ ControlPersist yes
++ ForwardAgent yes
++ ForwardX11 yes
++ Tunnel point-to-point
++ LocalForward 127.0.0.1:9999 127.0.0.1:9998
++ RemoteForward 127.0.0.1:9997 127.0.0.1:9996
++ PermitLocalCommand yes
++ LocalCommand false
++ RemoteCommand false
++ RequestTTY force
++ SessionType none
++ ForkAfterAuthentication yes
++ StdinNull yes
++ BatchMode no
++ NumberOfPasswordPrompts 4
++ ConnectionAttempts 5
++ IdentityFile none
++ UserKnownHostsFile /fixture/known_hosts
++ GlobalKnownHostsFile /fixture/global_known_hosts
++`
++	if err = os.WriteFile(file, []byte(hostile), 0600); err != nil {
++		t.Fatal(err)
++	}
++	c.env = append(c.env, "AX_SSH_CONFIG="+file, "AX_SSH_BINARY="+ssh)
++	s := open(t, c)
++	lines, err := drain(s)
++	if err != io.EOF {
++		t.Fatal(err)
++	}
++	effective := map[string]string{}
++	for _, line := range lines {
++		key, value, ok := strings.Cut(string(line), " ")
++		if ok {
++			effective[key] = value
++		}
++	}
++	want := map[string]string{"stricthostkeychecking": "true", "nohostauthenticationforlocalhost": "no", "verifyhostkeydns": "false", "updatehostkeys": "false", "controlmaster": "false", "controlpersist": "no", "clearallforwardings": "yes", "forwardagent": "no", "forwardx11": "no", "tunnel": "false", "permitlocalcommand": "no", "requesttty": "false", "sessiontype": "default", "forkafterauthentication": "no", "stdinnull": "no", "batchmode": "yes", "numberofpasswordprompts": "0", "connectionattempts": "1", "connecttimeout": "7", "hostname": "::1", "user": "alice", "port": "2222"}
++	for key, value := range want {
++		if effective[key] != value {
++			t.Errorf("%s=%q want=%q", key, effective[key], value)
++		}
++	}
++	for _, key := range []string{"localforward", "remoteforward", "controlpath", "remotecommand"} {
++		if _, ok := effective[key]; ok {
++			t.Errorf("unexpected active %s=%q", key, effective[key])
++		}
++	}
++}
++
++func TestOpenComposedArgvBound(t *testing.T) {
++	// Vary one legal IdentityFile value. The additional fixed policy must be
++	// counted, even though the accepted peer target itself still fits the bound.
++	base := make([]string, 0)
++	for i := 0; i < 15; i++ {
++		base = append(base, "-i", strings.Repeat("a", 4096))
++	}
++	for _, size := range []int{65536, 65537} {
++		t.Run(fmt.Sprint(size), func(t *testing.T) {
++			probe := append(append([]string{}, base...), "-i", "a")
++			b, _ := json.Marshal(probe)
++			c := client(t, "argv", "ssh_args = "+string(b))
++			target, _ := c.directory.Resolve("peer")
++			argv, err := c.argv(target)
++			if err != nil {
++				t.Fatal(err)
++			}
++			n := 0
++			for _, a := range argv {
++				n += len(a)
++			}
++			probe[len(probe)-1] = strings.Repeat("a", 1+size-n)
++			b, _ = json.Marshal(probe)
++			c = client(t, "empty", "ssh_args = "+string(b))
++			s, err := c.Open(context.Background(), "peer")
++			if size == 65537 {
++				if s != nil || !errors.Is(err, peeridentity.ErrSSHArgvTooLarge) {
++					t.Fatalf("past bound: %v", err)
++				}
++			} else {
++				if err != nil {
++					t.Fatal(err)
++				}
++				t.Cleanup(func() { _ = s.Close() })
++				if _, err = drain(s); err != io.EOF {
++					t.Fatal(err)
++				}
++			}
++		})
++	}
++}
++
++func TestOpenConfigurationCompatibility(t *testing.T) {
++	for _, version := range []string{"1.0.0", "2.0.0", "3.0.0"} {
++		t.Run(version, func(t *testing.T) {
++			c, err := New(snapshot(t, strings.Replace(document(""), `schema_version = "3.0.0"`, `schema_version = "`+version+`"`, 1)))
++			if err != nil {
++				t.Fatal(err)
++			}
++			fixture := client(t, "argv", "")
++			c.executable, c.env = fixture.executable, fixture.env
++			s := open(t, c)
++			lines, err := drain(s)
++			if err != io.EOF || len(lines) != 1 {
++				t.Fatalf("%s: %v", version, err)
++			}
++			var args []string
++			if json.Unmarshal(lines[0], &args) != nil {
++				t.Fatal("argv unavailable")
++			}
++			if !reflect.DeepEqual(args[len(args)-4:], []string{"ax", "rpc", "serve", "--stdio"}) {
++				t.Fatal("fixed command drift")
++			}
++			if c.rpcTimeout != 10*time.Second || c.connectSeconds != 7 {
++				t.Fatal("legacy timeout drift")
++			}
++		})
++	}
++}
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index 5eb170c..b675af0 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=105 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
++	want := "traceability ok: contracts=60 normative_sections=36 acceptance_cases=110 fixtures=30 compatibility_contracts=55 assigned_scopes=0\n" +
+ 		"section coverage: bindings=53 full=1 partial=3 sliver=1 unevidenced=45 unmeasured=3 unowned=2 clauses_discharged=17/428\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+@@ -55,7 +55,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=105 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
++	want = "traceability ok: contracts=60 normative_sections=36 acceptance_cases=110 fixtures=30 compatibility_contracts=55 assigned_scopes=1\n" +
+ 		"section coverage: bindings=53 full=1 partial=3 sliver=1 unevidenced=45 unmeasured=3 unowned=2 clauses_discharged=17/428\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+diff --git a/internal/traceability/ownership.v0.5.0.json b/internal/traceability/ownership.v0.5.0.json
+index a906dde..039a030 100644
+--- a/internal/traceability/ownership.v0.5.0.json
++++ b/internal/traceability/ownership.v0.5.0.json
+@@ -2897,6 +2897,91 @@
+           "declaration": "TestLoadAbsenceReadFailureAndRecovery"
+         }
+       ]
++    },
++    {
++      "id": "ssh-command-entry",
++      "production": {
++        "path": "internal/sshtransport/transport.go",
++        "declaration": "Open"
++      },
++      "tests": [
++        {
++          "path": "internal/sshtransport/transport_test.go",
++          "declaration": "TestOpenStructuredCommand"
++        },
++        {
++          "path": "internal/sshtransport/transport_test.go",
++          "declaration": "TestOpenRefusesBeforeStart"
++        },
++        {
++          "path": "internal/sshtransport/transport_test.go",
++          "declaration": "TestOpenComposedArgvBound"
++        }
++      ]
++    },
++    {
++      "id": "ssh-effective-auth-policy",
++      "production": {
++        "path": "internal/sshtransport/transport.go",
++        "declaration": "Open"
++      },
++      "tests": [
++        {
++          "path": "internal/sshtransport/transport_test.go",
++          "declaration": "TestOpenNativeSSHPolicy"
++        }
++      ]
++    },
++    {
++      "id": "ssh-bounded-duplex",
++      "production": {
++        "path": "internal/sshtransport/transport.go",
++        "declaration": "Receive"
++      },
++      "tests": [
++        {
++          "path": "internal/sshtransport/transport_test.go",
++          "declaration": "TestDuplexAndSendBoundaries"
++        },
++        {
++          "path": "internal/sshtransport/transport_test.go",
++          "declaration": "TestReceiveFailureAndLimits"
++        }
++      ]
++    },
++    {
++      "id": "ssh-process-cancellation",
++      "production": {
++        "path": "internal/sshtransport/transport.go",
++        "declaration": "Close"
++      },
++      "tests": [
++        {
++          "path": "internal/sshtransport/transport_test.go",
++          "declaration": "TestCancellationAndCleanup"
++        }
++      ]
++    },
++    {
++      "id": "ssh-stream-failure-recovery",
++      "production": {
++        "path": "internal/sshtransport/transport.go",
++        "declaration": "Wait"
++      },
++      "tests": [
++        {
++          "path": "internal/sshtransport/process_unix_test.go",
++          "declaration": "TestReadFailureAndRecovery"
++        },
++        {
++          "path": "internal/sshtransport/process_unix_test.go",
++          "declaration": "TestInheritedPipeCleanup"
++        },
++        {
++          "path": "internal/sshtransport/process_unix_test.go",
++          "declaration": "TestCancelExitRace"
++        }
++      ]
+     }
+   ],
+   "ownership": [
+@@ -3183,10 +3268,12 @@
+         "peer-ssh-target",
+         "peer-key-provenance",
+         "peer-allowlist-identity",
+-        "peer-identity-read-recovery"
++        "peer-identity-read-recovery",
++        "ssh-command-entry",
++        "ssh-effective-auth-policy"
+       ],
+       "coverage": "unevidenced",
+-      "gap": "validateConfiguration enforces many Section 6.3 field constraints, but no clause of Section 6.3 is enumerated against an acceptance case, so the registry makes no clause-level claim about its obligations. internal/peeridentity composes Load, exact alias/host-ID resolution, SSH argv planning and protocol-ID comparison; SSH authentication and runtime mesh transport remain outside this configuration slice."
++      "gap": "validateConfiguration and peeridentity own configuration/allowlist resolution. sshtransport.Open composes the snapshot into native foreground SSH with strict effective host-key policy and fixed command argv. No clause of Section 6.3 is enumerated, and no cryptographic handshake or complete mesh authorization conformance is claimed by local process/configuration fixtures."
+     },
+     {
+       "kind": "section_binding",
+@@ -3728,10 +3815,13 @@
+         "declaration": "ForRelease"
+       },
+       "acceptance_cases": [
+-        "catalog-v050-exact"
++        "catalog-v050-exact",
++        "ssh-bounded-duplex",
++        "ssh-process-cancellation",
++        "ssh-stream-failure-recovery"
+       ],
+       "coverage": "unevidenced",
+-      "gap": "ForRelease only returns the reviewed typed catalog rows that reference 11.2; no clause of 11.2 is enumerated against an acceptance case, so the registry makes no clause-level claim about the 5 obligations it carries."
++      "gap": "ForRelease owns the pinned contract catalog. sshtransport provides bounded 8 MiB LF framing, duplex stdio and process failure/cancellation handling, but does not decode hello, negotiate contracts, bind nonces or admit operations. No clause of Section 11.2 is enumerated; its 5 keyword obligations remain unevidenced as full RPC behavior."
+     },
+     {
+       "kind": "section_binding",
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 34b19df..4ee55d7 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "a61fe65807bc7cd32bcb82b6dc6bc4ad694435b54cc3b443597c6fb9f46124f1"
++	reviewedOwnershipCanonicalSHA256 = "cd00dfd9d6378a7f384e69e540300346ad3ffd72371cc0feebcc58cd1fedfa0a"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 772adfe..9731a8b 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -29,7 +29,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              60,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        105,
++		AcceptanceCases:        110,
+ 		Fixtures:               30,
+ 		CompatibilityContracts: 55,
+ 		SectionBindings:        53,
