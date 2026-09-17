@@ -2841,21 +2841,22 @@ Project management is intentionally global. The repository does not declare or
 install `project-management`; development uses the globally installed skill
 and `task-board` CLI.
 
-Repository development routing in `task-board.config.json` admits Muse
-`muse-spark` with `xhigh` reasoning and Codex `gpt-6-astra` with `medium` or
-`high` reasoning for new spawns. Producers recommend Muse Spark xhigh first;
-the ceiling restricts Codex reviewer effort to Astra medium, with a Codex
-reviewer medium default, and the review workload recommends medium only.
-Required operator routing selects Codex Astra medium for all new reviewers;
-Muse reviewer admission remains possible at provider ceiling level with no
-recommendations. Empty recommendations are advisory, not refusal.
-Architecture workloads stay Codex Astra high then medium. Mechanical,
-documentation, and operations workloads recommend Muse xhigh, then Codex
-medium, then Codex high; all other producer workloads recommend Muse xhigh,
-then Codex high, then Codex medium. The mixed allow-set is limited to Muse
-and Codex: other providers are refused, and the retained Claude ceiling
-definition is inactive under mixed admission. Existing runs and their work
-are preserved.
+Repository development routing in `task-board.config.json` (operator policy
+of 2026-09-16, landed by pull requests 41 and 42) admits Muse `muse-spark`
+with `max` or `xhigh` reasoning for producers, Codex `gpt-6-astra` with
+`medium` or `high` reasoning for Codex producers and orchestration, and Codex
+`gpt-5.6-luna` with `max` reasoning as the producer fallback for Muse
+transport failures (a codex `developer` role override; the provider ceiling
+stays Astra medium/high). Producer workload classes recommend Muse Spark max
+first, then Luna max, then the retained Muse xhigh and Astra pairs;
+architecture workloads stay Codex Astra high then medium. The Codex reviewer
+role admits Astra `low` and `medium`, defaults to `low`, and the review
+workload recommends low first; required operator routing selects Codex Astra
+low for every new reviewer. Muse reviewer admission remains possible at
+provider ceiling level with no recommendations; empty recommendations are
+advisory, not refusal. The mixed allow-set is limited to Muse and Codex:
+other providers are refused, and the retained Claude ceiling definition is
+inactive under mixed admission. Existing runs and their work are preserved.
 
 Inspect effective admission and recommendations before spawning:
 
