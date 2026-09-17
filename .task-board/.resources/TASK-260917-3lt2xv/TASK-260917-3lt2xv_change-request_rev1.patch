@@ -1,0 +1,487 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 5789e5b..0ee16ab 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,12 @@
+ 
+ ## 2026-09-17
+ 
++### TASK-260917-3lt2xv — release-agnostic cataloggen check via -adopted
++- CONTRACT: validation command 21 was pinned to explicit v0.6.0 inputs, so a Story re-pointing the catalog at a new revision failed construction at its own gate. The fix declares the adopted release once (`catalog.Adopted`, consumed by `Current()`) and adds a cataloggen `-adopted` mode deriving `internal/catalog/catalog.<adopted>.json` and `internal/specpin/<adopted>.lock.json` relative to `-root` (default "."). Mixed `-adopted` with explicit `-metadata`/`-contracts`, a missing derived input (message names the derived path), and a lock whose source release differs from adopted are refused before generation; otherwise the same Generate call and `-check`/`-output` semantics run byte-identically to the explicit form.
++- GATE: command 21 is now `go run ./internal/catalog/cmd/cataloggen -adopted -output internal/catalog/catalog_gen.go -check`; every other validation command unchanged. No catalog content, metadata, lock, or generated-output change.
++- TESTS: adopted positives, byte-identity (adopted vs explicit v0.6.0 vs committed), and all refusals driven through the production `run` entry; the configured-command test asserts the `-adopted` shape and runs it rooted at the repo. Narrowing mutants per refusal plus a byte-identity derivation mutant, all killed; harmless control SURVIVED. Both the candidate `-adopted` command and trunk's explicit command are green on the tree.
++- DOCS: README regenerate block and tool row document the `-adopted` form and the explicit equivalent. No behavior or availability claims added.
++
+ ### TASK-260830-21gygk — rev16 rework: normalize Go aliases in the sealed-capability census
+ - REVIEW FINDING CLOSED (CR15 P2-A): the package-wide `go/types` census
+   compared lexical `*types.TypeName` objects, so a Go alias could bypass the
+diff --git a/README.md b/README.md
+index fa908d4..da17ad5 100644
+--- a/README.md
++++ b/README.md
+@@ -2586,10 +2586,18 @@ Regenerate and verify the committed output with:
+ 
+ ```bash
+ go generate ./internal/catalog
+-go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6.0.json -contracts internal/specpin/v0.6.0.lock.json -output internal/catalog/catalog_gen.go -check
++go run ./internal/catalog/cmd/cataloggen -adopted -output internal/catalog/catalog_gen.go -check
+ go test ./internal/catalog ./internal/cataloggen ./internal/catalog/cmd/cataloggen -count=1
+ ```
+ 
++The `-adopted` form derives the metadata and lock inputs from the code-level
++adopted release, so the check stays valid when the adopted release changes.
++The explicit equivalent pins the same inputs by path:
++
++```bash
++go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6.0.json -contracts internal/specpin/v0.6.0.lock.json -output internal/catalog/catalog_gen.go -check
++```
++
+ ## Specification-to-Code Ownership Gate
+ 
+ [`internal/traceability`](internal/traceability) provides the read-only
+@@ -2878,7 +2886,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
+ | Curator | Pin, install, and validate project skills | `curator install`; `curator status --check` | `.agents/`, `.claude/skills/`, `.codex/skills/` |
+ | `sessquery` mutation harness | Run isolated selector, plan, summary, and admission narrowing/order mutants with exact replacement and real test-exit classification | `python3 internal/sessquery/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
+ | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
+-| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6.0.json -contracts internal/specpin/v0.6.0.lock.json -output internal/catalog/catalog_gen.go -check`; `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
++| Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -adopted -output internal/catalog/catalog_gen.go -check` (`-metadata`/`-contracts` select the same inputs explicitly); `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+ | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
+ | `github.com/pelletier/go-toml/v2` | Parse and emit TOML while the repository-owned Configuration layer enforces exact versioned closed schemas | Imported by `internal/config.Decode`, `internal/config.EncodeCurrent`, and explicit `internal/config.Migrate` at pinned module version `v2.4.3` | Validated Configuration values/TOML bytes in memory; explicit migration writes a same-directory replacement plus an owner-only versioned backup |
+ | `modernc.org/sqlite` | Provide the pure-Go SQLite driver for the local derived index without a CGO platform dependency | Imported by `internal/localstore.OpenProjection` at pinned module version `v1.57.0` | `<state>/index.sqlite`, its owner-only lock and WAL/SHM/journal sidecars, and `<state>/index-recovery/<uuid>/` corruption evidence |
+diff --git a/internal/catalog/catalog.go b/internal/catalog/catalog.go
+index fafab7d..c31b75b 100644
+--- a/internal/catalog/catalog.go
++++ b/internal/catalog/catalog.go
+@@ -17,6 +17,11 @@ const (
+ 	ReleaseV060 Release = "v0.6.0"
+ )
+ 
++// Adopted is the single code-level declaration of the adopted catalog
++// release. Current is defined through it so the two cannot diverge;
++// release-agnostic tooling derives its inputs from this constant.
++const Adopted Release = ReleaseV060
++
+ var ErrUnsupportedRelease = errors.New("unsupported catalog release")
+ 
+ // Release identifies a specification package release represented by the
+@@ -183,11 +188,11 @@ type scopedError struct {
+ 
+ //go:generate go run ./cmd/cataloggen -metadata catalog.v0.6.0.json -contracts ../specpin/v0.6.0.lock.json -output catalog_gen.go
+ 
+-// Current returns an isolated catalog for the adopted v0.6.0 source. The
++// Current returns an isolated catalog for the adopted source. The
+ // exact historical v0.5.0 and v0.4.3 projections remain available through
+ // ForRelease; they are derived from the adopted lock, never retyped.
+ func Current() Catalog {
+-	catalog, err := ForRelease(ReleaseV060)
++	catalog, err := ForRelease(Adopted)
+ 	if err != nil {
+ 		panic(fmt.Sprintf("generated current catalog is invalid: %v", err))
+ 	}
+diff --git a/internal/catalog/catalog_test.go b/internal/catalog/catalog_test.go
+index c7f5069..c27e878 100644
+--- a/internal/catalog/catalog_test.go
++++ b/internal/catalog/catalog_test.go
+@@ -889,6 +889,24 @@ func assertOperationEffectNames(t *testing.T, catalogValue catalog.Catalog, effe
+ 	assertFamilyNames(t, got, want)
+ }
+ 
++// TestCurrentIsPinnedToAdoptedRelease pins the Current entry point to the
++// single code-level adopted release: Current serves Adopted, and Adopted
++// stays a represented release of the generated definition.
++func TestCurrentIsPinnedToAdoptedRelease(t *testing.T) {
++	t.Parallel()
++
++	if catalog.Current().Release != catalog.Adopted {
++		t.Fatalf("Current().Release = %q, want Adopted %q", catalog.Current().Release, catalog.Adopted)
++	}
++	adopted, err := catalog.ForRelease(catalog.Adopted)
++	if err != nil {
++		t.Fatalf("ForRelease(Adopted) error = %v", err)
++	}
++	if adopted.Release != catalog.Adopted {
++		t.Fatalf("ForRelease(Adopted).Release = %q, want %q", adopted.Release, catalog.Adopted)
++	}
++}
++
+ func assertFamilyNames(t *testing.T, got, want map[string][]string) {
+ 	t.Helper()
+ 	if reflect.DeepEqual(got, want) {
+diff --git a/internal/catalog/cmd/cataloggen/main.go b/internal/catalog/cmd/cataloggen/main.go
+index cb4f2c7..b813142 100644
+--- a/internal/catalog/cmd/cataloggen/main.go
++++ b/internal/catalog/cmd/cataloggen/main.go
+@@ -2,12 +2,14 @@ package main
+ 
+ import (
+ 	"bytes"
++	"encoding/json"
+ 	"flag"
+ 	"fmt"
+ 	"io"
+ 	"os"
+ 	"path/filepath"
+ 
++	"github.com/relux-works/agent-session-manager/internal/catalog"
+ 	"github.com/relux-works/agent-session-manager/internal/cataloggen"
+ )
+ 
+@@ -25,9 +27,14 @@ func run(arguments []string) error {
+ 	contractsPath := flags.String("contracts", "", "verified normative contract lock")
+ 	outputPath := flags.String("output", "", "generated Go output")
+ 	check := flags.Bool("check", false, "verify generated Go output without rewriting it")
++	adopted := flags.Bool("adopted", false, "derive metadata and contract lock from the adopted release")
++	root := flags.String("root", ".", "repository root the adopted inputs are resolved against")
+ 	if err := flags.Parse(arguments); err != nil {
+ 		return err
+ 	}
++	if *adopted {
++		return runAdopted(*root, *outputPath, *check, *metadataPath != "", *contractsPath != "")
++	}
+ 	if *metadataPath == "" || *contractsPath == "" || *outputPath == "" {
+ 		return fmt.Errorf("-metadata, -contracts, and -output are required")
+ 	}
+@@ -56,6 +63,68 @@ func run(arguments []string) error {
+ 	return nil
+ }
+ 
++// runAdopted derives the catalog metadata and normative lock inputs from the
++// code-level adopted release and otherwise behaves exactly like the explicit
++// invocation: same Generate call, same -check/-output semantics.
++func runAdopted(root, output string, check, explicitMetadata, explicitContracts bool) error {
++	if explicitMetadata || explicitContracts {
++		return fmt.Errorf("-adopted cannot be combined with -metadata or -contracts")
++	}
++	if output == "" {
++		return fmt.Errorf("-output is required with -adopted")
++	}
++	metadataPath := filepath.Join(root, "internal", "catalog", "catalog."+string(catalog.Adopted)+".json")
++	contractsPath := filepath.Join(root, "internal", "specpin", string(catalog.Adopted)+".lock.json")
++
++	metadata, err := os.ReadFile(metadataPath)
++	if err != nil {
++		return fmt.Errorf("read adopted metadata %q: %w", metadataPath, err)
++	}
++	contracts, err := os.ReadFile(contractsPath)
++	if err != nil {
++		return fmt.Errorf("read adopted contract lock %q: %w", contractsPath, err)
++	}
++	if err := checkAdoptedLockRelease(contracts); err != nil {
++		return err
++	}
++	generated, err := cataloggen.Generate(metadata, contracts)
++	if err != nil {
++		return fmt.Errorf("generate catalog: %w", err)
++	}
++	if check {
++		if err := checkUnchanged(output, generated); err != nil {
++			return fmt.Errorf("check catalog: %w", err)
++		}
++		return nil
++	}
++	if err := writeIfChanged(output, generated); err != nil {
++		return fmt.Errorf("write catalog: %w", err)
++	}
++	return nil
++}
++
++// adoptedLockRelease extracts the source release claim of a contract lock
++// without verifying it; verification stays the job of Generate.
++type adoptedLockRelease struct {
++	Source struct {
++		Release string `json:"release"`
++	} `json:"source"`
++}
++
++// checkAdoptedLockRelease refuses a lock whose source release differs from
++// the adopted release before generation. A lock that does not even decode
++// falls through to Generate, which reports the verification failure.
++func checkAdoptedLockRelease(contracts []byte) error {
++	var lock adoptedLockRelease
++	if err := json.Unmarshal(contracts, &lock); err != nil {
++		return nil
++	}
++	if lock.Source.Release != string(catalog.Adopted) {
++		return fmt.Errorf("adopted contract lock release %q differs from adopted release %q", lock.Source.Release, string(catalog.Adopted))
++	}
++	return nil
++}
++
+ func checkUnchanged(path string, content []byte) error {
+ 	existing, err := os.ReadFile(path)
+ 	if err != nil {
+diff --git a/internal/catalog/cmd/cataloggen/main_test.go b/internal/catalog/cmd/cataloggen/main_test.go
+index af60716..f421aa3 100644
+--- a/internal/catalog/cmd/cataloggen/main_test.go
++++ b/internal/catalog/cmd/cataloggen/main_test.go
+@@ -8,6 +8,8 @@ import (
+ 	"strings"
+ 	"testing"
+ 	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/catalog"
+ )
+ 
+ func TestRunGeneratesCommittedCatalogAndSupportsIdenticalRetry(t *testing.T) {
+@@ -174,6 +176,207 @@ func TestWriteIfChangedRefusesUnreadableDestinationWithoutReplacement(t *testing
+ 	}
+ }
+ 
++// TestRunAdoptedCheckIsGreen drives the release-agnostic gate form through
++// the production run entry: -adopted resolves the adopted inputs and the
++// committed output verifies without a rewrite.
++func TestRunAdoptedCheckIsGreen(t *testing.T) {
++	t.Parallel()
++
++	root := filepath.Join("..", "..", "..", "..")
++	output := filepath.Join(root, "internal", "catalog", "catalog_gen.go")
++	if err := run([]string{"-adopted", "-root", root, "-output", output, "-check"}); err != nil {
++		t.Fatalf("adopted check run() error = %v", err)
++	}
++}
++
++// TestRunAdoptedIsByteIdenticalToExplicit drives both the -adopted form and
++// the explicit v0.6.0 invocation through the production run entry and pins
++// the three artifacts — adopted output, explicit output, committed output —
++// byte-identical.
++func TestRunAdoptedIsByteIdenticalToExplicit(t *testing.T) {
++	t.Parallel()
++
++	root := filepath.Join("..", "..", "..", "..")
++	adoptedOutput := filepath.Join(t.TempDir(), "catalog_adopted.go")
++	if err := run([]string{"-adopted", "-root", root, "-output", adoptedOutput}); err != nil {
++		t.Fatalf("adopted run() error = %v", err)
++	}
++	explicitOutput := filepath.Join(t.TempDir(), "catalog_explicit.go")
++	explicit := []string{
++		"-metadata", filepath.Join(root, "internal", "catalog", "catalog.v0.6.0.json"),
++		"-contracts", filepath.Join(root, "internal", "specpin", "v0.6.0.lock.json"),
++		"-output", explicitOutput,
++	}
++	if err := run(explicit); err != nil {
++		t.Fatalf("explicit run() error = %v", err)
++	}
++	adopted, err := os.ReadFile(adoptedOutput)
++	if err != nil {
++		t.Fatalf("read adopted output: %v", err)
++	}
++	explicitBytes, err := os.ReadFile(explicitOutput)
++	if err != nil {
++		t.Fatalf("read explicit output: %v", err)
++	}
++	if !bytes.Equal(adopted, explicitBytes) {
++		t.Fatal("adopted output differs from explicit v0.6.0 output")
++	}
++	committed, err := os.ReadFile(filepath.Join(root, "internal", "catalog", "catalog_gen.go"))
++	if err != nil {
++		t.Fatalf("read committed catalog: %v", err)
++	}
++	if !bytes.Equal(adopted, committed) {
++		t.Fatal("adopted output differs from committed generated catalog")
++	}
++}
++
++// TestRunAdoptedRefusesMixedAndMissingInputs drives every adopted-mode input
++// refusal through the production run entry: explicit flags mixed with
++// -adopted, a missing -output, and a missing derived metadata or lock file,
++// each with a distinct message naming the derived path.
++func TestRunAdoptedRefusesMixedAndMissingInputs(t *testing.T) {
++	t.Parallel()
++
++	root := filepath.Join("..", "..", "..", "..")
++	metadata := filepath.Join(root, "internal", "catalog", "catalog.v0.6.0.json")
++	contracts := filepath.Join(root, "internal", "specpin", "v0.6.0.lock.json")
++	metadataBytes, err := os.ReadFile(metadata)
++	if err != nil {
++		t.Fatalf("read adopted metadata fixture: %v", err)
++	}
++	contractsBytes, err := os.ReadFile(contracts)
++	if err != nil {
++		t.Fatalf("read adopted lock fixture: %v", err)
++	}
++	partialMissingMetadata := writeAdoptedRoot(t, nil, contractsBytes)
++	partialMissingLock := writeAdoptedRoot(t, metadataBytes, nil)
++	tests := []struct {
++		name      string
++		arguments func(output string) []string
++		contains  []string
++	}{
++		{name: "mixed metadata", arguments: func(output string) []string {
++			return []string{"-adopted", "-metadata", metadata, "-output", output}
++		}, contains: []string{"-adopted cannot be combined"}},
++		{name: "mixed contracts", arguments: func(output string) []string {
++			return []string{"-adopted", "-contracts", contracts, "-output", output}
++		}, contains: []string{"-adopted cannot be combined"}},
++		{name: "missing output", arguments: func(string) []string {
++			return []string{"-adopted", "-root", root}
++		}, contains: []string{"-output is required with -adopted"}},
++		{name: "missing metadata", arguments: func(output string) []string {
++			return []string{"-adopted", "-root", partialMissingMetadata, "-output", output}
++		}, contains: []string{"read adopted metadata", "catalog." + string(catalog.Adopted) + ".json"}},
++		{name: "missing lock", arguments: func(output string) []string {
++			return []string{"-adopted", "-root", partialMissingLock, "-output", output}
++		}, contains: []string{"read adopted contract lock", string(catalog.Adopted) + ".lock.json"}},
++	}
++	for _, test := range tests {
++		t.Run(test.name, func(t *testing.T) {
++			output := filepath.Join(t.TempDir(), "catalog_gen.go")
++			err := run(test.arguments(output))
++			if err == nil {
++				t.Fatalf("run() error = nil, want containing %q", test.contains)
++			}
++			for _, want := range test.contains {
++				if !strings.Contains(err.Error(), want) {
++					t.Fatalf("run() error = %v, want containing %q", err, want)
++				}
++			}
++		})
++	}
++}
++
++// TestRunAdoptedRefusesLockReleaseMismatch drives a lock filed under the
++// adopted name whose source release is v0.5.0 through the production run
++// entry: it is refused before generation with the adopted-release message,
++// not the generic generation failure.
++func TestRunAdoptedRefusesLockReleaseMismatch(t *testing.T) {
++	t.Parallel()
++
++	root := filepath.Join("..", "..", "..", "..")
++	metadataBytes, err := os.ReadFile(filepath.Join(root, "internal", "catalog", "catalog.v0.6.0.json"))
++	if err != nil {
++		t.Fatalf("read adopted metadata fixture: %v", err)
++	}
++	staleLock, err := os.ReadFile(filepath.Join(root, "internal", "specpin", "v0.5.0.lock.json"))
++	if err != nil {
++		t.Fatalf("read stale lock fixture: %v", err)
++	}
++	spoofed := writeAdoptedRoot(t, metadataBytes, staleLock)
++	output := filepath.Join(t.TempDir(), "catalog_gen.go")
++	err = run([]string{"-adopted", "-root", spoofed, "-output", output})
++	if err == nil || !strings.Contains(err.Error(), "differs from adopted release") {
++		t.Fatalf("run() error = %v, want adopted-release mismatch refusal", err)
++	}
++	if strings.Contains(err.Error(), "generate catalog") {
++		t.Fatalf("run() error = %v, want pre-generation refusal, not a generation failure", err)
++	}
++	if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
++		t.Fatal("refused adopted run wrote output")
++	}
++}
++
++// TestRunAdoptedCheckRefusesStaleOutput drives a same-length stale output
++// through the production run entry under -adopted -check: it is refused
++// without being rewritten.
++func TestRunAdoptedCheckRefusesStaleOutput(t *testing.T) {
++	t.Parallel()
++
++	root := filepath.Join("..", "..", "..", "..")
++	fresh, err := os.ReadFile(filepath.Join(root, "internal", "catalog", "catalog_gen.go"))
++	if err != nil {
++		t.Fatalf("read committed catalog: %v", err)
++	}
++	stale := bytes.Clone(fresh)
++	stale[len(stale)-2] ^= 0xff
++	output := filepath.Join(t.TempDir(), "catalog_gen.go")
++	if err := os.WriteFile(output, stale, 0o600); err != nil {
++		t.Fatalf("write stale output: %v", err)
++	}
++	err = run([]string{"-adopted", "-root", root, "-output", output, "-check"})
++	if err == nil || !strings.Contains(err.Error(), "generated catalog is stale") {
++		t.Fatalf("adopted check run() error = %v, want stale-output refusal", err)
++	}
++	got, readErr := os.ReadFile(output)
++	if readErr != nil {
++		t.Fatalf("read stale output after refusal: %v", readErr)
++	}
++	if !bytes.Equal(got, stale) {
++		t.Fatal("adopted check run rewrote stale output")
++	}
++}
++
++// writeAdoptedRoot stages a repository-root-shaped fixture carrying the
++// adopted metadata and lock inputs under their derived names. A nil input
++// is left absent to exercise the missing-input refusals.
++func writeAdoptedRoot(t *testing.T, metadata, lock []byte) string {
++	t.Helper()
++
++	root := t.TempDir()
++	catalogDir := filepath.Join(root, "internal", "catalog")
++	specpinDir := filepath.Join(root, "internal", "specpin")
++	if err := os.MkdirAll(catalogDir, 0o755); err != nil {
++		t.Fatalf("create catalog fixture directory: %v", err)
++	}
++	if err := os.MkdirAll(specpinDir, 0o755); err != nil {
++		t.Fatalf("create specpin fixture directory: %v", err)
++	}
++	if metadata != nil {
++		name := "catalog." + string(catalog.Adopted) + ".json"
++		if err := os.WriteFile(filepath.Join(catalogDir, name), metadata, 0o600); err != nil {
++			t.Fatalf("write metadata fixture: %v", err)
++		}
++	}
++	if lock != nil {
++		name := string(catalog.Adopted) + ".lock.json"
++		if err := os.WriteFile(filepath.Join(specpinDir, name), lock, 0o600); err != nil {
++			t.Fatalf("write lock fixture: %v", err)
++		}
++	}
++	return root
++}
++
+ // Drive the command taken from the CR configuration through the real CLI entry.
+ // A recognizable generator token alone cannot prove its selected authority.
+ func TestConfiguredCRCatalogGateConsumesAdoptedAuthority(t *testing.T) {
+@@ -204,21 +407,30 @@ func TestConfiguredCRCatalogGateConsumesAdoptedAuthority(t *testing.T) {
+ 		t.Fatalf("configured catalog gates = %d, want exactly 1", len(commands))
+ 	}
+ 	fields := strings.Fields(commands[0])
+-	if len(fields) != 10 || strings.Join(fields[:3], " ") != "go run ./internal/catalog/cmd/cataloggen" || fields[9] != "-check" {
++	if len(fields) != 7 ||
++		strings.Join(fields[:3], " ") != "go run ./internal/catalog/cmd/cataloggen" ||
++		fields[3] != "-adopted" || fields[4] != "-output" || fields[6] != "-check" {
+ 		t.Fatalf("unexpected gate command shape: %q", commands[0])
+ 	}
+-	args := append([]string(nil), fields[3:]...)
+-	for i := 1; i < 6; i += 2 {
+-		args[i] = filepath.Join(root, args[i])
+-	}
++	// The configured gate runs from the repository root; the test process
++	// runs from the package directory, so root it explicitly. -output is a
++	// value flag, not a derived input, and keeps its configured value.
++	args := []string{"-adopted", "-root", root, "-output", filepath.Join(root, fields[5]), "-check"}
+ 	if err := run(args); err != nil {
+ 		t.Fatalf("configured cataloggen run: %v", err)
+ 	}
+-	stale := append([]string(nil), args...)
+-	stale[1] = strings.ReplaceAll(stale[1], "v0.6.0", "v0.5.0")
+-	stale[3] = strings.ReplaceAll(stale[3], "v0.6.0", "v0.5.0")
+-	if err := run(stale); err == nil || !strings.Contains(err.Error(), "verify normative lock") {
+-		t.Fatalf("stale configured cataloggen run = %v, want normative-lock refusal", err)
++	metadataBytes, err := os.ReadFile(filepath.Join(root, "internal", "catalog", "catalog.v0.6.0.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	staleLock, err := os.ReadFile(filepath.Join(root, "internal", "specpin", "v0.5.0.lock.json"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	spoofed := writeAdoptedRoot(t, metadataBytes, staleLock)
++	stale := []string{"-adopted", "-root", spoofed, "-output", filepath.Join(t.TempDir(), "catalog_gen.go")}
++	if err := run(stale); err == nil || !strings.Contains(err.Error(), "differs from adopted release") {
++		t.Fatalf("stale configured cataloggen run = %v, want adopted-release refusal", err)
+ 	}
+ }
+ 
+diff --git a/task-board.config.json b/task-board.config.json
+index 17a2149..f89a9fe 100644
+--- a/task-board.config.json
++++ b/task-board.config.json
+@@ -396,7 +396,7 @@
+           "go test ./internal/secconftest -run=^$ -fuzz=^FuzzGuardResolve$ -fuzztime=100x -parallel=1",
+           "go test ./internal/secconftest -run=^$ -fuzz=^FuzzDetectCaseCollision$ -fuzztime=100x -parallel=1",
+           "go run ./internal/traceability/cmd/tracecheck",
+-          "go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.6.0.json -contracts internal/specpin/v0.6.0.lock.json -output internal/catalog/catalog_gen.go -check",
++          "go run ./internal/catalog/cmd/cataloggen -adopted -output internal/catalog/catalog_gen.go -check",
+           "GOOS=linux GOARCH=amd64 go build ./...",
+           "GOOS=windows GOARCH=amd64 go build ./...",
+           "git ls-files -z '*.json' | xargs -0 -n1 python3 -c 'import json,sys;json.load(open(sys.argv[1]))'",
