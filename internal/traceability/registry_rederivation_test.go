@@ -601,10 +601,14 @@ func assertUnownedSectionsCarried(t *testing.T, previous, current ownershipRegis
 // storyBindingUpgrade is the reviewed post-adoption upgrade of one carried
 // v0.7.0 binding. The mesh-rpc-framing-and-negotiation story final leaf
 // (STORY-260830-4qojoz / TASK-260830-19bjfj) moves three unevidenced stubs to
-// measured coverage; every field below is pinned literally, so the
+// measured coverage, and the canonical-session-capture-and-evidence story
+// final leaf (STORY-260830-1cyj0q / TASK-260830-32ypr2) moves two more stubs
+// to full coverage; every field below is pinned literally, so the
 // re-derivation gate keeps failing on any drift outside the reviewed
-// upgrade. Section 11.3 is deliberately absent: no test drives a
-// digest-identity array, so it stays the carried unevidenced stub.
+// upgrades. Section 11.3 is deliberately absent: no test drives a
+// digest-identity array, so it stays the carried unevidenced stub. Section
+// 13.14.1 is likewise absent: it carries no registry binding at all, so
+// there is no carried stub to upgrade.
 type storyBindingUpgrade struct {
 	Production codeReference
 	Cases      []string
@@ -700,11 +704,34 @@ var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
 			{ID: "17.4#4", Line: 15661, Excerpt: "immutable evidence; it MUST report activation unavailable rather than omit the", AcceptanceCases: []string{"story-4qojoz-mesh-negotiation"}},
 		},
 	},
+	"section:7.8": {
+		Production: codeReference{Path: "internal/sessadapter/protocol.go", Declaration: "DecodeRequestFrame"},
+		Cases:      []string{"session-adapter-frame-bound", "session-adapter-call-binding"},
+		Coverage:   coverageFull,
+		Gap:        "",
+		Clauses: []dischargedClause{
+			{ID: "7.8#1", Line: 3785, Excerpt: "Large data is referenced by manifest or Blob Descriptor ID and MUST NOT be embedded in the 8 MiB frame.", AcceptanceCases: []string{"session-adapter-frame-bound"}},
+			{ID: "7.8#2", Line: 3912, Excerpt: "target mutation, these facts MUST equal freshly read trusted-candidate facts and the Journal binding.", AcceptanceCases: []string{"session-adapter-call-binding"}},
+		},
+	},
+	"section:10.2": {
+		Production: codeReference{Path: "internal/clonesnap/capture.go", Declaration: "Capture"},
+		Cases:      []string{"scalar-digest-validation", "scalar-bounded-integer-validation", "canonical-jcs-rfc8785", "canonical-object-identity", "canonical-identity-refusal", "localstore-digest-path-v1", "localstore-immutable-blob-install", "localstore-sqlite-projection", "clone-capture-contracts", "clone-native-capture", "clone-projection-fidelity"},
+		Coverage:   coverageFull,
+		Gap:        "",
+		Clauses: []dischargedClause{
+			{ID: "10.2#1", Line: 4854, Excerpt: "MUST live in a manifest, not in the blob path.", AcceptanceCases: []string{"clone-capture-contracts"}},
+			{ID: "10.2#2", Line: 4855, Excerpt: "references a blob, the writer MUST fsync the blob, verify its size and digest, and atomically install it in the object store.", AcceptanceCases: []string{"clone-native-capture", "clone-projection-fidelity", "localstore-immutable-blob-install"}},
+			{ID: "10.2#3", Line: 4859, Excerpt: "metrics MUST record digest, size, and media type only, never blob contents.", AcceptanceCases: []string{"clone-native-capture"}},
+			{ID: "10.2#4", Line: 4862, Excerpt: "<code>urn:ax:schema:blob</code> version <code>1.0.0</code>. Chunks MUST be sorted, contiguous, non-overlapping, start at offset zero, and cover exactly <code>size</code> bytes:", AcceptanceCases: []string{"clone-native-capture"}},
+			{ID: "10.2#5", Line: 4902, Excerpt: "A larger file MUST fail capture with <code>capability_unavailable</code> before publishing a partial manifest.", AcceptanceCases: []string{"clone-native-capture"}},
+		},
+	},
 }
 
-// storyNewV070Cases is the exact set of acceptance cases the story final leaf
-// adds to the adopted registry. Each is pinned literally; any further
-// addition still fails as an unreviewed claim.
+// storyNewV070Cases is the exact set of acceptance cases the post-adoption
+// story final leaves add to the adopted registry. Each is pinned literally;
+// any further addition still fails as an unreviewed claim.
 var storyNewV070Cases = map[string]acceptanceCase{
 	"rpcwire-closed-bodies": {
 		ID:         "rpcwire-closed-bodies",
@@ -854,6 +881,55 @@ var storyNewV070Cases = map[string]acceptanceCase{
 			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachUnknownIsNotAbsent"},
 			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachSessionMismatchRefuses"},
 			{Path: "internal/termbind/crash_unix_test.go", Declaration: "TestAttachCrashChildSelfTerminates"},
+		},
+	},
+	"clone-capture-contracts": {
+		ID:         "clone-capture-contracts",
+		Production: codeReference{Path: "internal/clonebundle/rawmanifest.go", Declaration: "BuildRawObjectManifest"},
+		Tests: []codeReference{
+			{Path: "internal/clonebundle/contract_test.go", Declaration: "TestBuildRawManifestRoundTrip"},
+			{Path: "internal/clonebundle/contract_test.go", Declaration: "TestBuildCaptureManifestDerivesRawComplete"},
+			{Path: "internal/clonebundle/contract_test.go", Declaration: "TestBuildCanonicalEventRoundTrip"},
+			{Path: "internal/clonebundle/refusal_test.go", Declaration: "TestRawManifestRefusals"},
+			{Path: "internal/clonebundle/refusal_test.go", Declaration: "TestCaptureManifestRefusals"},
+		},
+	},
+	"clone-native-capture": {
+		ID:         "clone-native-capture",
+		Production: codeReference{Path: "internal/clonesnap/capture.go", Declaration: "Capture"},
+		Tests: []codeReference{
+			{Path: "internal/clonesnap/capture_test.go", Declaration: "TestCaptureSealsBothManifestsFromStoreBytes"},
+			{Path: "internal/clonesnap/capture_test.go", Declaration: "TestCaptureInstallsEveryPayloadBlob"},
+			{Path: "internal/clonesnap/capture_test.go", Declaration: "TestCaptureMultiChunkMember"},
+			{Path: "internal/clonesnap/exclusion_test.go", Declaration: "TestCaptureLogRecordsDigestsOnly"},
+			{Path: "internal/clonesnap/refusal_test.go", Declaration: "TestCaptureRefusesOversizedMember"},
+		},
+	},
+	"clone-projection-fidelity": {
+		ID:         "clone-projection-fidelity",
+		Production: codeReference{Path: "internal/cloneproject/normalize.go", Declaration: "Normalize"},
+		Tests: []codeReference{
+			{Path: "internal/cloneproject/normalize_test.go", Declaration: "TestNormalizeUnknownRecordBecomesOpaqueEvent"},
+			{Path: "internal/cloneproject/normalize_test.go", Declaration: "TestNormalizeInlineContentBoundary"},
+			{Path: "internal/cloneproject/foreign_test.go", Declaration: "TestNormalizeForeignEncryptedReasoningStaysOpaque"},
+			{Path: "internal/cloneproject/tools_test.go", Declaration: "TestNormalizeToolMatrix"},
+			{Path: "internal/cloneproject/fidelity_test.go", Declaration: "TestNormalizeIsIdempotentIntoSharedSink"},
+		},
+	},
+	"session-adapter-call-binding": {
+		ID:         "session-adapter-call-binding",
+		Production: codeReference{Path: "internal/sessadapter/discovery.go", Declaration: "CheckCallBinding"},
+		Tests: []codeReference{
+			{Path: "internal/sessadapter/discovery_test.go", Declaration: "TestCheckCallBinding"},
+			{Path: "internal/sessadapter/discovery_test.go", Declaration: "TestCheckCallBindingZeroFactsRefuse"},
+		},
+	},
+	"session-adapter-frame-bound": {
+		ID:         "session-adapter-frame-bound",
+		Production: codeReference{Path: "internal/sessadapter/protocol.go", Declaration: "DecodeRequestFrame"},
+		Tests: []codeReference{
+			{Path: "internal/sessadapter/envelope_test.go", Declaration: "TestDecodeRequestFrameRefusesOversizeFrame"},
+			{Path: "internal/sessadapter/envelope_test.go", Declaration: "TestFrameBoundEdges"},
 		},
 	},
 }

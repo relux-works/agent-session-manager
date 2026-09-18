@@ -4011,6 +4011,127 @@
           "declaration": "TestAttachCrashChildSelfTerminates"
         }
       ]
+    },
+    {
+      "id": "clone-capture-contracts",
+      "production": {
+        "path": "internal/clonebundle/rawmanifest.go",
+        "declaration": "BuildRawObjectManifest"
+      },
+      "tests": [
+        {
+          "path": "internal/clonebundle/contract_test.go",
+          "declaration": "TestBuildRawManifestRoundTrip"
+        },
+        {
+          "path": "internal/clonebundle/contract_test.go",
+          "declaration": "TestBuildCaptureManifestDerivesRawComplete"
+        },
+        {
+          "path": "internal/clonebundle/contract_test.go",
+          "declaration": "TestBuildCanonicalEventRoundTrip"
+        },
+        {
+          "path": "internal/clonebundle/refusal_test.go",
+          "declaration": "TestRawManifestRefusals"
+        },
+        {
+          "path": "internal/clonebundle/refusal_test.go",
+          "declaration": "TestCaptureManifestRefusals"
+        }
+      ]
+    },
+    {
+      "id": "clone-native-capture",
+      "production": {
+        "path": "internal/clonesnap/capture.go",
+        "declaration": "Capture"
+      },
+      "tests": [
+        {
+          "path": "internal/clonesnap/capture_test.go",
+          "declaration": "TestCaptureSealsBothManifestsFromStoreBytes"
+        },
+        {
+          "path": "internal/clonesnap/capture_test.go",
+          "declaration": "TestCaptureInstallsEveryPayloadBlob"
+        },
+        {
+          "path": "internal/clonesnap/capture_test.go",
+          "declaration": "TestCaptureMultiChunkMember"
+        },
+        {
+          "path": "internal/clonesnap/exclusion_test.go",
+          "declaration": "TestCaptureLogRecordsDigestsOnly"
+        },
+        {
+          "path": "internal/clonesnap/refusal_test.go",
+          "declaration": "TestCaptureRefusesOversizedMember"
+        }
+      ]
+    },
+    {
+      "id": "clone-projection-fidelity",
+      "production": {
+        "path": "internal/cloneproject/normalize.go",
+        "declaration": "Normalize"
+      },
+      "tests": [
+        {
+          "path": "internal/cloneproject/normalize_test.go",
+          "declaration": "TestNormalizeUnknownRecordBecomesOpaqueEvent"
+        },
+        {
+          "path": "internal/cloneproject/normalize_test.go",
+          "declaration": "TestNormalizeInlineContentBoundary"
+        },
+        {
+          "path": "internal/cloneproject/foreign_test.go",
+          "declaration": "TestNormalizeForeignEncryptedReasoningStaysOpaque"
+        },
+        {
+          "path": "internal/cloneproject/tools_test.go",
+          "declaration": "TestNormalizeToolMatrix"
+        },
+        {
+          "path": "internal/cloneproject/fidelity_test.go",
+          "declaration": "TestNormalizeIsIdempotentIntoSharedSink"
+        }
+      ]
+    },
+    {
+      "id": "session-adapter-call-binding",
+      "production": {
+        "path": "internal/sessadapter/discovery.go",
+        "declaration": "CheckCallBinding"
+      },
+      "tests": [
+        {
+          "path": "internal/sessadapter/discovery_test.go",
+          "declaration": "TestCheckCallBinding"
+        },
+        {
+          "path": "internal/sessadapter/discovery_test.go",
+          "declaration": "TestCheckCallBindingZeroFactsRefuse"
+        }
+      ]
+    },
+    {
+      "id": "session-adapter-frame-bound",
+      "production": {
+        "path": "internal/sessadapter/protocol.go",
+        "declaration": "DecodeRequestFrame"
+      },
+      "tests": [
+        {
+          "path": "internal/sessadapter/envelope_test.go",
+          "declaration": "TestDecodeRequestFrameRefusesOversizeFrame"
+        },
+        {
+          "path": "internal/sessadapter/envelope_test.go",
+          "declaration": "TestFrameBoundEdges"
+        }
+      ]
     }
   ],
   "ownership": [
@@ -5003,14 +5124,32 @@
         "section:7.8"
       ],
       "production": {
-        "path": "internal/catalog/catalog.go",
-        "declaration": "ForRelease"
+        "path": "internal/sessadapter/protocol.go",
+        "declaration": "DecodeRequestFrame"
       },
       "acceptance_cases": [
-        "catalog-v050-exact"
+        "session-adapter-frame-bound",
+        "session-adapter-call-binding"
       ],
-      "coverage": "unevidenced",
-      "gap": "ForRelease only returns the reviewed typed catalog rows that reference 7.8; no clause of 7.8 is enumerated against an acceptance case, so the registry makes no clause-level claim about the 2 obligations it carries."
+      "coverage": "full",
+      "clauses": [
+        {
+          "id": "7.8#1",
+          "line": 3785,
+          "excerpt": "Large data is referenced by manifest or Blob Descriptor ID and MUST NOT be embedded in the 8 MiB frame.",
+          "acceptance_cases": [
+            "session-adapter-frame-bound"
+          ]
+        },
+        {
+          "id": "7.8#2",
+          "line": 3912,
+          "excerpt": "target mutation, these facts MUST equal freshly read trusted-candidate facts and the Journal binding.",
+          "acceptance_cases": [
+            "session-adapter-call-binding"
+          ]
+        }
+      ]
     },
     {
       "kind": "section_binding",
@@ -5084,8 +5223,8 @@
         "section:10.2"
       ],
       "production": {
-        "path": "internal/canonicaljson/closed_shapes.go",
-        "declaration": "validateBlobDescriptor"
+        "path": "internal/clonesnap/capture.go",
+        "declaration": "Capture"
       },
       "acceptance_cases": [
         "scalar-digest-validation",
@@ -5095,10 +5234,56 @@
         "canonical-identity-refusal",
         "localstore-digest-path-v1",
         "localstore-immutable-blob-install",
-        "localstore-sqlite-projection"
+        "localstore-sqlite-projection",
+        "clone-capture-contracts",
+        "clone-native-capture",
+        "clone-projection-fidelity"
       ],
-      "coverage": "unevidenced",
-      "gap": "validateBlobDescriptor validates the Section 10.2 Blob Descriptor shape, but no clause of Section 10.2 is enumerated against an acceptance case, so the registry makes no clause-level claim about its obligations."
+      "coverage": "full",
+      "clauses": [
+        {
+          "id": "10.2#1",
+          "line": 4854,
+          "excerpt": "MUST live in a manifest, not in the blob path.",
+          "acceptance_cases": [
+            "clone-capture-contracts"
+          ]
+        },
+        {
+          "id": "10.2#2",
+          "line": 4855,
+          "excerpt": "references a blob, the writer MUST fsync the blob, verify its size and digest, and atomically install it in the object store.",
+          "acceptance_cases": [
+            "clone-native-capture",
+            "clone-projection-fidelity",
+            "localstore-immutable-blob-install"
+          ]
+        },
+        {
+          "id": "10.2#3",
+          "line": 4859,
+          "excerpt": "metrics MUST record digest, size, and media type only, never blob contents.",
+          "acceptance_cases": [
+            "clone-native-capture"
+          ]
+        },
+        {
+          "id": "10.2#4",
+          "line": 4862,
+          "excerpt": "<code>urn:ax:schema:blob</code> version <code>1.0.0</code>. Chunks MUST be sorted, contiguous, non-overlapping, start at offset zero, and cover exactly <code>size</code> bytes:",
+          "acceptance_cases": [
+            "clone-native-capture"
+          ]
+        },
+        {
+          "id": "10.2#5",
+          "line": 4902,
+          "excerpt": "A larger file MUST fail capture with <code>capability_unavailable</code> before publishing a partial manifest.",
+          "acceptance_cases": [
+            "clone-native-capture"
+          ]
+        }
+      ]
     },
     {
       "kind": "section_binding",

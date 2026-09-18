@@ -2573,6 +2573,90 @@ go test ./internal/matjournal -count=1 -cover
 python3 internal/matjournal/mutant_harness.py
 ```
 
+## Clone Bundle and Canonical Session Types
+
+[`internal/clonebundle`](internal/clonebundle) validates and constructs
+the Section 13.14.1 clone capture contracts: Clone Raw Object Manifest
+1.0.0, Clone Capture Manifest 1.0.0 with its Capture Items, Capture
+Source Basis, and Capture Boundary, Canonical Session 1.0.0 with its
+Actors, Canonical Event 1.0.0 with Source Evidence and raw byte-range
+references, the NativeIdentity and WorkspaceBinding identities, and
+immutable source generations. Every Build entry produces byte-identical
+canonical bytes for identical inputs; every Decode entry enforces the
+closed shape, the class vocabularies, the included/excluded content
+rule, the core-derived `raw_complete` reconciliation, the stable-proof
+coupling, and the row-21 hosttrust exclusion allowlist. Blob Descriptor
+identity and byte-count agreement verify through `canonicaljson`, and
+blob bytes install only through the `localstore` no-replace discipline;
+the package performs no durable write itself. The clause map in
+[`internal/clonebundle/TRACEABILITY.md`](internal/clonebundle/TRACEABILITY.md)
+maps every pinned clause to its production entry and test, with the
+sibling-owned bounds stated. It adds no `ax` command, no `doctor`
+result, and no runtime capability claim.
+
+```bash
+go test ./internal/clonebundle -count=1
+go test ./internal/clonebundle -count=1 -cover
+PYTHONDONTWRITEBYTECODE=1 python3 internal/clonebundle/testdata/mutant_harness.py
+```
+
+## Native Capture and Source-Race Check
+
+[`internal/clonesnap`](internal/clonesnap) implements the Section
+13.14.1 native capture operation over a real on-disk provider store:
+a contained capture walk that produces the Clone Raw Object Manifest
+and Clone Capture Manifest from actual bytes, classifies every
+Capture Item, builds the Capture Boundary from measured evidence,
+detects source mutation before any projection output, checkpoints
+the workspace binding and source head, and admits stable captures to
+a target branch. Every payload open descends from a verified store
+handle through the `secprim` Guard; every manifest seals through the
+`clonebundle` builders; every byte installs through the `localstore`
+no-replace discipline. The clause map in
+[`internal/clonesnap/TRACEABILITY.md`](internal/clonesnap/TRACEABILITY.md)
+maps every pinned clause to its production entry and test, with the
+sibling-owned bounds stated. It adds no `ax` command, no `doctor`
+result, and no runtime capability claim.
+
+```bash
+go test ./internal/clonesnap -count=1
+go test ./internal/clonesnap -count=1 -cover
+PYTHONDONTWRITEBYTECODE=1 python3 internal/clonesnap/testdata/mutant_harness.py
+```
+
+## Clone Projection Fidelity
+
+[`internal/cloneproject`](internal/cloneproject) implements the Section
+13.14.1 projection-fidelity closure over captured bytes: it derives a
+Canonical Session and Canonical Events from a sealed Clone Capture
+Manifest, its sealed Clone Raw Object Manifest, and the installed
+payload blobs. Unknown native records become raw-addressable
+`opaque_event` records with `opaque` visibility and resolvable
+byte-range references; foreign encrypted and signed reasoning becomes
+byte-exact `opaque_reasoning`; foreign instructions stay
+low-authority history that never changes the effective instruction
+snapshot. The record envelope is read from the strict member map by
+exact member name with no second decoder, so a case-folded alias
+member can never override a claimed value; historical tools stay
+inert with incomplete calls resolving
+to aborted history and an always-empty live surface; source usage is
+counted into the source ledger only; and message-like text over
+64 KiB becomes a Blob Descriptor reference to an installed overflow
+blob, never a truncation. Every event and the session seal through
+the `clonebundle` builders and re-decode before return; the only
+durable write is overflow installation through the `localstore`
+no-replace discipline. The clause map in
+[`internal/cloneproject/TRACEABILITY.md`](internal/cloneproject/TRACEABILITY.md)
+maps every pinned clause to its production entry and test, with the
+sibling-owned bounds stated. It adds no `ax` command, no `doctor`
+result, and no runtime capability claim.
+
+```bash
+go test ./internal/cloneproject -count=1
+go test ./internal/cloneproject -count=1 -cover
+PYTHONDONTWRITEBYTECODE=1 python3 internal/cloneproject/testdata/mutant_harness.py
+```
+
 ## Crash/Restart Outcome Gate
 
 [`internal/crashgate`](internal/crashgate) executes the Section 13.13
@@ -3239,7 +3323,7 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7
 repository gate used by CI. Its reviewed
 [`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
 registry independently enumerates implementation owners for all 64 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 147
+contract rows, 36 pinned or catalog-referenced normative section keys, 152
 executable acceptance cases, 69 exact section bindings with their declared
 coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
@@ -3341,19 +3425,29 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=69 full=2 partial=9 sliver=9 unevidenced=45 unmeasured=4 unowned=7 clauses_discharged=63/574
+section coverage: bindings=69 full=4 partial=9 sliver=9 unevidenced=43 unmeasured=4 unowned=7 clauses_discharged=70/574
 ```
 
-Sixty-nine section bindings discharge 63 of the 574 normative clauses their
-sections carry. Two bindings are `full` (Section 6.2, whose single clause is the
+Sixty-nine section bindings discharge 70 of the 574 normative clauses their
+sections carry. Four bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
 with the negative `TestDecodeRefusesNonConptyBackendOnNativeWindows` legacy
-refusal arm; and Section 2.4 at 4/4, bound to
+refusal arm; Section 2.4 at 4/4, bound to
 [`internal/sessprofile`](internal/sessprofile), whose derivation, checkpoint
 closure, fork projection, and mapping-failure clauses are discharged by the
 profile derivation, heads, fork-pair, and mapping-resolution acceptance
-cases), nine are
+cases; Section 7.8 at 2/2, bound to
+[`internal/sessadapter`](internal/sessadapter), whose large-data-by-reference
+clause is discharged by the adapter frame-bound case (the 8 MiB frame
+refusal and its edges) and whose execution-binding equality clause is
+discharged by the sessadapter call-binding case; and Section 10.2 at
+5/5, bound to [`internal/clonesnap`](internal/clonesnap), whose
+manifest-metadata, fsync-verify-install, digest-only-log,
+chunk-agreement, and oversize-refusal clauses are discharged by the
+capture contracts, native capture, and projection fidelity cases, with
+the fsync-verify-install clause additionally discharged by the landed
+localstore immutable-blob-install case), nine are
 `partial` (Section 13.13 at 9/11, bound to
 [`internal/matjournal`](internal/matjournal) with the
 [`internal/crashgate`](internal/crashgate) conformance harness, whose
@@ -3435,7 +3529,7 @@ resolution and inert-history clauses are enforced by `ResolveEvidence`
 and the v4 emission path while the envelope, ordering, and epoch
 clauses stay with the landed shape and store authorities), four are `unmeasured` (Sections 7.3, 13.12, 13.14.5 and 15.2, each of
 which carries a gap saying why the scanner measures zero and what is missing),
-and forty-five are `unevidenced`. Seven sections are recorded unowned.
+and forty-three are `unevidenced`. Seven sections are recorded unowned.
 All 13 sections added by v0.6.0 name pending task owners in the reviewed
 registry gaps; these assignments grant no runtime admission. The
 [adoption ownership map](internal/traceability/adoption-v0.6.0.md) separates
@@ -3448,13 +3542,13 @@ grant no runtime admission either. The
 [adoption ownership map](internal/traceability/adoption-v0.7.0.md) attributes
 each clause area to its implementing story and records the shared-section
 splits.
-Assigned-scope admission therefore succeeds today for `-section 6.2` and
-`-section 2.4` and nothing else; every other assignment is refused with its
-ratio and its gap.
+Assigned-scope admission therefore succeeds today for `-section 6.2`,
+`-section 2.4`, `-section 7.8`, and `-section 10.2` and nothing else; every
+other assignment is refused with its ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-Two admitted bindings out of sixty-nine cover five clauses, and that is
+Four admitted bindings out of sixty-nine cover twelve clauses, and that is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and
@@ -3463,6 +3557,11 @@ both registered against the `config-versioned-readers` acceptance case.
 Section 2.4 is the first multi-clause admission: its four clauses are
 discharged by the `sessprofile-derive`, `sessprofile-derive-heads`,
 `sessprofile-fork-pair`, and `provhost-mapping-resolution` acceptance cases.
+Sections 7.8 and 10.2 are the clone-story admissions: the seven clauses are
+discharged by the `clone-capture-contracts`, `clone-native-capture`,
+`clone-projection-fidelity`, `session-adapter-call-binding`,
+`session-adapter-frame-bound`, and `localstore-immutable-blob-install`
+acceptance cases, each bound to the named suite that executes it.
 
 That is a disclosure of the shipped state, not a target that was met.
 `TestRunRefusesEveryAssignedSectionThatOnlySlivers` and
@@ -3494,16 +3593,24 @@ the closed fourteen-operation request/success bodies (`CheckRequestBody`,
 `CheckSuccessBody`), resource limits (`DecodeResourceLimits`), the
 request-digest binding and byte-for-byte context echo that carry this
 package's idempotency (`VerifyRequestDigest`, `CheckContextEcho`, and the
-fresh-sink rule), and the tuple-registry admission gates
-(`CheckTupleAdmission`). Seven executable acceptance cases
+fresh-sink rule), the tuple-registry admission gates
+(`CheckTupleAdmission`), and the per-call execution binding equality
+(`CheckCallBinding`). Nine executable acceptance cases
 (`session-adapter-discovery`, `session-adapter-manifest`,
 `session-adapter-probe`, `session-adapter-operations`,
 `session-adapter-limits`, `session-adapter-idempotency`,
-`session-adapter-tuple-gates`) bind those entry points to their named
-positive and refusal tests. The Section 7.8 clause-level binding stays
-`unevidenced` (catalog `ForRelease` only): no clause of 7.8 is enumerated
-against an acceptance case, so the registry makes no clause-level claim
-about the obligations it carries.
+`session-adapter-tuple-gates`, `session-adapter-call-binding`,
+`session-adapter-frame-bound`) bind those
+entry points to their named positive and refusal tests. The Section 7.8
+clause-level binding is `full`: both clauses are enumerated, the
+large-data-by-reference clause against `session-adapter-frame-bound`
+(the 8 MiB frame refusal and its edges) and the
+execution-binding equality clause against `session-adapter-call-binding`.
+Section 13.14.1 carries no RFC 2119 clause line the scanner can see, so no
+registry binding enumerates it; its clause record is the three package
+`TRACEABILITY.md` files and the three leaf conformance matrices, executed
+by the `clone-capture-contracts`, `clone-native-capture`, and
+`clone-projection-fidelity` suites.
 
 The Directory Node host surface lives in
 [`internal/dirnode`](internal/dirnode): the two-major manifest

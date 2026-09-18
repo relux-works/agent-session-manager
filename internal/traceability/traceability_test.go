@@ -29,18 +29,18 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 	want := Report{
 		Contracts:              64,
 		NormativeSections:      36,
-		AcceptanceCases:        147,
+		AcceptanceCases:        152,
 		Fixtures:               33,
 		CompatibilityContracts: 55,
 		SectionBindings:        69,
-		FullCoverage:           2,
+		FullCoverage:           4,
 		PartialCoverage:        9,
 		SliverCoverage:         9,
-		UnevidencedCoverage:    45,
+		UnevidencedCoverage:    43,
 		UnmeasuredCoverage:     4,
 		UnownedSections:        7,
 		NormativeClauses:       574,
-		DischargedClauses:      63,
+		DischargedClauses:      70,
 	}
 	if !reflect.DeepEqual(report, want) {
 		t.Fatalf("VerifyRepository() report = %#v, want %#v", report, want)
@@ -50,8 +50,10 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 // TestVerifyAssignedSectionsBindsGranularScopeToOwnersAndExecutableCases pins
 // the admitted arm of assigned-scope admission. Section 6.2 is admitted because
 // it discharges the one normative clause its pinned section carries against an
-// executable acceptance case, and Section 2.4 is admitted because it discharges
-// all four of its clauses. They are the only shipped bindings that are.
+// executable acceptance case, Section 2.4 is admitted because it discharges
+// all four of its clauses, and Sections 7.8 and 10.2 are admitted because the
+// clone story discharges all two and all five of their clauses. They are the
+// only shipped bindings that are.
 //
 // Section 13.14.5 used to be admitted here on the ground that its pinned
 // section "carries no RFC 2119 obligation of its own". That was false: the
@@ -74,7 +76,7 @@ func TestVerifyAssignedSectionsBindsGranularScopeToOwnersAndExecutableCases(t *t
 		t.Fatalf("VerifyAssignedSections() assigned scopes = %d, want 1", report.AssignedScopes)
 	}
 
-	for _, scope := range []string{"6.2", "§6.2", "2.4", "§2.4"} {
+	for _, scope := range []string{"6.2", "§6.2", "2.4", "§2.4", "7.8", "§7.8", "10.2", "§10.2"} {
 		report, err := VerifyAssignedSections(repositorySnapshot(t), []string{scope})
 		if err != nil {
 			t.Errorf("VerifyAssignedSections(%q) error = %v", scope, err)
@@ -778,7 +780,6 @@ func TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers(t *testing.T) 
 		{"7.9", `binding "section:7.9" discharges 0/8 normative clauses, which is unevidenced coverage`},
 		{"9.2", `binding "section:9.2" discharges 0/35 normative clauses, which is unevidenced coverage`},
 		{"10.1", `binding "section:10.1" discharges 0/3 normative clauses, which is unevidenced coverage`},
-		{"10.2", `binding "section:10.2" discharges 0/5 normative clauses, which is unevidenced coverage`},
 		{"10.3", `binding "section:10.3" discharges 1/3 normative clauses, which is sliver coverage`},
 		{"10.4", `binding "section:10.4" discharges 0/25 normative clauses, which is unevidenced coverage`},
 		{"13.14.5", `binding "section:13.14.5" discharges 0/0 normative clauses, which is unmeasured coverage`},
