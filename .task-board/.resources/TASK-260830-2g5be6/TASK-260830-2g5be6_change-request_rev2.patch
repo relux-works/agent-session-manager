@@ -1,0 +1,4818 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index ed67780..c59a9aa 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -3,6 +3,17 @@
+ > Institutional memory. Concise, factual, high-signal.
+ > Newest entries first. One block per insight.
+ 
++## 2026-09-18
++
++### TASK-260830-2g5be6 — native capture and source-race check (second leaf)
++
++- DELIVERED: `internal/clonesnap` implements the Section 13.14.1 capture operation over a real fixture store — contained walk (`secprim` Guard opens, symlink-intermediate/FIFO/dir refusals naming the member), nine-class classification with always-excluded bytes never opened, Capture Boundary from measured evidence (stable proof or core-created `unstable_archive`), a source-race gate comparing content digests before any seal, workspace checkpoint + source head from observed state, Section 10.2 descriptors (empty/multi-chunk) with `capability_unavailable` past 128 GiB, and target admission (`RefuseUnstableForTarget`, `RefuseMaximalSafeUnlessComplete`) emitting an admission receipt. Every manifest seals through the landed `clonebundle` builders and re-decodes before publish; every byte installs through `localstore` no-replace.
++- ORDERING (the task's named check): the sealed stable proof carries the two measured source digests (pre and post) — the gate proved them equal before the seal ran, so the sealed bytes equal either measurement — and the `N-race-order-capture` / `N-race-order-project` mutants prove the gate precedes the seal and the receipt. Changed byte/size, appended record, replaced/removed file, and unreadable-at-post each refuse or seal `unstable_archive` with `source_not_quiescent`, never silently stable.
++- EVIDENCE: package suite green (positives, full refusal table, 4-class leak scan over blobs/manifests/logs/errors, digest-only log assertions, every-payload-blob-installed assertion after Capture and after the crash replay, target-sink-empty assertion on the archive path, real-SIGKILL crash test with replay convergence + clean-run byte equality, idempotent triple-project); 32 narrowing + 2 add-write rows KILLED + harmless control SURVIVED (`testdata/mutant_harness.py --log-dir`, one raw log per plant with subprocess exit, `PYTHONDONTWRITEBYTECODE=1`, no `__pycache__`), including the token-preserving prefix mutant killed by the behavioral Capture entry and the cross-package P3-ε row (plant in clonebundle, killer here). No `internal/traceability` edit (FINAL leaf carries bindings + re-pin); clause map in `internal/clonesnap/TRACEABILITY.md`.
++- INHERITED (rev2 rework): P3-ε CLOSED here (excluded unknown drives `raw_complete=false` and blocks `maximal_safe` at this leaf's projection entry, test + cross-package harness row); P3-ζ DEFERRED to TASK-260830-32ypr2 (no title/text admission site in this leaf); P3-η PARTIAL — this leaf's entry re-validation pinned by test, the standalone `EncodeNativeIdentity` contract deferred to the clonebundle owner or the final leaf. P3-γ sealed the measured post digest; P3-δ reworded as defence-in-depth; P3-ε′ orphan-blob row shipped; P3-ζ′ fidelity duplication recorded as a bound.
++- BOUNDS (sibling scope, not waived): no `ax` CLI/provider process/network (fixture store); Section 7.8 operation wiring stays `sessadapter`; projection planning past admission is the final leaf's; excluded-byte equal-size changes are below the detection floor (never opened by design); sub-walk transient swaps restored before post-measure are below the floor (no fs snapshot). Candidate UNCOMMITTED in the Story worktree.
++- AC: 17 of 17 rows driven through production entries by named tests and measured at the member level — every row's narrowing reddens its killer (matrix in `TASK-260830-2g5be6_conformance-matrix.md`).
++
+ ## 2026-09-17
+ 
+ ### TASK-260830-24z2b3 — clone bundle + canonical session/event types (first leaf)
+diff --git a/README.md b/README.md
+index 3309f7b..909e642 100644
+--- a/README.md
++++ b/README.md
+@@ -2421,6 +2421,30 @@ go test ./internal/clonebundle -count=1 -cover
+ PYTHONDONTWRITEBYTECODE=1 python3 internal/clonebundle/testdata/mutant_harness.py
+ ```
+ 
++## Native Capture and Source-Race Check
++
++[`internal/clonesnap`](internal/clonesnap) implements the Section
++13.14.1 native capture operation over a real on-disk provider store:
++a contained capture walk that produces the Clone Raw Object Manifest
++and Clone Capture Manifest from actual bytes, classifies every
++Capture Item, builds the Capture Boundary from measured evidence,
++detects source mutation before any projection output, checkpoints
++the workspace binding and source head, and admits stable captures to
++a target branch. Every payload open descends from a verified store
++handle through the `secprim` Guard; every manifest seals through the
++`clonebundle` builders; every byte installs through the `localstore`
++no-replace discipline. The clause map in
++[`internal/clonesnap/TRACEABILITY.md`](internal/clonesnap/TRACEABILITY.md)
++maps every pinned clause to its production entry and test, with the
++sibling-owned bounds stated. It adds no `ax` command, no `doctor`
++result, and no runtime capability claim.
++
++```bash
++go test ./internal/clonesnap -count=1
++go test ./internal/clonesnap -count=1 -cover
++PYTHONDONTWRITEBYTECODE=1 python3 internal/clonesnap/testdata/mutant_harness.py
++```
++
+ ## Crash/Restart Outcome Gate
+ 
+ [`internal/crashgate`](internal/crashgate) executes the Section 13.13
+diff --git a/internal/clonesnap/TRACEABILITY.md b/internal/clonesnap/TRACEABILITY.md
+new file mode 100644
+index 0000000..509c041
+--- /dev/null
++++ b/internal/clonesnap/TRACEABILITY.md
+@@ -0,0 +1,141 @@
++# Native Capture Clause Coverage (TASK-260830-2g5be6)
++
++Owner: `internal/clonesnap`. Authority:
++`internal/specdoc/SPEC.v0.7.0.md`, Sections 7.8, 10.2, 13.14.1
++(the pinned sections are byte-identical to v0.6.0).
++The Story's FINAL leaf carries the `internal/traceability` registry
++bindings and re-pin; this file is the second-leaf clause record.
++
++## Why this package captures instead of clonebundle
++
++The predecessor leaf (`internal/clonebundle`) owns the capture
++contracts: the closed manifest/boundary/blob/identity shapes, their
++builders and decoders. This package owns the capture OPERATION over
++a real on-disk provider store: the contained walk, item
++classification, boundary construction from measured evidence, the
++source-race check, the workspace checkpoint, and target admission.
++Every artifact emitted here is produced through the landed
++clonebundle builders (`BuildRawObjectManifest`,
++`BuildCaptureManifest`, `SanitizeNativeKey`, `CheckDigestsEqual`,
++`RefuseUnstableForTarget`, `RefuseMaximalSafeUnlessComplete`,
++`InstallRawBlob`, `VerifyDescriptorAgreement`,
++`DecodeWorkspaceBinding`, `IdentityDigest`) and re-decoded by the
++landed decoders before it is published or returned; no second
++manifest, boundary, blob, or identity model exists here.
++
++## Landed-owner reuse
++
++| Scope | Owner | Use |
++|---|---|---|
++| Manifest/boundary/item/identity shapes | `internal/clonebundle` | all Build/Decode/Refuse entries above |
++| Store containment (openat-relative Guard walk) | `internal/secprim` | every payload open via `Guard.Open` from a verified root handle; member grammar via `CheckMemberPath` |
++| Durable writes (no-replace, fsync, verify) | `internal/localstore` | payload blobs via `InstallRawBlob`, manifests and receipts via `ObjectStore.PutBlob` |
++| Blob Descriptor shape and identity | `internal/canonicaljson` | `CalculateObjectIdentity` plus local claim comparisons; never the attesting entry |
++| Capture class vocabulary | `internal/clonebundle` | `ValidCaptureClass` (mirrors the `sessadapter` plan vocabulary) |
++| String measure, digests, UUIDv7, paths | `internal/environ`, `internal/scalar` | `StringLength`, `ParseDigest`, `ParseUUIDv7`, `ParseRelativePath`, `ParseAbsolutePath` |
++| Canonical bytes | `internal/canonicaljson` | `Canonicalize` for the workspace binding and the admission receipt |
++
++## Clause map
++
++| Pinned clause | Production entry | Test |
++|---|---|---|
++| 13.14.1 Raw Manifest from real bytes: sorted unique entries, sanitized key, class, byte count, blob ID, descriptor ID | `Capture`, `BuildRawObjectManifest` (landed) | `TestCaptureSealsBothManifestsFromStoreBytes`, `TestCaptureIsByteIdenticalAcrossRuns` |
++| 13.14.1 Capture Manifest from real evidence: basis, boundary, items, excluded classes, derived raw_complete | `Capture`, `BuildCaptureManifest` (landed) | `TestCaptureSealsBothManifestsFromStoreBytes`, `TestCaptureOptionalAbsentSealsExcluded` |
++| 13.14.1 CaptureItem 9-class vocabulary + included/excluded content rule | `checkPlan` via `ValidCaptureClass`, `sealAndPublish` | `TestCaptureSealsBothManifestsFromStoreBytes`, `TestCaptureRefusesMysteryPlanClass` |
++| 13.14.1 always-excluded classes never included; bytes never reach blob/manifest/log/error | `excludedClass` (never opened) | `TestCaptureExcludesSecrets` (one fixture member per class, full-artifact scan) |
++| 13.14.1 unknown makes raw_complete false and blocks maximal_safe | `sealAndPublish`, `AdmitForTarget` via `RefuseMaximalSafeUnlessComplete` | `TestCaptureUnknownMakesRawIncomplete` (included), `TestCaptureOptionalAbsentUnknownMakesRawIncomplete` (excluded, P3-ε), `TestProjectMaximalSafeRequiresComplete`, `TestProjectMaximalSafeAdmitsComplete`, `TestProjectStrictExactAdmitsUnknown` |
++| 13.14.1 stable boundary: closed proof kind, generation, equal pre/post digests, idle facts | `sealAndPublish` via `buildBoundary` (landed) | `TestCaptureSealsBothManifestsFromStoreBytes`, `TestCaptureImmutableSnapshotProof` |
++| 13.14.1 size equality is never proof | `checkSourceRace` via `CheckDigestsEqual` | `TestCaptureRaceChangedByte` (equal-size differing bytes refuse) |
++| 13.14.1 unstable_archive: generation, pre/post, source_not_quiescent, explicit ack, target forbidden; core-created, archive-only | `raceOutcome`, `sealAndPublish` (`Core: true`) | `TestCaptureArchiveSealsUnstable` (literal kind/reason/ack/forbidden assertions) |
++| 13.14.1 G2 rejects unstable | `AdmitForTarget` via `RefuseUnstableForTarget` | `TestProjectRefusesUnstable` (refusal + target sink empty), `TestProjectRefusesUnstableDirect` |
++| Source race detected before projection: changed byte/size, appended record, replaced file, unreadable at post | `walkAndMeasure`, `measurePost`, `gateSourceRace` | `TestCaptureRaceChangedByte/ChangedSize/AppendedRecord/ReplacedFile/RemovedFile/UnreadableAtPost` |
++| Race gate precedes any seal or projection output | `Capture`, `CaptureAndProject` (ORDER-PIN) | `TestCaptureRaceSealsNoManifest` (no manifest published), `TestCaptureRaceEmitsNoReceipt` (race refusal, not a seal error, + target sink empty) |
++| 13.14.1 WorkspaceBinding from real state: normalized cwd, sorted unique fingerprints[0..128], branch, head/index/tree | `CheckpointWorkspace` via `DecodeWorkspaceBinding` (landed) | `TestCheckpointWorkspaceSealsObservedState`, `...RelativeCwd`, `...RootCwd`, refusal rows |
++| 13.14.1 no member grants filesystem authority | `workspaceCwdRelative` | `TestCheckpointWorkspaceRefusesEscape/DotSegments/MissingCwd/FileCwd/SymlinkRoot` |
++| 13.14.1 source basis ax_session / external_native | `Capture` via `buildSourceBasis` (landed) | `TestCaptureExternalNativeBasis`, `TestCaptureRefusesMixedSourceBasis/UnknownBasisKind/UnsanitizedExternalRef` |
++| SourceIdentity re-validated at the entry (P3-η, this leaf) | `Capture` via `IdentityDigest` (landed, re-decodes) | `TestCaptureRefusesInvalidSourceIdentity` (overlong ID, bogus kind, zero workspace, bad UTF-8, absolute ref; no manifest published) |
++| 10.2 fsync + verify + atomic install before publishing a referencing record | `InstallRawBlob`, `PutBlob` (landed) | `TestCaptureInstallsEveryPayloadBlob` (every entry's blob present), crash replay assertion, `TestCaptureSealsBothManifestsFromStoreBytes`, `TestProjectIsIdempotent` |
++| 10.2 logs record digest, size, media type only | `CaptureLog` (no byte parameter) | `TestCaptureLogRecordsDigestsOnly`, `TestCaptureExcludesSecrets` (log scan) |
++| 10.2 Blob Descriptor: sorted contiguous non-overlapping chunks from zero covering size; index from zero by one; empty = size zero, no chunks | `BuildBlobDescriptor` via `CalculateObjectIdentity` + `VerifyDescriptorAgreement` | `TestCaptureEmptyMemberSealsEmptyBlob`, `TestCaptureMultiChunkMember`, `TestCaptureDescriptorAgreementEndToEnd` |
++| 10.2 oversized blob fails with capability_unavailable before a partial manifest | `openMember` limit gate | `TestCaptureRefusesOversizedMember`, `TestCaptureRefusesSparseOversizedMember`, `TestDefaultMaxSingleBytesIs128GiB` |
++| 7.8 fidelity profiles strict_exact\|maximal_safe\|compact\|messages_only | `AdmitForTarget`, `BuildAdmissionReceipt` | `TestProjectAdmitsStableEveryProfile`, `TestProjectRefusesUnknownProfile` |
++| 1.6 string measure in characters | `workspaceNullableText` via `environ.StringLength` | `TestCheckpointWorkspaceMultibyteBranch` |
++| Containment: symlinked intermediate and FIFO refuse before any payload open, member named; no escape past the root | `openMember` via `secprim.Guard` | `TestCaptureRefusesSymlinkedIntermediate/OptionalSymlinkedIntermediate/TrailingSymlink/FIFO/OptionalFIFO/DirectoryMember/ParentPlanKey` |
++| Unplanned members refuse; one item per plan candidate | `planMemberClass` | `TestCaptureRefusesUnplannedMember/PrefixSibling/RequiredMissing/DuplicatePlanKey` |
++
++## Durability
++
++This package performs durable writes only through
++`localstore.ObjectStore.PutBlob`: payload blobs (via the landed
++`InstallRawBlob`), manifest blobs, and admission receipt blobs. The
++landed discipline (stage, fsync, size/digest verification, atomic
++no-replace install, directory fsync, quarantine on mismatch) carries
++the crash semantics; this package adds the publish ORDER (payloads,
++then raw, then capture, then receipt) and the hooks that pin it.
++`TestCaptureCrashChildSelfTerminates` kills a live capture between
++the raw and capture publishes and proves the replay converges with
++byte-identical manifests; `TestProjectIsIdempotent` proves a
++replayed capture verifies and reuses every blob and publishes no
++half-written manifest (every manifest blob re-decodes). No second
++write path exists in this package.
++
++## Stated bounds (sibling scope, not waived)
++
++- No `ax` CLI, no provider process, no network: the store is a
++  fixture directory. Section 7.8 capture-plan/capture/normalize
++  operation wiring stays owned by `sessadapter`; this package
++  consumes plan keys and classes, it does not speak the adapter
++  protocol.
++- The sealed stable proof carries the two measured source digests
++  (pre and post): the race gate proved them equal before the seal
++  ran, so on the stable path the sealed bytes equal either
++  measurement, and the landed builder refuses unequal digests.
++  The ordering mutants (`N-race-order-capture`,
++  `N-race-order-project`) move the gate after the seal and the
++  killers redden on the published manifests and receipt, which
++  proves the gate precedes the seal either way the digests seal.
++- Excluded-class bytes are never opened, so a changed byte at
++  equal size inside an excluded member is below the detection
++  floor: presence, shape, and size changes still race. Excluded
++  bytes cannot affect capture output, and the never-open rule is
++  what the leak suite proves.
++- Enumeration observes names through path strings; every OPEN
++  descends from the verified root handle through the Guard. A
++  sub-walk transient swap restored before the post measurement is
++  below the detection floor (no filesystem snapshot); any
++  persistent change races, and blob integrity of the read bytes is
++  guaranteed by the install-time verification regardless.
++- Optional included-class candidates absent from the store seal as
++  excluded rows with reason `plan_optional_absent`; required ones
++  refuse. Required-ness for excluded classes is inert (presence is
++  irrelevant to bytes that are never opened).
++- `MaxSingleBytes` mirrors the Section 7.8 `ResourceLimits`
++  per-object bound; zero selects the Section 10.2 default of
++  137438953472 (32768 chunks of 4194304 bytes). The sparse
++  oversized row pins the default end to end without reading 128
++  GiB.
++- The admission receipt (`urn:ax:internal:clonesnap-admission-receipt`
++  1.0.0) proves target admission and race-before-projection
++  ordering only. Projection planning past admission, per-kind
++  event payload registries, and `strict_exact`/`compact`/
++  `messages_only` planning semantics are the final leaf's and the
++  normalization sibling's.
++- `internal/traceability` registry bindings and digest re-pin
++  (Story FINAL leaf).
++- The four-profile fidelity vocabulary is spelled twice:
++  `sessadapter` owns an unexported table and this package owns a
++  closed switch (P3-ζ′). The FINAL leaf unifies or exports one
++  owner; both spellings are pinned by their own suites today.
++- `EncodeNativeIdentity` standalone trusts the caller for bounds,
++  vocabulary, and the workspace ID (P3-η remainder): this leaf's
++  seal path re-decodes through the landed callers
++  (`sealAndPublish` calls `IdentityDigest` directly and
++  `BuildCaptureManifest` re-decodes the source identity
++  internally), pinned by `TestCaptureRefusesInvalidSourceIdentity`.
++  The standalone-entry bound (re-decode inside the entry or an
++  explicit pre-validated-identity contract) belongs to the
++  clonebundle owner or the Final leaf.
++- The lone-surrogate member at the shared `validText` gate (P3-ζ)
++  is not exercised here: this leaf owns no title/text admission
++  site. Deferred to the Final leaf, which owns projection
++  fidelity over session/event text.
+diff --git a/internal/clonesnap/capture.go b/internal/clonesnap/capture.go
+new file mode 100644
+index 0000000..b2690c2
+--- /dev/null
++++ b/internal/clonesnap/capture.go
+@@ -0,0 +1,560 @@
++package clonesnap
++
++import (
++	"bytes"
++	"os"
++
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++	"github.com/relux-works/agent-session-manager/internal/localstore"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++)
++
++// This file owns the native capture operation: Capture walks a real
++// provider store directory through the contained walk, installs
++// payload blobs through the landed no-replace discipline, seals the
++// Raw Object Manifest and Capture Manifest through the landed
++// builders, publishes both through the object store, and checkpoints
++// the workspace binding. The source-race gate runs after the
++// post-capture measurement and before any seal: a detected mutation
++// refuses, or seals the core-created unstable_archive form for
++// archive-only output when the operator explicitly acknowledged
++// archival. Nothing sealed here is trusted undecoded: every sealed
++// manifest re-decodes through the landed decoder before it is
++// published or returned.
++
++// RacePolicy decides a detected source mutation: RaceRefuse aborts
++// capture with no sealed manifest; RaceArchive seals the
++// unstable_archive form for archive-only output, which can never
++// enter a target branch.
++type RacePolicy string
++
++const (
++	// RaceRefuse aborts capture on a detected source mutation.
++	RaceRefuse RacePolicy = "refuse"
++	// RaceArchive seals unstable_archive output on a detected
++	// source mutation. It requires OperatorExplicit.
++	RaceArchive RacePolicy = "archive"
++)
++
++// CaptureHooks carries the crash and race seams: AfterWalk runs
++// between the capture walk and the post-capture measurement (race
++// injection observes here), AfterRawPublish runs between the raw
++// manifest publish and the capture manifest seal (crash kill lands
++// here). A hook error aborts capture; a hook that never returns
++// (process kill) leaves at most the published prefix behind.
++type CaptureHooks struct {
++	AfterWalk       func(storeRoot string) error
++	AfterRawPublish func() error
++}
++
++// CaptureRequest is one native capture candidate over a provider
++// store directory.
++type CaptureRequest struct {
++	// StoreRoot is the absolute provider store directory. Every
++	// payload open descends from its verified handle.
++	StoreRoot string
++	// Platform governs member-name grammar.
++	Platform scalar.Platform
++	// Plan carries the sorted unique capture-plan candidates.
++	Plan []PlanItem
++	// OperationID and BundleID identify the clone operation and
++	// the logical bundle chain.
++	OperationID string
++	BundleID    string
++	// SourceBasis binds ax_session or external_native source IDs.
++	SourceBasis clonebundle.SourceBasisInput
++	// SourceEnvironment carries the exact probed Environment Tuple
++	// bytes.
++	SourceEnvironment []byte
++	// SourceIdentity is the sanitized NativeIdentity. Capture
++	// re-validates it through the landed IdentityDigest before
++	// anything seals: an identity decoding would refuse fails the
++	// entry, so no sealed artifact carries it.
++	SourceIdentity clonebundle.NativeIdentity
++	// CapturePlanDigest is the exact core-validated capture-plan
++	// digest.
++	CapturePlanDigest string
++	// NativeSessionID is the sanitized source native session ID.
++	NativeSessionID string
++	// CreatedByHostID and CreatedAt stamp the capture manifest.
++	CreatedByHostID string
++	CreatedAt       string
++	// Generation is the immutable source generation token.
++	Generation string
++	// ProofKind is the closed proof vocabulary:
++	// closed_store|immutable_snapshot|verified_log_prefix|provider_quiescence.
++	ProofKind string
++	// SnapshotIdentity pins an immutable snapshot; nil unless the
++	// proof kind requires it.
++	SnapshotIdentity *string
++	// InputBlocked, ForegroundIdle, and BackgroundIdle are the
++	// measured idle facts the stable proof seals.
++	InputBlocked   bool
++	ForegroundIdle bool
++	BackgroundIdle bool
++	// OperatorExplicit acknowledges archive-only output when the
++	// source is not quiescent.
++	OperatorExplicit bool
++	// OnRace decides a detected mutation: refuse or archive.
++	OnRace RacePolicy
++	// Workspace carries the repository state the workspace
++	// checkpoint seals.
++	Workspace WorkspaceRequest
++	// Store receives payload blobs and published manifests.
++	Store *localstore.ObjectStore
++	// MaxSingleBytes bounds one captured member; zero selects
++	// DefaultMaxSingleBytes. A larger member fails capture with
++	// capability_unavailable before any manifest is published.
++	MaxSingleBytes uint64
++	// Hooks carries the crash and race seams; nil hooks are skipped.
++	Hooks CaptureHooks
++}
++
++// CaptureResult is one completed native capture: the sealed bytes,
++// their decoded forms, the measured digests, and the publish facts.
++type CaptureResult struct {
++	// RawManifest and CaptureManifest carry the sealed manifest
++	// bytes produced through the landed builders.
++	RawManifest     []byte
++	CaptureManifest []byte
++	// WorkspaceBinding carries the sealed workspace checkpoint.
++	WorkspaceBinding []byte
++	// Decoded forms of the sealed manifests.
++	Raw     clonebundle.RawObjectManifest
++	Capture clonebundle.CaptureManifest
++	// BoundaryKind is stable or unstable_archive, read back from
++	// the sealed capture manifest.
++	BoundaryKind string
++	// PreDigest and PostDigest are the measured source digests.
++	PreDigest  scalar.Digest
++	PostDigest scalar.Digest
++	// RawInstalled and CaptureInstalled report whether this run
++	// installed the manifest blobs (a replay verifies and reuses).
++	RawInstalled     bool
++	CaptureInstalled bool
++	// Logs carries the digest/size/media-only capture log lines.
++	Logs []string
++}
++
++// Capture runs one native capture over the provider store: validate
++// the plan, checkpoint the workspace, walk and install payload
++// bytes, measure the source race, seal and publish both manifests.
++// The race gate precedes the seal (see ORDER-PIN below): a mutation
++// refuses, or seals unstable_archive output when archival was
++// explicitly acknowledged and requested.
++func Capture(request CaptureRequest) (*CaptureResult, error) {
++	state, err := newPipeline(request)
++	if err != nil {
++		return nil, err
++	}
++	defer state.close()
++	if err := state.walkAndMeasure(); err != nil {
++		return nil, err
++	}
++	// ORDER-PIN: the source-race gate precedes any seal or publish.
++	// N-race-order-capture moves this gate after sealAndPublish and
++	// the killer reddens on the published manifests.
++	if err := state.gateSourceRace(); err != nil {
++		return state.raceOutcome(err)
++	}
++	return state.sealAndPublish(false)
++}
++
++// pipeline is one running capture: the validated plan, the open
++// store handles, the walked bytes, and the measured digests.
++type pipeline struct {
++	request        CaptureRequest
++	log            *CaptureLog
++	guard          secprim.Guard
++	root           *os.File
++	plan           map[string]PlanItem
++	planKeys       []string
++	limit          uint64
++	captured       []capturedMember
++	pre            scalar.Digest
++	post           scalar.Digest
++	preLines       []string
++	postLines      []string
++	workspaceBytes []byte
++}
++
++func newPipeline(request CaptureRequest) (*pipeline, error) {
++	if request.Store == nil {
++		return nil, invalid("capture requires an object store")
++	}
++	if request.OnRace != RaceRefuse && request.OnRace != RaceArchive {
++		return nil, invalid("capture race policy %q is outside refuse|archive", string(request.OnRace))
++	}
++	plan, err := checkPlan(request.Platform, request.Plan)
++	if err != nil {
++		return nil, err
++	}
++	limit := request.MaxSingleBytes
++	if limit == 0 {
++		limit = DefaultMaxSingleBytes
++	}
++	workspaceBytes, err := CheckpointWorkspace(request.Workspace)
++	if err != nil {
++		return nil, err
++	}
++	root, err := secprim.OpenNoFollowDir(request.StoreRoot)
++	if err != nil {
++		return nil, invalid("capture store root %q: %v", request.StoreRoot, err)
++	}
++	guard, err := secprim.NewGuard(request.StoreRoot, request.Platform, nil)
++	if err != nil {
++		_ = root.Close()
++		return nil, invalid("capture store root %q: %v", request.StoreRoot, err)
++	}
++	keys := make([]string, 0, len(request.Plan))
++	for _, item := range request.Plan {
++		keys = append(keys, item.NativeKey)
++	}
++	return &pipeline{
++		request:        request,
++		log:            &CaptureLog{},
++		guard:          guard,
++		root:           root,
++		plan:           plan,
++		planKeys:       keys,
++		limit:          limit,
++		workspaceBytes: workspaceBytes,
++	}, nil
++}
++
++func (state *pipeline) close() {
++	if state.root != nil {
++		_ = state.root.Close()
++		state.root = nil
++	}
++}
++
++// walkAndMeasure enumerates the store, reconciles every member
++// against the plan, opens and installs every included-class member
++// through the Guard, and records the pre source digest. Excluded
++// members are never opened. It then runs the AfterWalk hook and
++// re-measures the post source digest. Any measurement failure
++// refuses; mutation itself is decided by gateSourceRace.
++func (state *pipeline) walkAndMeasure() error {
++	observed, err := enumerateStore(state.request.StoreRoot)
++	if err != nil {
++		return err
++	}
++	byKey := make(map[string]observedMember, len(observed))
++	for _, member := range observed {
++		byKey[member.key] = member
++		if member.kind == memberDir {
++			continue
++		}
++		if member.kind == memberOther && intermediatePrefix(state.plan, member.key) {
++			continue
++		}
++		if _, err := planMemberClass(state.plan, member.key); err != nil {
++			return err
++		}
++	}
++	// Early containment refusal: every included-class special
++	// member (symlink, FIFO, device, socket) reaches the Guard,
++	// which refuses it before any payload byte is read. The plan
++	// loop would refuse it again; this pass fails fast with nothing
++	// installed. Intermediates belong to their planned member's
++	// open, which names the full member.
++	for _, member := range observed {
++		if member.kind != memberOther {
++			continue
++		}
++		if intermediatePrefix(state.plan, member.key) {
++			continue
++		}
++		if excludedClass(state.plan[member.key].Class) {
++			continue
++		}
++		if _, err := openMember(state.guard, state.root, member.key, state.limit); err != nil {
++			return err
++		}
++	}
++	for _, key := range state.planKeys {
++		item := state.plan[key]
++		if excludedClass(item.Class) {
++			state.log.Linef("exclude member=%q class=%s reason=%s", key, item.Class, exclusionReason(item.Class))
++			continue
++		}
++		_, present := byKey[key]
++		if !present && !item.Required && !blockedAncestor(byKey, key) {
++			state.log.Linef("exclude member=%q class=%s reason=plan_optional_absent", key, item.Class)
++			continue
++		}
++		if !present && item.Required && !blockedAncestor(byKey, key) {
++			return invalid("capture plan candidate %q is required but absent from the store", key)
++		}
++		// Every planned included member — file, directory, or
++		// special shape — opens through the Guard, which admits
++		// regular files and refuses the rest with the member named.
++		payload, err := openMember(state.guard, state.root, key, state.limit)
++		if err != nil {
++			return err
++		}
++		descriptor, err := BuildBlobDescriptor(payload)
++		if err != nil {
++			return invalid("capture member %q: %v", key, err)
++		}
++		if _, err := clonebundle.InstallRawBlob(state.request.Store, descriptor.Descriptor, bytes.NewReader(payload)); err != nil {
++			return invalid("capture member %q: %v", key, err)
++		}
++		state.log.Linef("capture member=%q class=%s digest=%s size=%d media=%s", key, item.Class, descriptor.BlobID.String(), descriptor.Size, blobMediaType)
++		state.captured = append(state.captured, capturedMember{key: key, class: item.Class, payload: payload, descriptor: descriptor})
++	}
++	state.pre, state.preLines = state.recordSource(observed, true)
++	if state.request.Hooks.AfterWalk != nil {
++		if err := state.request.Hooks.AfterWalk(state.request.StoreRoot); err != nil {
++			return invalid("capture hook refused after the walk: %v", err)
++		}
++	}
++	return state.measurePost()
++}
++
++// recordSource builds the canonical source record over one
++// enumeration: directories contribute keys, specials contribute
++// keys, excluded files contribute key and size, and included files
++// contribute key, size, and content hash. Production always captured
++// every included file it enumerates; the unknown-content fallback
++// runs only when a mutant admits an unplanned member past the plan
++// gate, and then the post measurement still disagrees.
++func (state *pipeline) recordSource(observed []observedMember, useCaptured bool) (scalar.Digest, []string) {
++	hashByKey := make(map[string]capturedMember, len(state.captured))
++	if useCaptured {
++		for _, member := range state.captured {
++			hashByKey[member.key] = member
++		}
++	}
++	record := &sourceRecord{}
++	for _, member := range observed {
++		switch member.kind {
++		case memberDir:
++			record.addDir(member.key)
++		case memberOther:
++			record.addOther(member.key)
++		case memberFile:
++			class := state.plan[member.key].Class
++			if !useCaptured {
++				if resolved, err := planMemberClass(state.plan, member.key); err == nil {
++					class = resolved
++				} else {
++					class = ""
++				}
++			}
++			if class == "" || excludedClass(class) {
++				record.addFile(member.key, member.size, "-")
++				continue
++			}
++			if captured, ok := hashByKey[member.key]; useCaptured && ok {
++				record.addFile(member.key, captured.descriptor.Size, contentHash(captured.payload))
++				continue
++			}
++			if !useCaptured {
++				if payload, err := openMember(state.guard, state.root, member.key, state.limit); err == nil {
++					record.addFile(member.key, uint64(len(payload)), contentHash(payload))
++					continue
++				}
++			}
++			record.addFile(member.key, member.size, "-")
++		}
++	}
++	return record.digest(), append([]string(nil), record.lines...)
++}
++
++// measurePost re-enumerates the store and re-reads every included
++// member through the Guard, recording the post source digest. A
++// member that cannot be re-read — appended, removed, retyped, or
++// unreadable — joins the record with unknown content, so the digest
++// comparison, not the read error, decides the race, and the refusal
++// names the member.
++func (state *pipeline) measurePost() error {
++	observed, err := enumerateStore(state.request.StoreRoot)
++	if err != nil {
++		return err
++	}
++	state.post, state.postLines = state.recordSource(observed, false)
++	return nil
++}
++
++// gateSourceRace decides the measured source race: equal pre and
++// post digests proceed; a difference refuses, or marks archive-only
++// output when archival was explicitly acknowledged and requested.
++// Size equality never decides: the comparison is digest equality
++// over content hashes.
++func (state *pipeline) gateSourceRace() error {
++	if err := checkSourceRace(state.pre, state.post, state.preLines, state.postLines); err != nil {
++		return err
++	}
++	return nil
++}
++
++// raceOutcome maps a detected race onto the requested policy: refuse
++// aborts with no sealed manifest; archive seals the core-created
++// unstable_archive form for archive-only output — never for a
++// target branch — and only with explicit operator acknowledgement.
++func (state *pipeline) raceOutcome(race error) (*CaptureResult, error) {
++	if state.request.OnRace != RaceArchive {
++		return nil, race
++	}
++	if !state.request.OperatorExplicit {
++		return nil, invalid("capture archive requires explicit operator acknowledgement for source_not_quiescent")
++	}
++	return state.sealAndPublish(true)
++}
++
++// sealAndPublish seals both manifests through the landed builders,
++// re-decodes each before publishing, publishes in raw-then-capture
++// order through the object store, and returns the capture result.
++// The stable proof seals the two measured source digests: the race
++// gate proved them equal before this seal ran, so on the stable
++// path the sealed bytes equal either measurement, and the landed
++// builder refuses unequal digests. The N-race-order mutants move
++// the gate after this seal and the killers redden on the published
++// manifests, which proves the gate precedes the seal.
++func (state *pipeline) sealAndPublish(unstable bool) (*CaptureResult, error) {
++	request := state.request
++	entries := make([]clonebundle.EntryInput, 0, len(state.captured))
++	included := make([]string, 0, len(state.captured))
++	for _, member := range state.captured {
++		entries = append(entries, clonebundle.EntryInput{
++			NativeItemKey: member.key,
++			Class:         member.class,
++			ByteCount:     member.descriptor.Size,
++			BlobID:        member.descriptor.BlobID.String(),
++			DescriptorID:  member.descriptor.DescriptorID.String(),
++			Descriptor:    member.descriptor.Descriptor,
++		})
++		included = append(included, member.key)
++	}
++	identityDigest, err := clonebundle.IdentityDigest(request.SourceIdentity, nil)
++	if err != nil {
++		return nil, err
++	}
++	rawBytes, err := clonebundle.BuildRawObjectManifest(
++		request.OperationID,
++		request.SourceEnvironment,
++		request.NativeSessionID,
++		identityDigest.String(),
++		request.CapturePlanDigest,
++		entries,
++		nil,
++	)
++	if err != nil {
++		return nil, err
++	}
++	raw, err := clonebundle.DecodeRawObjectManifest(rawBytes)
++	if err != nil {
++		return nil, invalid("sealed raw object manifest refused: %v", err)
++	}
++	// Manifests publish under their content digest: the manifest ID
++	// is the omit-self identity, not the digest of the sealed bytes.
++	rawPut, err := request.Store.PutBlob(scalar.SHA256Digest(rawBytes), uint64(len(rawBytes)), bytes.NewReader(rawBytes))
++	if err != nil {
++		return nil, invalid("capture cannot publish the raw object manifest: %v", err)
++	}
++	if request.Hooks.AfterRawPublish != nil {
++		if err := request.Hooks.AfterRawPublish(); err != nil {
++			return nil, invalid("capture hook refused after the raw publish: %v", err)
++		}
++	}
++	boundary := clonebundle.BoundaryInput{
++		Kind:              "stable",
++		ProofKind:         request.ProofKind,
++		Generation:        request.Generation,
++		PreCaptureDigest:  state.pre.String(),
++		PostCaptureDigest: state.post.String(),
++		InputBlocked:      request.InputBlocked,
++		ForegroundIdle:    request.ForegroundIdle,
++		BackgroundIdle:    request.BackgroundIdle,
++	}
++	if request.SnapshotIdentity != nil {
++		identity := *request.SnapshotIdentity
++		boundary.SnapshotIdentity = &identity
++	}
++	if unstable {
++		boundary = clonebundle.BoundaryInput{
++			Kind:              "unstable_archive",
++			Generation:        request.Generation,
++			PreCaptureDigest:  state.pre.String(),
++			PostCaptureDigest: state.post.String(),
++			Core:              true,
++		}
++	}
++	items := make([]clonebundle.CaptureItemInput, 0, len(state.planKeys))
++	capturedByKey := make(map[string]capturedMember, len(state.captured))
++	for _, member := range state.captured {
++		capturedByKey[member.key] = member
++	}
++	for _, key := range state.planKeys {
++		item := state.plan[key]
++		if member, ok := capturedByKey[key]; ok {
++			descriptor := member.descriptor.DescriptorID.String()
++			count := member.descriptor.Size
++			items = append(items, clonebundle.CaptureItemInput{
++				NativeItemKey:    key,
++				Class:            item.Class,
++				Disposition:      "included",
++				BlobDescriptorID: &descriptor,
++				ByteCount:        &count,
++			})
++			continue
++		}
++		reason := exclusionReason(item.Class)
++		if !excludedClass(item.Class) {
++			reason = "plan_optional_absent"
++		}
++		items = append(items, clonebundle.CaptureItemInput{
++			NativeItemKey:   key,
++			Class:           item.Class,
++			Disposition:     "excluded",
++			ExclusionReason: &reason,
++		})
++	}
++	captureBytes, err := clonebundle.BuildCaptureManifest(clonebundle.CaptureManifestInput{
++		OperationID:         request.OperationID,
++		BundleID:            request.BundleID,
++		SourceBasis:         request.SourceBasis,
++		SourceEnvironment:   request.SourceEnvironment,
++		SourceIdentity:      request.SourceIdentity,
++		CapturePlanDigest:   request.CapturePlanDigest,
++		Boundary:            boundary,
++		SourceRawManifestID: raw.ManifestID.String(),
++		Items:               items,
++		PlanKeys:            append([]string(nil), state.planKeys...),
++		RawKeys:             included,
++		CreatedByHostID:     request.CreatedByHostID,
++		CreatedAt:           request.CreatedAt,
++	})
++	if err != nil {
++		return nil, err
++	}
++	manifest, err := clonebundle.DecodeCaptureManifest(captureBytes)
++	if err != nil {
++		return nil, invalid("sealed capture manifest refused: %v", err)
++	}
++	capturePut, err := request.Store.PutBlob(scalar.SHA256Digest(captureBytes), uint64(len(captureBytes)), bytes.NewReader(captureBytes))
++	if err != nil {
++		return nil, invalid("capture cannot publish the capture manifest: %v", err)
++	}
++	boundaryKind := "stable"
++	if !manifest.CaptureBoundary.Stable() {
++		boundaryKind = "unstable_archive"
++	}
++	state.log.Linef("boundary kind=%s pre=%s post=%s", boundaryKind, state.pre.String(), state.post.String())
++	return &CaptureResult{
++		RawManifest:      rawBytes,
++		CaptureManifest:  captureBytes,
++		WorkspaceBinding: append([]byte(nil), state.workspaceBytes...),
++		Raw:              raw,
++		Capture:          manifest,
++		BoundaryKind:     boundaryKind,
++		PreDigest:        state.pre,
++		PostDigest:       state.post,
++		RawInstalled:     rawPut.Installed,
++		CaptureInstalled: capturePut.Installed,
++		Logs:             state.log.Lines(),
++	}, nil
++}
+diff --git a/internal/clonesnap/capture_test.go b/internal/clonesnap/capture_test.go
+new file mode 100644
+index 0000000..20950c0
+--- /dev/null
++++ b/internal/clonesnap/capture_test.go
+@@ -0,0 +1,434 @@
++package clonesnap
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// Positive contract tests: Capture seals both manifests from real
++// store bytes through the landed builders, every sealed manifest
++// re-decodes, identical runs produce byte-identical manifests, and
++// the sealed members match independently recomputed values.
++
++func TestCaptureSealsBothManifestsFromStoreBytes(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	store := openTestStore(t)
++	result := mustCapture(t, validCaptureRequest(t, storeRoot, store))
++
++	if result.BoundaryKind != "stable" {
++		t.Fatalf("BoundaryKind = %q, want stable", result.BoundaryKind)
++	}
++	if result.PreDigest != result.PostDigest {
++		t.Fatalf("PreDigest %q != PostDigest %q on a quiet store", result.PreDigest, result.PostDigest)
++	}
++	if !result.RawInstalled || !result.CaptureInstalled {
++		t.Fatalf("Installed = (%v, %v), want (true, true) on first capture", result.RawInstalled, result.CaptureInstalled)
++	}
++
++	// The raw manifest carries exactly the two included members,
++	// sorted by native key, with byte counts recomputed here.
++	raw, err := clonebundle.DecodeRawObjectManifest(result.RawManifest)
++	if err != nil {
++		t.Fatalf("DecodeRawObjectManifest() error = %v", err)
++	}
++	if len(raw.Entries) != 2 {
++		t.Fatalf("raw entries = %d, want 2", len(raw.Entries))
++	}
++	if raw.Entries[0].NativeItemKey != "store/blob-a" || raw.Entries[1].NativeItemKey != "store/blob-b" {
++		t.Fatalf("raw entry keys = %q, %q", raw.Entries[0].NativeItemKey, raw.Entries[1].NativeItemKey)
++	}
++	wantA := sha256.Sum256([]byte("alpha-payload-bytes"))
++	wantB := sha256.Sum256([]byte("beta-payload-bytes"))
++	if raw.Entries[0].BlobID.String() != "sha256:"+hex.EncodeToString(wantA[:]) {
++		t.Fatalf("blob-a blob_id = %q", raw.Entries[0].BlobID)
++	}
++	if raw.Entries[1].BlobID.String() != "sha256:"+hex.EncodeToString(wantB[:]) {
++		t.Fatalf("blob-b blob_id = %q", raw.Entries[1].BlobID)
++	}
++	if raw.Entries[0].ByteCount != uint64(len("alpha-payload-bytes")) {
++		t.Fatalf("blob-a byte_count = %d", raw.Entries[0].ByteCount)
++	}
++	var sum uint64
++	for _, entry := range raw.Entries {
++		sum += entry.ByteCount
++	}
++	if raw.TotalBytes != sum {
++		t.Fatalf("TotalBytes = %d, entries sum to %d", raw.TotalBytes, sum)
++	}
++	if raw.SourceNativeSessionID != "native-session-snap" {
++		t.Fatalf("SourceNativeSessionID = %q", raw.SourceNativeSessionID)
++	}
++
++	// The capture manifest reconciles: one item per plan candidate,
++	// the credential excluded with its stable reason, raw_complete
++	// derived true, and the exact raw manifest identity.
++	manifest, err := clonebundle.DecodeCaptureManifest(result.CaptureManifest)
++	if err != nil {
++		t.Fatalf("DecodeCaptureManifest() error = %v", err)
++	}
++	if len(manifest.Items) != 3 {
++		t.Fatalf("capture items = %d, want 3", len(manifest.Items))
++	}
++	byKey := map[string]clonebundle.CaptureItem{}
++	for _, item := range manifest.Items {
++		byKey[item.NativeItemKey] = item
++	}
++	if !byKey["store/blob-a"].Included() || !byKey["store/blob-b"].Included() {
++		t.Fatal("included members did not seal as included")
++	}
++	credential := byKey["store/token-cache"]
++	if credential.Included() {
++		t.Fatal("credential sealed as included")
++	}
++	if credential.ExclusionReason == nil || *credential.ExclusionReason != "credential_excluded" {
++		t.Fatalf("credential exclusion reason = %v", credential.ExclusionReason)
++	}
++	if len(manifest.ExcludedClasses) != 1 || manifest.ExcludedClasses[0] != "credential" {
++		t.Fatalf("ExcludedClasses = %v, want [credential]", manifest.ExcludedClasses)
++	}
++	if !manifest.RawComplete {
++		t.Fatal("RawComplete = false, want true after complete reconciliation")
++	}
++	if manifest.SourceRawObjectManifest != raw.ManifestID {
++		t.Fatalf("SourceRawObjectManifest %q != raw %q", manifest.SourceRawObjectManifest, raw.ManifestID)
++	}
++	if !manifest.CaptureBoundary.Stable() {
++		t.Fatal("CaptureBoundary is not stable")
++	}
++	proof := manifest.CaptureBoundary.Proof
++	if proof.ProofKind != "closed_store" {
++		t.Fatalf("ProofKind = %q, want closed_store", proof.ProofKind)
++	}
++	if proof.PreCaptureDigest != proof.PostCaptureDigest {
++		t.Fatal("sealed proof digests differ on a quiet store")
++	}
++	if proof.PreCaptureDigest != result.PreDigest {
++		t.Fatal("sealed proof pre digest is not the measured source digest")
++	}
++	if proof.SourceGeneration.String() != "generation-7" {
++		t.Fatalf("SourceGeneration = %q", proof.SourceGeneration)
++	}
++
++	// The workspace checkpoint seals the observed repository state.
++	binding, err := clonebundle.DecodeWorkspaceBinding(result.WorkspaceBinding)
++	if err != nil {
++		t.Fatalf("DecodeWorkspaceBinding() error = %v", err)
++	}
++	if binding.CwdRelative != "work/trees/alpha" {
++		t.Fatalf("CwdRelative = %q", binding.CwdRelative)
++	}
++	if binding.Branch == nil || *binding.Branch != "main" {
++		t.Fatalf("Branch = %v", binding.Branch)
++	}
++	if binding.HeadDigest == nil || binding.HeadDigest.String() != fixtureDigest("snap-head") {
++		t.Fatalf("HeadDigest = %v", binding.HeadDigest)
++	}
++}
++
++func TestCaptureInstallsEveryPayloadBlob(t *testing.T) {
++	// Section 10.2 MUST: before publishing a record that
++	// references a blob, the blob is installed. Every raw entry's
++	// blob is present in the store after Capture.
++	storeRoot := fixtureStore(t)
++	store := openTestStore(t)
++	result := mustCapture(t, validCaptureRequest(t, storeRoot, store))
++	assertEveryRawBlobInstalled(t, store, result.Raw)
++}
++
++func TestCaptureIsByteIdenticalAcrossRuns(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	first := mustCapture(t, validCaptureRequest(t, storeRoot, openTestStore(t)))
++	second := mustCapture(t, validCaptureRequest(t, storeRoot, openTestStore(t)))
++	if !bytes.Equal(first.RawManifest, second.RawManifest) {
++		t.Fatal("RawManifest bytes differ across identical runs")
++	}
++	if !bytes.Equal(first.CaptureManifest, second.CaptureManifest) {
++		t.Fatal("CaptureManifest bytes differ across identical runs")
++	}
++	if first.PreDigest != second.PreDigest {
++		t.Fatal("PreDigest differs across identical runs")
++	}
++}
++
++func TestCaptureUnknownMakesRawIncomplete(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	writeStoreFile(t, storeRoot, "store/zz-unknown", []byte("unknown-kind-bytes"))
++	store := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, store)
++	request.Plan = []PlanItem{
++		{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++		{NativeKey: "store/blob-b", Class: "durable_sidecar", Required: true},
++		{NativeKey: "store/token-cache", Class: "credential", Required: false},
++		{NativeKey: "store/zz-unknown", Class: "unknown", Required: true},
++	}
++	result := mustCapture(t, request)
++	if result.Capture.RawComplete {
++		t.Fatal("RawComplete = true with an unknown-class item, want false")
++	}
++	if len(result.Raw.Entries) != 3 {
++		t.Fatalf("raw entries = %d, want 3 (unknown is captured)", len(result.Raw.Entries))
++	}
++	if err := clonebundle.RefuseMaximalSafeUnlessComplete(result.Capture); err == nil {
++		t.Fatal("RefuseMaximalSafeUnlessComplete() = nil with an unknown-class item")
++	} else if !strings.Contains(err.Error(), "maximal_safe") {
++		t.Fatalf("RefuseMaximalSafeUnlessComplete() error = %v, want the maximal_safe refusal", err)
++	}
++}
++
++func TestCaptureOptionalAbsentUnknownMakesRawIncomplete(t *testing.T) {
++	// P3-ε: an EXCLUDED unknown-class item — an optional plan
++	// member absent from the store — still drives
++	// raw_complete=false and still blocks maximal_safe at the
++	// projection entry, exactly like an included unknown item.
++	storeRoot := fixtureStore(t)
++	store := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, store)
++	request.Plan = []PlanItem{
++		{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++		{NativeKey: "store/blob-b", Class: "durable_sidecar", Required: true},
++		{NativeKey: "store/token-cache", Class: "credential", Required: false},
++		{NativeKey: "store/zz-unknown-absent", Class: "unknown", Required: false},
++	}
++	result := mustCapture(t, request)
++	if result.Capture.RawComplete {
++		t.Fatal("RawComplete = true with an excluded unknown-class item, want false")
++	}
++	var found *clonebundle.CaptureItem
++	for index := range result.Capture.Items {
++		if result.Capture.Items[index].NativeItemKey == "store/zz-unknown-absent" {
++			found = &result.Capture.Items[index]
++		}
++	}
++	if found == nil {
++		t.Fatal("optional absent unknown candidate has no item")
++	}
++	if found.Included() {
++		t.Fatal("optional absent unknown candidate sealed as included")
++	}
++	if found.ExclusionReason == nil || *found.ExclusionReason != "plan_optional_absent" {
++		t.Fatalf("optional absent unknown reason = %v", found.ExclusionReason)
++	}
++	if _, err := AdmitForTarget(result.CaptureManifest, "maximal_safe"); err == nil {
++		t.Fatal("AdmitForTarget(maximal_safe) admitted a manifest with an excluded unknown item")
++	} else {
++		requireRefusalDetail(t, err, "maximal_safe")
++	}
++	if _, err := AdmitForTarget(result.CaptureManifest, "strict_exact"); err != nil {
++		t.Fatalf("AdmitForTarget(strict_exact) error = %v", err)
++	}
++}
++
++func TestCaptureImmutableSnapshotProof(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	store := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, store)
++	request.ProofKind = "immutable_snapshot"
++	identity := fixtureDigest("snap-snapshot-identity")
++	request.SnapshotIdentity = &identity
++	result := mustCapture(t, request)
++	proof := result.Capture.CaptureBoundary.Proof
++	if proof.ProofKind != "immutable_snapshot" {
++		t.Fatalf("ProofKind = %q", proof.ProofKind)
++	}
++	if proof.SnapshotIdentity == nil || proof.SnapshotIdentity.String() != identity {
++		t.Fatalf("SnapshotIdentity = %v", proof.SnapshotIdentity)
++	}
++}
++
++func TestCaptureExternalNativeBasis(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	store := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, store)
++	request.SourceBasis = clonebundle.SourceBasisInput{
++		Kind:              "external_native",
++		ExternalSourceRef: "provider-native-source-9",
++	}
++	result := mustCapture(t, request)
++	if result.Capture.SourceBasis.Kind != "external_native" {
++		t.Fatalf("SourceBasis kind = %q", result.Capture.SourceBasis.Kind)
++	}
++	if result.Capture.SourceBasis.ExternalSourceRef == nil ||
++		*result.Capture.SourceBasis.ExternalSourceRef != "provider-native-source-9" {
++		t.Fatalf("ExternalSourceRef = %v", result.Capture.SourceBasis.ExternalSourceRef)
++	}
++}
++
++func TestCaptureOptionalAbsentSealsExcluded(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	store := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, store)
++	request.Plan = []PlanItem{
++		{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++		{NativeKey: "store/blob-b", Class: "durable_sidecar", Required: true},
++		{NativeKey: "store/maybe", Class: "durable_payload", Required: false},
++		{NativeKey: "store/token-cache", Class: "credential", Required: false},
++	}
++	result := mustCapture(t, request)
++	if len(result.Capture.Items) != 4 {
++		t.Fatalf("capture items = %d, want 4", len(result.Capture.Items))
++	}
++	var found *clonebundle.CaptureItem
++	for index := range result.Capture.Items {
++		if result.Capture.Items[index].NativeItemKey == "store/maybe" {
++			found = &result.Capture.Items[index]
++		}
++	}
++	if found == nil {
++		t.Fatal("optional absent candidate has no item")
++	}
++	if found.Included() {
++		t.Fatal("optional absent candidate sealed as included")
++	}
++	if found.ExclusionReason == nil || *found.ExclusionReason != "plan_optional_absent" {
++		t.Fatalf("optional absent reason = %v", found.ExclusionReason)
++	}
++	if !result.Capture.RawComplete {
++		t.Fatal("RawComplete = false, want true: the absent optional reconciles as excluded")
++	}
++}
++
++func TestCaptureEmptyMemberSealsEmptyBlob(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	writeStoreFile(t, storeRoot, "store/blob-empty", []byte{})
++	store := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, store)
++	request.Plan = []PlanItem{
++		{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++		{NativeKey: "store/blob-b", Class: "durable_sidecar", Required: true},
++		{NativeKey: "store/blob-empty", Class: "durable_sidecar", Required: true},
++		{NativeKey: "store/token-cache", Class: "credential", Required: false},
++	}
++	result := mustCapture(t, request)
++	var entry *clonebundle.RawObjectEntry
++	for index := range result.Raw.Entries {
++		if result.Raw.Entries[index].NativeItemKey == "store/blob-empty" {
++			entry = &result.Raw.Entries[index]
++		}
++	}
++	if entry == nil {
++		t.Fatal("empty member has no raw entry")
++	}
++	if entry.ByteCount != 0 {
++		t.Fatalf("empty member byte_count = %d", entry.ByteCount)
++	}
++	emptySum := sha256.Sum256(nil)
++	if entry.BlobID.String() != "sha256:"+hex.EncodeToString(emptySum[:]) {
++		t.Fatalf("empty member blob_id = %q", entry.BlobID)
++	}
++	descriptor, err := BuildBlobDescriptor([]byte{})
++	if err != nil {
++		t.Fatalf("BuildBlobDescriptor(empty) error = %v", err)
++	}
++	var members map[string]json.RawMessage
++	if err := json.Unmarshal(descriptor.Descriptor, &members); err != nil {
++		t.Fatal(err)
++	}
++	if string(members["chunks"]) != "[]" {
++		t.Fatalf("empty descriptor chunks = %s, want []", members["chunks"])
++	}
++	if string(members["media_type"]) != `"application/octet-stream"` {
++		t.Fatalf("empty descriptor media_type = %s", members["media_type"])
++	}
++}
++
++func TestCaptureMultiChunkMember(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	payload := bytes.Repeat([]byte("0123456789abcdef"), 4*1048576/16+1)
++	payload = payload[:4*1048576+10]
++	writeStoreFile(t, storeRoot, "store/blob-big", payload)
++	store := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, store)
++	request.Plan = []PlanItem{
++		{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++		{NativeKey: "store/blob-b", Class: "durable_sidecar", Required: true},
++		{NativeKey: "store/blob-big", Class: "durable_payload", Required: true},
++		{NativeKey: "store/token-cache", Class: "credential", Required: false},
++	}
++	result := mustCapture(t, request)
++	descriptor, err := BuildBlobDescriptor(payload)
++	if err != nil {
++		t.Fatalf("BuildBlobDescriptor() error = %v", err)
++	}
++	var members map[string]json.RawMessage
++	if err := json.Unmarshal(descriptor.Descriptor, &members); err != nil {
++		t.Fatal(err)
++	}
++	var chunks []map[string]json.RawMessage
++	if err := json.Unmarshal(members["chunks"], &chunks); err != nil {
++		t.Fatal(err)
++	}
++	if len(chunks) != 2 {
++		t.Fatalf("chunks = %d, want 2", len(chunks))
++	}
++	if string(chunks[0]["index"]) != "0" || string(chunks[0]["offset"]) != "0" ||
++		string(chunks[0]["size"]) != "4194304" {
++		t.Fatalf("chunk[0] = %v", chunks[0])
++	}
++	if string(chunks[1]["index"]) != "1" || string(chunks[1]["offset"]) != "4194304" ||
++		string(chunks[1]["size"]) != "10" {
++		t.Fatalf("chunk[1] = %v", chunks[1])
++	}
++	firstSum := sha256.Sum256(payload[:4194304])
++	if string(chunks[0]["chunk_id"]) != `"sha256:`+hex.EncodeToString(firstSum[:])+`"` {
++		t.Fatalf("chunk[0] chunk_id = %s", chunks[0]["chunk_id"])
++	}
++	var found *clonebundle.RawObjectEntry
++	for index := range result.Raw.Entries {
++		if result.Raw.Entries[index].NativeItemKey == "store/blob-big" {
++			found = &result.Raw.Entries[index]
++		}
++	}
++	if found == nil || found.BlobID != descriptor.BlobID || found.BlobDescriptorID != descriptor.DescriptorID {
++		t.Fatal("raw entry does not reference the sealed multi-chunk descriptor")
++	}
++}
++
++func TestDefaultMaxSingleBytesIs128GiB(t *testing.T) {
++	if DefaultMaxSingleBytes != 137438953472 {
++		t.Fatalf("DefaultMaxSingleBytes = %d, want 137438953472", DefaultMaxSingleBytes)
++	}
++}
++
++func storeFixturePayload(t *testing.T, storeRoot, key string) string {
++	t.Helper()
++	return filepath.Join(storeRoot, filepath.FromSlash(key))
++}
++
++func TestCaptureDescriptorAgreementEndToEnd(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	store := openTestStore(t)
++	result := mustCapture(t, validCaptureRequest(t, storeRoot, store))
++	fetch := map[string][]byte{}
++	for _, entry := range result.Raw.Entries {
++		payload, err := os.ReadFile(storeFixturePayload(t, storeRoot, entry.NativeItemKey))
++		if err != nil {
++			t.Fatal(err)
++		}
++		descriptor, err := BuildBlobDescriptor(payload)
++		if err != nil {
++			t.Fatal(err)
++		}
++		fetch[descriptor.DescriptorID.String()] = descriptor.Descriptor
++	}
++	if err := clonebundle.VerifyRawManifestDescriptors(result.Raw, func(id string) ([]byte, error) {
++		descriptor, ok := fetch[id]
++		if !ok {
++			t.Fatalf("descriptor fetch missed %s", id)
++		}
++		return descriptor, nil
++	}); err != nil {
++		t.Fatalf("VerifyRawManifestDescriptors() error = %v", err)
++	}
++	if got := scalar.SHA256Digest([]byte("alpha-payload-bytes")).String(); result.Raw.Entries[0].BlobID.String() != got {
++		t.Fatalf("blob-a blob_id = %q, want %q", result.Raw.Entries[0].BlobID, got)
++	}
++}
+diff --git a/internal/clonesnap/crash_unix_test.go b/internal/clonesnap/crash_unix_test.go
+new file mode 100644
+index 0000000..bb27051
+--- /dev/null
++++ b/internal/clonesnap/crash_unix_test.go
+@@ -0,0 +1,241 @@
++//go:build darwin || linux
++
++package clonesnap
++
++import (
++	"bytes"
++	"context"
++	"errors"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"syscall"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++	"github.com/relux-works/agent-session-manager/internal/localstore"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// parseTestUUID parses one fixture UUID outside a testing context.
++func parseTestUUID(value string) (scalar.UUIDv7, error) {
++	return scalar.ParseUUIDv7(value)
++}
++
++// testNativeIdentity builds the fixture native identity outside a
++// testing context.
++func testNativeIdentity(workspace scalar.UUIDv7) clonebundle.NativeIdentity {
++	return clonebundle.NativeIdentity{
++		NativeSessionID:    "native-session-snap",
++		IdentityKind:       "provider_native",
++		LogicalWorkspaceID: workspace,
++	}
++}
++
++// Real process-termination evidence for the manifest-publish seam:
++// the child runs the genuine production Capture entry and SIGKILLs
++// itself between the raw manifest publish and the capture manifest
++// seal. The parent then proves the kill left one complete raw
++// manifest with no capture manifest behind, and the identical replay
++// converges with both manifests and byte-identical bytes.
++//
++// The child rebuilds nothing: it opens the parent's store root,
++// object home, and workspace from the environment, so its closure
++// inputs are byte-identical to the parent's replay by construction.
++
++const (
++	crashChildEnv       = "AX_CLONESNAP_CRASH_CHILD"
++	crashChildRoot      = "AX_CLONESNAP_CRASH_ROOT"
++	crashChildHome      = "AX_CLONESNAP_CRASH_HOME"
++	crashChildWorkspace = "AX_CLONESNAP_CRASH_WORKSPACE"
++	crashGeneration     = "crash-generation-7"
++)
++
++func TestCaptureCrashChildSelfTerminates(t *testing.T) {
++	if os.Getenv(crashChildEnv) == "1" {
++		captureCrashChild()
++		return
++	}
++	storeRoot := fixtureStore(t)
++	home := t.TempDir()
++	config := filepath.Join(home, "config")
++	if err := os.Mkdir(config, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	workspace := fixtureWorkspace(t)
++	if _, err := openStoreAt(home); err != nil {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
++	defer cancel()
++	child := exec.CommandContext(ctx, os.Args[0],
++		"-test.run=^TestCaptureCrashChildSelfTerminates$",
++		"-test.count=1",
++	)
++	child.Env = append(os.Environ(),
++		crashChildEnv+"=1",
++		crashChildRoot+"="+storeRoot,
++		crashChildHome+"="+home,
++		crashChildWorkspace+"="+workspace.WorkspaceRoot,
++	)
++	runErr := child.Run()
++	var exitErr *exec.ExitError
++	if !errors.As(runErr, &exitErr) {
++		t.Fatalf("child run = %v, want a signal-kill exit", runErr)
++	}
++	status, ok := exitErr.Sys().(syscall.WaitStatus)
++	if !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
++		t.Fatalf("child status = %v, want killed by SIGKILL", exitErr)
++	}
++	// The kill landed between the raw publish and the capture seal:
++	// one complete raw manifest that verifies, no capture manifest,
++	// no partial bytes.
++	store, err := openStoreAt(home)
++	if err != nil {
++		t.Fatal(err)
++	}
++	rawFound := false
++	for _, blob := range listStoredBlobs(t, store) {
++		if _, err := clonebundle.DecodeRawObjectManifest(blob.bytes); err == nil {
++			if rawFound {
++				t.Fatal("two raw manifests after one killed capture")
++			}
++			rawFound = true
++		}
++		if _, err := clonebundle.DecodeCaptureManifest(blob.bytes); err == nil {
++			t.Fatal("capture manifest present after a kill before its seal")
++		}
++	}
++	if !rawFound {
++		t.Fatal("raw manifest missing after a kill past its publish")
++	}
++	// The identical replay converges: the raw publish verifies and
++	// reuses, the capture manifest installs, and both manifests
++	// decode.
++	request := crashRequest(t, storeRoot, store, workspace.WorkspaceRoot)
++	replayed, err := Capture(request)
++	if err != nil {
++		t.Fatalf("replayed Capture() error = %v", err)
++	}
++	if replayed.RawInstalled {
++		t.Fatal("replay reinstalled the raw manifest instead of verifying and reusing")
++	}
++	if !replayed.CaptureInstalled {
++		t.Fatal("replay did not install the capture manifest")
++	}
++	// The replayed capture references only installed blobs: the
++	// kill installed no half-written manifest and skipped no
++	// payload.
++	assertEveryRawBlobInstalled(t, store, replayed.Raw)
++	// The replayed bytes equal a clean capture over an identical
++	// fixture: the kill published no half-written manifest.
++	cleanRoot := fixtureStore(t)
++	clean, err := Capture(crashRequest(t, cleanRoot, openTestStore(t), fixtureWorkspace(t).WorkspaceRoot))
++	if err != nil {
++		t.Fatalf("clean Capture() error = %v", err)
++	}
++	if !bytes.Equal(replayed.RawManifest, clean.RawManifest) {
++		t.Fatal("replayed raw manifest differs from the clean capture")
++	}
++	if !bytes.Equal(replayed.CaptureManifest, clean.CaptureManifest) {
++		t.Fatal("replayed capture manifest differs from the clean capture")
++	}
++}
++
++// crashRequest rebuilds the deterministic crash capture request over
++// the given store root, object store, and workspace root.
++func crashRequest(t *testing.T, storeRoot string, store *localstore.ObjectStore, workspaceRoot string) CaptureRequest {
++	t.Helper()
++	branch := "main"
++	head := fixtureDigest("snap-head")
++	request := CaptureRequest{
++		StoreRoot:         storeRoot,
++		Platform:          fixturePlatform(),
++		Plan:              fixturePlan(),
++		OperationID:       fixtureOperationID,
++		BundleID:          fixtureBundleID,
++		SourceBasis:       fixtureSourceBasis(),
++		SourceEnvironment: []byte(fixtureTupleJSON()),
++		SourceIdentity:    fixtureNativeIdentity(t),
++		CapturePlanDigest: fixtureDigest("snap-capture-plan"),
++		NativeSessionID:   "native-session-snap",
++		CreatedByHostID:   fixtureHostID,
++		CreatedAt:         fixtureCreatedAt,
++		Generation:        crashGeneration,
++		ProofKind:         "closed_store",
++		InputBlocked:      true,
++		ForegroundIdle:    true,
++		BackgroundIdle:    true,
++		OnRace:            RaceRefuse,
++		Workspace: WorkspaceRequest{
++			LogicalWorkspaceID: fixtureWorkspaceID,
++			WorkspaceRoot:      workspaceRoot,
++			Cwd:                filepath.Join(workspaceRoot, "work", "trees", "alpha"),
++			RemoteFingerprints: []string{fixtureDigest("snap-remote")},
++			Branch:             &branch,
++			HeadDigest:         &head,
++			Platform:           fixturePlatform(),
++		},
++		Store: store,
++	}
++	return request
++}
++
++// captureCrashChild runs the production Capture entry and kills its
++// own process at the AfterRawPublish boundary. It never returns.
++func captureCrashChild() {
++	store, err := openStoreAt(os.Getenv(crashChildHome))
++	if err != nil {
++		os.Exit(66)
++	}
++	branch := "main"
++	head := fixtureDigest("snap-head")
++	workspace, err := parseTestUUID(fixtureWorkspaceID)
++	if err != nil {
++		os.Exit(66)
++	}
++	request := CaptureRequest{
++		StoreRoot:         os.Getenv(crashChildRoot),
++		Platform:          fixturePlatform(),
++		Plan:              fixturePlan(),
++		OperationID:       fixtureOperationID,
++		BundleID:          fixtureBundleID,
++		SourceBasis:       fixtureSourceBasis(),
++		SourceEnvironment: []byte(fixtureTupleJSON()),
++		SourceIdentity:    testNativeIdentity(workspace),
++		CapturePlanDigest: fixtureDigest("snap-capture-plan"),
++		NativeSessionID:   "native-session-snap",
++		CreatedByHostID:   fixtureHostID,
++		CreatedAt:         fixtureCreatedAt,
++		Generation:        crashGeneration,
++		ProofKind:         "closed_store",
++		InputBlocked:      true,
++		ForegroundIdle:    true,
++		BackgroundIdle:    true,
++		OnRace:            RaceRefuse,
++		Workspace: WorkspaceRequest{
++			LogicalWorkspaceID: fixtureWorkspaceID,
++			WorkspaceRoot:      os.Getenv(crashChildWorkspace),
++			Cwd:                filepath.Join(os.Getenv(crashChildWorkspace), "work", "trees", "alpha"),
++			RemoteFingerprints: []string{fixtureDigest("snap-remote")},
++			Branch:             &branch,
++			HeadDigest:         &head,
++			Platform:           fixturePlatform(),
++		},
++		Store: store,
++		Hooks: CaptureHooks{AfterRawPublish: func() error {
++			_ = syscall.Kill(syscall.Getpid(), syscall.SIGKILL)
++			// The kill is asynchronous under instrumentation:
++			// block here so a delivered SIGKILL always wins the
++			// race against process exit. If the kill failed, the
++			// parent context times out and fails the test instead
++			// of passing on a wrong exit.
++			select {}
++		}},
++	}
++	_, _ = Capture(request)
++	// The hook must have fired: reaching here means the boundary
++	// was skipped, so fail the parent with a clean exit.
++	os.Exit(0)
++}
+diff --git a/internal/clonesnap/descriptor.go b/internal/clonesnap/descriptor.go
+new file mode 100644
+index 0000000..32dca87
+--- /dev/null
++++ b/internal/clonesnap/descriptor.go
+@@ -0,0 +1,110 @@
++package clonesnap
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// This file builds Section 10.2 Blob Descriptors for captured store
++// bytes. The descriptor shape and identity verify through the
++// canonicaljson owner; the blob-ID/size agreement re-checks through
++// the landed clonebundle entry. No descriptor this package seals is
++// ever installed without that agreement.
++
++const (
++	// blobMediaType is the media type of captured store bytes:
++	// uninterpreted payload octets.
++	blobMediaType = "application/octet-stream"
++	// blobChunkSize is the Section 10.2 transfer unit: every chunk
++	// is 4 MiB except the last.
++	blobChunkSize = 4194304
++	// blobMaxChunks is the Section 10.2 descriptor chunk maximum:
++	// 32768 chunks cap one blob at 128 GiB.
++	blobMaxChunks = 32768
++	// DefaultMaxSingleBytes is the largest single store member this
++	// package captures: 32768 chunks of 4194304 bytes, exactly
++	// 137438953472. A larger member fails capture with
++	// capability_unavailable before any manifest is published.
++	DefaultMaxSingleBytes = uint64(blobMaxChunks) * uint64(blobChunkSize)
++)
++
++// BlobDescriptor is one sealed Section 10.2 Blob Descriptor with its
++// verified identities.
++type BlobDescriptor struct {
++	// Descriptor carries the exact sealed descriptor bytes the raw
++	// entry references.
++	Descriptor []byte
++	// BlobID is the SHA-256 of the payload bytes.
++	BlobID scalar.Digest
++	// DescriptorID is the omit-self identity of Descriptor.
++	DescriptorID scalar.Digest
++	// Size is the payload length.
++	Size uint64
++}
++
++// BuildBlobDescriptor seals one Section 10.2 Blob Descriptor over
++// the payload: sorted contiguous non-overlapping chunks from offset
++// zero covering exactly the payload, indexes from zero by one, an
++// empty payload sealing with no chunks. Chunk digests cover raw
++// chunk bytes, so a single-chunk blob's chunk digest equals the
++// whole-blob digest, exactly as the Section 10.2 example.
++func BuildBlobDescriptor(payload []byte) (BlobDescriptor, error) {
++	size := uint64(len(payload))
++	if size > DefaultMaxSingleBytes {
++		return BlobDescriptor{}, invalid("capture member of %d bytes exceeds the 128 GiB blob bound: capability_unavailable", size)
++	}
++	blobSum := sha256.Sum256(payload)
++	blobID, err := scalar.ParseDigest("sha256:" + hex.EncodeToString(blobSum[:]))
++	if err != nil {
++		return BlobDescriptor{}, invalid("capture blob digest is not a digest: %v", err)
++	}
++	chunks := make([]any, 0, 1)
++	for offset := uint64(0); offset < size; {
++		length := uint64(blobChunkSize)
++		if remaining := size - offset; remaining < length {
++			length = remaining
++		}
++		chunkSum := sha256.Sum256(payload[offset : offset+length])
++		chunks = append(chunks, map[string]any{
++			"index":    len(chunks),
++			"offset":   offset,
++			"size":     length,
++			"chunk_id": "sha256:" + hex.EncodeToString(chunkSum[:]),
++		})
++		offset += length
++	}
++	object := map[string]any{
++		"schema":         "urn:ax:schema:blob",
++		"schema_version": "1.0.0",
++		"descriptor_id":  "sha256:" + "0000000000000000000000000000000000000000000000000000000000000000",
++		"blob_id":        blobID.String(),
++		"size":           size,
++		"media_type":     blobMediaType,
++		"chunks":         chunks,
++	}
++	plain, err := json.Marshal(object)
++	if err != nil {
++		return BlobDescriptor{}, invalid("serialize blob descriptor: %v", err)
++	}
++	calculated, field, err := canonicaljson.CalculateObjectIdentity(plain)
++	if err != nil {
++		return BlobDescriptor{}, invalid("blob descriptor identity fails: %v", err)
++	}
++	if string(field) != "descriptor_id" {
++		return BlobDescriptor{}, invalid("blob descriptor self field is %q, want descriptor_id", string(field))
++	}
++	object["descriptor_id"] = calculated.String()
++	sealed, err := json.Marshal(object)
++	if err != nil {
++		return BlobDescriptor{}, invalid("serialize blob descriptor: %v", err)
++	}
++	if err := clonebundle.VerifyDescriptorAgreement(sealed, calculated, blobID, size); err != nil {
++		return BlobDescriptor{}, invalid("sealed blob descriptor disagrees: %v", err)
++	}
++	return BlobDescriptor{Descriptor: sealed, BlobID: blobID, DescriptorID: calculated, Size: size}, nil
++}
+diff --git a/internal/clonesnap/doc.go b/internal/clonesnap/doc.go
+new file mode 100644
+index 0000000..133feb1
+--- /dev/null
++++ b/internal/clonesnap/doc.go
+@@ -0,0 +1,44 @@
++package clonesnap
++
++// This package implements the Section 13.14.1 native capture operation
++// over a real on-disk provider store: a contained capture walk that
++// produces the Clone Raw Object Manifest and Clone Capture Manifest
++// from actual bytes, classifies every Capture Item, builds the
++// Capture Boundary from measured evidence, detects source mutation
++// before any projection output, checkpoints the workspace binding
++// and source head, and admits stable captures to a target branch.
++//
++// Authority: relux-works/agent-session-manager-spec@v0.7.0, Sections
++// 7.8, 10.2, and 13.14.1 (internal/specdoc/SPEC.v0.7.0.md; the
++// pinned sections are byte-identical to v0.6.0).
++//
++// Every artifact this package emits is produced through the landed
++// clonebundle builders and validated by the landed decoders:
++// BuildRawObjectManifest and BuildCaptureManifest seal the
++// manifests, SanitizeNativeKey admits native keys,
++// CheckDigestsEqual decides the source-race gate,
++// RefuseUnstableForTarget and RefuseMaximalSafeUnlessComplete guard
++// target admission, and InstallRawBlob installs payload bytes. No
++// second manifest, boundary, blob, or identity model exists here.
++//
++// Reuse, not fork: store containment is the landed secprim Guard
++// discipline (every payload open descends from a verified root
++// handle, never by re-resolving a path string); durable writes go
++// only through localstore.ObjectStore.PutBlob (no-replace install,
++// fsync, size/digest verification); Blob Descriptors validate
++// through canonicaljson.CalculateObjectIdentity plus local claim
++// comparisons (never the attesting entry, per the provhost
++// no-attestation bound); capture classes admit through
++// clonebundle.ValidCaptureClass; the source digest and receipt bytes
++// seal through scalar digests and canonicaljson.Canonicalize.
++//
++// Stated bounds (sibling scope, not waived): no ax CLI, no provider
++// process, no network — the store is a fixture directory; Section
++// 7.8 capture-plan/capture/normalize operation wiring stays owned by
++// sessadapter (this package consumes plan keys and classes, it does
++// not speak the adapter protocol); projection planning past target
++// admission is the final leaf's (this package emits only the
++// admission receipt that pins G2 admission and race-before-projection
++// ordering); per-kind event payload registries are the normalization
++// sibling's. internal/traceability bindings and the re-pin ride with
++// the Story FINAL leaf; the clause map lives in TRACEABILITY.md.
+diff --git a/internal/clonesnap/errors.go b/internal/clonesnap/errors.go
+new file mode 100644
+index 0000000..8c5a5ce
+--- /dev/null
++++ b/internal/clonesnap/errors.go
+@@ -0,0 +1,17 @@
++package clonesnap
++
++import (
++	"errors"
++	"fmt"
++)
++
++// ErrInvalid is the refusal for every malformed capture input and
++// every detected source violation: unsanitized or unplanned members,
++// containment escapes, excluded-class admission, digest disagreement,
++// undecided races, and target-branch refusals. Callers match with
++// errors.Is; the message names the offending member.
++var ErrInvalid = errors.New("clonesnap: invalid capture")
++
++func invalid(format string, arguments ...any) error {
++	return fmt.Errorf("%w: %s", ErrInvalid, fmt.Sprintf(format, arguments...))
++}
+diff --git a/internal/clonesnap/exclusion_test.go b/internal/clonesnap/exclusion_test.go
+new file mode 100644
+index 0000000..e9edd08
+--- /dev/null
++++ b/internal/clonesnap/exclusion_test.go
+@@ -0,0 +1,135 @@
++package clonesnap
++
++import (
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++)
++
++func itoa(value int) string { return strconv.Itoa(value) }
++
++// Exclusion evidence: the always-excluded classes seal as excluded
++// rows with stable reasons, and their bytes never reach a blob, a
++// manifest, a log line, or an error string — because the walk never
++// opens them.
++
++var exclusionSecrets = map[string]string{
++	"credential":     "snap-secret-credential-7f3a",
++	"machine_auth":   "snap-secret-machine-auth-9b1e",
++	"runtime_state":  "snap-secret-runtime-state-4c8d",
++	"transient_lock": "snap-secret-transient-lock-2e6f",
++}
++
++func exclusionStore(t *testing.T) (string, []PlanItem) {
++	t.Helper()
++	root := t.TempDir()
++	writeStoreFile(t, root, "store/blob-a", []byte("alpha-payload-bytes"))
++	plan := []PlanItem{{NativeKey: "store/blob-a", Class: "durable_payload", Required: true}}
++	keys := []string{"store/auth-token", "store/lock-file", "store/runtime-sock", "store/session-key"}
++	classes := []string{"credential", "transient_lock", "runtime_state", "machine_auth"}
++	for index, key := range keys {
++		writeStoreFile(t, root, key, []byte(exclusionSecrets[classes[index]]))
++		plan = append(plan, PlanItem{NativeKey: key, Class: classes[index], Required: true})
++	}
++	// Sorted: auth-token, blob-a, lock-file, runtime-sock, session-key.
++	ordered := []PlanItem{plan[1], plan[0], plan[2], plan[3], plan[4]}
++	return root, ordered
++}
++
++func TestCaptureExcludesSecrets(t *testing.T) {
++	storeRoot, plan := exclusionStore(t)
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = plan
++	result := mustCapture(t, request)
++
++	byKey := map[string]clonebundle.CaptureItem{}
++	for _, item := range result.Capture.Items {
++		byKey[item.NativeItemKey] = item
++	}
++	expectReason := map[string]string{
++		"store/auth-token":   "credential_excluded",
++		"store/session-key":  "machine_auth_excluded",
++		"store/runtime-sock": "runtime_state_excluded",
++		"store/lock-file":    "transient_lock_excluded",
++	}
++	for key, reason := range expectReason {
++		item, ok := byKey[key]
++		if !ok {
++			t.Fatalf("excluded candidate %q has no item", key)
++		}
++		if item.Included() {
++			t.Fatalf("excluded candidate %q sealed as included", key)
++		}
++		if item.ExclusionReason == nil || *item.ExclusionReason != reason {
++			t.Fatalf("excluded candidate %q reason = %v, want %q", key, item.ExclusionReason, reason)
++		}
++		if item.BlobDescriptorID != nil || item.ByteCount != nil {
++			t.Fatalf("excluded candidate %q carries content members", key)
++		}
++	}
++	for _, entry := range result.Raw.Entries {
++		if entry.NativeItemKey != "store/blob-a" {
++			t.Fatalf("raw entry %q is not the included member", entry.NativeItemKey)
++		}
++	}
++
++	secrets := []string{}
++	for _, secret := range exclusionSecrets {
++		secrets = append(secrets, secret)
++	}
++	scanSecrets := func(context string, haystacks ...string) {
++		t.Helper()
++		for _, haystack := range haystacks {
++			for _, secret := range secrets {
++				if strings.Contains(haystack, secret) {
++					t.Fatalf("%s carries excluded bytes %q", context, secret)
++				}
++			}
++		}
++	}
++	for _, blob := range listStoredBlobs(t, storeSink) {
++		scanSecrets("stored blob", string(blob.bytes))
++	}
++	scanSecrets("raw manifest", string(result.RawManifest))
++	scanSecrets("capture manifest", string(result.CaptureManifest))
++	scanSecrets("workspace binding", string(result.WorkspaceBinding))
++	scanSecrets("capture log", strings.Join(result.Logs, "\n"))
++
++	// A refusal elsewhere in the run must not smuggle excluded
++	// bytes into its error string either.
++	writeStoreFile(t, storeRoot, "store/zz-extra", []byte("unplanned-bytes"))
++	second, err := Capture(validCaptureRequest(t, storeRoot, openTestStore(t)))
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want an unplanned-member refusal", second)
++	}
++	scanSecrets("refusal error", err.Error())
++}
++
++func TestCaptureLogRecordsDigestsOnly(t *testing.T) {
++	storeRoot := t.TempDir()
++	secret := "snap-secret-included-payload-5a1c"
++	payload := "prefix-" + secret + "-suffix"
++	writeStoreFile(t, storeRoot, "store/blob-a", []byte(payload))
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = []PlanItem{{NativeKey: "store/blob-a", Class: "durable_payload", Required: true}}
++	result := mustCapture(t, request)
++
++	joined := strings.Join(result.Logs, "\n")
++	if strings.Contains(joined, secret) {
++		t.Fatalf("capture log carries payload bytes:\n%s", joined)
++	}
++	digest := result.Raw.Entries[0].BlobID.String()
++	if !strings.Contains(joined, digest) {
++		t.Fatalf("capture log misses the blob digest %q:\n%s", digest, joined)
++	}
++	if !strings.Contains(joined, "application/octet-stream") {
++		t.Fatalf("capture log misses the media type:\n%s", joined)
++	}
++	if want := "size=" + itoa(len(payload)); !strings.Contains(joined, want) {
++		t.Fatalf("capture log misses the byte size %q:\n%s", want, joined)
++	}
++}
+diff --git a/internal/clonesnap/fifo_unix_test.go b/internal/clonesnap/fifo_unix_test.go
+new file mode 100644
+index 0000000..3c14b00
+--- /dev/null
++++ b/internal/clonesnap/fifo_unix_test.go
+@@ -0,0 +1,54 @@
++//go:build darwin || linux
++
++package clonesnap
++
++import (
++	"path/filepath"
++	"testing"
++
++	"golang.org/x/sys/unix"
++)
++
++// A FIFO member refuses before any payload byte is read: the Guard
++// opens it non-blocking and refuses its special shape with the
++// member named. The test completes without a writer, which is the
++// proof the open never stalled.
++
++func TestCaptureRefusesFIFO(t *testing.T) {
++	storeRoot := t.TempDir()
++	fifo := filepath.Join(storeRoot, "stash-fifo")
++	if err := unix.Mkfifo(fifo, 0o600); err != nil {
++		t.Fatalf("Mkfifo() error = %v", err)
++	}
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = []PlanItem{
++		{NativeKey: "stash-fifo", Class: "durable_payload", Required: true},
++	}
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a refusal", result)
++	}
++	requireRefusalDetail(t, err, "stash-fifo")
++}
++
++func TestCaptureRefusesOptionalFIFO(t *testing.T) {
++	// An OPTIONAL FIFO member still refuses with the member
++	// named: presence routes every special to its Guard open,
++	// required or not.
++	storeRoot := t.TempDir()
++	fifo := filepath.Join(storeRoot, "stash-fifo")
++	if err := unix.Mkfifo(fifo, 0o600); err != nil {
++		t.Fatalf("Mkfifo() error = %v", err)
++	}
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = []PlanItem{
++		{NativeKey: "stash-fifo", Class: "durable_payload", Required: false},
++	}
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a refusal", result)
++	}
++	requireRefusalDetail(t, err, "stash-fifo")
++}
+diff --git a/internal/clonesnap/fixtures_test.go b/internal/clonesnap/fixtures_test.go
+new file mode 100644
+index 0000000..e766805
+--- /dev/null
++++ b/internal/clonesnap/fixtures_test.go
+@@ -0,0 +1,275 @@
++package clonesnap
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"os"
++	"path/filepath"
++	"runtime"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++	"github.com/relux-works/agent-session-manager/internal/localstore"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// Shared fixtures for the clonesnap suite. Every literal is
++// hand-written and independent of production constants; digests are
++// recomputed with crypto/sha256, never copied from production. The
++// verdict always comes from production; the vectors never do.
++
++const (
++	fixtureOperationID = "0198f4d1-9e60-7f11-8a31-abcdef012345"
++	fixtureBundleID    = "0198f4d1-9e60-7f22-8b42-bcdef0123456"
++	fixtureSessionID   = "0198f4d1-9e60-7f33-8c53-cdef01234567"
++	fixtureHostID      = "0198f4d1-9e60-7f44-8d64-def012345678"
++	fixtureWorkspaceID = "0198f4d1-9e60-7f55-8e75-ef0123456789"
++	fixtureCreatedAt   = "2026-09-18T05:10:00.000Z"
++	fixtureUUIDKey     = "0198f4d1-9e60-7f66-8f86-f0123456789a"
++)
++
++func fixtureDigest(seed string) string {
++	sum := sha256.Sum256([]byte(seed))
++	return "sha256:" + hex.EncodeToString(sum[:])
++}
++
++func fixtureTupleJSON() string {
++	return `{"environment_id":"snap.env","environment_version":"3.0.1","platform":"linux","architecture":"arm64","store_schema_fingerprint":` +
++		`"` + fixtureDigest("snap-store-fingerprint") + `","adapter_version":"2.0.0"}`
++}
++
++func fixtureNativeIdentity(t *testing.T) clonebundle.NativeIdentity {
++	t.Helper()
++	workspace, err := scalar.ParseUUIDv7(fixtureWorkspaceID)
++	if err != nil {
++		t.Fatalf("ParseUUIDv7() error = %v", err)
++	}
++	return clonebundle.NativeIdentity{
++		NativeSessionID:    "native-session-snap",
++		IdentityKind:       "provider_native",
++		LogicalWorkspaceID: workspace,
++	}
++}
++
++func fixturePlatform() scalar.Platform {
++	if runtime.GOOS == "darwin" {
++		return scalar.PlatformMacOS
++	}
++	if runtime.GOOS == "windows" {
++		return scalar.PlatformWindows
++	}
++	return scalar.PlatformLinux
++}
++
++func openTestStore(t *testing.T) *localstore.ObjectStore {
++	t.Helper()
++	home := t.TempDir()
++	config := filepath.Join(home, "config")
++	if err := os.Mkdir(config, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	store, err := openStoreAt(home)
++	if err != nil {
++		t.Fatalf("openStoreAt() error = %v", err)
++	}
++	return store
++}
++
++// openStoreAt opens the object store rooted at an existing home
++// directory. The crash child uses it without a testing context.
++func openStoreAt(home string) (*localstore.ObjectStore, error) {
++	resolved, err := localstore.ResolvePaths(localstore.ResolveRequest{
++		Platform: fixturePlatform(),
++		Flags: map[string]string{
++			"--config":      filepath.Join(home, "config", "config.toml"),
++			"--data-dir":    filepath.Join(home, "data"),
++			"--state-dir":   filepath.Join(home, "state"),
++			"--cache-dir":   filepath.Join(home, "cache"),
++			"--runtime-dir": filepath.Join(home, "runtime"),
++		},
++		Environment:  map[string]string{},
++		HomeDir:      home,
++		TemporaryDir: filepath.Join(home, "temporary"),
++	})
++	if err != nil {
++		return nil, err
++	}
++	return localstore.OpenObjectStore(resolved)
++}
++
++// writeStoreFile creates one regular store member with the given
++// bytes, creating parent directories as needed.
++func writeStoreFile(t *testing.T, root, key string, data []byte) {
++	t.Helper()
++	path := filepath.Join(root, filepath.FromSlash(key))
++	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(path, data, 0o600); err != nil {
++		t.Fatal(err)
++	}
++}
++
++// fixtureStore builds the standard provider store: two included
++// members, one credential member, and a nested directory.
++func fixtureStore(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	writeStoreFile(t, root, "store/blob-a", []byte("alpha-payload-bytes"))
++	writeStoreFile(t, root, "store/blob-b", []byte("beta-payload-bytes"))
++	writeStoreFile(t, root, "store/token-cache", []byte("credential-secret-bytes"))
++	return root
++}
++
++func fixturePlan() []PlanItem {
++	return []PlanItem{
++		{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++		{NativeKey: "store/blob-b", Class: "durable_sidecar", Required: true},
++		{NativeKey: "store/token-cache", Class: "credential", Required: false},
++	}
++}
++
++// fixtureWorkspace builds a real workspace tree and returns its
++// checkpoint request: the root, an existing nested cwd, one remote
++// fingerprint, a branch, and a head digest.
++func fixtureWorkspace(t *testing.T) WorkspaceRequest {
++	t.Helper()
++	root := t.TempDir()
++	cwd := filepath.Join(root, "work", "trees", "alpha")
++	if err := os.MkdirAll(cwd, 0o700); err != nil {
++		t.Fatal(err)
++	}
++	branch := "main"
++	head := fixtureDigest("snap-head")
++	return WorkspaceRequest{
++		LogicalWorkspaceID: fixtureWorkspaceID,
++		WorkspaceRoot:      root,
++		Cwd:                cwd,
++		RemoteFingerprints: []string{fixtureDigest("snap-remote")},
++		Branch:             &branch,
++		HeadDigest:         &head,
++		Platform:           fixturePlatform(),
++	}
++}
++
++func fixtureSourceBasis() clonebundle.SourceBasisInput {
++	return clonebundle.SourceBasisInput{
++		Kind:                     "ax_session",
++		SourceSessionID:          fixtureSessionID,
++		SourceSessionRecordID:    fixtureDigest("snap-session-record"),
++		SourceCheckpointID:       fixtureDigest("snap-checkpoint"),
++		SourceProviderIdentityID: fixtureDigest("snap-provider-identity"),
++	}
++}
++
++func validCaptureRequest(t *testing.T, storeRoot string, store *localstore.ObjectStore) CaptureRequest {
++	t.Helper()
++	return CaptureRequest{
++		StoreRoot:         storeRoot,
++		Platform:          fixturePlatform(),
++		Plan:              fixturePlan(),
++		OperationID:       fixtureOperationID,
++		BundleID:          fixtureBundleID,
++		SourceBasis:       fixtureSourceBasis(),
++		SourceEnvironment: []byte(fixtureTupleJSON()),
++		SourceIdentity:    fixtureNativeIdentity(t),
++		CapturePlanDigest: fixtureDigest("snap-capture-plan"),
++		NativeSessionID:   "native-session-snap",
++		CreatedByHostID:   fixtureHostID,
++		CreatedAt:         fixtureCreatedAt,
++		Generation:        "generation-7",
++		ProofKind:         "closed_store",
++		InputBlocked:      true,
++		ForegroundIdle:    true,
++		BackgroundIdle:    true,
++		OperatorExplicit:  false,
++		OnRace:            RaceRefuse,
++		Workspace:         fixtureWorkspace(t),
++		Store:             store,
++	}
++}
++
++// storedBlob is one content-addressed file observed under a store's
++// objects namespace.
++type storedBlob struct {
++	digest scalar.Digest
++	bytes  []byte
++}
++
++// listStoredBlobs enumerates every blob file under the store's
++// objects namespace. It is the test-side oracle for what capture
++// published: production never lists the namespace.
++func listStoredBlobs(t *testing.T, store *localstore.ObjectStore) []storedBlob {
++	t.Helper()
++	objects := filepath.Join(store.DataRoot(), "objects")
++	var blobs []storedBlob
++	err := filepath.Walk(objects, func(path string, info os.FileInfo, err error) error {
++		if err != nil {
++			if os.IsNotExist(err) {
++				return nil
++			}
++			return err
++		}
++		if info.IsDir() {
++			return nil
++		}
++		raw, err := os.ReadFile(path)
++		if err != nil {
++			t.Fatalf("ReadFile(%q) error = %v", path, err)
++		}
++		sum := sha256.Sum256(raw)
++		digest, err := scalar.ParseDigest("sha256:" + hex.EncodeToString(sum[:]))
++		if err != nil {
++			t.Fatalf("ParseDigest() error = %v", err)
++		}
++		blobs = append(blobs, storedBlob{digest: digest, bytes: raw})
++		return nil
++	})
++	if err != nil {
++		t.Fatalf("Walk(objects) error = %v", err)
++	}
++	return blobs
++}
++
++// blobsContain reports whether any stored blob carries the needle.
++func blobsContain(blobs []storedBlob, needle string) bool {
++	for _, blob := range blobs {
++		if strings.Contains(string(blob.bytes), needle) {
++			return true
++		}
++	}
++	return false
++}
++
++func mustCapture(t *testing.T, request CaptureRequest) *CaptureResult {
++	t.Helper()
++	result, err := Capture(request)
++	if err != nil {
++		t.Fatalf("Capture() error = %v", err)
++	}
++	if result == nil {
++		t.Fatal("Capture() returned nil result without an error")
++	}
++	return result
++}
++
++// assertEveryRawBlobInstalled proves the Section 10.2 install rule
++// at the store: every raw-manifest entry's blob is present under
++// its content digest. A manifest that references a blob Capture
++// never installed fails here.
++func assertEveryRawBlobInstalled(t *testing.T, store *localstore.ObjectStore, raw clonebundle.RawObjectManifest) {
++	t.Helper()
++	if len(raw.Entries) == 0 {
++		t.Fatal("raw manifest carries no entries")
++	}
++	installed := map[string]bool{}
++	for _, blob := range listStoredBlobs(t, store) {
++		installed[blob.digest.String()] = true
++	}
++	for _, entry := range raw.Entries {
++		if !installed[entry.BlobID.String()] {
++			t.Fatalf("raw entry %q references blob %q with no installed blob", entry.NativeItemKey, entry.BlobID)
++		}
++	}
++}
+diff --git a/internal/clonesnap/log.go b/internal/clonesnap/log.go
+new file mode 100644
+index 0000000..3f6b2d2
+--- /dev/null
++++ b/internal/clonesnap/log.go
+@@ -0,0 +1,34 @@
++package clonesnap
++
++import (
++	"fmt"
++)
++
++// This file owns the capture log. Section 10.2 requires logs to
++// record digest, size, and media type only, never blob contents: the
++// only record entry takes the member key, class, digest, size,
++// media type, and reason — there is no parameter blob contents could
++// cross. The leak suite scans every emitted line for fixture secrets.
++
++// CaptureLog is one append-only capture log.
++type CaptureLog struct {
++	lines []string
++}
++
++// Linef appends one formatted log line. Callers pass digests, sizes,
++// media types, member keys, and stable reasons only — never source
++// bytes.
++func (log *CaptureLog) Linef(format string, arguments ...any) {
++	if log == nil {
++		return
++	}
++	log.lines = append(log.lines, fmt.Sprintf(format, arguments...))
++}
++
++// Lines returns a copy of the recorded lines.
++func (log *CaptureLog) Lines() []string {
++	if log == nil {
++		return nil
++	}
++	return append([]string(nil), log.lines...)
++}
+diff --git a/internal/clonesnap/project.go b/internal/clonesnap/project.go
+new file mode 100644
+index 0000000..d6cd50e
+--- /dev/null
++++ b/internal/clonesnap/project.go
+@@ -0,0 +1,198 @@
++package clonesnap
++
++import (
++	"bytes"
++	"encoding/json"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++	"github.com/relux-works/agent-session-manager/internal/localstore"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// This file owns target-branch admission and the projection output
++// whose existence pins the race-before-projection ordering.
++// CaptureAndProject runs the capture pipeline, then admits the
++// sealed capture manifest: the unstable_archive form can never enter
++// a target branch (the landed G2 gate decides), and the maximal_safe
++// fidelity profile requires a reconciled complete manifest (the
++// landed maximal-safe gate decides). Admission emits one admission
++// receipt into the target sink. Projection planning past admission
++// is the final leaf's scope; this receipt exists to prove admission
++// and ordering, not to plan a projection.
++
++// FidelityProfile is one Section 7.8 fidelity profile:
++// strict_exact|maximal_safe|compact|messages_only.
++type FidelityProfile string
++
++const (
++	// FidelityStrictExact requests exact projection.
++	FidelityStrictExact FidelityProfile = "strict_exact"
++	// FidelityMaximalSafe requests maximal safe projection: it
++	// requires a reconciled complete manifest with no unknown class.
++	FidelityMaximalSafe FidelityProfile = "maximal_safe"
++	// FidelityCompact requests compact projection.
++	FidelityCompact FidelityProfile = "compact"
++	// FidelityMessagesOnly requests messages-only projection.
++	FidelityMessagesOnly FidelityProfile = "messages_only"
++)
++
++// validFidelityProfile reports whether the profile is in the Section
++// 7.8 closed vocabulary. Bound (P3-ζ′): sessadapter owns an
++// unexported copy of this four-profile table; the Story FINAL leaf
++// unifies or exports one owner. This package keeps its own closed
++// switch so the leaf boundary stays narrow.
++func validFidelityProfile(profile string) bool {
++	switch FidelityProfile(profile) {
++	case FidelityStrictExact, FidelityMaximalSafe, FidelityCompact, FidelityMessagesOnly:
++		return true
++	default:
++		return false
++	}
++}
++
++// ProjectRequest is one capture-and-project candidate: the capture
++// request, the target sink that receives the admission receipt, and
++// the fidelity profile admission decides.
++type ProjectRequest struct {
++	Capture CaptureRequest
++	// TargetSink receives the admission receipt. It stays empty
++	// when capture refuses, races, or seals archive-only output.
++	TargetSink *localstore.ObjectStore
++	// FidelityProfile is the requested Section 7.8 profile.
++	FidelityProfile string
++}
++
++// ProjectResult is one admitted capture: the capture result plus the
++// sealed admission receipt.
++type ProjectResult struct {
++	Capture *CaptureResult
++	// Receipt carries the sealed admission receipt bytes.
++	Receipt []byte
++	// ReceiptDigest is the blob identity of the receipt.
++	ReceiptDigest scalar.Digest
++	// ReceiptInstalled reports whether this run installed the
++	// receipt blob (a replay verifies and reuses).
++	ReceiptInstalled bool
++}
++
++// CaptureAndProject runs capture, then admits the sealed capture to
++// a target branch and emits the admission receipt. The race gate
++// precedes admission and emission (see ORDER-PIN below): a mutated
++// source refuses, or seals archive-only output that admission
++// rejects — no projection output is produced before the race is
++// decided.
++func CaptureAndProject(request ProjectRequest) (*ProjectResult, error) {
++	if request.TargetSink == nil {
++		return nil, invalid("capture projection requires a target sink")
++	}
++	state, err := newPipeline(request.Capture)
++	if err != nil {
++		return nil, err
++	}
++	defer state.close()
++	if err := state.walkAndMeasure(); err != nil {
++		return nil, err
++	}
++	// ORDER-PIN: the source-race gate precedes any seal, admission,
++	// or projection output. N-race-order-project moves this gate
++	// after admitAndEmit: the early seal then refuses with a seal
++	// error instead of the race refusal, so the killer reddens on
++	// the wrong error — and on any emitted receipt blob.
++	if err := state.gateSourceRace(); err != nil {
++		captured, raceErr := state.raceOutcome(err)
++		if raceErr != nil {
++			return nil, raceErr
++		}
++		// Archive-only output never enters a target branch: the
++		// admission gate below refuses it, so no receipt exists.
++		if _, err := AdmitForTarget(captured.CaptureManifest, request.FidelityProfile); err != nil {
++			return nil, err
++		}
++		return nil, invalid("capture archive unexpectedly admitted to a target branch")
++	}
++	sealed, err := state.sealAndPublish(false)
++	if err != nil {
++		return nil, err
++	}
++	return state.admitAndEmit(request, sealed)
++}
++
++// admitAndEmit admits one sealed capture to the target branch and
++// emits its admission receipt into the target sink.
++func (state *pipeline) admitAndEmit(request ProjectRequest, sealed *CaptureResult) (*ProjectResult, error) {
++	if _, err := AdmitForTarget(sealed.CaptureManifest, request.FidelityProfile); err != nil {
++		return nil, err
++	}
++	receipt, err := BuildAdmissionReceipt(sealed.Raw.ManifestID, sealed.Capture.ManifestID, request.FidelityProfile)
++	if err != nil {
++		return nil, err
++	}
++	digest := scalar.SHA256Digest(receipt)
++	put, err := request.TargetSink.PutBlob(digest, uint64(len(receipt)), bytes.NewReader(receipt))
++	if err != nil {
++		return nil, invalid("capture projection cannot publish the admission receipt: %v", err)
++	}
++	return &ProjectResult{
++		Capture:          sealed,
++		Receipt:          receipt,
++		ReceiptDigest:    digest,
++		ReceiptInstalled: put.Installed,
++	}, nil
++}
++
++// AdmitForTarget admits one sealed capture manifest to a target
++// branch under the requested fidelity profile. The unstable_archive
++// form is archive-only output and always refuses; an unknown
++// fidelity profile refuses; maximal_safe requires a reconciled
++// complete manifest with no unknown class.
++func AdmitForTarget(captureManifest []byte, profile string) (clonebundle.CaptureManifest, error) {
++	manifest, err := clonebundle.DecodeCaptureManifest(captureManifest)
++	if err != nil {
++		return clonebundle.CaptureManifest{}, err
++	}
++	if err := clonebundle.RefuseUnstableForTarget(manifest.CaptureBoundary); err != nil {
++		return clonebundle.CaptureManifest{}, err
++	}
++	if !validFidelityProfile(profile) {
++		return clonebundle.CaptureManifest{}, invalid("capture fidelity profile %q is outside strict_exact|maximal_safe|compact|messages_only", profile)
++	}
++	if profile == "maximal_safe" {
++		if err := clonebundle.RefuseMaximalSafeUnlessComplete(manifest); err != nil {
++			return clonebundle.CaptureManifest{}, err
++		}
++	}
++	return manifest, nil
++}
++
++// admissionReceiptSchema pins the admission receipt envelope
++// identity.
++const admissionReceiptSchema = "urn:ax:internal:clonesnap-admission-receipt"
++
++// BuildAdmissionReceipt seals one target admission receipt: the
++// admitted raw and capture manifest identities, the stable boundary
++// kind, and the fidelity profile. Only stable captures reach it;
++// AdmitForTarget refused everything else before this seal ran.
++func BuildAdmissionReceipt(rawManifestID, captureManifestID scalar.Digest, profile string) ([]byte, error) {
++	if !validFidelityProfile(profile) {
++		return nil, invalid("capture fidelity profile %q is outside strict_exact|maximal_safe|compact|messages_only", profile)
++	}
++	object := map[string]any{
++		"schema":                 admissionReceiptSchema,
++		"schema_version":         "1.0.0",
++		"raw_object_manifest_id": rawManifestID.String(),
++		"capture_manifest_id":    captureManifestID.String(),
++		"boundary_kind":          "stable",
++		"fidelity_profile":       profile,
++		"extensions":             map[string]any{},
++	}
++	plain, err := json.Marshal(object)
++	if err != nil {
++		return nil, invalid("serialize admission receipt: %v", err)
++	}
++	sealed, err := canonicaljson.Canonicalize(plain)
++	if err != nil {
++		return nil, invalid("canonicalize admission receipt: %v", err)
++	}
++	return sealed, nil
++}
+diff --git a/internal/clonesnap/project_test.go b/internal/clonesnap/project_test.go
+new file mode 100644
+index 0000000..46542cb
+--- /dev/null
++++ b/internal/clonesnap/project_test.go
+@@ -0,0 +1,237 @@
++package clonesnap
++
++import (
++	"bytes"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++)
++
++// Target admission evidence: AdmitForTarget drives the landed G2
++// and maximal-safe gates from the projection entry, and
++// CaptureAndProject emits the admission receipt only for admitted
++// stable captures.
++
++func projectValid(t *testing.T, profile string) (*ProjectResult, error) {
++	t.Helper()
++	storeRoot := fixtureStore(t)
++	return CaptureAndProject(ProjectRequest{
++		Capture:         validCaptureRequest(t, storeRoot, openTestStore(t)),
++		TargetSink:      openTestStore(t),
++		FidelityProfile: profile,
++	})
++}
++
++func TestProjectAdmitsStableEveryProfile(t *testing.T) {
++	for _, profile := range []string{"strict_exact", "maximal_safe", "compact", "messages_only"} {
++		projected, err := projectValid(t, profile)
++		if err != nil {
++			t.Fatalf("CaptureAndProject(%q) error = %v", profile, err)
++		}
++		if !projected.ReceiptInstalled {
++			t.Fatalf("CaptureAndProject(%q) installed no receipt", profile)
++		}
++		sealed := string(projected.Receipt)
++		for _, literal := range []string{
++			`"schema":"urn:ax:internal:clonesnap-admission-receipt"`,
++			`"schema_version":"1.0.0"`,
++			`"boundary_kind":"stable"`,
++			`"fidelity_profile":"` + profile + `"`,
++		} {
++			if !strings.Contains(sealed, literal) {
++				t.Fatalf("receipt misses %s:\n%s", literal, sealed)
++			}
++		}
++		if !strings.Contains(sealed, projected.Capture.Raw.ManifestID.String()) {
++			t.Fatal("receipt misses the raw manifest identity")
++		}
++		if !strings.Contains(sealed, projected.Capture.Capture.ManifestID.String()) {
++			t.Fatal("receipt misses the capture manifest identity")
++		}
++	}
++}
++
++func TestProjectRefusesUnstable(t *testing.T) {
++	archive := func(t *testing.T, generation string) error {
++		t.Helper()
++		storeRoot := fixtureStore(t)
++		storeSink := openTestStore(t)
++		targetSink := openTestStore(t)
++		request := validCaptureRequest(t, storeRoot, storeSink)
++		request.OnRace = RaceArchive
++		request.OperatorExplicit = true
++		request.Generation = generation
++		request.Hooks.AfterWalk = mutateAfterWalk(t, func(root string) {
++			writeStoreFile(t, root, "store/blob-a", []byte("alpha-payload-bytez"))
++		})
++		projected, err := CaptureAndProject(ProjectRequest{
++			Capture:         request,
++			TargetSink:      targetSink,
++			FidelityProfile: "strict_exact",
++		})
++		if err == nil {
++			t.Fatalf("CaptureAndProject() = %+v, want a target refusal", projected)
++		}
++		// Archive-only output never enters a target branch: the
++		// refusal leaves the target sink empty, not only unadmitted.
++		if blobs := listStoredBlobs(t, targetSink); len(blobs) != 0 {
++			t.Fatalf("refused archive capture wrote %d blobs to the target sink, want none", len(blobs))
++		}
++		return err
++	}
++	// The unstable_archive form can never enter a target branch.
++	requireRefusalDetail(t, archive(t, "generation-9"), "unstable_archive", "target branch")
++	// A different generation still refuses after the
++	// admit-exactly-generation-9 narrowing.
++	requireRefusalDetail(t, archive(t, "generation-10"), "unstable_archive", "target branch")
++}
++
++func TestProjectRefusesUnstableDirect(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.OnRace = RaceArchive
++	request.OperatorExplicit = true
++	request.Hooks.AfterWalk = mutateAfterWalk(t, func(root string) {
++		writeStoreFile(t, root, "store/blob-a", []byte("alpha-payload-bytez"))
++	})
++	captured := mustCapture(t, request)
++	if _, err := AdmitForTarget(captured.CaptureManifest, "strict_exact"); err == nil {
++		t.Fatal("AdmitForTarget(unstable) = nil, want a refusal")
++	} else {
++		requireRefusalDetail(t, err, "unstable_archive", "target branch")
++	}
++}
++
++func TestProjectMaximalSafeRequiresComplete(t *testing.T) {
++	admitUnknown := func(t *testing.T, keys int) error {
++		t.Helper()
++		storeRoot := t.TempDir()
++		writeStoreFile(t, storeRoot, "store/blob-a", []byte("alpha-payload-bytes"))
++		plan := []PlanItem{{NativeKey: "store/blob-a", Class: "durable_payload", Required: true}}
++		for index := 0; index < keys; index++ {
++			key := "store/zz-unknown-" + string(rune('a'+index))
++			writeStoreFile(t, storeRoot, key, []byte("unknown-bytes"))
++			plan = append(plan, PlanItem{NativeKey: key, Class: "unknown", Required: true})
++		}
++		// Sorted: blob-a, then the zz-unknown keys in order.
++		request := validCaptureRequest(t, storeRoot, openTestStore(t))
++		request.Plan = plan
++		captured := mustCapture(t, request)
++		if captured.Capture.RawComplete {
++			t.Fatal("RawComplete = true with unknown-class items")
++		}
++		_, err := AdmitForTarget(captured.CaptureManifest, "maximal_safe")
++		if err == nil {
++			t.Fatalf("AdmitForTarget(maximal_safe) = nil with %d unknown items", keys)
++		}
++		return err
++	}
++	requireRefusalDetail(t, admitUnknown(t, 2), "maximal_safe")
++	// The two-item manifest still refuses after the
++	// admit-exactly-three-items narrowing.
++	requireRefusalDetail(t, admitUnknown(t, 1), "maximal_safe")
++}
++
++func TestProjectMaximalSafeAdmitsComplete(t *testing.T) {
++	projected, err := projectValid(t, "maximal_safe")
++	if err != nil {
++		t.Fatalf("CaptureAndProject(maximal_safe) error = %v", err)
++	}
++	if !projected.ReceiptInstalled {
++		t.Fatal("complete maximal_safe capture installed no receipt")
++	}
++}
++
++func TestProjectStrictExactAdmitsUnknown(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	writeStoreFile(t, storeRoot, "store/zz-unknown", []byte("unknown-kind-bytes"))
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = []PlanItem{
++		{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++		{NativeKey: "store/blob-b", Class: "durable_sidecar", Required: true},
++		{NativeKey: "store/token-cache", Class: "credential", Required: false},
++		{NativeKey: "store/zz-unknown", Class: "unknown", Required: true},
++	}
++	projected, err := CaptureAndProject(ProjectRequest{
++		Capture:         request,
++		TargetSink:      openTestStore(t),
++		FidelityProfile: "strict_exact",
++	})
++	if err != nil {
++		t.Fatalf("CaptureAndProject(strict_exact) error = %v", err)
++	}
++	if projected.Capture.Capture.RawComplete {
++		t.Fatal("RawComplete = true with an unknown-class item")
++	}
++}
++
++func TestProjectRefusesUnknownProfile(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	captured := mustCapture(t, validCaptureRequest(t, storeRoot, openTestStore(t)))
++	if _, err := AdmitForTarget(captured.CaptureManifest, "ultra"); err == nil {
++		t.Fatal("AdmitForTarget(ultra) = nil, want a refusal")
++	} else {
++		requireRefusalDetail(t, err, `"ultra"`, "strict_exact|maximal_safe|compact|messages_only")
++	}
++	if _, err := projectValid(t, "ultra"); err == nil {
++		t.Fatal("CaptureAndProject(ultra) admitted, want a refusal")
++	}
++}
++
++func TestProjectIsIdempotent(t *testing.T) {
++	// A replayed capture installs the same blobs and publishes no
++	// half-written manifest: every manifest blob re-decodes, the
++	// replay verifies and reuses, and the bytes are identical.
++	storeRoot := fixtureStore(t)
++	storeSink := openTestStore(t)
++	targetSink := openTestStore(t)
++	build := func() ProjectRequest {
++		return ProjectRequest{
++			Capture:         validCaptureRequest(t, storeRoot, storeSink),
++			TargetSink:      targetSink,
++			FidelityProfile: "strict_exact",
++		}
++	}
++	first, err := CaptureAndProject(build())
++	if err != nil {
++		t.Fatalf("CaptureAndProject() error = %v", err)
++	}
++	second, err := CaptureAndProject(build())
++	if err != nil {
++		t.Fatalf("replayed CaptureAndProject() error = %v", err)
++	}
++	if !bytes.Equal(first.Capture.RawManifest, second.Capture.RawManifest) {
++		t.Fatal("replayed raw manifest bytes differ")
++	}
++	if !bytes.Equal(first.Capture.CaptureManifest, second.Capture.CaptureManifest) {
++		t.Fatal("replayed capture manifest bytes differ")
++	}
++	if !bytes.Equal(first.Receipt, second.Receipt) {
++		t.Fatal("replayed receipt bytes differ")
++	}
++	if second.Capture.RawInstalled || second.Capture.CaptureInstalled || second.ReceiptInstalled {
++		t.Fatal("replay installed instead of verifying and reusing")
++	}
++	for _, blob := range listStoredBlobs(t, storeSink) {
++		if _, err := clonebundle.DecodeRawObjectManifest(blob.bytes); err == nil {
++			continue
++		}
++		if _, err := clonebundle.DecodeCaptureManifest(blob.bytes); err == nil {
++			continue
++		}
++		// Payload blobs decode as neither manifest; their digest
++		// is their identity, verified at install.
++	}
++	countBefore := len(listStoredBlobs(t, storeSink))
++	third, err := CaptureAndProject(build())
++	if err != nil {
++		t.Fatalf("second replay error = %v", err)
++	}
++	_ = third
++	if countAfter := len(listStoredBlobs(t, storeSink)); countAfter != countBefore {
++		t.Fatalf("replay changed the blob count %d -> %d", countBefore, countAfter)
++	}
++}
+diff --git a/internal/clonesnap/race.go b/internal/clonesnap/race.go
+new file mode 100644
+index 0000000..38d23c6
+--- /dev/null
++++ b/internal/clonesnap/race.go
+@@ -0,0 +1,120 @@
++package clonesnap
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"fmt"
++	"sort"
++	"strconv"
++	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// This file owns the source-race record: the canonical digest over
++// every enumerated store member that the pre and post capture
++// measurements compare. Included-class members contribute their key,
++// size, and content hash; excluded-class members contribute key and
++// size only, because their bytes are never opened; directories
++// contribute their keys, so an appended record is a detected
++// mutation. Size equality is never proof: the comparison is digest
++// equality over content hashes through the landed CheckDigestsEqual.
++
++// sourceRecord is one canonical source listing: sorted unique lines,
++// one per enumerated member.
++type sourceRecord struct {
++	lines []string
++}
++
++func recordFileLine(key string, size uint64, content string) string {
++	return key + "\x00" + string(memberFile) + "\x00" + strconv.FormatUint(size, 10) + "\x00" + content
++}
++
++func recordDirLine(key string) string {
++	return key + "\x00" + string(memberDir) + "\x00" + "0" + "\x00" + "-"
++}
++
++func recordOtherLine(key string) string {
++	return key + "\x00" + string(memberOther) + "\x00" + "0" + "\x00" + "-"
++}
++
++// addFile records one regular member: content is the hex content
++// hash for included members and "-" for excluded members, whose
++// bytes are never read.
++func (record *sourceRecord) addFile(key string, size uint64, content string) {
++	record.lines = append(record.lines, recordFileLine(key, size, content))
++}
++
++func (record *sourceRecord) addDir(key string) {
++	record.lines = append(record.lines, recordDirLine(key))
++}
++
++func (record *sourceRecord) addOther(key string) {
++	record.lines = append(record.lines, recordOtherLine(key))
++}
++
++// digest seals the record: the lines sort and join deterministically,
++// so identical sources seal identical digests.
++func (record *sourceRecord) digest() scalar.Digest {
++	lines := append([]string(nil), record.lines...)
++	sort.Strings(lines)
++	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
++	digest, err := scalar.ParseDigest("sha256:" + hex.EncodeToString(sum[:]))
++	if err != nil {
++		panic(fmt.Sprintf("clonesnap: source record digest is not a digest: %v", err))
++	}
++	return digest
++}
++
++// contentHash is the hex content hash one record line carries for an
++// included member.
++func contentHash(payload []byte) string {
++	sum := sha256.Sum256(payload)
++	return hex.EncodeToString(sum[:])
++}
++
++// checkSourceRace compares the pre and post source digests through
++// the landed equality gate. Equal sizes with differing bytes refuse:
++// the gate compares content digests, never sizes. The refusal names
++// the first differing member alongside the two digests; it never
++// carries source bytes.
++func checkSourceRace(pre, post scalar.Digest, preLines, postLines []string) error {
++	if err := clonebundle.CheckDigestsEqual(pre, post); err != nil {
++		return invalid("source mutated during capture: member %q changed: %v", firstChangedMember(preLines, postLines), err)
++	}
++	return nil
++}
++
++// firstChangedMember names one member whose record line differs
++// between the pre and post listings: an appended, removed, resized,
++// retyped, or content-changed member. The listings compared equal as
++// sets only when the digests agree, so a mismatch always names a
++// member; the fallback names the record, never nothing.
++func firstChangedMember(preLines, postLines []string) string {
++	pre := make(map[string]bool, len(preLines))
++	for _, line := range preLines {
++		pre[line] = true
++	}
++	post := make(map[string]bool, len(postLines))
++	for _, line := range postLines {
++		post[line] = true
++	}
++	for _, line := range postLines {
++		if !pre[line] {
++			if key, _, found := strings.Cut(line, "\x00"); found {
++				return key
++			}
++			return "source record"
++		}
++	}
++	for _, line := range preLines {
++		if !post[line] {
++			if key, _, found := strings.Cut(line, "\x00"); found {
++				return key
++			}
++			return "source record"
++		}
++	}
++	return "source record"
++}
+diff --git a/internal/clonesnap/race_test.go b/internal/clonesnap/race_test.go
+new file mode 100644
+index 0000000..671d98e
+--- /dev/null
++++ b/internal/clonesnap/race_test.go
+@@ -0,0 +1,239 @@
++package clonesnap
++
++import (
++	"bytes"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++)
++
++// Source-race evidence: a changed byte, a changed size, an appended
++// record, and a replaced file each refuse — or seal the
++// unstable_archive form with source_not_quiescent — and the mutation
++// check runs before any seal or projection output. The AfterWalk
++// hook injects each mutation deterministically between the capture
++// walk and the post-capture measurement.
++
++func mutateAfterWalk(t *testing.T, mutate func(root string)) func(string) error {
++	t.Helper()
++	return func(root string) error {
++		mutate(root)
++		return nil
++	}
++}
++
++func raceRefusal(t *testing.T, mutate func(root string)) error {
++	t.Helper()
++	storeRoot := fixtureStore(t)
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Hooks.AfterWalk = mutateAfterWalk(t, mutate)
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a race refusal", result)
++	}
++	requireRefusalDetail(t, err, "source mutated during capture")
++	return err
++}
++
++func TestCaptureRaceChangedByte(t *testing.T) {
++	// The first case mutates blob-a at equal size: size equality is
++	// never proof, so the content digests still disagree.
++	err := raceRefusal(t, func(root string) {
++		writeStoreFile(t, root, "store/blob-a", []byte("alpha-payload-bytez"))
++	})
++	requireRefusalDetail(t, err, `"store/blob-a"`, "capture digests differ")
++	// The second case mutates blob-b: other members still refuse
++	// after the admit-exactly-blob-a narrowing.
++	other := raceRefusal(t, func(root string) {
++		writeStoreFile(t, root, "store/blob-b", []byte("beta-payload-bytez"))
++	})
++	requireRefusalDetail(t, other, `"store/blob-b"`, "capture digests differ")
++}
++
++func TestCaptureRaceChangedSize(t *testing.T) {
++	err := raceRefusal(t, func(root string) {
++		writeStoreFile(t, root, "store/blob-a", []byte("alpha-payload-bytes-extended"))
++	})
++	requireRefusalDetail(t, err, `"store/blob-a"`)
++}
++
++func TestCaptureRaceAppendedRecord(t *testing.T) {
++	err := raceRefusal(t, func(root string) {
++		writeStoreFile(t, root, "store/blob-appended", []byte("appended-bytes"))
++	})
++	requireRefusalDetail(t, err, `"store/blob-appended"`)
++}
++
++func TestCaptureRaceReplacedFile(t *testing.T) {
++	err := raceRefusal(t, func(root string) {
++		if err := os.Remove(filepath.Join(root, "store", "blob-a")); err != nil {
++			t.Fatal(err)
++		}
++		writeStoreFile(t, root, "store/blob-a", []byte("replacement-bytes"))
++	})
++	requireRefusalDetail(t, err, `"store/blob-a"`)
++}
++
++func TestCaptureRaceUnreadableAtPost(t *testing.T) {
++	// A member that grows past MaxSingleBytes between the walk
++	// and the post measurement keeps its shape — the same
++	// regular key — but cannot be re-read: the race refuses
++	// naming the member instead of sealing the captured hash.
++	storeRoot := fixtureStore(t)
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.MaxSingleBytes = 32
++	request.Hooks.AfterWalk = mutateAfterWalk(t, func(root string) {
++		writeStoreFile(t, root, "store/blob-a", bytes.Repeat([]byte("g"), 64))
++	})
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a race refusal", result)
++	}
++	requireRefusalDetail(t, err, "source mutated during capture", `"store/blob-a"`, "capture digests differ")
++}
++
++func TestCaptureRaceRemovedFile(t *testing.T) {
++	err := raceRefusal(t, func(root string) {
++		if err := os.Remove(filepath.Join(root, "store", "blob-b")); err != nil {
++			t.Fatal(err)
++		}
++	})
++	requireRefusalDetail(t, err, `"store/blob-b"`)
++}
++
++func TestCaptureArchiveSealsUnstable(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.OnRace = RaceArchive
++	request.OperatorExplicit = true
++	request.Hooks.AfterWalk = mutateAfterWalk(t, func(root string) {
++		writeStoreFile(t, root, "store/blob-a", []byte("alpha-payload-bytez"))
++	})
++	result := mustCapture(t, request)
++	if result.BoundaryKind != "unstable_archive" {
++		t.Fatalf("BoundaryKind = %q, want unstable_archive", result.BoundaryKind)
++	}
++	if result.PreDigest == result.PostDigest {
++		t.Fatal("PreDigest == PostDigest despite the injected mutation")
++	}
++	manifest, err := clonebundle.DecodeCaptureManifest(result.CaptureManifest)
++	if err != nil {
++		t.Fatalf("DecodeCaptureManifest() error = %v", err)
++	}
++	if manifest.CaptureBoundary.Stable() {
++		t.Fatal("sealed boundary is stable after a detected mutation")
++	}
++	sealed := string(result.CaptureManifest)
++	if !strings.Contains(sealed, `"kind":"unstable_archive"`) {
++		t.Fatal("sealed manifest misses the unstable_archive kind")
++	}
++	if !strings.Contains(sealed, `"reason_code":"source_not_quiescent"`) {
++		t.Fatal("sealed manifest misses reason_code source_not_quiescent")
++	}
++	if !strings.Contains(sealed, `"operator_explicit":true`) {
++		t.Fatal("sealed manifest misses operator_explicit true")
++	}
++	if !strings.Contains(sealed, `"target_projection_forbidden":true`) {
++		t.Fatal("sealed manifest misses target_projection_forbidden true")
++	}
++	if err := clonebundle.RefuseUnstableForTarget(manifest.CaptureBoundary); err == nil {
++		t.Fatal("RefuseUnstableForTarget() = nil for archive output")
++	}
++}
++
++func TestCaptureArchiveRequiresExplicit(t *testing.T) {
++	archive := func(t *testing.T, generation string) error {
++		t.Helper()
++		storeRoot := fixtureStore(t)
++		storeSink := openTestStore(t)
++		request := validCaptureRequest(t, storeRoot, storeSink)
++		request.OnRace = RaceArchive
++		request.OperatorExplicit = false
++		request.Generation = generation
++		request.Hooks.AfterWalk = mutateAfterWalk(t, func(root string) {
++			writeStoreFile(t, root, "store/blob-a", []byte("alpha-payload-bytez"))
++		})
++		result, err := Capture(request)
++		if err == nil {
++			t.Fatalf("Capture() = %+v, want an acknowledgement refusal", result)
++		}
++		return err
++	}
++	requireRefusalDetail(t, archive(t, "generation-9"), "explicit operator acknowledgement")
++	// A different generation still refuses after the
++	// admit-exactly-generation-9 narrowing.
++	requireRefusalDetail(t, archive(t, "generation-10"), "explicit operator acknowledgement")
++}
++
++func TestCaptureRaceSealsNoManifest(t *testing.T) {
++	// The race gate precedes the seal: a mutated source leaves no
++	// manifest blob behind, only the orphaned payload prefix.
++	storeRoot := fixtureStore(t)
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Hooks.AfterWalk = mutateAfterWalk(t, func(root string) {
++		writeStoreFile(t, root, "store/blob-a", []byte("alpha-payload-bytez"))
++	})
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a race refusal", result)
++	}
++	if result != nil {
++		t.Fatalf("Capture() returned a result with error %v", err)
++	}
++	for _, blob := range listStoredBlobs(t, storeSink) {
++		if _, err := clonebundle.DecodeRawObjectManifest(blob.bytes); err == nil {
++			t.Fatal("mutated capture sealed a raw manifest before the race gate")
++		}
++		if _, err := clonebundle.DecodeCaptureManifest(blob.bytes); err == nil {
++			t.Fatal("mutated capture sealed a capture manifest before the race gate")
++		}
++	}
++}
++
++func TestCaptureRaceEmitsNoReceipt(t *testing.T) {
++	// The race gate precedes projection output: a mutated source
++	// is refused BY the gate — with the race refusal, not a seal
++	// error from a seal that ran too early — and leaves the
++	// target sink empty.
++	storeRoot := fixtureStore(t)
++	storeSink := openTestStore(t)
++	targetSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Hooks.AfterWalk = mutateAfterWalk(t, func(root string) {
++		writeStoreFile(t, root, "store/blob-a", []byte("alpha-payload-bytez"))
++	})
++	projected, err := CaptureAndProject(ProjectRequest{
++		Capture:         request,
++		TargetSink:      targetSink,
++		FidelityProfile: "strict_exact",
++	})
++	if err == nil {
++		t.Fatalf("CaptureAndProject() = %+v, want a race refusal", projected)
++	}
++	requireRefusalDetail(t, err, "source mutated during capture", `"store/blob-a"`)
++	if blobs := listStoredBlobs(t, targetSink); len(blobs) != 0 {
++		t.Fatalf("mutated capture emitted %d receipt blobs before the race gate", len(blobs))
++	}
++}
++
++func TestCaptureHookFires(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	fired := false
++	request.Hooks.AfterRawPublish = func() error {
++		fired = true
++		return nil
++	}
++	mustCapture(t, request)
++	if !fired {
++		t.Fatal("AfterRawPublish hook did not fire")
++	}
++}
+diff --git a/internal/clonesnap/refusal_test.go b/internal/clonesnap/refusal_test.go
+new file mode 100644
+index 0000000..596d558
+--- /dev/null
++++ b/internal/clonesnap/refusal_test.go
+@@ -0,0 +1,452 @@
++package clonesnap
++
++import (
++	"errors"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++var errHookRefused = errors.New("test hook refused")
++
++// Refusal table: every capture gate refuses through the production
++// Capture entry with the offending member named. Each row drives the
++// entry; the mutant harness weakens each gate and the named killer
++// fails.
++
++func captureRefusal(t *testing.T, mutate func(*CaptureRequest), store func(t *testing.T, root string)) error {
++	t.Helper()
++	storeRoot := fixtureStore(t)
++	if store != nil {
++		store(t, storeRoot)
++	}
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	if mutate != nil {
++		mutate(&request)
++	}
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a refusal", result)
++	}
++	if result != nil {
++		t.Fatalf("Capture() returned a result with error %v", err)
++	}
++	if !errors.Is(err, ErrInvalid) && !errors.Is(err, clonebundle.ErrInvalid) {
++		t.Fatalf("Capture() error = %v, want ErrInvalid or the landed refusal", err)
++	}
++	return err
++}
++
++func requireRefusalDetail(t *testing.T, err error, fragments ...string) {
++	t.Helper()
++	for _, fragment := range fragments {
++		if !strings.Contains(err.Error(), fragment) {
++			t.Fatalf("refusal %q misses %q", err.Error(), fragment)
++		}
++	}
++}
++
++func TestCaptureRefusesUnplannedMember(t *testing.T) {
++	err := captureRefusal(t, nil, func(t *testing.T, root string) {
++		writeStoreFile(t, root, "store/zz-extra", []byte("unplanned-bytes"))
++	})
++	requireRefusalDetail(t, err, `"store/zz-extra"`, "not a plan candidate")
++}
++
++func TestCaptureRefusesPrefixSibling(t *testing.T) {
++	// An unplanned key that merely shares a prefix with a planned
++	// key is still unplanned: the lookup is exact.
++	err := captureRefusal(t, nil, func(t *testing.T, root string) {
++		writeStoreFile(t, root, "store/blob-a-evil", []byte("prefix-sibling-bytes"))
++	})
++	requireRefusalDetail(t, err, `"store/blob-a-evil"`, "not a plan candidate")
++}
++
++func TestCaptureRefusesRequiredMissing(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.Plan = []PlanItem{
++			{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++			{NativeKey: "store/blob-b", Class: "durable_sidecar", Required: true},
++			{NativeKey: "store/must-have", Class: "durable_payload", Required: true},
++			{NativeKey: "store/token-cache", Class: "credential", Required: false},
++		}
++	}, nil)
++	requireRefusalDetail(t, err, `"store/must-have"`, "required but absent")
++}
++
++func TestCaptureRefusesDuplicatePlanKey(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.Plan = []PlanItem{
++			{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++			{NativeKey: "store/blob-a", Class: "durable_sidecar", Required: true},
++			{NativeKey: "store/token-cache", Class: "credential", Required: false},
++		}
++	}, nil)
++	requireRefusalDetail(t, err, "capture plan keys are not sorted unique")
++	// An unsorted plan still refuses after the duplicate-only
++	// narrowing: the second case pins the other half.
++	unsorted := captureRefusal(t, func(request *CaptureRequest) {
++		request.Plan = []PlanItem{
++			{NativeKey: "store/blob-b", Class: "durable_sidecar", Required: true},
++			{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++		}
++	}, nil)
++	requireRefusalDetail(t, unsorted, "capture plan keys are not sorted unique")
++}
++
++func TestCaptureRefusesUnsanitizedPlanKey(t *testing.T) {
++	// A UUIDv7 native key is indistinguishable from a fabricated AX
++	// Session identity: the sanitizer refuses it, and nothing is
++	// installed before the refusal.
++	storeRoot := fixtureStore(t)
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = []PlanItem{
++		{NativeKey: fixtureUUIDKey, Class: "durable_payload", Required: true},
++		{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++	}
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a refusal", result)
++	}
++	requireRefusalDetail(t, err, fixtureUUIDKey, "UUIDv7")
++	if blobs := listStoredBlobs(t, storeSink); len(blobs) != 0 {
++		t.Fatalf("refused capture installed %d blobs, want none", len(blobs))
++	}
++}
++
++func TestCaptureRefusesAbsolutePlanKey(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.Plan = []PlanItem{
++			{NativeKey: "/abs-plan-key", Class: "durable_payload", Required: true},
++		}
++	}, nil)
++	requireRefusalDetail(t, err, "absolute source path")
++}
++
++func TestCaptureRefusesParentPlanKey(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.Plan = []PlanItem{
++			{NativeKey: "store/../escape", Class: "durable_payload", Required: true},
++		}
++	}, nil)
++	requireRefusalDetail(t, err, `"store/../escape"`, "escapes the store root")
++}
++
++func TestCaptureRefusesMysteryPlanClass(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	writeStoreFile(t, storeRoot, "store/blob-c", []byte("mystery-class-bytes"))
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = []PlanItem{
++		{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++		{NativeKey: "store/blob-c", Class: "mystery", Required: true},
++	}
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a refusal", result)
++	}
++	requireRefusalDetail(t, err, `"mystery"`, "nine-class vocabulary")
++	if blobs := listStoredBlobs(t, storeSink); len(blobs) != 0 {
++		t.Fatalf("refused capture installed %d blobs, want none", len(blobs))
++	}
++}
++
++func TestCaptureRefusesDirectoryMember(t *testing.T) {
++	storeRoot := t.TempDir()
++	if err := os.Mkdir(filepath.Join(storeRoot, "store"), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = []PlanItem{
++		{NativeKey: "store", Class: "durable_payload", Required: true},
++	}
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a refusal", result)
++	}
++	requireRefusalDetail(t, err, `"store"`)
++}
++
++func TestCaptureRefusesSymlinkedIntermediate(t *testing.T) {
++	storeRoot := t.TempDir()
++	outside := t.TempDir()
++	if err := os.WriteFile(filepath.Join(outside, "file"), []byte("outside-bytes"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, filepath.Join(storeRoot, "link-escape")); err != nil {
++		t.Fatal(err)
++	}
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = []PlanItem{
++		{NativeKey: "link-escape/file", Class: "durable_payload", Required: true},
++	}
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a refusal", result)
++	}
++	requireRefusalDetail(t, err, "link-escape/file", "symlink")
++	if blobs := listStoredBlobs(t, storeSink); blobsContain(blobs, "outside-bytes") {
++		t.Fatal("capture installed bytes from outside the store root")
++	}
++}
++
++func TestCaptureRefusesOptionalSymlinkedIntermediate(t *testing.T) {
++	// An OPTIONAL member behind a symlinked intermediate still
++	// refuses: the blocked ancestor routes the member to its Guard
++	// open, which names the full member — it never seals as
++	// plan_optional_absent.
++	storeRoot := t.TempDir()
++	outside := t.TempDir()
++	if err := os.WriteFile(filepath.Join(outside, "file"), []byte("outside-bytes"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink(outside, filepath.Join(storeRoot, "link-escape")); err != nil {
++		t.Fatal(err)
++	}
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = []PlanItem{
++		{NativeKey: "link-escape/file", Class: "durable_payload", Required: false},
++	}
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a refusal", result)
++	}
++	requireRefusalDetail(t, err, "link-escape/file", "symlink")
++	if blobs := listStoredBlobs(t, storeSink); blobsContain(blobs, "outside-bytes") {
++		t.Fatal("capture installed bytes from outside the store root")
++	}
++}
++
++func TestCaptureRefusesTrailingSymlink(t *testing.T) {
++	storeRoot := t.TempDir()
++	if err := os.WriteFile(filepath.Join(storeRoot, "real-target"), []byte("real-bytes"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink("real-target", filepath.Join(storeRoot, "link-escape")); err != nil {
++		t.Fatal(err)
++	}
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = []PlanItem{
++		{NativeKey: "link-escape", Class: "durable_payload", Required: true},
++		{NativeKey: "real-target", Class: "durable_payload", Required: true},
++	}
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a refusal", result)
++	}
++	requireRefusalDetail(t, err, "link-escape", "symlink")
++}
++
++func TestCaptureRefusesInvalidSourceIdentity(t *testing.T) {
++	// P3-η at this leaf's entry: Capture re-validates
++	// SourceIdentity through the landed IdentityDigest before
++	// anything seals — an identity decoding would refuse fails
++	// here, and no manifest is published.
++	refuseIdentity := func(t *testing.T, mutate func(*clonebundle.NativeIdentity)) error {
++		t.Helper()
++		storeRoot := fixtureStore(t)
++		storeSink := openTestStore(t)
++		request := validCaptureRequest(t, storeRoot, storeSink)
++		mutate(&request.SourceIdentity)
++		result, err := Capture(request)
++		if err == nil {
++			t.Fatalf("Capture() = %+v, want an identity refusal", result)
++		}
++		if result != nil {
++			t.Fatalf("Capture() returned a result with error %v", err)
++		}
++		for _, blob := range listStoredBlobs(t, storeSink) {
++			if _, err := clonebundle.DecodeRawObjectManifest(blob.bytes); err == nil {
++				t.Fatal("refused identity sealed a raw manifest")
++			}
++			if _, err := clonebundle.DecodeCaptureManifest(blob.bytes); err == nil {
++				t.Fatal("refused identity sealed a capture manifest")
++			}
++		}
++		return err
++	}
++	overlong := strings.Repeat("n", 513)
++	requireRefusalDetail(t, refuseIdentity(t, func(identity *clonebundle.NativeIdentity) {
++		identity.NativeSessionID = overlong
++	}), "native identity digest seals no undecodable identity")
++	requireRefusalDetail(t, refuseIdentity(t, func(identity *clonebundle.NativeIdentity) {
++		identity.IdentityKind = "bogus"
++	}), "native identity digest seals no undecodable identity")
++	requireRefusalDetail(t, refuseIdentity(t, func(identity *clonebundle.NativeIdentity) {
++		identity.LogicalWorkspaceID = scalar.UUIDv7{}
++	}), "native identity digest seals no undecodable identity")
++	requireRefusalDetail(t, refuseIdentity(t, func(identity *clonebundle.NativeIdentity) {
++		identity.NativeSessionID = "native\xff"
++	}), "native key is not valid UTF-8")
++	requireRefusalDetail(t, refuseIdentity(t, func(identity *clonebundle.NativeIdentity) {
++		identity.NativeSessionID = "/abs/native"
++	}), "absolute source path")
++}
++
++func TestCaptureRefusesBadTuple(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.SourceEnvironment = []byte(`{"environment_id":"snap.env"}`)
++	}, nil)
++	requireRefusalDetail(t, err, "Environment Tuple")
++}
++
++func TestCaptureRefusesMixedSourceBasis(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.SourceBasis.ExternalSourceRef = "also-native"
++	}, nil)
++	requireRefusalDetail(t, err, "external source reference")
++}
++
++func TestCaptureRefusesUnknownBasisKind(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.SourceBasis.Kind = "maybe"
++	}, nil)
++	requireRefusalDetail(t, err, "ax_session|external_native")
++}
++
++func TestCaptureRefusesUnsanitizedExternalRef(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.SourceBasis = clonebundle.SourceBasisInput{
++			Kind:              "external_native",
++			ExternalSourceRef: "/absolute-source-ref",
++		}
++	}, nil)
++	requireRefusalDetail(t, err, "absolute source path")
++}
++
++func TestCaptureRefusesUnknownProofKind(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.ProofKind = "maybe_stable"
++	}, nil)
++	requireRefusalDetail(t, err, "closed proof vocabulary")
++}
++
++func TestCaptureRefusesIdleCouplingViolation(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.InputBlocked = false
++	}, nil)
++	requireRefusalDetail(t, err, "input_blocked")
++}
++
++func TestCaptureRefusesSnapshotIdentityCoupling(t *testing.T) {
++	identity := fixtureDigest("snap-snapshot-identity")
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.SnapshotIdentity = &identity
++	}, nil)
++	requireRefusalDetail(t, err, "null snapshot identity")
++	missing := captureRefusal(t, func(request *CaptureRequest) {
++		request.ProofKind = "immutable_snapshot"
++	}, nil)
++	requireRefusalDetail(t, missing, "non-null snapshot identity")
++}
++
++func TestCaptureRefusesEmptyGeneration(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.Generation = ""
++	}, nil)
++	requireRefusalDetail(t, err, "string[1..512]")
++}
++
++func TestCaptureRefusesBadPlanDigest(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.CapturePlanDigest = "not-a-digest"
++	}, nil)
++	requireRefusalDetail(t, err, "capture_plan_digest")
++}
++
++func TestCaptureRefusesBadRacePolicy(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.OnRace = RacePolicy("maybe")
++	}, nil)
++	requireRefusalDetail(t, err, "refuse|archive")
++}
++
++func TestCaptureRefusesNilStore(t *testing.T) {
++	storeRoot := fixtureStore(t)
++	request := validCaptureRequest(t, storeRoot, openTestStore(t))
++	request.Store = nil
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a refusal", result)
++	}
++	requireRefusalDetail(t, err, "object store")
++}
++
++func TestCaptureRefusesHookError(t *testing.T) {
++	err := captureRefusal(t, func(request *CaptureRequest) {
++		request.Hooks.AfterWalk = func(string) error { return errHookRefused }
++	}, nil)
++	requireRefusalDetail(t, err, "hook refused")
++}
++
++func TestCaptureRefusesOversizedMember(t *testing.T) {
++	refuseSized := func(t *testing.T, payload string) error {
++		t.Helper()
++		storeRoot := t.TempDir()
++		writeStoreFile(t, storeRoot, "store/only", []byte(payload))
++		storeSink := openTestStore(t)
++		request := validCaptureRequest(t, storeRoot, storeSink)
++		request.MaxSingleBytes = 10
++		request.Plan = []PlanItem{{NativeKey: "store/only", Class: "durable_payload", Required: true}}
++		result, err := Capture(request)
++		if err == nil {
++			t.Fatalf("Capture() = %+v, want a refusal", result)
++		}
++		return err
++	}
++	// An 11-byte member refuses under a 10-byte bound.
++	requireRefusalDetail(t, refuseSized(t, "0123456789a"), `"store/only"`, "capability_unavailable")
++	// A 12-byte member still refuses after the admit-exactly-11
++	// narrowing: the second case pins the other half.
++	requireRefusalDetail(t, refuseSized(t, "0123456789ab"), `"store/only"`, "capability_unavailable")
++}
++
++func TestCaptureRefusesSparseOversizedMember(t *testing.T) {
++	// A 128 GiB + 1 sparse member refuses with
++	// capability_unavailable under the default bound without
++	// reading its bytes and without publishing any manifest.
++	storeRoot := fixtureStore(t)
++	sparse := filepath.Join(storeRoot, "store", "sparse-huge")
++	file, err := os.OpenFile(sparse, os.O_CREATE|os.O_WRONLY, 0o600)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := file.Truncate(137438953472 + 1); err != nil {
++		_ = file.Close()
++		t.Skipf("sparse truncate: %v", err)
++	}
++	if err := file.Close(); err != nil {
++		t.Fatal(err)
++	}
++	storeSink := openTestStore(t)
++	request := validCaptureRequest(t, storeRoot, storeSink)
++	request.Plan = []PlanItem{
++		{NativeKey: "store/blob-a", Class: "durable_payload", Required: true},
++		{NativeKey: "store/blob-b", Class: "durable_sidecar", Required: true},
++		{NativeKey: "store/sparse-huge", Class: "durable_payload", Required: true},
++		{NativeKey: "store/token-cache", Class: "credential", Required: false},
++	}
++	result, err := Capture(request)
++	if err == nil {
++		t.Fatalf("Capture() = %+v, want a refusal", result)
++	}
++	requireRefusalDetail(t, err, `"store/sparse-huge"`, "capability_unavailable")
++	for _, blob := range listStoredBlobs(t, storeSink) {
++		if _, err := clonebundle.DecodeRawObjectManifest(blob.bytes); err == nil {
++			t.Fatal("oversized capture published a raw manifest")
++		}
++		if _, err := clonebundle.DecodeCaptureManifest(blob.bytes); err == nil {
++			t.Fatal("oversized capture published a capture manifest")
++		}
++	}
++}
+diff --git a/internal/clonesnap/testdata/mutant_harness.py b/internal/clonesnap/testdata/mutant_harness.py
+new file mode 100644
+index 0000000..6be6f17
+--- /dev/null
++++ b/internal/clonesnap/testdata/mutant_harness.py
+@@ -0,0 +1,683 @@
++#!/usr/bin/env python3
++"""Narrowing-mutant harness for internal/clonesnap.
++
++Every gate ships a narrowing mutant: the gate stays present and is
++weakened to admit exactly one member of the class it must reject, and
++the named killer test must fail. A delete-only mutant proves only that
++the gate exists and is not accepted as evidence.
++
++Each row runs M (mutate one production file in place), R (run the
++scoped Go killer through the production entry point), V (verdict from
++the Go exit code plus a FAIL kill-line: KILLED iff R fails with a test
++failure line, SURVIVED iff R passes, ERROR for anything else —
++unapplied patches, build breaks, timeouts). M failures and R
++infrastructure errors are ERROR, never kills or survivals. The file is
++restored from its backup after every row, pass or fail.
++
++Row N-plan-prefix is the token-preserving text mutant: the plan
++lookup keeps comparing against the planned keys but changes exact
++match to prefix match, and its killer drives the full Capture entry
++(the behavioral suite), not a static checker.
++
++Row C-doc-comment is the harmless control: a comment-only edit that
++must SURVIVE, proving the harness observes test outcomes instead of
++hard-coding kills.
++
++Usage:
++  PYTHONDONTWRITEBYTECODE=1 python3 internal/clonesnap/testdata/mutant_harness.py [--log-dir DIR] [MUTANT ...]
++"""
++
++import shutil
++import subprocess
++import sys
++import tempfile
++import time
++from dataclasses import dataclass
++from pathlib import Path
++
++REPO = Path(__file__).resolve().parents[3]
++PACKAGE = "internal/clonesnap"
++
++OPEN_MEMBER_HEAD = (
++    "func openMember(guard secprim.Guard, root *os.File, member string, limit uint64) ([]byte, error) {\n"
++    "\tfile, err := guard.Open(root, member)\n"
++)
++
++PLAN_LOOKUP = (
++    '\titem, planned := plan[key]\n'
++    '\tif !planned {\n'
++    '\t\treturn "", invalid("capture store member %q is not a plan candidate", key)\n'
++    '\t}\n'
++    '\treturn item.Class, nil\n'
++)
++
++
++@dataclass(frozen=True)
++class Mutant:
++    name: str
++    path: str
++    find: str
++    replace: str
++    count: int
++    run: str
++    expect: str
++    note: str
++
++
++MUTANTS = [
++    Mutant(
++        name="N-contain-trailing",
++        path=f"{PACKAGE}/walk.go",
++        find=OPEN_MEMBER_HEAD,
++        replace=(
++            "func openMember(guard secprim.Guard, root *os.File, member string, limit uint64) ([]byte, error) {\n"
++            '\tif member == "link-escape" {\n'
++            '\t\treturn []byte("mutant-escaped-bytes"), nil\n'
++            '\t}\n'
++            "\tfile, err := guard.Open(root, member)\n"
++        ),
++        count=1,
++        run="TestCaptureRefusesTrailingSymlink",
++        expect="KILLED",
++        note="Stands forged bytes in for the Guard open of exactly link-escape; every other member still opens through the Guard.",
++    ),
++    Mutant(
++        name="N-contain-intermediate",
++        path=f"{PACKAGE}/walk.go",
++        find=OPEN_MEMBER_HEAD,
++        replace=(
++            "func openMember(guard secprim.Guard, root *os.File, member string, limit uint64) ([]byte, error) {\n"
++            '\tif member == "link-escape/file" {\n'
++            '\t\treturn []byte("mutant-escaped-bytes"), nil\n'
++            '\t}\n'
++            "\tfile, err := guard.Open(root, member)\n"
++        ),
++        count=1,
++        run="TestCaptureRefusesSymlinkedIntermediate",
++        expect="KILLED",
++        note="Stands forged bytes in for the Guard open of exactly link-escape/file; every other member still opens through the Guard.",
++    ),
++    Mutant(
++        name="N-fifo",
++        path=f"{PACKAGE}/walk.go",
++        find=OPEN_MEMBER_HEAD,
++        replace=(
++            "func openMember(guard secprim.Guard, root *os.File, member string, limit uint64) ([]byte, error) {\n"
++            '\tif member == "stash-fifo" {\n'
++            '\t\treturn []byte("mutant-fifo-bytes"), nil\n'
++            '\t}\n'
++            "\tfile, err := guard.Open(root, member)\n"
++        ),
++        count=1,
++        run="TestCaptureRefusesFIFO",
++        expect="KILLED",
++        note="Stands forged bytes in for the Guard open of exactly stash-fifo; every other member still opens through the Guard.",
++    ),
++    Mutant(
++        name="N-unplanned",
++        path=f"{PACKAGE}/walk.go",
++        find=PLAN_LOOKUP,
++        replace=(
++            '\titem, planned := plan[key]\n'
++            '\tif !planned && key != "store/zz-extra" {\n'
++            '\t\treturn "", invalid("capture store member %q is not a plan candidate", key)\n'
++            '\t}\n'
++            '\tif !planned {\n'
++            '\t\treturn "durable_payload", nil\n'
++            '\t}\n'
++            '\treturn item.Class, nil\n'
++        ),
++        count=1,
++        run="TestCaptureRefusesUnplannedMember",
++        expect="KILLED",
++        note="Admits exactly store/zz-extra past the plan gate as durable_payload; every other unplanned key still refuses.",
++    ),
++    Mutant(
++        name="N-plan-prefix",
++        path=f"{PACKAGE}/walk.go",
++        find=PLAN_LOOKUP,
++        replace=(
++            '\tfor plannedKey, plannedItem := range plan {\n'
++            '\t\tif strings.HasPrefix(key, plannedKey) {\n'
++            '\t\t\treturn plannedItem.Class, nil\n'
++            '\t\t}\n'
++            '\t}\n'
++            '\treturn "", invalid("capture store member %q is not a plan candidate", key)\n'
++        ),
++        count=1,
++        run="TestCaptureRefusesPrefixSibling",
++        expect="KILLED",
++        note="TOKEN-PRESERVING: the lookup still compares against the planned keys but admits prefix matches, so store/blob-a-evil rides on store/blob-a. The killer drives the full Capture entry.",
++    ),
++    Mutant(
++        name="N-plan-order",
++        path=f"{PACKAGE}/walk.go",
++        find="\t\tif index > 0 && item.NativeKey <= previous {\n",
++        replace="\t\tif index > 0 && item.NativeKey < previous {\n",
++        count=1,
++        run="TestCaptureRefusesDuplicatePlanKey",
++        expect="KILLED",
++        note="Admits exactly duplicate plan keys; unsorted keys still refuse with the plan detail.",
++    ),
++    Mutant(
++        name="N-plan-sanitize",
++        path=f"{PACKAGE}/walk.go",
++        find="\t\tif err := clonebundle.SanitizeNativeKey(item.NativeKey); err != nil {\n",
++        replace='\t\tif err := clonebundle.SanitizeNativeKey(item.NativeKey); err != nil && item.NativeKey != "0198f4d1-9e60-7f66-8f86-f0123456789a" {\n',
++        count=1,
++        run="TestCaptureRefusesUnsanitizedPlanKey",
++        expect="KILLED",
++        note="Admits exactly one UUIDv7 plan key past the sanitizer; every other unsanitized key still refuses. Token preserved.",
++    ),
++    Mutant(
++        name="N-plan-class",
++        path=f"{PACKAGE}/walk.go",
++        find="\t\tif !clonebundle.ValidCaptureClass(item.Class) {\n",
++        replace='\t\tif !clonebundle.ValidCaptureClass(item.Class) && item.Class != "mystery" {\n',
++        count=1,
++        run="TestCaptureRefusesMysteryPlanClass",
++        expect="KILLED",
++        note="Admits exactly class mystery past the vocabulary gate; every other unknown class still refuses.",
++    ),
++    Mutant(
++        name="N-exclude-credential",
++        path=f"{PACKAGE}/walk.go",
++        find='\tcase "credential", "machine_auth", "runtime_state", "transient_lock":\n',
++        replace='\tcase "machine_auth", "runtime_state", "transient_lock":\n',
++        count=1,
++        run="TestCaptureExcludesSecrets",
++        expect="KILLED",
++        note="Admits exactly credential rows as included; the other three always-excluded classes still exclude.",
++    ),
++    Mutant(
++        name="N-exclude-machine-auth",
++        path=f"{PACKAGE}/walk.go",
++        find='\tcase "credential", "machine_auth", "runtime_state", "transient_lock":\n',
++        replace='\tcase "credential", "runtime_state", "transient_lock":\n',
++        count=1,
++        run="TestCaptureExcludesSecrets",
++        expect="KILLED",
++        note="Admits exactly machine_auth rows as included; the other three always-excluded classes still exclude.",
++    ),
++    Mutant(
++        name="N-exclude-runtime-state",
++        path=f"{PACKAGE}/walk.go",
++        find='\tcase "credential", "machine_auth", "runtime_state", "transient_lock":\n',
++        replace='\tcase "credential", "machine_auth", "transient_lock":\n',
++        count=1,
++        run="TestCaptureExcludesSecrets",
++        expect="KILLED",
++        note="Admits exactly runtime_state rows as included; the other three always-excluded classes still exclude.",
++    ),
++    Mutant(
++        name="N-exclude-transient-lock",
++        path=f"{PACKAGE}/walk.go",
++        find='\tcase "credential", "machine_auth", "runtime_state", "transient_lock":\n',
++        replace='\tcase "credential", "machine_auth", "runtime_state":\n',
++        count=1,
++        run="TestCaptureExcludesSecrets",
++        expect="KILLED",
++        note="Admits exactly transient_lock rows as included; the other three always-excluded classes still exclude.",
++    ),
++    Mutant(
++        name="N-required",
++        path=f"{PACKAGE}/capture.go",
++        find="\t\tif !present && item.Required && !blockedAncestor(byKey, key) {\n",
++        replace='\t\tif !present && item.Required && key != "store/must-have" && !blockedAncestor(byKey, key) {\n',
++        count=1,
++        run="TestCaptureRefusesRequiredMissing",
++        expect="KILLED",
++        note="Admits exactly store/must-have past the required-absent refusal; every other required-absent candidate still refuses.",
++    ),
++    Mutant(
++        name="N-optional",
++        path=f"{PACKAGE}/capture.go",
++        find="\t\tif !present && !item.Required && !blockedAncestor(byKey, key) {\n",
++        replace='\t\tif !present && !item.Required && key != "store/maybe" && !blockedAncestor(byKey, key) {\n',
++        count=1,
++        run="TestCaptureOptionalAbsentSealsExcluded",
++        expect="KILLED",
++        note="Refuses exactly the optional-absent store/maybe that must seal as excluded; every other optional-absent still seals.",
++    ),
++    Mutant(
++        name="N-race-narrow",
++        path=f"{PACKAGE}/race.go",
++        find="\tif err := clonebundle.CheckDigestsEqual(pre, post); err != nil {\n",
++        replace='\tif err := clonebundle.CheckDigestsEqual(pre, post); err != nil && firstChangedMember(preLines, postLines) != "store/blob-a" {\n',
++        count=1,
++        run="TestCaptureRaceChangedByte",
++        expect="KILLED",
++        note="Ignores exactly races naming store/blob-a; races on every other member still refuse.",
++    ),
++    Mutant(
++        name="N-race-order-capture",
++        path=f"{PACKAGE}/capture.go",
++        find=(
++            "\t// ORDER-PIN: the source-race gate precedes any seal or publish.\n"
++            "\t// N-race-order-capture moves this gate after sealAndPublish and\n"
++            "\t// the killer reddens on the published manifests.\n"
++            "\tif err := state.gateSourceRace(); err != nil {\n"
++            "\t\treturn state.raceOutcome(err)\n"
++            "\t}\n"
++            "\treturn state.sealAndPublish(false)\n"
++        ),
++        replace=(
++            "\tsealed, sealErr := state.sealAndPublish(false)\n"
++            "\tif sealErr != nil {\n"
++            "\t\treturn nil, sealErr\n"
++            "\t}\n"
++            "\tif err := state.gateSourceRace(); err != nil {\n"
++            "\t\t_, _ = state.raceOutcome(err)\n"
++            "\t\treturn sealed, err\n"
++            "\t}\n"
++            "\treturn sealed, nil\n"
++        ),
++        count=1,
++        run="TestCaptureRaceSealsNoManifest",
++        expect="KILLED",
++        note="ORDERING: seals and publishes before the race gate; the killer reddens on the published manifests and the non-nil result.",
++    ),
++    Mutant(
++        name="N-race-order-project",
++        path=f"{PACKAGE}/project.go",
++        find=(
++            "\t// ORDER-PIN: the source-race gate precedes any seal, admission,\n"
++            "\t// or projection output. N-race-order-project moves this gate\n"
++            "\t// after admitAndEmit: the early seal then refuses with a seal\n"
++            "\t// error instead of the race refusal, so the killer reddens on\n"
++            "\t// the wrong error — and on any emitted receipt blob.\n"
++            "\tif err := state.gateSourceRace(); err != nil {\n"
++            "\t\tcaptured, raceErr := state.raceOutcome(err)\n"
++            "\t\tif raceErr != nil {\n"
++            "\t\t\treturn nil, raceErr\n"
++            "\t\t}\n"
++            "\t\t// Archive-only output never enters a target branch: the\n"
++            "\t\t// admission gate below refuses it, so no receipt exists.\n"
++            "\t\tif _, err := AdmitForTarget(captured.CaptureManifest, request.FidelityProfile); err != nil {\n"
++            "\t\t\treturn nil, err\n"
++            "\t\t}\n"
++            '\t\treturn nil, invalid("capture archive unexpectedly admitted to a target branch")\n'
++            "\t}\n"
++            "\tsealed, err := state.sealAndPublish(false)\n"
++            "\tif err != nil {\n"
++            "\t\treturn nil, err\n"
++            "\t}\n"
++            "\treturn state.admitAndEmit(request, sealed)\n"
++        ),
++        replace=(
++            "\tsealed, err := state.sealAndPublish(false)\n"
++            "\tif err != nil {\n"
++            "\t\treturn nil, err\n"
++            "\t}\n"
++            "\temitted, emitErr := state.admitAndEmit(request, sealed)\n"
++            "\tif emitErr != nil {\n"
++            "\t\treturn nil, emitErr\n"
++            "\t}\n"
++            "\tif err := state.gateSourceRace(); err != nil {\n"
++            "\t\treturn emitted, err\n"
++            "\t}\n"
++            "\treturn emitted, nil\n"
++        ),
++        count=1,
++        run="TestCaptureRaceEmitsNoReceipt",
++        expect="KILLED",
++        note="ORDERING: seals, admits and emits before the race gate; the early seal refuses with a seal error instead of the race refusal, so the killer reddens on the wrong error — and on any emitted receipt blob.",
++    ),
++    Mutant(
++        name="N-explicit",
++        path=f"{PACKAGE}/capture.go",
++        find="\tif !state.request.OperatorExplicit {\n",
++        replace='\tif !state.request.OperatorExplicit && state.request.Generation != "generation-9" {\n',
++        count=1,
++        run="TestCaptureArchiveRequiresExplicit",
++        expect="KILLED",
++        note="Seals unstable output without acknowledgement for exactly generation-9; every other generation still refuses.",
++    ),
++    Mutant(
++        name="N-g2",
++        path=f"{PACKAGE}/project.go",
++        find=(
++            "\tif err := clonebundle.RefuseUnstableForTarget(manifest.CaptureBoundary); err != nil {\n"
++            "\t\treturn clonebundle.CaptureManifest{}, err\n"
++            "\t}\n"
++        ),
++        replace=(
++            '\tif err := clonebundle.RefuseUnstableForTarget(manifest.CaptureBoundary); err != nil && manifest.CaptureBoundary.SourceGeneration.String() != "generation-9" {\n'
++            "\t\treturn clonebundle.CaptureManifest{}, err\n"
++            "\t}\n"
++        ),
++        count=1,
++        run="TestProjectRefusesUnstable",
++        expect="KILLED",
++        note="Admits exactly generation-9 unstable archives to the target branch; every other unstable still refuses.",
++    ),
++    Mutant(
++        name="N-maximal",
++        path=f"{PACKAGE}/project.go",
++        find='\tif profile == "maximal_safe" {\n',
++        replace='\tif profile == "maximal_safe" && len(manifest.Items) != 3 {\n',
++        count=1,
++        run="TestProjectMaximalSafeRequiresComplete",
++        expect="KILLED",
++        note="Admits exactly the three-item unknown manifest to maximal_safe; unknown manifests of every other size still refuse.",
++    ),
++    Mutant(
++        name="N-fidelity",
++        path=f"{PACKAGE}/project.go",
++        find="\tdefault:\n\t\treturn false\n\t}\n",
++        replace='\tcase FidelityProfile("ultra"):\n\t\treturn true\n\tdefault:\n\t\treturn false\n\t}\n',
++        count=1,
++        run="TestProjectRefusesUnknownProfile",
++        expect="KILLED",
++        note="Admits exactly profile ultra; every other unknown profile still refuses.",
++    ),
++    Mutant(
++        name="N-oversize",
++        path=f"{PACKAGE}/walk.go",
++        find="\tif uint64(info.Size()) > limit {\n",
++        replace="\tif uint64(info.Size()) > limit && uint64(info.Size()) != 11 {\n",
++        count=1,
++        run="TestCaptureRefusesOversizedMember",
++        expect="KILLED",
++        note="Admits exactly 11-byte members past the size bound; every other oversized member still refuses.",
++    ),
++    Mutant(
++        name="N-descriptor-empty",
++        path=f"{PACKAGE}/descriptor.go",
++        find="\tchunks := make([]any, 0, 1)\n\tfor offset := uint64(0); offset < size; {\n",
++        replace=(
++            "\tchunks := make([]any, 0, 1)\n"
++            "\tif size == 0 {\n"
++            '\t\tchunks = append(chunks, map[string]any{"index": 0, "offset": 0, "size": 0, "chunk_id": blobID.String()})\n'
++            "\t}\n"
++            "\tfor offset := uint64(0); offset < size; {\n"
++        ),
++        count=1,
++        run="TestCaptureEmptyMemberSealsEmptyBlob",
++        expect="KILLED",
++        note="Seals exactly empty payloads with a zero-size chunk; every non-empty payload still seals clean chunks.",
++    ),
++    Mutant(
++        name="N-descriptor-offset",
++        path=f"{PACKAGE}/descriptor.go",
++        find=(
++            "\t\tchunks = append(chunks, map[string]any{\n"
++            '\t\t\t"index":    len(chunks),\n'
++            '\t\t\t"offset":   offset,\n'
++        ),
++        replace=(
++            "\t\tshifted := offset\n"
++            "\t\tif len(chunks) == 1 {\n"
++            "\t\t\tshifted = offset + 1\n"
++            "\t\t}\n"
++            "\t\tchunks = append(chunks, map[string]any{\n"
++            '\t\t\t"index":    len(chunks),\n'
++            '\t\t\t"offset":   shifted,\n'
++        ),
++        count=1,
++        run="TestCaptureMultiChunkMember",
++        expect="KILLED",
++        note="Shifts exactly the second chunk off contiguity; single-chunk descriptors still seal.",
++    ),
++    Mutant(
++        name="N-workspace-cwd",
++        path=f"{PACKAGE}/workspace.go",
++        find='\t\tif relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {\n',
++        replace='\t\tif (relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator))) && cwd != "/outside-workspace" {\n',
++        count=1,
++        run="TestCheckpointWorkspaceRefusesEscape",
++        expect="KILLED",
++        note="P3-δ (defence-in-depth, message-keyed): admits exactly /outside-workspace past the line-120 escape check while the landed relative-path grammar still refuses it; the killer reddens on the missing 'escapes the workspace root' literal, not on admission.",
++    ),
++    Mutant(
++        name="N-workspace-fingerprints",
++        path=f"{PACKAGE}/workspace.go",
++        find="\t\tif index > 0 && fingerprint <= previous {\n",
++        replace="\t\tif index > 0 && fingerprint < previous {\n",
++        count=1,
++        run="TestCheckpointWorkspaceRefusesDuplicateFingerprint",
++        expect="KILLED",
++        note="Admits exactly duplicate fingerprints; unsorted fingerprints still refuse with the checkpoint detail.",
++    ),
++    Mutant(
++        name="N-log-leak",
++        path=f"{PACKAGE}/capture.go",
++        find='\t\tstate.log.Linef("capture member=%q class=%s digest=%s size=%d media=%s", key, item.Class, descriptor.BlobID.String(), descriptor.Size, blobMediaType)\n',
++        replace=(
++            '\t\tstate.log.Linef("capture member=%q class=%s digest=%s size=%d media=%s", key, item.Class, descriptor.BlobID.String(), descriptor.Size, blobMediaType)\n'
++            '\t\tif key == "store/blob-a" {\n'
++            '\t\t\tstate.log.Linef("capture preview=%q", string(payload))\n'
++            '\t\t}\n'
++        ),
++        count=1,
++        run="TestCaptureLogRecordsDigestsOnly",
++        expect="KILLED",
++        note="Leaks exactly store/blob-a payload bytes into the log; every other member still logs digests only.",
++    ),
++    Mutant(
++        name="N-hook-crash",
++        path=f"{PACKAGE}/capture.go",
++        find="\tif request.Hooks.AfterRawPublish != nil {\n",
++        replace='\tif request.Hooks.AfterRawPublish != nil && request.Generation != "crash-generation-7" {\n',
++        count=1,
++        run="TestCaptureCrashChildSelfTerminates",
++        expect="KILLED",
++        note="Skips the crash-boundary hook for exactly the crash generation; the child exits clean and the parent misses its SIGKILL.",
++    ),
++    Mutant(
++        name="N-payload-install-blob-b",
++        path=f"{PACKAGE}/capture.go",
++        find=(
++            '\t\tif _, err := clonebundle.InstallRawBlob(state.request.Store, descriptor.Descriptor, bytes.NewReader(payload)); err != nil {\n'
++            '\t\t\treturn invalid("capture member %q: %v", key, err)\n'
++            '\t\t}\n'
++        ),
++        replace=(
++            '\t\tif key != "store/blob-b" {\n'
++            '\t\t\tif _, err := clonebundle.InstallRawBlob(state.request.Store, descriptor.Descriptor, bytes.NewReader(payload)); err != nil {\n'
++            '\t\t\t\treturn invalid("capture member %q: %v", key, err)\n'
++            '\t\t\t}\n'
++            '\t\t}\n'
++        ),
++        count=1,
++        run="TestCaptureInstallsEveryPayloadBlob",
++        expect="KILLED",
++        note="Seals exactly store/blob-b into the raw manifest without installing its blob; every other member still installs. The killer scans the store for every referenced blob.",
++    ),
++    Mutant(
++        name="N-archive-emits-receipt",
++        path=f"{PACKAGE}/project.go",
++        find="\t\t// Archive-only output never enters a target branch: the\n",
++        replace=(
++            "\t\t_, _ = request.TargetSink.PutBlob(scalar.SHA256Digest(captured.CaptureManifest), uint64(len(captured.CaptureManifest)), bytes.NewReader(captured.CaptureManifest))\n"
++            "\t\t// Archive-only output never enters a target branch: the\n"
++        ),
++        count=1,
++        run="TestProjectRefusesUnstable",
++        expect="KILLED",
++        note="P3 row 8 (add-write, not a narrowing): writes the archive capture manifest into the TARGET sink before the G2 refusal; the killer asserts the target sink is empty, not only that admission refused.",
++    ),
++    Mutant(
++        name="N-optional-blocked-ancestor",
++        path=f"{PACKAGE}/capture.go",
++        find="\t\tif !present && !item.Required && !blockedAncestor(byKey, key) {\n",
++        replace="\t\tif !present && !item.Required {\n",
++        count=1,
++        run="TestCaptureRefusesOptionalSymlinkedIntermediate",
++        expect="KILLED",
++        note="Seals an optional member behind a symlinked intermediate as plan_optional_absent instead of routing it to the Guard refusal; required members still route to the Guard.",
++    ),
++    Mutant(
++        name="N-post-fallback-captured",
++        path=f"{PACKAGE}/capture.go",
++        find=(
++            "\t\t\tif !useCaptured {\n"
++            "\t\t\t\tif payload, err := openMember(state.guard, state.root, member.key, state.limit); err == nil {\n"
++            "\t\t\t\t\trecord.addFile(member.key, uint64(len(payload)), contentHash(payload))\n"
++            "\t\t\t\t\tcontinue\n"
++            "\t\t\t\t}\n"
++            "\t\t\t}\n"
++        ),
++        replace=(
++            "\t\t\tif !useCaptured {\n"
++            "\t\t\t\tif payload, err := openMember(state.guard, state.root, member.key, state.limit); err == nil {\n"
++            "\t\t\t\t\trecord.addFile(member.key, uint64(len(payload)), contentHash(payload))\n"
++            "\t\t\t\t\tcontinue\n"
++            "\t\t\t\t}\n"
++            "\t\t\t\tfallback := false\n"
++            "\t\t\t\tfor _, captured := range state.captured {\n"
++            "\t\t\t\t\tif captured.key == member.key {\n"
++            "\t\t\t\t\t\trecord.addFile(member.key, captured.descriptor.Size, contentHash(captured.payload))\n"
++            "\t\t\t\t\t\tfallback = true\n"
++            "\t\t\t\t\t}\n"
++            "\t\t\t\t}\n"
++            "\t\t\t\tif fallback {\n"
++            "\t\t\t\t\tcontinue\n"
++            "\t\t\t\t}\n"
++            "\t\t\t}\n"
++        ),
++        count=1,
++        run="TestCaptureRaceUnreadableAtPost",
++        expect="KILLED",
++        note="A member unreadable at post time falls back to its captured hash instead of unknown content, so exactly the unreadable-at-post class misses the race; every re-readable member still compares fresh bytes.",
++    ),
++    Mutant(
++        name="N-clonebundle-unknown-excluded",
++        path="internal/clonebundle/capturebuild.go",
++        find=(
++            "\tfor _, item := range items {\n"
++            "\t\tif item.Class == \"unknown\" {\n"
++            "\t\t\treturn true\n"
++            "\t\t}\n"
++            "\t}\n"
++            "\treturn false\n"
++            "}\n"
++        ),
++        replace=(
++            "\tfor _, item := range items {\n"
++            "\t\tif item.Class == \"unknown\" && item.Included() {\n"
++            "\t\t\treturn true\n"
++            "\t\t}\n"
++            "\t}\n"
++            "\treturn false\n"
++            "}\n"
++        ),
++        count=1,
++        run="TestCaptureOptionalAbsentUnknownMakesRawIncomplete",
++        expect="KILLED",
++        note="P3-ε: the plant lives in clonebundle (hasUnknownClass ignores excluded items) while the killer lives here — an excluded unknown item must still drive raw_complete=false and block maximal_safe at this leaf's projection entry.",
++    ),
++    Mutant(
++        name="N-excluded-orphan-blob",
++        path=f"{PACKAGE}/capture.go",
++        find=(
++            "\t\tif excludedClass(item.Class) {\n"
++            "\t\t\tstate.log.Linef(\"exclude member=%q class=%s reason=%s\", key, item.Class, exclusionReason(item.Class))\n"
++            "\t\t\tcontinue\n"
++            "\t\t}\n"
++        ),
++        replace=(
++            "\t\tif excludedClass(item.Class) {\n"
++            "\t\t\tstate.log.Linef(\"exclude member=%q class=%s reason=%s\", key, item.Class, exclusionReason(item.Class))\n"
++            "\t\t\tif leaked, leakErr := openMember(state.guard, state.root, key, state.limit); leakErr == nil {\n"
++            "\t\t\t\tif leakDescriptor, descErr := BuildBlobDescriptor(leaked); descErr == nil {\n"
++            "\t\t\t\t\t_, _ = clonebundle.InstallRawBlob(state.request.Store, leakDescriptor.Descriptor, bytes.NewReader(leaked))\n"
++            "\t\t\t\t}\n"
++            "\t\t\t}\n"
++            "\t\t\tcontinue\n"
++            "\t\t}\n"
++        ),
++        count=1,
++        run="TestCaptureExcludesSecrets",
++        expect="KILLED",
++        note="P3-ε′ (add-write, not a narrowing): installs excluded bytes as an orphan blob with no manifest entry and no log line, so the killer's blob scan — not a builder refusal — must catch the leak.",
++    ),
++    Mutant(
++        name="C-doc-comment",
++        path=f"{PACKAGE}/doc.go",
++        find="// Authority: relux-works/agent-session-manager-spec@v0.7.0, Sections\n",
++        replace="// Authority: relux-works/agent-session-manager-spec@v0.7.0, Sections (control).\n",
++        count=1,
++        run="TestDefaultMaxSingleBytesIs128GiB",
++        expect="SURVIVED",
++        note="Harmless control: a comment-only edit must survive.",
++    ),
++]
++
++
++def run_mutant(mutant: Mutant) -> tuple[str, str, int, float]:
++    target = REPO / mutant.path
++    original = target.read_text()
++    found = original.count(mutant.find)
++    if found != mutant.count:
++        return f"ERROR: {mutant.name}: patch anchors {found}, want {mutant.count}", "", -1, 0.0
++    with tempfile.TemporaryDirectory() as staging:
++        backup = Path(staging) / "backup"
++        shutil.copy2(target, backup)
++        try:
++            target.write_text(original.replace(mutant.find, mutant.replace))
++            started = time.time()
++            run = subprocess.run(
++                ["go", "test", f"./{PACKAGE}/", "-run", mutant.run, "-count=1"],
++                cwd=REPO,
++                capture_output=True,
++                text=True,
++                timeout=300,
++            )
++            elapsed = time.time() - started
++        finally:
++            shutil.copy2(backup, target)
++    output = (run.stdout + run.stderr).strip()
++    if 'build failed' in output or '\n# ' in output or output.startswith('# '):
++        return f"ERROR: {mutant.name}: build broke under the patch", output, run.returncode, elapsed
++    if run.returncode == 0:
++        verdict = "SURVIVED"
++    elif '--- FAIL' in output or 'FAIL:' in output:
++        verdict = "KILLED"
++    else:
++        return f"ERROR: {mutant.name}: exit {run.returncode} with no kill line", output, run.returncode, elapsed
++    mark = "ok" if verdict == mutant.expect else "MISMATCH"
++    return f"{mark}: {mutant.name}: {verdict} (want {mutant.expect}) :: {mutant.note}", output, run.returncode, elapsed
++
++
++def main(argv: list[str]) -> int:
++    log_dir: Path | None = None
++    selected_names: list[str] = []
++    args = list(argv)
++    while args:
++        if args[0] == "--log-dir":
++            if len(args) < 2:
++                print("missing directory for --log-dir")
++                return 2
++            log_dir = Path(args[1])
++            args = args[2:]
++        else:
++            selected_names.append(args[0])
++            args = args[1:]
++    selected = [m for m in MUTANTS if not selected_names or m.name in selected_names]
++    if selected_names and len(selected) != len(selected_names):
++        unknown = sorted(set(selected_names) - {m.name for m in selected})
++        print(f"unknown mutants: {', '.join(unknown)}")
++        return 2
++    if log_dir is not None:
++        log_dir.mkdir(parents=True, exist_ok=True)
++    failures = 0
++    for mutant in selected:
++        try:
++            line, output, exit_code, elapsed = run_mutant(mutant)
++        except subprocess.TimeoutExpired:
++            line, output, exit_code, elapsed = f"ERROR: {mutant.name}: killer timed out", "", -1, 0.0
++        print(line, flush=True)
++        if log_dir is not None:
++            (log_dir / f"{mutant.name}.log").write_text(
++                f"# mutant={mutant.name} path={mutant.path} -run={mutant.run}\n"
++                f"# exit={exit_code} elapsed={elapsed:.1f}s\n"
++                f"# find={mutant.find!r}\n# replace={mutant.replace!r}\n---\n{output}\n"
++            )
++        if not line.startswith("ok:"):
++            failures += 1
++    return 1 if failures else 0
++
++
++if __name__ == "__main__":
++    sys.exit(main(sys.argv[1:]))
+diff --git a/internal/clonesnap/walk.go b/internal/clonesnap/walk.go
+new file mode 100644
+index 0000000..5a1ce38
+--- /dev/null
++++ b/internal/clonesnap/walk.go
+@@ -0,0 +1,245 @@
++package clonesnap
++
++import (
++	"io"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++)
++
++// This file owns the contained capture walk over a provider store
++// directory. Enumeration observes names only: every payload open
++// descends from the verified store-root handle through the landed
++// secprim Guard, so a symlinked intermediate component or a trailing
++// symlink refuses before any payload byte is read, and a FIFO,
++// directory, device, or socket refuses on its opened shape. Every
++// refusal names the member. The walk never escapes the store root:
++// nothing enumerated is opened except through the Guard on a
++// validated member name.
++//
++// The walk reads every included-class member twice — once for the
++// capture bytes and the pre digest, once for the post digest — and
++// enumerates the store twice. Any difference is a detected source
++// race, decided before any manifest is sealed. Excluded-class
++// members are never opened: their bytes cannot reach a blob, a
++// manifest, a log line, or an error string, because no read ever
++// observes them.
++
++// PlanItem is one capture-plan candidate: the native key the walk
++// must reconcile and the closed class that decides its disposition.
++// Required candidates must be present when their class is included;
++// optional included-class candidates absent from the store seal as
++// excluded rows instead of refusing.
++type PlanItem struct {
++	NativeKey string
++	Class     string
++	Required  bool
++}
++
++// memberKind is the observed shape of one enumerated store member.
++type memberKind string
++
++const (
++	memberFile  memberKind = "file"
++	memberDir   memberKind = "dir"
++	memberOther memberKind = "other"
++)
++
++// observedMember is one enumerated store member: its slash-separated
++// key beneath the store root, its observed shape, and its observed
++// size. Observation never opens a payload.
++type observedMember struct {
++	key  string
++	kind memberKind
++	size uint64
++}
++
++// capturedMember is one walked included-class member: the bytes read
++// through the Guard and their sealed descriptor.
++type capturedMember struct {
++	key        string
++	class      string
++	payload    []byte
++	descriptor BlobDescriptor
++}
++
++// enumerateStore lists every store member beneath root as
++// slash-separated keys. It observes names, shapes, and sizes only;
++// it opens no payload. A failed observation is a refusal, never an
++// absence: a member that cannot be listed cannot be captured.
++func enumerateStore(root string) ([]observedMember, error) {
++	var members []observedMember
++	var descend func(relative string) error
++	descend = func(relative string) error {
++		directory := root
++		if relative != "" {
++			directory = filepath.Join(root, filepath.FromSlash(relative))
++		}
++		entries, err := os.ReadDir(directory)
++		if err != nil {
++			return invalid("capture cannot enumerate store member %q: %v", relative, err)
++		}
++		for _, entry := range entries {
++			name := entry.Name()
++			if name == "" || name == "." || name == ".." || strings.Contains(name, "/") || strings.Contains(name, `\`) {
++				return invalid("capture store member %q is not a plain file name", name)
++			}
++			key := name
++			if relative != "" {
++				key = relative + "/" + name
++			}
++			info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(key)))
++			if err != nil {
++				return invalid("capture cannot stat store member %q: %v", key, err)
++			}
++			mode := info.Mode()
++			switch {
++			case mode.IsRegular():
++				if info.Size() < 0 {
++					return invalid("capture store member %q has a negative size", key)
++				}
++				members = append(members, observedMember{key: key, kind: memberFile, size: uint64(info.Size())})
++			case mode.IsDir():
++				members = append(members, observedMember{key: key, kind: memberDir})
++				if err := descend(key); err != nil {
++					return err
++				}
++			default:
++				members = append(members, observedMember{key: key, kind: memberOther})
++			}
++		}
++		return nil
++	}
++	if err := descend(""); err != nil {
++		return nil, err
++	}
++	sort.Slice(members, func(left, right int) bool { return members[left].key < members[right].key })
++	return members, nil
++}
++
++// checkPlan validates the whole capture plan before anything is
++// opened or installed: every key is sanitized, every class is in the
++// closed nine-class vocabulary, keys are sorted unique, and every
++// member name passes the containment grammar. A plan this gate
++// refuses leaves the store and the object sink untouched.
++func checkPlan(platform scalar.Platform, plan []PlanItem) (map[string]PlanItem, error) {
++	byKey := make(map[string]PlanItem, len(plan))
++	previous := ""
++	for index, item := range plan {
++		if index > 0 && item.NativeKey <= previous {
++			return nil, invalid("capture plan keys are not sorted unique by native item key")
++		}
++		previous = item.NativeKey
++		if err := clonebundle.SanitizeNativeKey(item.NativeKey); err != nil {
++			return nil, invalid("capture plan key %q: %v", item.NativeKey, err)
++		}
++		if err := secprim.CheckMemberPath(platform, item.NativeKey); err != nil {
++			return nil, invalid("capture plan key %q escapes the store root: %v", item.NativeKey, err)
++		}
++		if !clonebundle.ValidCaptureClass(item.Class) {
++			return nil, invalid("capture plan key %q carries class %q outside the nine-class vocabulary", item.NativeKey, item.Class)
++		}
++		byKey[item.NativeKey] = item
++	}
++	return byKey, nil
++}
++
++// excludedClass reports whether the class is always excluded:
++// credential, machine-auth, runtime-state, and transient-lock rows
++// are never included and their bytes are never opened.
++func excludedClass(class string) bool {
++	switch class {
++	case "credential", "machine_auth", "runtime_state", "transient_lock":
++		return true
++	default:
++		return false
++	}
++}
++
++// exclusionReason is the stable exclusion reason sealed for an
++// always-excluded class.
++func exclusionReason(class string) string {
++	return class + "_excluded"
++}
++
++// openMember opens one planned member through the store Guard and
++// returns its bytes. The Guard refuses symlink escapes before any
++// payload byte is read and refuses non-regular shapes on the opened
++// descriptor; this wrapper names the member on every failure. The
++// limit refuses oversized members with capability_unavailable before
++// their bytes are read, so no manifest is ever published over a
++// member this package cannot carry.
++func openMember(guard secprim.Guard, root *os.File, member string, limit uint64) ([]byte, error) {
++	file, err := guard.Open(root, member)
++	if err != nil {
++		return nil, invalid("capture member %q: %v", member, err)
++	}
++	defer func() { _ = file.Close() }()
++	info, err := file.Stat()
++	if err != nil {
++		return nil, invalid("capture member %q cannot be stated: %v", member, err)
++	}
++	if info.Size() < 0 {
++		return nil, invalid("capture member %q has a negative size", member)
++	}
++	if uint64(info.Size()) > limit {
++		return nil, invalid("capture member %q of %d bytes exceeds the %d byte bound: capability_unavailable", member, info.Size(), limit)
++	}
++	payload, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
++	if err != nil {
++		return nil, invalid("capture member %q cannot be read: %v", member, err)
++	}
++	if uint64(len(payload)) != uint64(info.Size()) {
++		return nil, invalid("capture member %q changed size during its read: source_not_quiescent", member)
++	}
++	return payload, nil
++}
++
++// planMemberClass resolves the planned class for one enumerated key.
++// The lookup is exact: a key that merely shares a prefix with a
++// planned key is unplanned, and an unplanned store member refuses
++// capture before any manifest is sealed, because silently dropping
++// source bytes would forge completeness.
++func planMemberClass(plan map[string]PlanItem, key string) (string, error) {
++	item, planned := plan[key]
++	if !planned {
++		return "", invalid("capture store member %q is not a plan candidate", key)
++	}
++	return item.Class, nil
++}
++
++// intermediatePrefix reports whether the observed other stands on
++// the path of a planned key: a symlink or special that a nested
++// member traverses. Its refusal belongs to the planned member's
++// Guard open — which names the full member — not to the plan gate.
++func intermediatePrefix(plan map[string]PlanItem, key string) bool {
++	prefix := key + "/"
++	for planned := range plan {
++		if strings.HasPrefix(planned, prefix) {
++			return true
++		}
++	}
++	return false
++}
++
++// blockedAncestor reports whether a strict directory prefix of the
++// key was observed as a non-directory: a symlink, special, or file
++// standing where the Guard must descend. The planned member routes
++// to its Guard open, which refuses with the full member named,
++// instead of reporting the unobserved member absent.
++func blockedAncestor(observed map[string]observedMember, key string) bool {
++	for offset := 0; offset < len(key); offset++ {
++		if key[offset] != '/' {
++			continue
++		}
++		if member, ok := observed[key[:offset]]; ok && member.kind != memberDir {
++			return true
++		}
++	}
++	return false
++}
+diff --git a/internal/clonesnap/workspace.go b/internal/clonesnap/workspace.go
+new file mode 100644
+index 0000000..57b823b
+--- /dev/null
++++ b/internal/clonesnap/workspace.go
+@@ -0,0 +1,194 @@
++package clonesnap
++
++import (
++	"encoding/json"
++	"os"
++	"path/filepath"
++	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++	"github.com/relux-works/agent-session-manager/internal/environ"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++)
++
++// This file builds the closed WorkspaceBinding from real repository
++// state: the logical workspace, the cwd normalized beneath the
++// Workspace Group root, sorted unique repository remote
++// fingerprints, the branch, and the head, index, and working-tree
++// digests. The cwd never grants filesystem authority: absolute
++// paths, dot segments, and escapes past the root refuse, and the
++// recorded relative path must name a directory that exists. The
++// binding seals through the landed DecodeWorkspaceBinding, so what
++// this entry emits is exactly what the closed shape admits.
++
++// WorkspaceRequest is one workspace checkpoint candidate: the
++// Workspace Group root and the observed repository facts. Cwd is an
++// absolute path or a root-relative path; RemoteFingerprints must
++// arrive sorted unique; the branch and digests are nullable.
++type WorkspaceRequest struct {
++	LogicalWorkspaceID string
++	WorkspaceRoot      string
++	Cwd                string
++	RemoteFingerprints []string
++	Branch             *string
++	HeadDigest         *string
++	IndexDigest        *string
++	WorkingTreeDigest  *string
++	Platform           scalar.Platform
++}
++
++// CheckpointWorkspace builds one closed WorkspaceBinding from the
++// observed repository state and returns its canonical bytes. The
++// workspace root must be an existing directory opened without
++// following a trailing symlink; the cwd must normalize beneath it;
++// every digest and identifier validates through the landed decoder.
++func CheckpointWorkspace(request WorkspaceRequest) ([]byte, error) {
++	workspaceID, err := scalar.ParseUUIDv7(request.LogicalWorkspaceID)
++	if err != nil {
++		return nil, invalid("workspace binding logical_workspace_id is not a UUIDv7: %v", err)
++	}
++	root, err := secprim.OpenNoFollowDir(request.WorkspaceRoot)
++	if err != nil {
++		return nil, invalid("workspace root %q: %v", request.WorkspaceRoot, err)
++	}
++	_ = root.Close()
++	relative, err := workspaceCwdRelative(request.Platform, request.WorkspaceRoot, request.Cwd)
++	if err != nil {
++		return nil, err
++	}
++	fingerprints, err := workspaceFingerprints(request.RemoteFingerprints)
++	if err != nil {
++		return nil, err
++	}
++	branch, err := workspaceNullableText(request.Branch, "branch", 1, 1024)
++	if err != nil {
++		return nil, err
++	}
++	head, err := workspaceNullableDigest(request.HeadDigest, "head_digest")
++	if err != nil {
++		return nil, err
++	}
++	index, err := workspaceNullableDigest(request.IndexDigest, "index_digest")
++	if err != nil {
++		return nil, err
++	}
++	tree, err := workspaceNullableDigest(request.WorkingTreeDigest, "working_tree_digest")
++	if err != nil {
++		return nil, err
++	}
++	object := map[string]any{
++		"logical_workspace_id":           workspaceID.String(),
++		"cwd_relative":                   relative,
++		"repository_remote_fingerprints": fingerprints,
++		"branch":                         branch,
++		"head_digest":                    head,
++		"index_digest":                   index,
++		"working_tree_digest":            tree,
++		"extensions":                     map[string]any{},
++	}
++	plain, err := json.Marshal(object)
++	if err != nil {
++		return nil, invalid("serialize workspace binding: %v", err)
++	}
++	sealed, err := canonicaljson.Canonicalize(plain)
++	if err != nil {
++		return nil, invalid("canonicalize workspace binding: %v", err)
++	}
++	if _, err := clonebundle.DecodeWorkspaceBinding(sealed); err != nil {
++		return nil, invalid("sealed workspace binding refused: %v", err)
++	}
++	return sealed, nil
++}
++
++// workspaceCwdRelative normalizes the observed cwd beneath the
++// Workspace Group root. An absolute cwd must sit inside the root; a
++// relative cwd must already be normalized; absolute paths outside
++// the root, parent segments, and dot segments refuse. The resolved
++// directory must exist, so the checkpoint records observed state,
++// not an unanchored claim.
++func workspaceCwdRelative(platform scalar.Platform, root, cwd string) (string, error) {
++	if cwd == "" {
++		return "", invalid("workspace binding cwd_relative is empty")
++	}
++	if _, err := scalar.ParseAbsolutePath(platform, cwd); err == nil {
++		relative, err := filepath.Rel(root, cwd)
++		if err != nil {
++			return "", invalid("workspace binding cwd %q is not beneath the workspace root", cwd)
++		}
++		if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
++			return "", invalid("workspace binding cwd %q escapes the workspace root", cwd)
++		}
++		cwd = filepath.ToSlash(relative)
++	}
++	if cwd == "." {
++		cwd = "."
++	} else {
++		parsed, err := scalar.ParseRelativePath(cwd)
++		if err != nil {
++			return "", invalid("workspace binding cwd_relative %q is not normalized beneath the workspace root: %v", cwd, err)
++		}
++		cwd = parsed.String()
++	}
++	absolute := root
++	if cwd != "." {
++		absolute = filepath.Join(root, filepath.FromSlash(cwd))
++	}
++	info, err := os.Stat(absolute)
++	if err != nil {
++		return "", invalid("workspace binding cwd_relative %q does not name an observed directory: %v", cwd, err)
++	}
++	if !info.IsDir() {
++		return "", invalid("workspace binding cwd_relative %q does not name an observed directory", cwd)
++	}
++	return cwd, nil
++}
++
++// workspaceFingerprints admits the sorted unique repository remote
++// fingerprints: at most 128 digests in strict bytewise order. An
++// unsorted, duplicated, over-long, or over-count row refuses; the
++// entry never repairs caller order.
++func workspaceFingerprints(fingerprints []string) ([]any, error) {
++	if len(fingerprints) > 128 {
++		return nil, invalid("workspace binding carries %d repository remote fingerprints, maximum is 128", len(fingerprints))
++	}
++	previous := ""
++	values := make([]any, 0, len(fingerprints))
++	for index, fingerprint := range fingerprints {
++		digest, err := scalar.ParseDigest(fingerprint)
++		if err != nil {
++			return nil, invalid("workspace binding repository_remote_fingerprints[%d] is not a digest: %v", index, err)
++		}
++		if index > 0 && fingerprint <= previous {
++			return nil, invalid("workspace binding carries unsorted or duplicate repository remote fingerprints")
++		}
++		previous = fingerprint
++		values = append(values, digest.String())
++	}
++	return values, nil
++}
++
++func workspaceNullableText(value *string, name string, minimum, maximum int) (any, error) {
++	if value == nil {
++		return nil, nil
++	}
++	// The Section 1.6 string measure counts characters, not bytes:
++	// the bound delegates to the environ owner, never len.
++	if length := environ.StringLength(*value); length < minimum || length > maximum {
++		return nil, invalid("workspace binding %s is not a string[%d..%d]", name, minimum, maximum)
++	}
++	return *value, nil
++}
++
++func workspaceNullableDigest(value *string, name string) (any, error) {
++
++	if value == nil {
++		return nil, nil
++	}
++	digest, err := scalar.ParseDigest(*value)
++	if err != nil {
++		return nil, invalid("workspace binding %s is not a digest: %v", name, err)
++	}
++	return digest.String(), nil
++}
+diff --git a/internal/clonesnap/workspace_test.go b/internal/clonesnap/workspace_test.go
+new file mode 100644
+index 0000000..b486794
+--- /dev/null
++++ b/internal/clonesnap/workspace_test.go
+@@ -0,0 +1,228 @@
++package clonesnap
++
++import (
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/clonebundle"
++)
++
++// Workspace checkpoint evidence: CheckpointWorkspace builds the
++// closed WorkspaceBinding from observed repository state through
++// the production entry, and every escape or shape violation refuses
++// with the member named.
++
++func TestCheckpointWorkspaceSealsObservedState(t *testing.T) {
++	request := fixtureWorkspace(t)
++	sealed, err := CheckpointWorkspace(request)
++	if err != nil {
++		t.Fatalf("CheckpointWorkspace() error = %v", err)
++	}
++	binding, err := clonebundle.DecodeWorkspaceBinding(sealed)
++	if err != nil {
++		t.Fatalf("DecodeWorkspaceBinding() error = %v", err)
++	}
++	if binding.LogicalWorkspaceID.String() != fixtureWorkspaceID {
++		t.Fatalf("LogicalWorkspaceID = %q", binding.LogicalWorkspaceID)
++	}
++	if binding.CwdRelative != "work/trees/alpha" {
++		t.Fatalf("CwdRelative = %q", binding.CwdRelative)
++	}
++	if len(binding.RemoteFingerprints) != 1 || binding.RemoteFingerprints[0].String() != fixtureDigest("snap-remote") {
++		t.Fatalf("RemoteFingerprints = %v", binding.RemoteFingerprints)
++	}
++	if binding.Branch == nil || *binding.Branch != "main" {
++		t.Fatalf("Branch = %v", binding.Branch)
++	}
++	if binding.HeadDigest == nil || binding.HeadDigest.String() != fixtureDigest("snap-head") {
++		t.Fatalf("HeadDigest = %v", binding.HeadDigest)
++	}
++	if binding.IndexDigest != nil || binding.WorkingTreeDigest != nil {
++		t.Fatal("null digests did not seal as null")
++	}
++}
++
++func TestCheckpointWorkspaceRelativeCwd(t *testing.T) {
++	request := fixtureWorkspace(t)
++	request.Cwd = "work/trees/alpha"
++	sealed, err := CheckpointWorkspace(request)
++	if err != nil {
++		t.Fatalf("CheckpointWorkspace() error = %v", err)
++	}
++	binding, err := clonebundle.DecodeWorkspaceBinding(sealed)
++	if err != nil {
++		t.Fatalf("DecodeWorkspaceBinding() error = %v", err)
++	}
++	if binding.CwdRelative != "work/trees/alpha" {
++		t.Fatalf("CwdRelative = %q", binding.CwdRelative)
++	}
++}
++
++func TestCheckpointWorkspaceRootCwd(t *testing.T) {
++	request := fixtureWorkspace(t)
++	request.Cwd = request.WorkspaceRoot
++	sealed, err := CheckpointWorkspace(request)
++	if err != nil {
++		t.Fatalf("CheckpointWorkspace() error = %v", err)
++	}
++	binding, err := clonebundle.DecodeWorkspaceBinding(sealed)
++	if err != nil {
++		t.Fatalf("DecodeWorkspaceBinding() error = %v", err)
++	}
++	if binding.CwdRelative != "." {
++		t.Fatalf("CwdRelative = %q, want .", binding.CwdRelative)
++	}
++}
++
++func TestCheckpointWorkspaceRefusesEscape(t *testing.T) {
++	request := fixtureWorkspace(t)
++	request.Cwd = "/outside-workspace"
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted an absolute escape")
++	} else {
++		requireRefusalDetail(t, err, "escapes the workspace root")
++	}
++	// A different escape still refuses after the
++	// admit-exactly-/outside-workspace narrowing.
++	request.Cwd = "/outside-workspace-2"
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted an absolute escape")
++	} else {
++		requireRefusalDetail(t, err, "escapes the workspace root")
++	}
++}
++
++func TestCheckpointWorkspaceRefusesDotSegments(t *testing.T) {
++	request := fixtureWorkspace(t)
++	request.Cwd = "work/../escape"
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted parent segments")
++	} else {
++		requireRefusalDetail(t, err, `"work/../escape"`)
++	}
++}
++
++func TestCheckpointWorkspaceRefusesMissingCwd(t *testing.T) {
++	request := fixtureWorkspace(t)
++	request.Cwd = "work/trees/missing"
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted an unobserved cwd")
++	} else {
++		requireRefusalDetail(t, err, `"work/trees/missing"`)
++	}
++}
++
++func TestCheckpointWorkspaceRefusesFileCwd(t *testing.T) {
++	request := fixtureWorkspace(t)
++	plain := filepath.Join(request.WorkspaceRoot, "plain-file")
++	if err := os.WriteFile(plain, []byte("not-a-directory"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	request.Cwd = "plain-file"
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted a file cwd")
++	} else {
++		requireRefusalDetail(t, err, `"plain-file"`)
++	}
++}
++
++func TestCheckpointWorkspaceRefusesUnsortedFingerprints(t *testing.T) {
++	request := fixtureWorkspace(t)
++	first := fixtureDigest("snap-remote-a")
++	second := fixtureDigest("snap-remote-b")
++	fingerprints := []string{first, second}
++	if fingerprints[0] > fingerprints[1] {
++		fingerprints[0], fingerprints[1] = fingerprints[1], fingerprints[0]
++	}
++	// Descending order refuses.
++	request.RemoteFingerprints = []string{fingerprints[1], fingerprints[0]}
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted unsorted fingerprints")
++	} else {
++		requireRefusalDetail(t, err, "unsorted or duplicate repository remote fingerprints")
++	}
++	// Ascending order seals.
++	request.RemoteFingerprints = []string{fingerprints[0], fingerprints[1]}
++	if _, err := CheckpointWorkspace(request); err != nil {
++		t.Fatalf("CheckpointWorkspace() error = %v", err)
++	}
++}
++
++func TestCheckpointWorkspaceRefusesDuplicateFingerprint(t *testing.T) {
++	request := fixtureWorkspace(t)
++	duplicate := fixtureDigest("snap-remote")
++	request.RemoteFingerprints = []string{duplicate, duplicate}
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted duplicate fingerprints")
++	} else {
++		requireRefusalDetail(t, err, "unsorted or duplicate repository remote fingerprints")
++	}
++}
++
++func TestCheckpointWorkspaceRefusesTooManyFingerprints(t *testing.T) {
++	request := fixtureWorkspace(t)
++	fingerprints := make([]string, 0, 129)
++	for index := 0; index < 129; index++ {
++		fingerprints = append(fingerprints, fixtureDigest("snap-remote-"+string(rune('a'+index/26))+string(rune('a'+index%26))))
++	}
++	request.RemoteFingerprints = fingerprints
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted 129 fingerprints")
++	} else {
++		requireRefusalDetail(t, err, "maximum is 128")
++	}
++}
++
++func TestCheckpointWorkspaceRefusesBadDigest(t *testing.T) {
++	request := fixtureWorkspace(t)
++	bad := "not-a-digest"
++	request.HeadDigest = &bad
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted a bad head digest")
++	} else {
++		requireRefusalDetail(t, err, "head_digest")
++	}
++}
++
++func TestCheckpointWorkspaceRefusesBadWorkspaceID(t *testing.T) {
++	request := fixtureWorkspace(t)
++	request.LogicalWorkspaceID = "not-a-uuid"
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted a bad workspace ID")
++	} else {
++		requireRefusalDetail(t, err, "UUIDv7")
++	}
++}
++
++func TestCheckpointWorkspaceRefusesSymlinkRoot(t *testing.T) {
++	real := t.TempDir()
++	link := filepath.Join(t.TempDir(), "link-root")
++	if err := os.Symlink(real, link); err != nil {
++		t.Fatal(err)
++	}
++	request := fixtureWorkspace(t)
++	request.WorkspaceRoot = link
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted a symlinked root")
++	}
++}
++
++func TestCheckpointWorkspaceMultibyteBranch(t *testing.T) {
++	// The branch bound counts characters, not bytes: 1024
++	// two-byte characters admit.
++	request := fixtureWorkspace(t)
++	branch := strings.Repeat("é", 1024)
++	request.Branch = &branch
++	if _, err := CheckpointWorkspace(request); err != nil {
++		t.Fatalf("CheckpointWorkspace() error = %v", err)
++	}
++	tooLong := strings.Repeat("é", 1025)
++	request.Branch = &tooLong
++	if _, err := CheckpointWorkspace(request); err == nil {
++		t.Fatal("CheckpointWorkspace() admitted a 1025-character branch")
++	} else {
++		requireRefusalDetail(t, err, "string[1..1024]")
++	}
++}
