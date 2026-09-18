@@ -18,7 +18,6 @@ import (
 // lease ID is a valid UUIDv4.
 const (
 	smokeClock     = "2026-09-17T00:00:00Z"
-	smokeDeadline  = "2026-09-18T00:00:00.000Z"
 	smokeSessionID = "0198f4c8-3e70-7a11-8a2b-1234567890ab"
 	smokeWorkID    = "0198f4c8-6c30-7d44-8d5e-1234567890ab"
 	smokeHostID    = "0198f4c8-4a10-7b22-8b3c-1234567890ab"
@@ -30,6 +29,21 @@ const (
 	smokeRealm     = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaad"
 	smokeHome      = "/smoke/home"
 )
+
+// smokeDeadlineValue returns the provider-call deadline for a smoke run.
+//
+// It is deliberately NOT a frozen fixture constant. checkParams validates the
+// deadline against the fixture clock above, but provhost wraps each provider
+// call in context.WithDeadline on the REAL clock, so a literal instant stops
+// being a deadline and becomes an expiry date: a hard-coded
+// "2026-09-18T00:00:00.000Z" made TestSmokeThroughRealProviderProcess, and
+// therefore `go test ./...`, fail on every tree from that moment on
+// (BUG-260918-354b03). The recorded facts stay deterministic because the
+// deadline is never part of the replayed evidence — only smokeClock governs
+// started_at, completed_at and every digest.
+func smokeDeadlineValue() string {
+	return time.Now().UTC().Add(time.Hour).Format("2006-01-02T15:04:05.000Z")
+}
 
 // smokeNativeID is the fixture native session ID. It is a canary:
 // no smoke record may contain it, because records carry digests,
@@ -314,7 +328,7 @@ func smokeParams(tuple provhost.BuildTuple, runner *scriptedRunner) Params {
 		Tuple:      tuple,
 		Host:       provhost.Host{Runner: runner, Now: func() time.Time { return clock }},
 		Executable: executable,
-		Deadline:   smokeDeadline,
+		Deadline:   smokeDeadlineValue(),
 		ProbeID:    smokeProbeID,
 		IdentifyID: smokeIdentID,
 		ResumeID:   smokeResumeID,
