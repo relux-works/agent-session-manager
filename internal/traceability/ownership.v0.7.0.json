@@ -3591,6 +3591,139 @@
           "declaration": "TestCurrentMatchesReviewedV070Catalog"
         }
       ]
+    },
+    {
+      "id": "rpcwire-closed-bodies",
+      "production": {
+        "path": "internal/rpcwire/envelope.go",
+        "declaration": "DecodeRequest"
+      },
+      "tests": [
+        {
+          "path": "internal/rpcwire/adversarial_test.go",
+          "declaration": "TestClosedBodyMemberSweep"
+        },
+        {
+          "path": "internal/rpcwire/adversarial_test.go",
+          "declaration": "TestClosedBodyBoundsWitnessed"
+        },
+        {
+          "path": "internal/rpcwire/envelope_test.go",
+          "declaration": "TestHelloRefusals"
+        }
+      ]
+    },
+    {
+      "id": "rpcwire-framing",
+      "production": {
+        "path": "internal/rpcwire/envelope.go",
+        "declaration": "DecodeResponse"
+      },
+      "tests": [
+        {
+          "path": "internal/rpcwire/envelope_test.go",
+          "declaration": "TestHistoricalFailureBindings"
+        },
+        {
+          "path": "internal/rpcwire/envelope_test.go",
+          "declaration": "TestBootstrapRejectionFraming"
+        }
+      ]
+    },
+    {
+      "id": "meshneg-selection",
+      "production": {
+        "path": "internal/meshneg/negotiate.go",
+        "declaration": "Negotiate"
+      },
+      "tests": [
+        {
+          "path": "internal/meshneg/adversarial_test.go",
+          "declaration": "TestNoMajorSelectedByCoercion"
+        },
+        {
+          "path": "internal/meshneg/adversarial_test.go",
+          "declaration": "TestMajor1RejectedThroughNegotiation"
+        },
+        {
+          "path": "internal/meshneg/negotiate_test.go",
+          "declaration": "TestNegotiateMatrix"
+        }
+      ]
+    },
+    {
+      "id": "rpcwire-version-boundary",
+      "production": {
+        "path": "internal/rpcwire/envelope.go",
+        "declaration": "DecodeRequest"
+      },
+      "tests": [
+        {
+          "path": "internal/rpcwire/adversarial_test.go",
+          "declaration": "TestMajor1RejectedNotReinterpreted"
+        },
+        {
+          "path": "internal/rpcwire/adversarial_test.go",
+          "declaration": "TestErrorSchemaNotNegotiated"
+        }
+      ]
+    },
+    {
+      "id": "story-4qojoz-mesh-negotiation",
+      "production": {
+        "path": "internal/meshneg/negotiate.go",
+        "declaration": "Negotiate"
+      },
+      "tests": [
+        {
+          "path": "internal/meshneg/conformance_test.go",
+          "declaration": "TestPeerExposure"
+        },
+        {
+          "path": "internal/meshneg/conformance_test.go",
+          "declaration": "TestExposureCarriesNoInventory"
+        },
+        {
+          "path": "internal/meshneg/conformance_test.go",
+          "declaration": "TestRefusalClassesResolveFromTheRegistry"
+        },
+        {
+          "path": "internal/meshneg/conformance_test.go",
+          "declaration": "TestNegotiationIsNotAdmission"
+        },
+        {
+          "path": "internal/meshneg/conformance_test.go",
+          "declaration": "TestNoFallbackSurface"
+        },
+        {
+          "path": "internal/meshneg/conformance_test.go",
+          "declaration": "TestSemverAgreementWithRPCWire"
+        },
+        {
+          "path": "internal/meshneg/conformance_test.go",
+          "declaration": "TestConfig4NeverDowngrades"
+        },
+        {
+          "path": "internal/meshneg/conformance_test.go",
+          "declaration": "TestLegacyNeverSelectsRPC5"
+        },
+        {
+          "path": "internal/meshneg/conformance_test.go",
+          "declaration": "TestNegotiationIsDeterministic"
+        },
+        {
+          "path": "internal/meshneg/conformance_test.go",
+          "declaration": "TestRefusalShape"
+        },
+        {
+          "path": "internal/meshneg/adversarial_test.go",
+          "declaration": "TestPeerOfferKeyMembershipPerKey"
+        },
+        {
+          "path": "internal/meshneg/adversarial_test.go",
+          "declaration": "TestNegotiateOfferRefusalCarriesLocal"
+        }
+      ]
     }
   ],
   "ownership": [
@@ -3957,14 +4090,43 @@
         "section:17.1"
       ],
       "production": {
-        "path": "internal/config/schema.go",
-        "declaration": "Decode"
+        "path": "internal/meshneg/negotiate.go",
+        "declaration": "Negotiate"
       },
       "acceptance_cases": [
+        "meshneg-selection",
+        "rpcwire-version-boundary",
         "config-versioned-readers"
       ],
-      "coverage": "unevidenced",
-      "gap": "Decode reads every pinned Section 17.1 document version, but no clause of Section 17.1 is enumerated against an acceptance case."
+      "coverage": "partial",
+      "clauses": [
+        {
+          "id": "17.1#1",
+          "line": 15567,
+          "excerpt": "- a major increment MAY break syntax or semantics and MUST require explicit",
+          "acceptance_cases": [
+            "meshneg-selection"
+          ]
+        },
+        {
+          "id": "17.1#4",
+          "line": 15589,
+          "excerpt": "highest mutually supported minor within a common major; they MUST NOT select a",
+          "acceptance_cases": [
+            "meshneg-selection"
+          ]
+        },
+        {
+          "id": "17.1#5",
+          "line": 15602,
+          "excerpt": "immutable v0.1.0 contracts and MUST NOT be interpreted using the corrected",
+          "acceptance_cases": [
+            "meshneg-selection",
+            "rpcwire-version-boundary"
+          ]
+        }
+      ],
+      "gap": "Section 17.1 clauses 17.1#2 (minor-version semantic preservation) and 17.1#6 (v1 materialization upgrade) are outside Negotiate, which selects majors only: no minor-selection entry exists, immutable-object namespaced extensions (17.1#3) belong to the object-exchange owners, and materialization upgrade belongs to the matjournal and provhost owners. The retained config-versioned-readers case keeps the config Decode lanes traceable."
     },
     {
       "kind": "section_binding",
@@ -3994,15 +4156,26 @@
         "section:17.4"
       ],
       "production": {
-        "path": "internal/config/migration.go",
-        "declaration": "AssessCompatibility"
+        "path": "internal/meshneg/negotiate.go",
+        "declaration": "Negotiate"
       },
       "acceptance_cases": [
+        "story-4qojoz-mesh-negotiation",
         "config-read-only-downgrade",
         "config-durable-migration"
       ],
-      "coverage": "unevidenced",
-      "gap": "AssessCompatibility implements the Section 17.4 read-only downgrade assessment, but no clause of Section 17.4 is enumerated against an acceptance case."
+      "coverage": "sliver",
+      "clauses": [
+        {
+          "id": "17.4#4",
+          "line": 15661,
+          "excerpt": "immutable evidence; it MUST report activation unavailable rather than omit the",
+          "acceptance_cases": [
+            "story-4qojoz-mesh-negotiation"
+          ]
+        }
+      ],
+      "gap": "Section 17.4 clauses 17.4#1 through 17.4#3 (upgrade checks, downgraded-binary read-only mode, no resume or transfer) are outside Negotiate: no upgrade, downgrade, or auto-resume flow exists in the tree, so only the activation-unavailable exposure clause discharges above. The retained config cases keep the AssessCompatibility downgrade-assessment lanes traceable."
     },
     {
       "kind": "section_binding",
@@ -4622,14 +4795,42 @@
         "section:11.2"
       ],
       "production": {
-        "path": "internal/catalog/catalog.go",
-        "declaration": "ForRelease"
+        "path": "internal/rpcwire/envelope.go",
+        "declaration": "DecodeRequest"
       },
       "acceptance_cases": [
+        "rpcwire-closed-bodies",
+        "rpcwire-framing",
         "catalog-v050-exact"
       ],
-      "coverage": "unevidenced",
-      "gap": "ForRelease returns the reviewed typed catalog rows that reference 11.2. TASK-260830-z1yxg9 adds rpcwire.DecodeRequest/DecodeResponse structural envelopes, request-ID/version correlation, 14-key hello maps, nonce echo and limit floors for RPC 2/3/4/5, and the hostchannel Serve/Dial authenticated hello consumer with its refusal table (internal/hostchannel, HC-HELLO/HC-DISPATCH families). No clause of 11.2 is enumerated against an acceptance case, so the registry makes no clause-level claim about the 5 obligations it carries."
+      "coverage": "partial",
+      "clauses": [
+        {
+          "id": "11.2#2",
+          "line": 7364,
+          "excerpt": "state, Structured Error, Observation Event, and CLI Result MUST NOT appear in",
+          "acceptance_cases": [
+            "rpcwire-closed-bodies"
+          ]
+        },
+        {
+          "id": "11.2#3",
+          "line": 7408,
+          "excerpt": "<code>ok = false</code> and one Structured Error and MUST omit body. Unknown",
+          "acceptance_cases": [
+            "rpcwire-framing"
+          ]
+        },
+        {
+          "id": "11.2#4",
+          "line": 7420,
+          "excerpt": "at least the values shown and MUST refuse a peer below them. The 5 MiB object",
+          "acceptance_cases": [
+            "rpcwire-closed-bodies"
+          ]
+        }
+      ],
+      "gap": "Section 11.2 clauses 11.2#1 and 11.2#5 (hello-first sequencing) are executed only for the RPC-5 Host Channel responder: DecodeRequest is a stateless codec with no handshake memory, and no legacy `ax rpc serve` responder exists in the tree, so the legacy sequencing lane stays a stated bound while the codec-enforced clauses discharge above."
     },
     {
       "kind": "section_binding",

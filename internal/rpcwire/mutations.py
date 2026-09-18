@@ -11,7 +11,9 @@ E = "internal/rpcwire/envelope.go"
 H = "internal/rpcwire/hello.go"
 I = "internal/rpcwire/inventory.go"
 PROBES = []
-BOUNDS = {}
+BOUNDS = {
+    "error-text": "Go sentinel identity only; every test branches on errors.Is, never on the message text (harmless applied control, must survive).",
+}
 def probe(name,path,old,new,bound,test):
     PROBES.append((name,path,old,new,bound,test))
 probe('neutral',E,'return 2, nil','return int(2), nil','Equivalent major value',None)
@@ -50,6 +52,14 @@ probe('roots-missing',I,'len(roots) != len(names)','len(roots) != len(names) && 
 probe('root-association',I,'root.Namespace != names[i]','root.Namespace != names[i] && !(i==0 && root.Namespace=="event")','Admits event root in blob slot','TestInventoryNamespacesAndCardinality/2.0.0')
 
 probe('common-data-model',E,'canonicaljson.Canonicalize(data); err != nil','canonicaljson.Canonicalize(data); err != nil && !bytes.HasPrefix(data, []byte(`{"protocol":"urn:other",`))','Admits the duplicate protocol fixture while retaining the canonicalization call','TestFrameRefusals/duplicate')
+probe('envelope-admits-extensions-top',E,'if len(m) != len(keys) {','if len(m) != len(keys) && !(len(m) == len(keys)+1 && m["extensions"] != nil) {','Admits exactly one extra extensions member in any exact-shape check','TestExtensionsDirections/envelope-top-level-refused')
+probe('hello-admits-extensions-member',H,'if !exact(m, keys...) {','if !exact(m, keys...) && m["extensions"] == nil {','Admits exactly one extra extensions member in hello bodies only','TestExtensionsDirections/hello-body-refused')
+probe('nonce-admits-standard-alphabet',H,'b, err := base64.RawURLEncoding.Strict().DecodeString(s)\n\treturn err == nil && len(b) >= 16 && base64.RawURLEncoding.EncodeToString(b) == s','b, err := base64.RawURLEncoding.Strict().DecodeString(s)\n\turl := err == nil && len(b) >= 16 && base64.RawURLEncoding.EncodeToString(b) == s\n\tc, cerr := base64.RawStdEncoding.Strict().DecodeString(s)\n\tstd := cerr == nil && len(c) >= 16 && base64.RawStdEncoding.EncodeToString(c) == s\n\treturn url || std','Admits the unpadded standard-base64 alphabet as a class: any canonical +/ spelling decoding to 16 or more bytes','TestClosedBodyBoundsWitnessed/nonce-standard-alphabet-refused')
+probe('failure-binding-v2-admits-13',E,'n, _ := major(version)','n, _ := major(version)\n\tif n == 2 {\n\t\tn = 5\n\t}','Decodes RPC-2 failures under the Error 1.3.0 binding only','TestErrorSchemaNotNegotiated/rpc2-refuses-error-1.3.0')
+probe('correlation-id-maps-frame',E,'if id != request.id {\n\t\treturn Response{}, ErrCorrelation\n\t}','if id != request.id {\n\t\treturn Response{}, ErrFrame\n\t}','Reports a mismatched echo as ErrFrame instead of ErrCorrelation (sentinel swap; proves the class assertion)','TestResponseCorrelationClasses/mismatched-id')
+probe('error-text',E,'ErrFrame       = errors.New("invalid RPC frame")','ErrFrame       = errors.New("invalid RPC frame ")','Go sentinel message text only',None)
+probe('namespace-admits-six-letter',I,'!slices.Contains(allowed, name)','(!slices.Contains(allowed, name) && len(name) != 6)','Admits any 6-letter non-vocabulary namespace while every pinned token still matches exactly','TestNamespaceVocabularyPerMember/2.0.0/refuse-"RECORD"')
+probe('opaque-admits-nonobject-body',E,'\tif _, err = object(m["body"]); err != nil {\n\t\treturn Request{}, err\n\t}','\tif op != "health.get" {\n\t\tif _, err = object(m["body"]); err != nil {\n\t\t\treturn Request{}, err\n\t\t}\n\t}','Admits a non-object or duplicate-member body for health.get only','TestOpaqueBodyMustBeObject')
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

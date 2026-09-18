@@ -27,6 +27,8 @@ var coverageNumberWords = map[string]int{
 	"five":        5,
 	"six":         6,
 	"seven":       7,
+	"eight":       8,
+	"forty-nine":  49,
 	"fifty-two":   52,
 	"sixty-eight": 68,
 }
@@ -73,10 +75,10 @@ func TestREADMEMeasuredCoverageMatchesTracecheckReport(t *testing.T) {
 	assertProseFigure(t, prose, start, `(\S+) section bindings discharge ([0-9]+) of the ([0-9]+) normative clauses`,
 		[]int{report.SectionBindings, report.DischargedClauses, report.NormativeClauses})
 	assertProseFigure(t, prose, start, `(Two) bindings are `+"`full`", []int{report.FullCoverage})
-	assertProseFigure(t, prose, start, `(six) are `+"`partial`", []int{report.PartialCoverage})
-	assertProseFigure(t, prose, start, `(four) are `+"`sliver`", []int{report.SliverCoverage})
+	assertProseFigure(t, prose, start, `(eight) are `+"`partial`", []int{report.PartialCoverage})
+	assertProseFigure(t, prose, start, `(five) are `+"`sliver`", []int{report.SliverCoverage})
 	assertProseFigure(t, prose, start, `(four) are `+"`unmeasured`", []int{report.UnmeasuredCoverage})
-	assertProseFigure(t, prose, start, `(fifty-two) are `+"`unevidenced`", []int{report.UnevidencedCoverage})
+	assertProseFigure(t, prose, start, `(forty-nine) are `+"`unevidenced`", []int{report.UnevidencedCoverage})
 	assertProseFigure(t, prose, start, `(Seven) sections are recorded unowned`, []int{report.UnownedSections})
 
 	fullBindings, fullClauses := fullBindingTotals(t, repositoryRoot)

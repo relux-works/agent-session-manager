@@ -3060,7 +3060,7 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7
 repository gate used by CI. Its reviewed
 [`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
 registry independently enumerates implementation owners for all 64 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 135
+contract rows, 36 pinned or catalog-referenced normative section keys, 140
 executable acceptance cases, 68 exact section bindings with their declared
 coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
@@ -3162,10 +3162,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=68 full=2 partial=6 sliver=4 unevidenced=52 unmeasured=4 unowned=7 clauses_discharged=49/569
+section coverage: bindings=68 full=2 partial=8 sliver=5 unevidenced=49 unmeasured=4 unowned=7 clauses_discharged=56/569
 ```
 
-Sixty-eight section bindings discharge 49 of the 569 normative clauses their
+Sixty-eight section bindings discharge 56 of the 569 normative clauses their
 sections carry. Two bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
@@ -3174,7 +3174,7 @@ refusal arm; and Section 2.4 at 4/4, bound to
 [`internal/sessprofile`](internal/sessprofile), whose derivation, checkpoint
 closure, fork projection, and mapping-failure clauses are discharged by the
 profile derivation, heads, fork-pair, and mapping-resolution acceptance
-cases), six are
+cases), eight are
 `partial` (Section 13.13 at 9/11, bound to
 [`internal/matjournal`](internal/matjournal) with the
 [`internal/crashgate`](internal/crashgate) conformance harness, whose
@@ -3212,8 +3212,16 @@ named test, which the inventory resolves textually; and Section 7.7 at 3/4,
 bound to [`internal/provhost`](internal/provhost), whose undischarged clause
 `7.7#2` is the machine-local-alias sentence - the omit rule is enforced, but a
 shell word that expands to unrestricted mode without spelling a table token is
-beyond argv inspection),
-four are
+beyond argv inspection; Section 11.2 at 3/5, bound to
+[`internal/rpcwire`](internal/rpcwire), whose undischarged clauses `11.2#1`
+and `11.2#5` are the hello-first sequencing sentences - the stateless codec
+has no handshake memory and no legacy responder exists, so only the
+RPC-5 Host Channel lane executes them; and Section 17.1 at 3/6, bound to
+[`internal/meshneg`](internal/meshneg), whose undischarged clauses `17.1#2`,
+`17.1#3`, and `17.1#6` are minor-version preservation, immutable-object
+extensions, and v1 materialization upgrade, none of which a major-only
+negotiator implements),
+five are
 `sliver` (Section 10.3, whose chunk offset invariant is
 enforced by `validateBlobDescriptor` while its two receiver clauses have no
 implementation; Section 5.5 at 1/3, whose discharged negative-battery clause
@@ -3225,9 +3233,12 @@ unimplemented; and Section 2.2 at 4/22, bound to
 [`internal/fencing`](internal/fencing), whose discharged clauses are the
 single-owner, replica-restraint, winning-epoch-carriage, and
 losing-event-rejection invariants while the replication, secret, store,
-and directory invariants have no implementation), four are `unmeasured` (Sections 7.3, 13.12, 13.14.5 and 15.2, each of
+and directory invariants have no implementation; and Section 17.4 at 1/4, bound
+to [`internal/meshneg`](internal/meshneg), whose discharged clause is the
+report-activation-unavailable sentence while upgrade, downgrade, and resume
+flows do not exist), four are `unmeasured` (Sections 7.3, 13.12, 13.14.5 and 15.2, each of
 which carries a gap saying why the scanner measures zero and what is missing),
-and fifty-two are `unevidenced`. Seven sections are recorded unowned.
+and forty-nine are `unevidenced`. Seven sections are recorded unowned.
 All 13 sections added by v0.6.0 name pending task owners in the reviewed
 registry gaps; these assignments grant no runtime admission. The
 [adoption ownership map](internal/traceability/adoption-v0.6.0.md) separates
@@ -3542,11 +3553,43 @@ stream with zero traffic (measured: the product fences the next dispatch and
 `WatchGeneration` reports the commit; `serveLoop` carries no background
 watchdog). Section 11.10.5 upstream vectors are source evidence only.
 
+[`internal/meshneg`](internal/meshneg) selects the single Mesh RPC major for
+one peer connection from the local configuration generation and the peer's
+decoded hello: Config-4 offers exactly RPC 5, legacy generations offer the
+historical dual-stack sets, the peer offer must agree with its framing major,
+and a disjoint pair refuses no-common-major with `incompatible_protocol`
+(exit 6) from actually known inputs. A selection carries the exact pinned
+contracts map, namespace vocabulary, and bound Structured Error version for
+its major, and reports above-core activation the selection does not carry as
+explicitly unsupported (`directory_mesh_unsupported`,
+`terminal_backend_unavailable`), never as zero inventory. Outcomes are pure
+data: nothing is framed, connected, advertised, or admitted here. There is
+no `ax` command, doctor result, or capability claim.
+
+The adversarial closure pins the contracts key-membership gate per key of
+every frame's profile, the local-offer facts on offer-originated refusals,
+and the no-coercion shapes through the composed `Negotiate` entry; the
+fuzz targets below reach the `hello`/`inventory.roots` body parsers rather
+than only the envelope. Their oracle checks envelope identity, the object
+gate, round-trip, and member sets only: member bounds and vocabularies are
+owned by the unit tests, which kill the plants the targets cannot see.
+Twenty-two of the twenty-four Section 11.3
+operation bodies stay opaque by design and are stated bounds, not rows.
+
 | Tool / check | Exact command | Output |
 | --- | --- | --- |
 | RPC/host-channel behavior | `go test ./internal/rpcwire ./internal/hostchannel -count=1 -v` | stdout; `.temp/TASK-260830-z1yxg9/` logs |
+| Major-negotiation behavior | `go test ./internal/meshneg -count=1 -v` | stdout; `.temp/TASK-260830-219okr/` logs |
+| Major-negotiation races and coverage | `go test ./internal/meshneg -race -count=1 -cover` | Race diagnostics and measured package coverage |
+| Major-negotiation narrowing | `PYTHONDONTWRITEBYTECODE=1 python3 internal/meshneg/mutations.py --output .temp/TASK-260830-219okr/mutations-meshneg` | 31 narrowing probes killed by named tests plus neutral and harmless SURVIVED controls, in per-plant raw logs and mutant tables; source originals remain untouched |
+| Major-negotiation narrowing (adversarial closure) | `PYTHONDONTWRITEBYTECODE=1 python3 internal/meshneg/mutations.py --output .temp/TASK-260830-19bjfj/mutations-meshneg` | 37 narrowing probes killed by named tests plus neutral and harmless SURVIVED controls, in per-plant raw logs and mutant tables; source originals remain untouched |
+| RPC adversarial behavior | `go test ./internal/rpcwire -count=1 -v -run 'TestClosedBody|TestNamespace|TestUnknownFields|TestExtensions|TestResponseCorrelation|TestMajor1|TestErrorSchema|TestFramingBounds'` | stdout; `.temp/TASK-260830-19bjfj/` logs |
+| RPC adversarial narrowing | `PYTHONDONTWRITEBYTECODE=1 python3 internal/rpcwire/mutations.py --output .temp/TASK-260830-19bjfj/mutations-rpcwire` | 41 narrowing probes killed by named tests plus neutral and harmless SURVIVED controls, in per-plant raw logs and mutant tables; source originals remain untouched |
 | RPC/host-channel races and coverage | `go test ./internal/rpcwire ./internal/hostchannel -race -count=1 -cover` | Race diagnostics and measured package coverage |
 | RPC/host-channel narrowing | `python3 internal/rpcwire/mutations.py --output .temp/TASK-260830-z1yxg9/mutations-rpcwire` and `python3 internal/hostchannel/mutations.py --output .temp/TASK-260830-z1yxg9/mutations-hostchannel` | Applied compiling overlays, JSON events, real exits, named failing tests and mutant tables; source originals remain untouched |
 | Hostile-network conformance | `go test ./internal/hostchannel -run 'TestHostile' -count=1 -v` | Per-vector refusal classes, census assertions, and the OpenSSH loopback lane (skips with an asserted reason when `sshd` cannot bind); `.temp/TASK-260830-2x16gz/` logs |
 | Hostile narrowing | `python3 internal/hostchannel/mutations.py --output .temp/TASK-260830-2x16gz/mutations-hostchannel` | Nine added narrowing probes killed by named `TestHostile*` vectors, plus the shipped suite, in per-plant raw logs and mutant tables; source originals remain untouched |
 | RPC fuzz smoke | `go test ./internal/rpcwire -run '^$' -fuzz '^FuzzUntrustedEnvelopes$' -fuzztime=100x -parallel=1` | stdout and task log |
+| RPC body fuzz smoke | `go test ./internal/rpcwire -run '^$' -fuzz '^FuzzClosedOperationBodies$' -fuzztime=100x -parallel=1` | stdout and task log; each target fails on its planted control input (`.temp/TASK-260830-19bjfj/` logs) |
+| RPC namespace fuzz smoke | `go test ./internal/rpcwire -run '^$' -fuzz '^FuzzNamespaceVocabulary$' -fuzztime=100x -parallel=1` | stdout and task log; each target fails on its planted control input (`.temp/TASK-260830-19bjfj/` logs) |
+| RPC unknown-field fuzz smoke | `go test ./internal/rpcwire -run '^$' -fuzz '^FuzzUnknownFields$' -fuzztime=100x -parallel=1` | stdout and task log; each target fails on its planted control input (`.temp/TASK-260830-19bjfj/` logs) |

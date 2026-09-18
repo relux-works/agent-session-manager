@@ -22,8 +22,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=135 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
-		"section coverage: bindings=68 full=2 partial=6 sliver=4 unevidenced=52 unmeasured=4 unowned=7 clauses_discharged=49/569\n"
+	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=140 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
+		"section coverage: bindings=68 full=2 partial=8 sliver=5 unevidenced=49 unmeasured=4 unowned=7 clauses_discharged=56/569\n"
 	if output.String() != want {
 		t.Fatalf("run() output = %q, want %q", output.String(), want)
 	}
@@ -55,8 +55,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run(assigned sections) error = %v", err)
 	}
-	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=135 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
-		"section coverage: bindings=68 full=2 partial=6 sliver=4 unevidenced=52 unmeasured=4 unowned=7 clauses_discharged=49/569\n"
+	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=140 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
+		"section coverage: bindings=68 full=2 partial=8 sliver=5 unevidenced=49 unmeasured=4 unowned=7 clauses_discharged=56/569\n"
 	if output.String() != want {
 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
 	}
@@ -143,7 +143,7 @@ func TestRunRefusesEveryAssignedSectionThatOnlySlivers(t *testing.T) {
 		{"15.1", "discharges 5/7 normative clauses, which is partial coverage"},
 		{"15.2", "discharges 0/0 normative clauses, which is unmeasured coverage"},
 		{"15.3", "discharges 2/3 normative clauses, which is partial coverage"},
-		{"17.1", "discharges 0/6 normative clauses, which is unevidenced coverage"},
+		{"17.1", "discharges 3/6 normative clauses, which is partial coverage"},
 		{"17.2", "discharges 0/1 normative clauses, which is unevidenced coverage"},
 		{"17.3", "discharges 0/3 normative clauses, which is unevidenced coverage"},
 		{"18.1", "discharges 0/5 normative clauses, which is unevidenced coverage"},

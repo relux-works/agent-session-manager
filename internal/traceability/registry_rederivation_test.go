@@ -67,6 +67,11 @@ const (
 // through reviewedOwnershipCanonicalSHA256; this test pins the derivation
 // relationship between the two registries, so neither a dropped carry nor an
 // unreviewed addition can pass as a re-derivation.
+//
+// Post-adoption stories upgrade the adopted registry deliberately through
+// storyUpgradedV070Bindings and storyNewV070Cases: each named upgrade is
+// pinned literally and re-measured against the pinned v0.7.0 document, while
+// every other binding and case still rederives byte-equal.
 func TestV070RegistryRederivesFromTrunkV060Registry(t *testing.T) {
 	t.Parallel()
 
@@ -174,6 +179,10 @@ func assertCarriedBindingsRederive(t *testing.T, previous, current map[string]ow
 		if !ok {
 			continue
 		}
+		if upgrade, upgraded := storyUpgradedV070Bindings[key]; upgraded {
+			assertStoryBindingUpgrade(t, key, old, now, upgrade)
+			continue
+		}
 		if now.Production != old.Production {
 			t.Fatalf("binding %q production moved from %+v to %+v", key, old.Production, now.Production)
 		}
@@ -220,6 +229,10 @@ func assertClauseLinesRemeasured(t *testing.T, previous, current map[string]owne
 	for key, old := range previous {
 		now, ok := current[key]
 		if !ok {
+			continue
+		}
+		if _, upgraded := storyUpgradedV070Bindings[key]; upgraded {
+			assertStoryBindingClausesRemeasured(t, key, old, now, measured070)
 			continue
 		}
 		if len(now.Clauses) != len(old.Clauses) {
@@ -308,12 +321,23 @@ func assertAcceptanceCasesRederive(t *testing.T, previous, current ownershipRegi
 			continue
 		}
 		if _, ok := newV070Cases[id]; !ok {
-			t.Fatalf("v0.7.0 acceptance case %q is not carried and not a reviewed addition", id)
+			if _, ok := storyNewV070Cases[id]; !ok {
+				t.Fatalf("v0.7.0 acceptance case %q is not carried and not a reviewed addition", id)
+			}
 		}
 	}
 	for id := range newV070Cases {
 		if _, ok := newCases[id]; !ok {
 			t.Fatalf("reviewed v0.7.0 acceptance case %q is absent", id)
+		}
+	}
+	for id, want := range storyNewV070Cases {
+		got, ok := newCases[id]
+		if !ok {
+			t.Fatalf("story acceptance case %q is absent", id)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("story acceptance case %q differs from the reviewed upgrade: %+v", id, got)
 		}
 	}
 	for id, old := range oldCases {
@@ -525,6 +549,158 @@ func assertUnownedSectionsCarried(t *testing.T, previous, current ownershipRegis
 		}
 		if !strings.Contains(now.Gap, "Disclosure owner: TASK-260830-2x16gz") {
 			t.Fatalf("unowned section 11.10.5 gap lacks the Disclosure owner rewording: %q", now.Gap)
+		}
+	}
+}
+
+// storyBindingUpgrade is the reviewed post-adoption upgrade of one carried
+// v0.7.0 binding. The mesh-rpc-framing-and-negotiation story final leaf
+// (STORY-260830-4qojoz / TASK-260830-19bjfj) moves three unevidenced stubs to
+// measured coverage; every field below is pinned literally, so the
+// re-derivation gate keeps failing on any drift outside the reviewed
+// upgrade. Section 11.3 is deliberately absent: no test drives a
+// digest-identity array, so it stays the carried unevidenced stub.
+type storyBindingUpgrade struct {
+	Production codeReference
+	Cases      []string
+	Coverage   coverageLevel
+	Gap        string
+	Clauses    []dischargedClause
+}
+
+var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
+	"section:11.2": {
+		Production: codeReference{Path: "internal/rpcwire/envelope.go", Declaration: "DecodeRequest"},
+		Cases:      []string{"rpcwire-closed-bodies", "rpcwire-framing", "catalog-v050-exact"},
+		Coverage:   coveragePartial,
+		Gap:        "Section 11.2 clauses 11.2#1 and 11.2#5 (hello-first sequencing) are executed only for the RPC-5 Host Channel responder: DecodeRequest is a stateless codec with no handshake memory, and no legacy `ax rpc serve` responder exists in the tree, so the legacy sequencing lane stays a stated bound while the codec-enforced clauses discharge above.",
+		Clauses: []dischargedClause{
+			{ID: "11.2#2", Line: 7364, Excerpt: "state, Structured Error, Observation Event, and CLI Result MUST NOT appear in", AcceptanceCases: []string{"rpcwire-closed-bodies"}},
+			{ID: "11.2#3", Line: 7408, Excerpt: "<code>ok = false</code> and one Structured Error and MUST omit body. Unknown", AcceptanceCases: []string{"rpcwire-framing"}},
+			{ID: "11.2#4", Line: 7420, Excerpt: "at least the values shown and MUST refuse a peer below them. The 5 MiB object", AcceptanceCases: []string{"rpcwire-closed-bodies"}},
+		},
+	},
+	"section:17.1": {
+		Production: codeReference{Path: "internal/meshneg/negotiate.go", Declaration: "Negotiate"},
+		Cases:      []string{"meshneg-selection", "rpcwire-version-boundary", "config-versioned-readers"},
+		Coverage:   coveragePartial,
+		Gap:        "Section 17.1 clauses 17.1#2 (minor-version semantic preservation) and 17.1#6 (v1 materialization upgrade) are outside Negotiate, which selects majors only: no minor-selection entry exists, immutable-object namespaced extensions (17.1#3) belong to the object-exchange owners, and materialization upgrade belongs to the matjournal and provhost owners. The retained config-versioned-readers case keeps the config Decode lanes traceable.",
+		Clauses: []dischargedClause{
+			{ID: "17.1#1", Line: 15567, Excerpt: "- a major increment MAY break syntax or semantics and MUST require explicit", AcceptanceCases: []string{"meshneg-selection"}},
+			{ID: "17.1#4", Line: 15589, Excerpt: "highest mutually supported minor within a common major; they MUST NOT select a", AcceptanceCases: []string{"meshneg-selection"}},
+			{ID: "17.1#5", Line: 15602, Excerpt: "immutable v0.1.0 contracts and MUST NOT be interpreted using the corrected", AcceptanceCases: []string{"meshneg-selection", "rpcwire-version-boundary"}},
+		},
+	},
+	"section:17.4": {
+		Production: codeReference{Path: "internal/meshneg/negotiate.go", Declaration: "Negotiate"},
+		Cases:      []string{"story-4qojoz-mesh-negotiation", "config-read-only-downgrade", "config-durable-migration"},
+		Coverage:   coverageSliver,
+		Gap:        "Section 17.4 clauses 17.4#1 through 17.4#3 (upgrade checks, downgraded-binary read-only mode, no resume or transfer) are outside Negotiate: no upgrade, downgrade, or auto-resume flow exists in the tree, so only the activation-unavailable exposure clause discharges above. The retained config cases keep the AssessCompatibility downgrade-assessment lanes traceable.",
+		Clauses: []dischargedClause{
+			{ID: "17.4#4", Line: 15661, Excerpt: "immutable evidence; it MUST report activation unavailable rather than omit the", AcceptanceCases: []string{"story-4qojoz-mesh-negotiation"}},
+		},
+	},
+}
+
+// storyNewV070Cases is the exact set of acceptance cases the story final leaf
+// adds to the adopted registry. Each is pinned literally; any further
+// addition still fails as an unreviewed claim.
+var storyNewV070Cases = map[string]acceptanceCase{
+	"rpcwire-closed-bodies": {
+		ID:         "rpcwire-closed-bodies",
+		Production: codeReference{Path: "internal/rpcwire/envelope.go", Declaration: "DecodeRequest"},
+		Tests: []codeReference{
+			{Path: "internal/rpcwire/adversarial_test.go", Declaration: "TestClosedBodyMemberSweep"},
+			{Path: "internal/rpcwire/adversarial_test.go", Declaration: "TestClosedBodyBoundsWitnessed"},
+			{Path: "internal/rpcwire/envelope_test.go", Declaration: "TestHelloRefusals"},
+		},
+	},
+	"rpcwire-framing": {
+		ID:         "rpcwire-framing",
+		Production: codeReference{Path: "internal/rpcwire/envelope.go", Declaration: "DecodeResponse"},
+		Tests: []codeReference{
+			{Path: "internal/rpcwire/envelope_test.go", Declaration: "TestHistoricalFailureBindings"},
+			{Path: "internal/rpcwire/envelope_test.go", Declaration: "TestBootstrapRejectionFraming"},
+		},
+	},
+	"meshneg-selection": {
+		ID:         "meshneg-selection",
+		Production: codeReference{Path: "internal/meshneg/negotiate.go", Declaration: "Negotiate"},
+		Tests: []codeReference{
+			{Path: "internal/meshneg/adversarial_test.go", Declaration: "TestNoMajorSelectedByCoercion"},
+			{Path: "internal/meshneg/adversarial_test.go", Declaration: "TestMajor1RejectedThroughNegotiation"},
+			{Path: "internal/meshneg/negotiate_test.go", Declaration: "TestNegotiateMatrix"},
+		},
+	},
+	"rpcwire-version-boundary": {
+		ID:         "rpcwire-version-boundary",
+		Production: codeReference{Path: "internal/rpcwire/envelope.go", Declaration: "DecodeRequest"},
+		Tests: []codeReference{
+			{Path: "internal/rpcwire/adversarial_test.go", Declaration: "TestMajor1RejectedNotReinterpreted"},
+			{Path: "internal/rpcwire/adversarial_test.go", Declaration: "TestErrorSchemaNotNegotiated"},
+		},
+	},
+	"story-4qojoz-mesh-negotiation": {
+		ID:         "story-4qojoz-mesh-negotiation",
+		Production: codeReference{Path: "internal/meshneg/negotiate.go", Declaration: "Negotiate"},
+		Tests: []codeReference{
+			{Path: "internal/meshneg/conformance_test.go", Declaration: "TestPeerExposure"},
+			{Path: "internal/meshneg/conformance_test.go", Declaration: "TestExposureCarriesNoInventory"},
+			{Path: "internal/meshneg/conformance_test.go", Declaration: "TestRefusalClassesResolveFromTheRegistry"},
+			{Path: "internal/meshneg/conformance_test.go", Declaration: "TestNegotiationIsNotAdmission"},
+			{Path: "internal/meshneg/conformance_test.go", Declaration: "TestNoFallbackSurface"},
+			{Path: "internal/meshneg/conformance_test.go", Declaration: "TestSemverAgreementWithRPCWire"},
+			{Path: "internal/meshneg/conformance_test.go", Declaration: "TestConfig4NeverDowngrades"},
+			{Path: "internal/meshneg/conformance_test.go", Declaration: "TestLegacyNeverSelectsRPC5"},
+			{Path: "internal/meshneg/conformance_test.go", Declaration: "TestNegotiationIsDeterministic"},
+			{Path: "internal/meshneg/conformance_test.go", Declaration: "TestRefusalShape"},
+			{Path: "internal/meshneg/adversarial_test.go", Declaration: "TestPeerOfferKeyMembershipPerKey"},
+			{Path: "internal/meshneg/adversarial_test.go", Declaration: "TestNegotiateOfferRefusalCarriesLocal"},
+		},
+	},
+}
+
+// assertStoryBindingUpgrade pins one reviewed post-adoption upgrade: the
+// v0.6.0 base must be the unevidenced stub the adoption carried, and the
+// v0.7.0 binding must equal the reviewed upgrade literally.
+func assertStoryBindingUpgrade(t *testing.T, key string, old, now ownershipGroup, upgrade storyBindingUpgrade) {
+	t.Helper()
+
+	if old.Coverage != coverageUnevidenced || len(old.Clauses) != 0 {
+		t.Fatalf("binding %q upgrade base is not the unevidenced stub: coverage %s with %d clauses", key, old.Coverage, len(old.Clauses))
+	}
+	if now.Production != upgrade.Production {
+		t.Fatalf("binding %q upgraded production = %+v, want %+v", key, now.Production, upgrade.Production)
+	}
+	if !reflect.DeepEqual(now.AcceptanceCases, upgrade.Cases) {
+		t.Fatalf("binding %q upgraded acceptance cases = %q, want %q", key, now.AcceptanceCases, upgrade.Cases)
+	}
+	if now.Coverage != upgrade.Coverage {
+		t.Fatalf("binding %q upgraded coverage = %s, want %s", key, now.Coverage, upgrade.Coverage)
+	}
+	if now.Gap != upgrade.Gap {
+		t.Fatalf("binding %q upgraded gap differs from the reviewed upgrade", key)
+	}
+	if !reflect.DeepEqual(now.Clauses, upgrade.Clauses) {
+		t.Fatalf("binding %q upgraded clauses differ from the reviewed upgrade", key)
+	}
+}
+
+// assertStoryBindingClausesRemeasured checks the upgraded binding's new
+// clauses against the pinned v0.7.0 document through the production clause
+// inventory. Excerpt-verbatim at the declared line is already enforced by
+// measuredClauseLines over the current bindings; this pins each declared
+// line to its measured position.
+func assertStoryBindingClausesRemeasured(t *testing.T, key string, old, now ownershipGroup, measured070 map[string]map[string]int) {
+	t.Helper()
+
+	if len(old.Clauses) != 0 {
+		t.Fatalf("binding %q upgrade base carries %d clauses, want the unevidenced stub", key, len(old.Clauses))
+	}
+	for _, newClause := range now.Clauses {
+		if measured070[key][newClause.ID] != newClause.Line {
+			t.Fatalf("binding %q clause %s v0.7.0 line %d is not the measured line %d",
+				key, newClause.ID, newClause.Line, measured070[key][newClause.ID])
 		}
 	}
 }

@@ -29,18 +29,18 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 	want := Report{
 		Contracts:              64,
 		NormativeSections:      36,
-		AcceptanceCases:        135,
+		AcceptanceCases:        140,
 		Fixtures:               33,
 		CompatibilityContracts: 55,
 		SectionBindings:        68,
 		FullCoverage:           2,
-		PartialCoverage:        6,
-		SliverCoverage:         4,
-		UnevidencedCoverage:    52,
+		PartialCoverage:        8,
+		SliverCoverage:         5,
+		UnevidencedCoverage:    49,
 		UnmeasuredCoverage:     4,
 		UnownedSections:        7,
 		NormativeClauses:       569,
-		DischargedClauses:      49,
+		DischargedClauses:      56,
 	}
 	if !reflect.DeepEqual(report, want) {
 		t.Fatalf("VerifyRepository() report = %#v, want %#v", report, want)
@@ -786,7 +786,7 @@ func TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers(t *testing.T) 
 		{"15.1", `binding "section:15.1" discharges 5/7 normative clauses, which is partial coverage`},
 		{"15.2", `binding "section:15.2" discharges 0/0 normative clauses, which is unmeasured coverage`},
 		{"15.3", `binding "section:15.3" discharges 2/3 normative clauses, which is partial coverage`},
-		{"17.1", `binding "section:17.1" discharges 0/6 normative clauses, which is unevidenced coverage`},
+		{"17.1", `binding "section:17.1" discharges 3/6 normative clauses, which is partial coverage`},
 		{"17.2", `binding "section:17.2" discharges 0/1 normative clauses, which is unevidenced coverage`},
 		{"17.3", `binding "section:17.3" discharges 0/3 normative clauses, which is unevidenced coverage`},
 		{"18.1", `binding "section:18.1" discharges 0/5 normative clauses, which is unevidenced coverage`},
