@@ -1,0 +1,1784 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 43c6d21..38fa324 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,13 @@
+ 
+ ## 2026-09-17
+ 
++### TASK-260830-219okr — dual-stack major negotiation (first leaf)
++- DELIVERED: `internal/meshneg` (`Negotiate`/`LocalMajors`/`PeerOffer`/`Select` over `Refusal`/`Decision` pure data): generation-to-majors mapping (Config-1: 2; Config-2: 2,3; Config-3: 2,3,4; Config-4: exactly 5), single-major peer-offer validation against the framing major, highest-common selection, no-common-major refusal with registry-resolved `incompatible_protocol`/6 (unknown config: `invalid_config`/3), exact per-major contracts/namespaces/bound error versions rebuilt from rpcwire/axerror, and core-only peer exposure (`directory_mesh_unsupported`, `terminal_backend_unavailable`), never zero inventory. Frames nothing, admits nothing, pure/stateless. Candidate UNCOMMITTED in the Story worktree.
++- BINDING CHOICE: the RPC-4 exposure equivalent is the registered `terminal_backend_unavailable` (exit 6), not a minted token — Section 11.9 requires reporting evidence unsupported rather than empty and 17.4 requires reporting activation unavailable; the 1.3.0 exit-6 row carries exactly that code. Refusal/exposure exits resolve via `axerror.ExitCodeFor` under each code's introducing version; cross-version stability is asserted by test, not assumed.
++- MUTANTS: 27 narrowing probes killed by named tests (neutral passed, harmless Detail-text control SURVIVED as designed; `PYTHONDONTWRITEBYTECODE=1`, no `__pycache__`). Two initial SURVIVEDs were test gaps the harness caught: substituted-keys (same count, caught by membership loop, not length check) and peer-mixing-1-beside-common (unobservable without overlap) — both closed with new cases before the evidence run. Successor run RUN-260917-244f06 re-executed the harness: 27 killed, neutral passed, control SURVIVED (exit 0), and corrected the earlier "28" count.
++- BOUNDS: v2 1-16 minor ranges select the major only (within-major minor selection future work); handshake sequencing stays with rpcwire decode + the responder; admission (identity/allowlist/generation) stays with TASK-260830-z1yxg9 with separation pinned by `TestNegotiationIsNotAdmission`; no `ax` command, doctor result, or capability claimed. Traceability registry/digest untouched for the story final leaf (package-local TRACEABILITY.md only).
++- AC: 11 of 11 rows driven through production entries by named tests (matrix in the outcome evidence).
++
+ ### TASK-260830-2x16gz — hostile-network conformance suite + AC-HOST-001 (final leaf)
+ - DELIVERED: `internal/hostchannel/hostile_test.go` + `hostile_carrier_test.go` re-derive all seven story cases through the real `Dial`/`Serve`/`Call` entries with per-vector Section 15 classes and state censuses, and execute the AC-HOST-001 rows: real OpenSSH loopback carrier (unprivileged `sshd`, forced command, exact `ServeArgv` on the wire, TLS-first bytes, no PTY, bounded stderr), rotation/enrollment lifecycle, copied-key halves, revocation fencing, stale-read integrity, recovery bypasses, concurrency/stall races, role swap, and the v4 loader gate. Test-only leaf; no production file changed. P3 notes closed (`ax-host/2` vector, bad-destination deadline hook).
+ - F1: when the SERVER refuses mid-handshake, production `Dial` stably reports `transport_failure` (alert/close rendezvous; TLS 1.3 lets the client finish first) while `Serve` deterministically reports `authentication_failed`; only the initiator's OWN verification failure surfaces as `authentication_failed` on `Dial`. Tests pin both sides; the rendezvous resolves at the hello bound.
+diff --git a/README.md b/README.md
+index 1f8fc60..0701106 100644
+--- a/README.md
++++ b/README.md
+@@ -3522,9 +3522,25 @@ stream with zero traffic (measured: the product fences the next dispatch and
+ `WatchGeneration` reports the commit; `serveLoop` carries no background
+ watchdog). Section 11.10.5 upstream vectors are source evidence only.
+ 
++[`internal/meshneg`](internal/meshneg) selects the single Mesh RPC major for
++one peer connection from the local configuration generation and the peer's
++decoded hello: Config-4 offers exactly RPC 5, legacy generations offer the
++historical dual-stack sets, the peer offer must agree with its framing major,
++and a disjoint pair refuses no-common-major with `incompatible_protocol`
++(exit 6) from actually known inputs. A selection carries the exact pinned
++contracts map, namespace vocabulary, and bound Structured Error version for
++its major, and reports above-core activation the selection does not carry as
++explicitly unsupported (`directory_mesh_unsupported`,
++`terminal_backend_unavailable`), never as zero inventory. Outcomes are pure
++data: nothing is framed, connected, advertised, or admitted here. There is
++no `ax` command, doctor result, or capability claim.
++
+ | Tool / check | Exact command | Output |
+ | --- | --- | --- |
+ | RPC/host-channel behavior | `go test ./internal/rpcwire ./internal/hostchannel -count=1 -v` | stdout; `.temp/TASK-260830-z1yxg9/` logs |
++| Major-negotiation behavior | `go test ./internal/meshneg -count=1 -v` | stdout; `.temp/TASK-260830-219okr/` logs |
++| Major-negotiation races and coverage | `go test ./internal/meshneg -race -count=1 -cover` | Race diagnostics and measured package coverage |
++| Major-negotiation narrowing | `PYTHONDONTWRITEBYTECODE=1 python3 internal/meshneg/mutations.py --output .temp/TASK-260830-219okr/mutations-meshneg` | 27 narrowing probes killed by named tests plus neutral and harmless SURVIVED controls, in per-plant raw logs and mutant tables; source originals remain untouched |
+ | RPC/host-channel races and coverage | `go test ./internal/rpcwire ./internal/hostchannel -race -count=1 -cover` | Race diagnostics and measured package coverage |
+ | RPC/host-channel narrowing | `python3 internal/rpcwire/mutations.py --output .temp/TASK-260830-z1yxg9/mutations-rpcwire` and `python3 internal/hostchannel/mutations.py --output .temp/TASK-260830-z1yxg9/mutations-hostchannel` | Applied compiling overlays, JSON events, real exits, named failing tests and mutant tables; source originals remain untouched |
+ | Hostile-network conformance | `go test ./internal/hostchannel -run 'TestHostile' -count=1 -v` | Per-vector refusal classes, census assertions, and the OpenSSH loopback lane (skips with an asserted reason when `sshd` cannot bind); `.temp/TASK-260830-2x16gz/` logs |
+diff --git a/internal/meshneg/README.md b/internal/meshneg/README.md
+new file mode 100644
+index 0000000..e6f10ae
+--- /dev/null
++++ b/internal/meshneg/README.md
+@@ -0,0 +1,68 @@
++# Mesh RPC major negotiation
++
++Owner: TASK-260830-219okr in STORY-260830-4qojoz. Authority: embedded AX
++v0.6.0 SPEC.md, commit `0cbdf100dbf84df50c64f792b1f940e3a67859a6`,
++Sections 11.2-11.3, 11.8, 11.9, 11.10.1, 15.1-15.3, 17.1-17.4, and 6.6.
++
++`Negotiate` selects exactly one common Mesh RPC major from the local
++installation's configuration generation and the peer's decoded hello frame.
++Config-4 installations offer exactly RPC 5; explicitly legacy installations
++offer the historical dual-stack sets (Config-1: 2; Config-2: 2 and 3;
++Config-3: 2, 3, and 4). The peer offer must be single-major and agree with
++its framing major; any mixing is refused rather than coerced. A disjoint
++pair is refused as no-common-major with the pinned `incompatible_protocol`
++class (exit 6), and only from actually known inputs: unframed bytes never
++reach this package.
++
++A selection carries the exact pinned shapes for its major (contracts map,
++namespace vocabulary, statically bound Structured Error version), rebuilt
++from the landed owners rather than copied from peer bytes, plus the peer
++exposure: above-core activation the selection does not carry is reported as
++explicitly unsupported (`directory_mesh_unsupported`, or the RPC-4
++equivalent `terminal_backend_unavailable`), never as zero inventory. Every
++outcome is pure data: no wire bytes are framed, no connection is opened, no
++capability is advertised, and no admission decision is made. Identity
++equality, allowlist membership, and trust generation remain the
++`internal/hostchannel` boundary owned by TASK-260830-z1yxg9.
++
++## Implemented surface and traceability
++
++| Pinned rule | Production call site | Named test | Bound |
++| --- | --- | --- | --- |
++| 6.4/6.5/6.6 generation to offered majors; 11.8/11.9 dual-stack; 11.10.1 RPC 5 only | LocalMajors | TestLocalMajors, TestNegotiateMatrix | Unknown generation refuses invalid_config/3, never legacy selection |
++| 11.2/11.8/11.9/11.10.1 exact per-major contracts; 17.1 no coercion | PeerOffer | TestPeerOfferRefusals, TestSemverAgreementWithRPCWire | v2 1-16 minor ranges negotiate the major; within-major minor selection stays future work |
++| Highest common major; 17.2 reader rules | Select | TestSelectHighestCommon | Inputs outside 2/3/4/5 refuse even beside a common pinned major |
++| No-common-major refusal, known only; 15.1-15.3 class | Negotiate -> Refusal | TestNegotiateMatrix, TestRefusalShape, TestRefusalClassesResolveFromTheRegistry | Frames nothing; the initiator maps the class to its local error |
++| 11.8/11.9 core-only preservation; unsupported activation, never zero inventory | Negotiate -> Decision.Peer | TestPeerExposure, TestExposureCarriesNoInventory | Exposure derives from the negotiated major alone |
++| 6.6 no downgrade of Config-4; legacy never coerces RPC 5 | LocalMajors, Negotiate | TestConfig4NeverDowngrades, TestLegacyNeverSelectsRPC5 | Config-4 offers exactly [5] |
++| 11.10.1 admission separation (identity, allowlist, generation) | Negotiate (ignores them) | TestNegotiationIsNotAdmission | Admission still required before dispatch |
++| 6.6 no sniffing/extension/argv/env/handshake fallback | Negotiate (no such input) | TestNoFallbackSurface | Pure function; statelessness and determinism pinned by test |
++| 11.2/11.8/11.9/11.10.1 shapes; 15.1/15.3/11.10.1 error bindings | decisionFor via rpcwire, axerror | TestDecisionShapes | Shapes rebuilt from profiles, never copied from the peer |
++
++**11 of 11 AC rows are driven through the production entries by named
++tests** (matrix in `TASK-260830-219okr_conformance-matrix.md`): common-major
++selection, core-only preservation, directory exposure, backend exposure,
++no-common-major refusal, Config-4 no-downgrade, admission separation,
++cross-major refusal, no-fallback surface, exact per-major shapes with bound
++error versions, and pure-data outcomes.
++
++The package performs no I/O and keeps no state. Its direct imports are
++`errors`, `fmt`, `regexp`, `slices`, `strconv`, `strings` plus the `rpcwire`
++and `axerror` owners (no `os`, `io`, `net`, `time`, `rand`, or `exec`), and
++the owners are consulted through pure functions only (`ContractProfile`,
++`Namespaces`, `ExitCodeFor`, `BindingFor`), so there is no crash or
++idempotency surface. Determinism over the full input space is pinned by
++`TestNegotiationIsDeterministic`.
++
++## Checks
++
++```bash
++go test ./internal/meshneg -count=1 -v
++go test ./internal/meshneg -race -count=1 -cover
++PYTHONDONTWRITEBYTECODE=1 python3 internal/meshneg/mutations.py --output .temp/TASK-260830-219okr/mutations-meshneg
++```
++
++The mutant harness applies 27 narrowing plants plus a neutral control and
++one harmless applied SURVIVED control; every narrowing plant is killed by
++its named test with per-plant raw logs, and source originals remain
++untouched (overlay run).
+diff --git a/internal/meshneg/TRACEABILITY.md b/internal/meshneg/TRACEABILITY.md
+new file mode 100644
+index 0000000..d624672
+--- /dev/null
++++ b/internal/meshneg/TRACEABILITY.md
+@@ -0,0 +1,44 @@
++# TASK-260830-219okr clause coverage (package-local)
++
++Normative authority: `internal/specdoc/SPEC.v0.6.0.md` at commit
++`0cbdf100dbf84df50c64f792b1f940e3a67859a6` (relux-works/agent-session-manager-spec@v0.6.0).
++Historical scope retained: SPEC v0.5.0 (commit `28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c`),
++Sections 11.2-11.3 and 17. This leaf does not edit `internal/traceability`;
++the story's final leaf carries the registry bindings and re-pin.
++
++## Covered clauses
++
++| Clause | Rule | Call site | Test |
++| --- | --- | --- | --- |
++| 6.4 | Config-2 directory extension pairs with RPC 3 | LocalMajors ("2.0.0" offers 2,3) | TestLocalMajors, TestNegotiateMatrix |
++| 6.5 | Config-3 TerminalBackend extension pairs with RPC 4 | LocalMajors ("3.0.0" offers 2,3,4) | TestLocalMajors, TestNegotiateMatrix |
++| 6.6 | Config-4 requires Host Channel 1 and RPC 5 for every peer | LocalMajors ("4.0.0" offers exactly 5) | TestConfig4NeverDowngrades |
++| 6.6 | Legacy dual-stack obligations never require Config-4 to accept legacy | Negotiate (Config-4 x legacy refuses) | TestConfig4NeverDowngrades |
++| 6.6 | Unknown configuration is a refusal, never legacy selection | LocalMajors default | TestLocalMajors unknown-* |
++| 6.6 | No sniffing, extension, argv, env, or failed handshake selects a fallback | Negotiate signature and body | TestNoFallbackSurface |
++| 11.2 | 14-key hello contracts; unknown members fail; absent contract is incompatible_protocol | PeerOffer shape checks | TestPeerOfferRefusals/shape, TestSemverAgreementWithRPCWire |
++| 11.2 | Unsupported major closes without a peer error frame; initiator emits locally | Refusal (frames nothing) | TestRefusalShape, TestRefusalClassesResolveFromTheRegistry |
++| 11.3 | Closed operation registry and envelope discipline | (precondition: caller decodes via rpcwire first) | decodedHello fixtures in every matrix test |
++| 11.8 | v3/v2 dual-stack; v2 negotiation is core-only; peer exposed as directory_mesh_unsupported, never zero inventory | decisionFor, PeerView | TestPeerExposure, TestExposureCarriesNoInventory |
++| 11.8 | Exact 24-key map and 7 namespaces; v2 bounds invalid in v3 | PeerOffer, decisionFor via rpcwire | TestPeerOfferRefusals, TestDecisionShapes |
++| 11.9 | v4 serves v3 dual-stack, preserves v2 interop; backend evidence unsupported rather than empty; both unsupported on v4/v2 | decisionFor, PeerView | TestPeerExposure |
++| 11.9 | Exact 25-key map and 8 namespaces; v2/v3 bounds invalid in v4 | PeerOffer, decisionFor via rpcwire | TestPeerOfferRefusals, TestDecisionShapes |
++| 11.10.1 | RPC 5 has exact RPC-4 shapes with protocol_version and contracts.rpc 5.0.0; error stays bound to 1.3.0 | decisionFor via rpcwire, axerror | TestDecisionShapes/5.0.0 |
++| 11.10.1 | Other RPC majors close without a frame; incompatible_protocol (exit 6) only when actually known | Refusal, Negotiate inputs | TestConfig4NeverDowngrades, TestLegacyNeverSelectsRPC5 |
++| 11.10.1 | Hello identity equality, allowlist, and generation are admission, not negotiation | Negotiate (never consulted) | TestNegotiationIsNotAdmission |
++| 15.1 | Mesh RPC statically binds per-major error versions; error never a hello key | decisionFor via axerror.BindingFor | TestDecisionShapes |
++| 15.1/15.3 | incompatible_protocol exit 6; invalid_config exit 3; directory_mesh_unsupported and terminal_backend_unavailable exit 6 | refuse, exposure via axerror.ExitCodeFor | TestRefusalClassesResolveFromTheRegistry |
++| 17.1 | No major selected by coercion; highest mutually supported minor within a common major | PeerOffer mixing refusal, Select | TestPeerOfferRefusals/mixed, TestSelectHighestCommon |
++| 17.2 | Reader rejects unsupported major; accepts same/lower minor | pinnedFrameVersions exact match | TestPeerOfferRefusals/frame-versions |
++| 17.4 | Report activation unavailable rather than omit the session | BackendEvidenceUnsupportedCode binding | TestPeerExposure |
++
++## Stated bounds (not covered by this leaf)
++
++| Bound | Reason |
++| --- | --- |
++| Within-major minor selection for v2 1-16 ranges | Major negotiation only; any 2.x range selects major 2 (pinned by admitted-ranges) |
++| Handshake sequencing (hello-first, request_id echo, one framed refusal then close) | Owned by rpcwire decode plus the connection responder; Negotiate takes decoded hellos |
++| Hostchannel admission (identity equality, allowlist, trust generation) | Owned by TASK-260830-z1yxg9; this package proves separation by ignoring those members |
++| Fuzzing of rpc operations and version skew | Sibling TASK-260830-19bjfj |
++| Registry bindings and digest re-pin in internal/traceability | Story final leaf |
++| Crash/idempotency evidence | No durable write exists in this package. Direct imports are errors, fmt, regexp, slices, strconv, strings plus the rpcwire and axerror owners (no os, io, net, time, rand, or exec); the owners are consulted through pure functions only (ContractProfile, Namespaces, ExitCodeFor, BindingFor). Determinism pinned by TestNegotiationIsDeterministic |
+diff --git a/internal/meshneg/conformance_test.go b/internal/meshneg/conformance_test.go
+new file mode 100644
+index 0000000..c62e7f5
+--- /dev/null
++++ b/internal/meshneg/conformance_test.go
+@@ -0,0 +1,483 @@
++package meshneg_test
++
++import (
++	"encoding/json"
++	"errors"
++	"os"
++	"reflect"
++	"slices"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/meshneg"
++	"github.com/relux-works/agent-session-manager/internal/rpcwire"
++)
++
++// TestPeerExposure pins the core-only preservation rule: a negotiated peer
++// reports above-core activation as explicitly unsupported, never as zero
++// inventory or an empty result.
++func TestPeerExposure(t *testing.T) {
++	type activation struct {
++		negotiated bool
++		code       axerror.Code
++		exit       int
++	}
++	cases := map[string]struct {
++		config    string
++		directory activation
++		backend   activation
++	}{
++		// A v3/v4 node negotiating v2 performs core sync only and
++		// exposes the peer as directory_mesh_unsupported (11.8); a
++		// v4 node negotiating v2/v3 reports TerminalBackend evidence
++		// unsupported rather than empty (11.9).
++		"2.0.0": {"3.0.0",
++			activation{false, meshneg.DirectoryUnsupportedCode, 6},
++			activation{false, meshneg.BackendEvidenceUnsupportedCode, 6}},
++		"3.0.0": {"3.0.0",
++			activation{true, "", 0},
++			activation{false, meshneg.BackendEvidenceUnsupportedCode, 6}},
++		"4.0.0": {"3.0.0",
++			activation{true, "", 0},
++			activation{true, "", 0}},
++		"5.0.0": {"4.0.0",
++			activation{true, "", 0},
++			activation{true, "", 0}},
++	}
++	for _, frame := range []string{"2.0.0", "3.0.0", "4.0.0", "5.0.0"} {
++		t.Run(frame, func(t *testing.T) {
++			want := cases[frame]
++			hello := decodedHello(t, frame, profileContracts(t, frame))
++			decision, err := meshneg.Negotiate(want.config, frame, hello)
++			if err != nil {
++				t.Fatal(err)
++			}
++			check := func(name string, got meshneg.FeatureActivation, want activation) {
++				t.Helper()
++				if got.Negotiated != want.negotiated {
++					t.Fatalf("%s negotiated = %v, want %v", name, got.Negotiated, want.negotiated)
++				}
++				if got.Code != want.code || got.ExitCode != want.exit {
++					t.Fatalf("%s class = %s/%d, want %s/%d", name, got.Code, got.ExitCode, want.code, want.exit)
++				}
++			}
++			if decision.Peer.Directory.Feature != "directory" {
++				t.Fatalf("directory feature = %q", decision.Peer.Directory.Feature)
++			}
++			if decision.Peer.BackendEvidence.Feature != "terminal_backend_evidence" {
++				t.Fatalf("backend feature = %q", decision.Peer.BackendEvidence.Feature)
++			}
++			check("directory", decision.Peer.Directory, want.directory)
++			check("backend", decision.Peer.BackendEvidence, want.backend)
++			// The exposure codes resolve to exit 6 under the versions
++			// that register them; the test derives those versions from
++			// the registry instead of retyping them.
++			for _, code := range []axerror.Code{meshneg.DirectoryUnsupportedCode, meshneg.BackendEvidenceUnsupportedCode} {
++				var exits []int
++				for _, version := range axerror.Versions() {
++					registered, err := axerror.CodesFor(version)
++					if err != nil {
++						t.Fatal(err)
++					}
++					if !slices.Contains(registered, code) {
++						continue
++					}
++					exit, err := axerror.ExitCodeFor(version, code)
++					if err != nil {
++						t.Fatal(err)
++					}
++					exits = append(exits, exit)
++				}
++				if len(exits) == 0 {
++					t.Fatalf("exposure code %q is registered by no version", code)
++				}
++				if !slices.Equal(exits, slices.Repeat([]int{6}, len(exits))) {
++					t.Fatalf("exposure code %q exits = %v, want all 6", code, exits)
++				}
++			}
++		})
++	}
++}
++
++// TestExposureCarriesNoInventory proves structurally that the peer view
++// cannot report a core-only peer as zero inventory: its member set is
++// exactly the status/code fields, with no count, inventory, or object
++// member to read a zero from.
++func TestExposureCarriesNoInventory(t *testing.T) {
++	viewFields := []string{}
++	for _, field := range reflect.VisibleFields(reflect.TypeFor[meshneg.PeerView]()) {
++		if field.Anonymous {
++			continue
++		}
++		viewFields = append(viewFields, field.Name)
++	}
++	slices.Sort(viewFields)
++	if !slices.Equal(viewFields, []string{"BackendEvidence", "Directory"}) {
++		t.Fatalf("PeerView members = %v", viewFields)
++	}
++	activationFields := []string{}
++	for _, field := range reflect.VisibleFields(reflect.TypeFor[meshneg.FeatureActivation]()) {
++		if field.Anonymous {
++			continue
++		}
++		activationFields = append(activationFields, field.Name)
++	}
++	slices.Sort(activationFields)
++	if !slices.Equal(activationFields, []string{"Code", "ExitCode", "Feature", "Negotiated"}) {
++		t.Fatalf("FeatureActivation members = %v", activationFields)
++	}
++	for _, field := range []string{"Code", "Feature"} {
++		entry, ok := reflect.TypeFor[meshneg.FeatureActivation]().FieldByName(field)
++		if !ok || entry.Type.Kind() != reflect.String {
++			t.Fatalf("FeatureActivation.%s is not a string member", field)
++		}
++	}
++}
++
++// TestRefusalClassesResolveFromTheRegistry proves every refusal class this
++// package emits is constructible through the axerror registry with the
++// pinned code and exit, and that the class is stable across every version
++// registering the code.
++func TestRefusalClassesResolveFromTheRegistry(t *testing.T) {
++	codes := []struct {
++		code       axerror.Code
++		exit       int
++		introduced axerror.Version
++	}{
++		{"incompatible_protocol", 6, axerror.Version100},
++		{"invalid_config", 3, axerror.Version100},
++		{meshneg.DirectoryUnsupportedCode, 6, axerror.Version120},
++		{meshneg.BackendEvidenceUnsupportedCode, 6, axerror.Version130},
++	}
++	for _, tc := range codes {
++		t.Run(string(tc.code), func(t *testing.T) {
++			exit, err := axerror.ExitCodeFor(tc.introduced, tc.code)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if exit != tc.exit {
++				t.Fatalf("ExitCodeFor(%s, %s) = %d, want %d", tc.introduced, tc.code, exit, tc.exit)
++			}
++			built, err := axerror.New(axerror.Spec{
++				Version: tc.introduced,
++				Code:    tc.code,
++				Message: "registry constructibility probe",
++				IDs:     axerror.NoIDs(),
++				Details: axerror.Details{},
++			})
++			if err != nil {
++				t.Fatal(err)
++			}
++			if built.Code() != tc.code || built.ExitCode() != tc.exit || !built.CodeRegistered() {
++				t.Fatalf("constructed %s/%d registered=%v", built.Code(), built.ExitCode(), built.CodeRegistered())
++			}
++			for _, version := range axerror.Versions() {
++				registered, err := axerror.CodesFor(version)
++				if err != nil {
++					t.Fatal(err)
++				}
++				if !slices.Contains(registered, tc.code) {
++					continue
++				}
++				got, err := axerror.ExitCodeFor(version, tc.code)
++				if err != nil {
++					t.Fatal(err)
++				}
++				if got != tc.exit {
++					t.Fatalf("ExitCodeFor(%s, %s) = %d, want %d", version, tc.code, got, tc.exit)
++				}
++			}
++		})
++	}
++	// The registration gaps are real: the directory code is absent from
++	// 1.0.0/1.1.0 and the backend code from everything before 1.3.0, so a
++	// plant that resolves them under the wrong version fails closed.
++	if _, err := axerror.ExitCodeFor(axerror.Version100, meshneg.DirectoryUnsupportedCode); err == nil {
++		t.Fatal("directory exposure code resolves under 1.0.0")
++	}
++	if _, err := axerror.ExitCodeFor(axerror.Version120, meshneg.BackendEvidenceUnsupportedCode); err == nil {
++		t.Fatal("backend exposure code resolves under 1.2.0")
++	}
++}
++
++// TestNegotiationIsNotAdmission proves the selection ignores every hello
++// member the admission boundary owns: identity, platform, version, nonce,
++// echo, and limits. Two hellos that differ only outside the contracts map
++// negotiate identically, including with values decode itself would refuse.
++func TestNegotiationIsNotAdmission(t *testing.T) {
++	base := decodedHello(t, "3.0.0", profileContracts(t, "3.0.0"))
++	want, err := meshneg.Negotiate("3.0.0", "3.0.0", base)
++	if err != nil {
++		t.Fatal(err)
++	}
++	variants := map[string]func(*rpcwire.Hello){
++		"other-host":       func(h *rpcwire.Hello) { h.HostID = "0198f4c8-a070-7188-9172-2234567890ab" },
++		"v4-host":          func(h *rpcwire.Hello) { h.HostID = "0198f4c8-a070-4188-9172-1234567890ab" },
++		"garbage-host":     func(h *rpcwire.Hello) { h.HostID = "not-a-uuid" },
++		"empty-host":       func(h *rpcwire.Hello) { h.HostID = "" },
++		"other-platform":   func(h *rpcwire.Hello) { h.Platform = "windows" },
++		"invalid-platform": func(h *rpcwire.Hello) { h.Platform = "ios" },
++		"other-version":    func(h *rpcwire.Hello) { h.AXVersion = "9.9.9" },
++		"invalid-version":  func(h *rpcwire.Hello) { h.AXVersion = "01.0.0" },
++		"short-nonce":      func(h *rpcwire.Hello) { h.Nonce = "c2hvcnQ" },
++		"empty-nonce":      func(h *rpcwire.Hello) { h.Nonce = "" },
++		"echo-set":         func(h *rpcwire.Hello) { h.NonceEcho = base.Nonce },
++		"zero-limits": func(h *rpcwire.Hello) {
++			h.MaxLineBytes = mustUint53(t, 0)
++			h.MaxObjectBytes = mustUint53(t, 0)
++		},
++		"huge-limits": func(h *rpcwire.Hello) {
++			h.MaxLineBytes = mustUint53(t, 1<<40)
++			h.MaxObjectBytes = mustUint53(t, 1<<40)
++		},
++	}
++	for name, mutate := range variants {
++		t.Run(name, func(t *testing.T) {
++			hello := base
++			mutate(&hello)
++			got, err := meshneg.Negotiate("3.0.0", "3.0.0", hello)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if !reflect.DeepEqual(got, want) {
++				t.Fatalf("identity-adjacent member %q changed the decision", name)
++			}
++		})
++	}
++}
++
++// TestNoFallbackSurface proves Section 6.6 structurally: environment,
++// argv, prior-handshake state, and extension members cannot select or alter
++// a selection, because the entries consult none of them.
++func TestNoFallbackSurface(t *testing.T) {
++	hello := decodedHello(t, "2.0.0", profileContracts(t, "2.0.0"))
++	want, err := meshneg.Negotiate("3.0.0", "2.0.0", hello)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Run("environment", func(t *testing.T) {
++		t.Setenv("AX_RPC_MAJOR", "5")
++		t.Setenv("AX_FALLBACK", "2.0.0")
++		t.Setenv("AX_CONFIG_GENERATION", "4.0.0")
++		t.Setenv("HOST_CHANNEL", "1.0.0")
++		got, err := meshneg.Negotiate("3.0.0", "2.0.0", hello)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if !reflect.DeepEqual(got, want) {
++			t.Fatal("environment changed the decision")
++		}
++	})
++	t.Run("argv", func(t *testing.T) {
++		argv := os.Args
++		t.Cleanup(func() { os.Args = argv })
++		os.Args = []string{"ax", "rpc", "serve", "--stdio", "--host-channel", "1.0.0", peerHost}
++		got, err := meshneg.Negotiate("3.0.0", "2.0.0", hello)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if !reflect.DeepEqual(got, want) {
++			t.Fatal("argv changed the decision")
++		}
++	})
++	t.Run("stateless", func(t *testing.T) {
++		// A refusal retains no fallback: the same inputs refuse
++		// identically, a corrected offer then succeeds, and a later
++		// disjoint offer still refuses. Order is irrelevant.
++		five := decodedHello(t, "5.0.0", profileContracts(t, "5.0.0"))
++		for range 3 {
++			if _, err := meshneg.Negotiate("3.0.0", "5.0.0", five); err == nil {
++				t.Fatal("legacy against RPC 5 admitted on repeat")
++			}
++		}
++		got, err := meshneg.Negotiate("3.0.0", "2.0.0", hello)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if !reflect.DeepEqual(got, want) {
++			t.Fatal("prior refusal poisoned a later selection")
++		}
++		if _, err := meshneg.Negotiate("3.0.0", "5.0.0", five); err == nil {
++			t.Fatal("prior success pinned a later refusal open")
++		}
++	})
++	t.Run("extension-member", func(t *testing.T) {
++		m := profileContracts(t, "2.0.0")
++		m["extensions"] = []string{"1.0.0"}
++		if _, err := meshneg.Negotiate("3.0.0", "2.0.0", directHello(t, m)); err == nil {
++			t.Fatal("extension member admitted a selection")
++		} else {
++			refusal := asRefusal(t, err)
++			if refusal.Reason != meshneg.ReasonContractShape {
++				t.Fatalf("extension member reason = %q", refusal.Reason)
++			}
++		}
++	})
++}
++
++// TestSemverAgreementWithRPCWire measures that the negotiator's strict
++// version grammar accepts exactly the rpc versions rpcwire decode accepts
++// inside a v2 hello, and that valid versions of another major are exactly
++// where the two deliberately diverge: decode admits the syntax while
++// negotiation refuses the coercion.
++func TestSemverAgreementWithRPCWire(t *testing.T) {
++	probes := []string{
++		"2.0.0", "2.1.0", "2.0.1", "2.10.20", "2.100.200", "2.0.0-alpha", "2.0.0+build",
++		"2.0.0-alpha+build", "2.0.0-0",
++		"", "2", "2.0", "v2.0.0", "02.0.0", "2.0.0-", "2.0.0+",
++		" 2.0.0", "2.0.0 ", "2.0.0.0", "a.b.c", "2.0.0--x",
++	}
++	for _, probe := range probes {
++		t.Run("major2-"+probe, func(t *testing.T) {
++			contracts := profileContracts(t, "2.0.0")
++			contracts["rpc"] = []string{probe}
++			body, err := json.Marshal(map[string]any{
++				"host_id": peerHost, "platform": "macos", "ax_version": "0.2.1",
++				"nonce": rpcwire.NewNonce(), "contracts": contracts,
++				"max_line_bytes": 8 * 1024 * 1024, "max_object_bytes": 5 * 1024 * 1024,
++			})
++			if err != nil {
++				t.Fatal(err)
++			}
++			_, wireErr := rpcwire.EncodeRequest("2.0.0", requestID, "hello", body)
++			_, negErr := meshneg.PeerOffer("2.0.0", directHello(t, contracts))
++			if (wireErr == nil) != (negErr == nil) {
++				t.Fatalf("probe %q: rpcwire err=%v, negotiator err=%v", probe, wireErr, negErr)
++			}
++		})
++	}
++	for _, probe := range []string{"1.0.0", "3.0.0", "4.0.0", "5.0.0", "9.9.9", "99999999999999999999999.0.0"} {
++		t.Run("other-major-"+probe, func(t *testing.T) {
++			contracts := profileContracts(t, "2.0.0")
++			contracts["rpc"] = []string{probe}
++			body, err := json.Marshal(map[string]any{
++				"host_id": peerHost, "platform": "macos", "ax_version": "0.2.1",
++				"nonce": rpcwire.NewNonce(), "contracts": contracts,
++				"max_line_bytes": 8 * 1024 * 1024, "max_object_bytes": 5 * 1024 * 1024,
++			})
++			if err != nil {
++				t.Fatal(err)
++			}
++			line, err := rpcwire.EncodeRequest("2.0.0", requestID, "hello", body)
++			if err != nil {
++				t.Fatalf("probe %q: rpcwire refused valid v2 syntax: %v", probe, err)
++			}
++			request, err := rpcwire.DecodeRequest(line)
++			if err != nil {
++				t.Fatal(err)
++			}
++			hello, err := request.Hello()
++			if err != nil {
++				t.Fatal(err)
++			}
++			if _, err := meshneg.PeerOffer("2.0.0", hello); err == nil {
++				t.Fatalf("probe %q: negotiator coerced major from a v2 frame", probe)
++			} else {
++				refusal := asRefusal(t, err)
++				if refusal.Reason != meshneg.ReasonMixedMajor {
++					t.Fatalf("probe %q: reason = %q", probe, refusal.Reason)
++				}
++			}
++		})
++	}
++}
++
++// TestConfig4NeverDowngrades pins the Section 6.6 one-way gate: a Config-4
++// endpoint offers exactly RPC 5 and refuses every legacy frame.
++func TestConfig4NeverDowngrades(t *testing.T) {
++	majors, err := meshneg.LocalMajors("4.0.0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !slices.Equal(majors, []int{5}) {
++		t.Fatalf("Config-4 offers %v, want exactly [5]", majors)
++	}
++	for _, frame := range []string{"2.0.0", "3.0.0", "4.0.0"} {
++		hello := decodedHello(t, frame, profileContracts(t, frame))
++		if decision, err := meshneg.Negotiate("4.0.0", frame, hello); err == nil {
++			t.Fatalf("Config-4 admitted legacy frame %s as major %d", frame, decision.Major)
++		} else if refusal := asRefusal(t, err); refusal.Reason != meshneg.ReasonNoCommonMajor {
++			t.Fatalf("Config-4 against %s reason = %q", frame, refusal.Reason)
++		}
++	}
++	hello := decodedHello(t, "5.0.0", profileContracts(t, "5.0.0"))
++	decision, err := meshneg.Negotiate("4.0.0", "5.0.0", hello)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if decision.Major != 5 || decision.ErrorVersion != axerror.Version130 {
++		t.Fatalf("Config-4 RPC 5 decision = %+v", decision)
++	}
++}
++
++// TestLegacyNeverSelectsRPC5 pins the other side: explicitly legacy
++// installations refuse an RPC-5-only peer instead of coercing it.
++func TestLegacyNeverSelectsRPC5(t *testing.T) {
++	hello := decodedHello(t, "5.0.0", profileContracts(t, "5.0.0"))
++	for _, config := range []string{"1.0.0", "2.0.0", "3.0.0"} {
++		decision, err := meshneg.Negotiate(config, "5.0.0", hello)
++		if err == nil {
++			t.Fatalf("legacy %s admitted RPC 5 as major %d", config, decision.Major)
++		}
++		refusal := asRefusal(t, err)
++		if refusal.Code != "incompatible_protocol" || refusal.ExitCode != 6 {
++			t.Fatalf("legacy %s class = %s/%d", config, refusal.Code, refusal.ExitCode)
++		}
++		if !errors.Is(err, meshneg.ErrNoCommonMajor) {
++			t.Fatalf("legacy %s error does not wrap ErrNoCommonMajor", config)
++		}
++		if refusal.Peer != 5 {
++			t.Fatalf("legacy %s refusal peer = %d, want 5", config, refusal.Peer)
++		}
++	}
++}
++
++// TestNegotiationIsDeterministic runs every entry over the full input space
++// twice and requires byte-identical outcomes: the package keeps no state,
++// reads no clock, and performs no I/O, so crash/idempotency surface is
++// absent by construction rather than by testing.
++func TestNegotiationIsDeterministic(t *testing.T) {
++	configs := []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0", "9.9.9"}
++	frames := []string{"2.0.0", "3.0.0", "4.0.0", "5.0.0", "1.0.0"}
++	hellos := map[string]rpcwire.Hello{}
++	for _, frame := range []string{"2.0.0", "3.0.0", "4.0.0", "5.0.0"} {
++		hellos[frame] = directHello(t, profileContracts(t, frame))
++	}
++	encode := func(decision meshneg.Decision, err error) string {
++		refusal, _ := err.(*meshneg.Refusal)
++		raw, jsonErr := json.Marshal(struct {
++			Decision meshneg.Decision
++			Refusal  *meshneg.Refusal
++		}{decision, refusal})
++		if jsonErr != nil {
++			t.Fatal(jsonErr)
++		}
++		return string(raw)
++	}
++	for _, config := range configs {
++		for _, frame := range frames {
++			hello := hellos[frame]
++			first := encode(meshneg.Negotiate(config, frame, hello))
++			for range 25 {
++				if again := encode(meshneg.Negotiate(config, frame, hello)); again != first {
++					t.Fatalf("Negotiate(%s, %s) is nondeterministic", config, frame)
++				}
++			}
++		}
++	}
++}
++
++func TestRefusalShape(t *testing.T) {
++	_, err := meshneg.Negotiate("3.0.0", "5.0.0", decodedHello(t, "5.0.0", profileContracts(t, "5.0.0")))
++	refusal := asRefusal(t, err)
++	if refusal.Error() == "" {
++		t.Fatal("empty refusal message")
++	}
++	if !slices.Equal(refusal.Local, []int{2, 3, 4}) {
++		t.Fatalf("refusal local = %v", refusal.Local)
++	}
++	var nilRefusal *meshneg.Refusal
++	if nilRefusal.Error() == "" || nilRefusal.Unwrap() != nil {
++		t.Fatal("nil refusal mishandled")
++	}
++}
+diff --git a/internal/meshneg/mutations.py b/internal/meshneg/mutations.py
+new file mode 100644
+index 0000000..697e86d
+--- /dev/null
++++ b/internal/meshneg/mutations.py
+@@ -0,0 +1,121 @@
++#!/usr/bin/env python3
++"""Mesh major-negotiation gate overlays. Every kill requires a named behavioral failure.
++
++Run with PYTHONDONTWRITEBYTECODE=1 so the harness leaves no __pycache__ behind.
++Each probe applies one narrowing plant to a pristine overlay of
++internal/meshneg/negotiate.go and executes the full package behavioral suite
++against it. A narrowing plant keeps the gate present and weakens it to admit
++exactly one member of the class the gate must reject.
++"""
++import argparse
++import json
++from pathlib import Path
++import subprocess
++import sys
++ROOT = Path(__file__).resolve().parents[2]
++TESTS = "Test"
++N = "internal/meshneg/negotiate.go"
++PROBES = []
++BOUNDS = {
++    "detail-text": "Human Detail text only; no test branches on it (harmless applied control, must survive).",
++}
++def probe(name,path,old,new,bound,test):
++    PROBES.append((name,path,old,new,bound,test))
++probe('neutral',N,'return []int{2}, nil','return []int{int(2)}, nil','Equivalent major value',None)
++probe('config1-admits-3',N,'return []int{2}, nil','return []int{2, 3}, nil','Admits major 3 for Config-1 only','TestNegotiateMatrix/1.0.0-x-3.0.0')
++probe('config2-admits-4',N,'return []int{2, 3}, nil','return []int{2, 3, 4}, nil','Admits major 4 for Config-2 only','TestNegotiateMatrix/2.0.0-x-4.0.0')
++probe('config3-admits-5',N,'return []int{2, 3, 4}, nil','return []int{2, 3, 4, 5}, nil','Admits major 5 for Config-3 only','TestNegotiateMatrix/3.0.0-x-5.0.0')
++probe('config4-admits-4',N,'return []int{5}, nil','return []int{4, 5}, nil','Admits major 4 for Config-4 only','TestConfig4NeverDowngrades')
++probe('unknown-config-admits-9',N,'case "4.0.0":','case "4.0.0", "9.9.9":','Admits generation 9.9.9 as Config-4 only','TestLocalMajors/unknown-9.9.9')
++probe('frame-admits-2.1',N,'"2.0.0": 2,','"2.0.0": 2,\n\t"2.1.0": 2,','Admits frame 2.1.0 as major 2 only','TestPeerOfferRefusals/frame-versions')
++probe('shape-admits-extra-key',N,'if len(hello.Contracts) != len(profile) {','if len(hello.Contracts) != len(profile) && len(hello.Contracts) != len(profile)+1 {','Admits exactly one extra contracts key','TestPeerOfferRefusals/shape/extra-error-key')
++probe('shape-admits-missing-lease',N,'if _, ok := hello.Contracts[key]; !ok {','if _, ok := hello.Contracts[key]; !ok && key != "lease" {','Admits a missing lease key only','TestPeerOfferRefusals/shape/substituted-key')
++probe('rpc-admits-17',N,'len(offered) > 16','len(offered) > 17','Admits exactly 17 rpc versions','TestPeerOfferRefusals/shape/seventeen-rpc')
++probe('rpc-admits-nil-empty',N,'len(offered) < 1','(len(offered) < 1 && offered != nil)','Admits a nil rpc array while still refusing an empty non-nil one','TestPeerOfferRefusals/shape/empty-rpc')
++probe('mixed-admits-v3-in-v2',N,'if major != framing {','if major != framing && !(major == 3 && framing == 2) {','Admits major 3 inside a major-2 frame only','TestPeerOfferRefusals/mixed/two-majors-in-v2')
++probe('mixed-admits-unsorted-pair',N,'offered[index-1] >= version','(offered[index-1] >= version && !(offered[index-1] == "2.1.0" && version == "2.0.0"))','Admits the 2.1.0/2.0.0 descending pair only','TestPeerOfferRefusals/mixed/unsorted')
++probe('mixed-admits-v-prefix-value',N,'major, err := majorOf(version)\n\t\tif err != nil {\n\t\t\treturn 0, mixedRefusal(fmt.Sprintf("rpc version %q is not strict semver", version))\n\t\t}','major, err := majorOf(version)\n\t\tif err != nil && version != "v2.0.0" {\n\t\t\treturn 0, mixedRefusal(fmt.Sprintf("rpc version %q is not strict semver", version))\n\t\t}\n\t\tif version == "v2.0.0" {\n\t\t\tmajor, err = framing, nil\n\t\t}','Admits the value v2.0.0 as the framing major only','TestPeerOfferRefusals/mixed/not-semver')
++probe('v3-exact-admits-3.0.1',N,'if frameVersion != "2.0.0" && !slices.Equal(offered, profile["rpc"]) {','if frameVersion != "2.0.0" && !slices.Equal(offered, profile["rpc"]) && !(frameVersion == "3.0.0" && slices.Equal(offered, []string{"3.0.1"})) {','Admits rpc [3.0.1] in a v3 frame only','TestPeerOfferRefusals/shape/v3-inexact-rpc')
++probe('select-admits-local-6',N,'for _, major := range local {\n\t\tif major < 2 || major > 5 {','for _, major := range local {\n\t\tif (major < 2 || major > 5) && major != 6 {','Admits local major 6 only','TestSelectHighestCommon/refuse-local-names-6')
++probe('select-admits-peer-1',N,'for _, major := range peer {\n\t\tif major < 2 || major > 5 {','for _, major := range peer {\n\t\tif (major < 2 || major > 5) && major != 1 {','Admits peer major 1 only','TestSelectHighestCommon/refuse-peer-mixes-1-with-common')
++probe('select-picks-lowest',N,'candidate > best','(candidate < best || best == 0)','Selects the lowest common major instead of the highest','TestSelectHighestCommon/admit-highest-wins')
++probe('select-admits-disjoint-2v3',N,'if best == 0 {','if best == 0 && !(len(local) == 1 && local[0] == 2 && len(peer) == 1 && peer[0] == 3) {','Admits the disjoint pair 2-against-3 as success','TestSelectHighestCommon/refuse-disjoint')
++probe('exposure-directory-at-2',N,'major >= directoryFeatureMajor','major >= directoryFeatureMajor-1','Reports directory negotiated at major 2','TestPeerExposure/2.0.0')
++probe('exposure-backend-at-3',N,'major >= backendEvidenceFeatureMajor','major >= backendEvidenceFeatureMajor-1','Reports backend evidence negotiated at major 3','TestPeerExposure/3.0.0')
++probe('error-binding-provider-contract',N,'"urn:ax:protocol:rpc"','"urn:ax:protocol:provider"','Resolves the error binding under the provider contract','TestDecisionShapes/3.0.0')
++probe('refusal-code-transport-failure',N,'Code:     axerror.Code("incompatible_protocol"),','Code:     axerror.Code("transport_failure"),','Peer refusals carry transport_failure instead of incompatible_protocol','TestNegotiateMatrix/3.0.0-x-5.0.0')
++probe('directory-version-1.0.0',N,'DirectoryUnsupportedCode, axerror.Version120','DirectoryUnsupportedCode, axerror.Version100','Resolves directory exposure under Error 1.0.0','TestPeerExposure/2.0.0')
++probe('backend-version-1.2.0',N,'BackendEvidenceUnsupportedCode, axerror.Version130','BackendEvidenceUnsupportedCode, axerror.Version120','Resolves backend exposure under Error 1.2.0','TestPeerExposure/2.0.0')
++probe('major-extract-plus-one',N,'major, err := strconv.Atoi(match[1])','major, err := strconv.Atoi(match[1])\n\tmajor++','Version grammar unchanged; extracted major shifted by one','TestNegotiateMatrix')
++probe('semver-admits-v-prefix',N,'^(0|[1-9][0-9]*)\\.','^v?(0|[1-9][0-9]*)\\.','Admits v-prefixed versions as their major','TestPeerOfferRefusals/mixed/not-semver')
++probe('reason-shape-reports-mixed',N,'refuse(ReasonContractShape, ErrContractShape,','refuse(ReasonMixedMajor, ErrContractShape,','Shape refusals misreport as mixed_major','TestPeerOfferRefusals/shape/extra-error-key')
++probe('detail-text',N,'"local and peer offers share no major ("+joinMajors(local)+" against "+joinMajors(peer)+")"','"no overlap ("+joinMajors(local)+" vs "+joinMajors(peer)+")"','Human Detail text only',None)
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--output", required=True)
++    parser.add_argument("--only", help="Comma-separated probe names for a bounded follow-up")
++    opts = parser.parse_args()
++    if opts.only and not set(opts.only.split(",")).issubset({p[0] for p in PROBES}):
++        parser.error("--only contains an unknown probe")
++    out = Path(opts.output).resolve()
++    out.mkdir(parents=True, exist_ok=True)
++    results = []
++    unexpected = False
++    for name, path, old, new, narrows, expected_test in PROBES:
++        if opts.only and name not in opts.only.split(","):
++            continue
++        source = ROOT / path
++        original = source.read_bytes()
++        text = original.decode()
++        if text.count(old) != 1:
++            raise RuntimeError(f"{name}: plant must match exactly once, got {text.count(old)}")
++        folder = out / name
++        folder.mkdir(exist_ok=True)
++        replacement = folder / source.name
++        replacement.write_text(text.replace(old, new, 1))
++        overlay = folder / "overlay.json"
++        overlay.write_text(json.dumps({"Replace": {str(source): str(replacement)}}))
++        command = ["go", "test", "-overlay", str(overlay), "./internal/meshneg", "-count=1", "-json", "-timeout=60s", "-run", TESTS]
++        proc = subprocess.run(command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180)
++        (folder / "test.log").write_bytes(proc.stdout)
++        events = []
++        for line in proc.stdout.decode(errors="replace").splitlines():
++            try:
++                events.append(json.loads(line))
++            except json.JSONDecodeError:
++                pass
++        failed = [e["Test"] for e in events if e.get("Action") == "fail" and "Test" in e]
++        passed = [e["Test"] for e in events if e.get("Action") == "pass" and "Test" in e]
++        killed = proc.returncode != 0 and bool(failed) and (expected_test is None or expected_test in failed)
++        if name == "neutral":
++            valid = proc.returncode == 0 and bool(passed)
++            state = "neutral passed" if valid else "invalid control"
++        elif name in BOUNDS:
++            valid = proc.returncode == 0 and bool(passed)
++            state = "survived" if valid else "unexpected result"
++        else:
++            valid = killed
++            state = "killed" if killed else "survived" if proc.returncode == 0 and passed else "invalid instrument/compile failure"
++        if not valid:
++            unexpected = True
++        if source.read_bytes() != original:
++            raise RuntimeError(f"{name}: source changed during overlay run")
++        row = {"mutant": name, "narrowing": narrows, "exit_code": proc.returncode, "result": state,
++               "named_failing_tests": failed, "expected_test": expected_test,
++               "bound": BOUNDS.get(name, "" if killed or name == "neutral" else "No named failing test established; this gate member is unproven."),
++               "command": command}
++        results.append(row)
++        print(f"{name}: {state}, exit={proc.returncode}, tests={','.join(failed)}", flush=True)
++        (out / "results.json").write_text(json.dumps(results, indent=2) + "\n")
++    rows = ["| Mutant | What the gate is narrowed to admit | Named failing test | Exit | Result / surviving bound |",
++            "| --- | --- | --- | --- | --- |"]
++    for r in results:
++        tests = r["expected_test"] if r["expected_test"] in r["named_failing_tests"] else ", ".join(r["named_failing_tests"])
++        rows.append(f'| {r["mutant"]} | {r["narrowing"]} | {tests or "none"} | {r["exit_code"]} | {r["result"]}: {r["bound"]} |')
++    (out / "table.md").write_text("\n".join(rows)+"\n")
++    return int(unexpected)
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/internal/meshneg/negotiate.go b/internal/meshneg/negotiate.go
+new file mode 100644
+index 0000000..a513f6a
+--- /dev/null
++++ b/internal/meshneg/negotiate.go
+@@ -0,0 +1,484 @@
++// Package meshneg selects the single Mesh RPC major spoken on one peer
++// connection from the local installation's configuration generation and the
++// peer's decoded hello. It frames nothing, opens no connection, performs no
++// I/O, keeps no state, and admits no peer: identity equality, allowlist
++// membership, and trust generation remain the hostchannel admission boundary
++// (TASK-260830-z1yxg9), which negotiation never substitutes.
++//
++// The package owns the Section 11.2-11.3/11.8/11.9/11.10.1 and Section 17
++// selection rules only: highest common major among the locally offered and
++// peer offered majors, core-only preservation with explicit unsupported
++// directory/backend activation exposure, and no-common-major refusal with the
++// pinned Section 15 class. Wire shapes (hello maps, namespaces, operation
++// registry), Structured Error bindings, and configuration parsing stay with
++// their landed owners (rpcwire, axerror, config); this package derives from
++// them and never restates them.
++package meshneg
++
++import (
++	"errors"
++	"fmt"
++	"regexp"
++	"slices"
++	"strconv"
++	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/rpcwire"
++)
++
++// Pinned RPC framing versions this negotiator can select. A frame carrying
++// any other version is not a lower minor of a supported major; Sections
++// 11.2-11.10 pin exactly these four, and Section 17.2 rule 1 requires a
++// reader to reject an unsupported major rather than coerce it.
++var pinnedFrameVersions = map[string]int{
++	"2.0.0": 2,
++	"3.0.0": 3,
++	"4.0.0": 4,
++	"5.0.0": 5,
++}
++
++// directoryFeatureMajor is the first RPC major that negotiates directory
++// replication (Section 11.8). backendEvidenceFeatureMajor is the first RPC
++// major that negotiates TerminalBackend evidence replication (Section 11.9);
++// RPC 5 retains the exact RPC-4 shapes (Section 11.10.1).
++const (
++	directoryFeatureMajor       = 3
++	backendEvidenceFeatureMajor = 4
++)
++
++// Exposure codes for above-core activation on a negotiated peer. Both are
++// registered Section 15.3 codes; neither is minted here.
++const (
++	// DirectoryUnsupportedCode is the literal Section 11.8 exposure token:
++	// a node negotiating core-only with a peer reports that peer as
++	// directory_mesh_unsupported, never as zero inventory.
++	DirectoryUnsupportedCode = axerror.Code("directory_mesh_unsupported")
++	// BackendEvidenceUnsupportedCode is the RPC-4 equivalent: Section 11.9
++	// requires reporting TerminalBackend evidence unsupported rather than
++	// empty, and Section 17.4 requires reporting activation unavailable
++	// rather than omitting the session. terminal_backend_unavailable is
++	// the registered exit-6 code that states exactly that.
++	BackendEvidenceUnsupportedCode = axerror.Code("terminal_backend_unavailable")
++)
++
++// RefusalReason names why negotiation selected no major. Automation branches
++// on Reason (and Code); Detail is human text only.
++type RefusalReason string
++
++const (
++	// ReasonUnknownConfig reports a local configuration generation outside
++	// 1.0.0-4.0.0. Section 6.6 refuses unknown configuration instead of
++	// selecting legacy.
++	ReasonUnknownConfig RefusalReason = "unknown_config"
++	// ReasonUnsupportedFrame reports a peer frame version outside the
++	// pinned 2.0.0-5.0.0 vocabulary.
++	ReasonUnsupportedFrame RefusalReason = "unsupported_frame"
++	// ReasonContractShape reports a peer hello whose contracts map is not
++	// exactly the framing major's pinned profile (missing, extra, or
++	// extension keys, or a wrong rpc array shape).
++	ReasonContractShape RefusalReason = "contract_shape"
++	// ReasonMixedMajor reports a peer rpc offer that mixes majors or
++	// disagrees with its framing major. Section 17.1 forbids selecting a
++	// major by coercion.
++	ReasonMixedMajor RefusalReason = "mixed_major"
++	// ReasonNoCommonMajor reports disjoint local and peer major sets.
++	ReasonNoCommonMajor RefusalReason = "no_common_major"
++)
++
++var (
++	// ErrUnknownConfig is the cause of an unknown-configuration refusal.
++	ErrUnknownConfig = errors.New("unknown configuration generation")
++	// ErrUnsupportedFrame is the cause of an unsupported-frame refusal.
++	ErrUnsupportedFrame = errors.New("unsupported RPC frame version")
++	// ErrContractShape is the cause of a contract-shape refusal.
++	ErrContractShape = errors.New("hello contracts differ from the pinned profile")
++	// ErrMixedMajor is the cause of a mixed-major refusal.
++	ErrMixedMajor = errors.New("peer rpc offer mixes majors")
++	// ErrNoCommonMajor is the cause of a no-common-major refusal.
++	ErrNoCommonMajor = errors.New("no common RPC major")
++)
++
++// Refusal is the pure-data no-selection outcome. It frames no wire bytes:
++// Sections 11.2 and 15.1 close without a peer error frame on an unsupported
++// major, and Section 11.10.1 closes without a frame on other RPC majors, so
++// the only peer-visible effect is the close itself. The initiator maps Code
++// and ExitCode to its own local Structured Error; this value is that mapping
++// input, never a forged peer response.
++type Refusal struct {
++	// Code and ExitCode are the pinned Section 15 class, resolved from the
++	// axerror registry rather than retyped.
++	Code     axerror.Code
++	ExitCode int
++	// Reason names the refusal shape; Detail is human text.
++	Reason RefusalReason
++	Detail string
++	// Local carries the majors the local installation offered (empty when
++	// the local generation itself is unknown). Peer carries the peer's
++	// single offered major (zero when the peer offer was unusable).
++	Local []int
++	Peer  int
++	// Cause is the Go sentinel for errors.Is; it never reaches the wire.
++	Cause error
++}
++
++// Error renders the refusal without exposing anything beyond the refusal
++// facts. Message text is for humans; automation branches on Code/Reason.
++func (refusal *Refusal) Error() string {
++	if refusal == nil {
++		return "meshneg refusal"
++	}
++	return fmt.Sprintf("mesh RPC negotiation refused (%s): %s", refusal.Reason, refusal.Code)
++}
++
++// Unwrap exposes the cause sentinel for errors.Is.
++func (refusal *Refusal) Unwrap() error {
++	if refusal == nil {
++		return nil
++	}
++	return refusal.Cause
++}
++
++// classExit resolves the pinned exit status for a refusal or exposure code
++// under the Structured Error version that introduced it. An unregistered
++// code or version fails closed: the caller gets an internal error, never a
++// guessed exit.
++func classExit(version axerror.Version, code axerror.Code) (int, error) {
++	return axerror.ExitCodeFor(version, code)
++}
++
++// refuse builds a peer-side refusal (incompatible_protocol, exit 6). It is
++// used only when incompatibility is actually known from a decoded hello and
++// a known local generation, per Section 11.10.1; unframed input never
++// reaches this package.
++func refuse(reason RefusalReason, cause error, detail string, local []int, peer int) (*Refusal, error) {
++	exit, err := classExit(axerror.Version100, axerror.Code("incompatible_protocol"))
++	if err != nil {
++		return nil, err
++	}
++	return &Refusal{
++		Code:     axerror.Code("incompatible_protocol"),
++		ExitCode: exit,
++		Reason:   reason,
++		Detail:   detail,
++		Local:    append([]int(nil), local...),
++		Peer:     peer,
++		Cause:    cause,
++	}, nil
++}
++
++// LocalMajors maps the local installation's configuration generation
++// (config.Configuration.SchemaVersion) to the exact RPC majors that
++// installation offers, in ascending order:
++//
++//   - 1.0.0 offers 2: the base configuration predates the directory and
++//     TerminalBackend extensions, so only the Section 11.2-11.3 core.
++//   - 2.0.0 offers 2 and 3: the Section 6.4 directory extension pairs with
++//     RPC 3 directory replication, and Section 11.8 requires v2 dual-stack.
++//   - 3.0.0 offers 2, 3, and 4: the Section 6.5 TerminalBackend extension
++//     pairs with RPC 4 evidence replication, and Section 11.9 requires v3
++//     dual-stack with preserved v2 interop.
++//   - 4.0.0 offers exactly 5: Section 6.6 requires Host Channel 1 and RPC 5
++//     for every peer and states that legacy dual-stack obligations never
++//     require a Config-4 endpoint to accept legacy.
++//
++// Any other generation is refused with the invalid_config class (exit 3):
++// Section 6.6 makes unknown configuration a refusal, never legacy
++// selection. The result is a fresh slice on every call.
++func LocalMajors(configVersion string) ([]int, error) {
++	switch configVersion {
++	case "1.0.0":
++		return []int{2}, nil
++	case "2.0.0":
++		return []int{2, 3}, nil
++	case "3.0.0":
++		return []int{2, 3, 4}, nil
++	case "4.0.0":
++		return []int{5}, nil
++	default:
++		exit, err := classExit(axerror.Version100, axerror.Code("invalid_config"))
++		if err != nil {
++			return nil, err
++		}
++		return nil, &Refusal{
++			Code:     axerror.Code("invalid_config"),
++			ExitCode: exit,
++			Reason:   ReasonUnknownConfig,
++			Detail:   fmt.Sprintf("configuration generation %q offers no RPC major", configVersion),
++			Cause:    ErrUnknownConfig,
++		}
++	}
++}
++
++// semverMajor parses a strict semantic version and returns its major
++// component. The grammar is the same full semver rpcwire enforces on hello
++// contract arrays (major.minor.patch with optional prerelease and build
++// metadata, no leading zeros, no "v" prefix); agreement with rpcwire decode
++// is measured by test, not asserted by comment.
++var semverMajor = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$`)
++
++func majorOf(version string) (int, error) {
++	match := semverMajor.FindStringSubmatch(version)
++	if match == nil {
++		return 0, fmt.Errorf("%w: version %q is not strict semver", ErrMixedMajor, version)
++	}
++	major, err := strconv.Atoi(match[1])
++	if err != nil {
++		return 0, fmt.Errorf("%w: version %q has no numeric major", ErrMixedMajor, version)
++	}
++	return major, nil
++}
++
++// PeerOffer validates the peer's side of the negotiation: the decoded frame
++// version plus the decoded hello's contracts map. It returns the peer's
++// single offered major. Identity, platform, version, nonce, echo, and limit
++// members of the hello are never consulted: negotiation selects a major, it
++// does not authenticate, and consulting them here would substitute for the
++// admission boundary.
++//
++// The offer is refused when the frame version is outside the pinned
++// vocabulary, when the contracts keys differ from the framing major's exact
++// pinned profile (a v2 14-key bound inside a v3+ frame, an extension key, or
++// any missing key), when the rpc array is empty or not strictly
++// sorted-unique, when any rpc version is not strict semver, or when any rpc
++// major differs from the framing major. A v2 frame may carry a 1-16 version
++// minor range (Section 11.2); selecting within that range stays a stated
++// bound, since this package negotiates majors only.
++func PeerOffer(frameVersion string, hello rpcwire.Hello) (int, error) {
++	framing, pinned := pinnedFrameVersions[frameVersion]
++	if !pinned {
++		refusal, err := refuse(ReasonUnsupportedFrame, ErrUnsupportedFrame,
++			fmt.Sprintf("frame version %q is outside the pinned 2.0.0-5.0.0 vocabulary", frameVersion), nil, 0)
++		if err != nil {
++			return 0, err
++		}
++		return 0, refusal
++	}
++	profile, err := rpcwire.ContractProfile(frameVersion)
++	if err != nil {
++		return 0, err
++	}
++	if len(hello.Contracts) != len(profile) {
++		return 0, shapeRefusal(framing)
++	}
++	for key := range profile {
++		if _, ok := hello.Contracts[key]; !ok {
++			return 0, shapeRefusal(framing)
++		}
++	}
++	offered := hello.Contracts["rpc"]
++	if len(offered) < 1 || len(offered) > 16 {
++		return 0, shapeRefusal(framing)
++	}
++	for index, version := range offered {
++		major, err := majorOf(version)
++		if err != nil {
++			return 0, mixedRefusal(fmt.Sprintf("rpc version %q is not strict semver", version))
++		}
++		if major != framing {
++			return 0, mixedRefusal(fmt.Sprintf("rpc version %q mixes major %d into a major-%d frame", version, major, framing))
++		}
++		if index > 0 && offered[index-1] >= version {
++			return 0, mixedRefusal("rpc versions are not strictly sorted unique")
++		}
++	}
++	if frameVersion != "2.0.0" && !slices.Equal(offered, profile["rpc"]) {
++		return 0, shapeRefusal(framing)
++	}
++	return framing, nil
++}
++
++func shapeRefusal(framing int) error {
++	refusal, err := refuse(ReasonContractShape, ErrContractShape,
++		fmt.Sprintf("hello contracts do not match the pinned major-%d profile", framing), nil, 0)
++	if err != nil {
++		return err
++	}
++	return refusal
++}
++
++func mixedRefusal(detail string) error {
++	refusal, err := refuse(ReasonMixedMajor, ErrMixedMajor, detail, nil, 0)
++	if err != nil {
++		return err
++	}
++	return refusal
++}
++
++// Select returns the highest major in the intersection of the local and peer
++// offer sets. Either set naming a major outside the pinned 2/3/4/5
++// vocabulary, an empty set on either side, or a disjoint pair is refused as
++// no-common-major: an unmentionable major can never be common, and Section
++// 17.1 forbids selecting one by coercion.
++func Select(local, peer []int) (int, error) {
++	for _, major := range local {
++		if major < 2 || major > 5 {
++			refusal, err := refuse(ReasonNoCommonMajor, ErrNoCommonMajor,
++				fmt.Sprintf("local offer names major %d outside the pinned 2/3/4/5 vocabulary", major), append([]int(nil), local...), 0)
++			if err != nil {
++				return 0, err
++			}
++			return 0, refusal
++		}
++	}
++	for _, major := range peer {
++		if major < 2 || major > 5 {
++			refusal, err := refuse(ReasonNoCommonMajor, ErrNoCommonMajor,
++				fmt.Sprintf("peer offer names major %d outside the pinned 2/3/4/5 vocabulary", major), append([]int(nil), local...), 0)
++			if err != nil {
++				return 0, err
++			}
++			return 0, refusal
++		}
++	}
++	best := 0
++	for _, candidate := range local {
++		if slices.Contains(peer, candidate) && candidate > best {
++			best = candidate
++		}
++	}
++	if best == 0 {
++		peerMajor := 0
++		if len(peer) == 1 {
++			peerMajor = peer[0]
++		}
++		refusal, err := refuse(ReasonNoCommonMajor, ErrNoCommonMajor,
++			"local and peer offers share no major ("+joinMajors(local)+" against "+joinMajors(peer)+")",
++			append([]int(nil), local...), peerMajor)
++		if err != nil {
++			return 0, err
++		}
++		return 0, refusal
++	}
++	return best, nil
++}
++
++func joinMajors(majors []int) string {
++	parts := make([]string, 0, len(majors))
++	for _, major := range majors {
++		parts = append(parts, strconv.Itoa(major))
++	}
++	return "[" + strings.Join(parts, " ") + "]"
++}
++
++// FeatureActivation reports how one above-core feature is exposed for the
++// negotiated peer. It carries no inventory counts, no object IDs, and no
++// capability advertisement: Negotiated states the outcome of this selection,
++// and Code names the registered exposure code only when the feature was not
++// negotiated, so a core-only peer can never be mistaken for an empty one.
++type FeatureActivation struct {
++	// Feature is "directory" or "terminal_backend_evidence".
++	Feature string
++	// Negotiated is true exactly when the selected major carries the
++	// feature (directory at 3+, backend evidence at 4+).
++	Negotiated bool
++	// Code is empty when negotiated; otherwise the registered exposure
++	// code with ExitCode 6.
++	Code     axerror.Code
++	ExitCode int
++}
++
++// PeerView is the local node's exposure of the negotiated peer: which
++// above-core activations the selection carries and which it reports
++// unsupported. Core sync itself is the negotiated major, not a member here.
++type PeerView struct {
++	Directory       FeatureActivation
++	BackendEvidence FeatureActivation
++}
++
++// Decision is the pure-data selection outcome: exactly one common major
++// plus the shapes bound to it. Contracts and Namespaces are rebuilt from
++// the pinned profile for the selected major, never copied from peer bytes,
++// so a malformed peer array cannot propagate past selection.
++type Decision struct {
++	Major           int
++	ProtocolVersion string
++	Contracts       map[string][]string
++	Namespaces      []string
++	ErrorVersion    axerror.Version
++	Peer            PeerView
++}
++
++func exposure(feature string, negotiated bool, code axerror.Code, introduced axerror.Version) (FeatureActivation, error) {
++	activation := FeatureActivation{Feature: feature, Negotiated: negotiated}
++	if negotiated {
++		return activation, nil
++	}
++	exit, err := classExit(introduced, code)
++	if err != nil {
++		return FeatureActivation{}, err
++	}
++	activation.Code = code
++	activation.ExitCode = exit
++	return activation, nil
++}
++
++func decisionFor(major int) (Decision, error) {
++	version := fmt.Sprintf("%d.0.0", major)
++	contracts, err := rpcwire.ContractProfile(version)
++	if err != nil {
++		return Decision{}, err
++	}
++	namespaces, err := rpcwire.Namespaces(version)
++	if err != nil {
++		return Decision{}, err
++	}
++	bound, err := axerror.BindingFor(axerror.ContainingContract{ID: "urn:ax:protocol:rpc", Major: major})
++	if err != nil {
++		return Decision{}, err
++	}
++	directory, err := exposure("directory", major >= directoryFeatureMajor, DirectoryUnsupportedCode, axerror.Version120)
++	if err != nil {
++		return Decision{}, err
++	}
++	backend, err := exposure("terminal_backend_evidence", major >= backendEvidenceFeatureMajor, BackendEvidenceUnsupportedCode, axerror.Version130)
++	if err != nil {
++		return Decision{}, err
++	}
++	return Decision{
++		Major:           major,
++		ProtocolVersion: version,
++		Contracts:       contracts,
++		Namespaces:      namespaces,
++		ErrorVersion:    bound,
++		Peer:            PeerView{Directory: directory, BackendEvidence: backend},
++	}, nil
++}
++
++// Negotiate selects exactly one common Mesh RPC major for the local
++// configuration generation and the peer's decoded hello frame. configVersion
++// is the local config.Configuration.SchemaVersion; frameVersion is the
++// decoded envelope's protocol_version; hello is the decoded hello body.
++//
++// On success it returns the Decision for the highest common major. On
++// refusal it returns a *Refusal carrying the pinned Section 15 class:
++// incompatible_protocol with exit 6 when the decoded inputs prove the
++// majors are disjoint or the peer offer is malformed, or invalid_config
++// with exit 3 when the local generation is unknown. Any other error is an
++// internal registry inconsistency, never a peer verdict.
++//
++// Negotiate consults only the configuration generation, the frame version,
++// and the hello contracts map. It reads no environment, no argv, no raw
++// frame bytes, no extension member, and no prior-handshake state, so none
++// of those can select a fallback (Section 6.6). It performs no admission:
++// the hello identity, allowlist, and trust generation must still pass the
++// hostchannel boundary before any dispatch.
++func Negotiate(configVersion, frameVersion string, hello rpcwire.Hello) (Decision, error) {
++	local, err := LocalMajors(configVersion)
++	if err != nil {
++		return Decision{}, err
++	}
++	peer, err := PeerOffer(frameVersion, hello)
++	if err != nil {
++		if refusal, ok := err.(*Refusal); ok {
++			refusal.Local = append([]int(nil), local...)
++			return Decision{}, refusal
++		}
++		return Decision{}, err
++	}
++	major, err := Select(local, []int{peer})
++	if err != nil {
++		return Decision{}, err
++	}
++	return decisionFor(major)
++}
+diff --git a/internal/meshneg/negotiate_test.go b/internal/meshneg/negotiate_test.go
+new file mode 100644
+index 0000000..9834024
+--- /dev/null
++++ b/internal/meshneg/negotiate_test.go
+@@ -0,0 +1,500 @@
++package meshneg_test
++
++import (
++	"encoding/json"
++	"errors"
++	"maps"
++	"slices"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/meshneg"
++	"github.com/relux-works/agent-session-manager/internal/rpcwire"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const (
++	requestID = "0198f4c8-a070-7188-9172-1234567890ab"
++	peerHost  = "0198f4c8-7d40-7e55-8e6f-1234567890ab"
++)
++
++func mustUint53(t *testing.T, value uint64) scalar.Uint53 {
++	t.Helper()
++	limit, err := scalar.NewUint53(value)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return limit
++}
++
++// profileContracts returns a mutable copy of the pinned contracts map so
++// table cases can tamper with it without affecting other cases.
++func profileContracts(t *testing.T, frameVersion string) map[string][]string {
++	t.Helper()
++	profile, err := rpcwire.ContractProfile(frameVersion)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return maps.Clone(profile)
++}
++
++// directHello builds a hello struct with valid identity members and the
++// given contracts map. It bypasses rpcwire decode on purpose: PeerOffer
++// must re-validate every negotiation-relevant member for direct callers.
++func directHello(t *testing.T, contracts map[string][]string) rpcwire.Hello {
++	t.Helper()
++	return rpcwire.Hello{
++		HostID:         peerHost,
++		Platform:       "macos",
++		AXVersion:      "0.2.1",
++		Nonce:          rpcwire.NewNonce(),
++		Contracts:      contracts,
++		MaxLineBytes:   mustUint53(t, 8*1024*1024),
++		MaxObjectBytes: mustUint53(t, 5*1024*1024),
++	}
++}
++
++// decodedHello runs the contracts map through the real rpcwire
++// EncodeRequest/DecodeRequest/Request.Hello entries, proving the fixture is
++// decode-valid before negotiation sees it.
++func decodedHello(t *testing.T, frameVersion string, contracts map[string][]string) rpcwire.Hello {
++	t.Helper()
++	body, err := json.Marshal(map[string]any{
++		"host_id":          peerHost,
++		"platform":         "macos",
++		"ax_version":       "0.2.1",
++		"nonce":            rpcwire.NewNonce(),
++		"contracts":        contracts,
++		"max_line_bytes":   8 * 1024 * 1024,
++		"max_object_bytes": 5 * 1024 * 1024,
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	line, err := rpcwire.EncodeRequest(frameVersion, requestID, "hello", body)
++	if err != nil {
++		t.Fatal(err)
++	}
++	request, err := rpcwire.DecodeRequest(line)
++	if err != nil {
++		t.Fatal(err)
++	}
++	hello, err := request.Hello()
++	if err != nil {
++		t.Fatal(err)
++	}
++	return hello
++}
++
++func asRefusal(t *testing.T, err error) *meshneg.Refusal {
++	t.Helper()
++	if err == nil {
++		t.Fatal("expected refusal, got nil error")
++	}
++	var refusal *meshneg.Refusal
++	if !errors.As(err, &refusal) {
++		t.Fatalf("expected *meshneg.Refusal, got %T (%v)", err, err)
++	}
++	return refusal
++}
++
++func TestLocalMajors(t *testing.T) {
++	cases := []struct {
++		config string
++		majors []int
++	}{
++		{"1.0.0", []int{2}},
++		{"2.0.0", []int{2, 3}},
++		{"3.0.0", []int{2, 3, 4}},
++		{"4.0.0", []int{5}},
++	}
++	for _, tc := range cases {
++		t.Run("config-"+tc.config, func(t *testing.T) {
++			majors, err := meshneg.LocalMajors(tc.config)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if !slices.Equal(majors, tc.majors) {
++				t.Fatalf("LocalMajors(%q) = %v, want %v", tc.config, majors, tc.majors)
++			}
++			// The result must be a fresh slice: mutating it cannot change
++			// a later call.
++			majors[0] = 99
++			again, err := meshneg.LocalMajors(tc.config)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if !slices.Equal(again, tc.majors) {
++				t.Fatalf("LocalMajors(%q) shares its result slice: %v", tc.config, again)
++			}
++		})
++	}
++	unknown := []string{"", "5.0.0", "3.0", "v4.0.0", "4.0.1", "4", "1.0.0 ", "9.9.9"}
++	for _, config := range unknown {
++		t.Run("unknown-"+config, func(t *testing.T) {
++			majors, err := meshneg.LocalMajors(config)
++			if majors != nil {
++				t.Fatalf("LocalMajors(%q) returned majors %v with an error", config, majors)
++			}
++			refusal := asRefusal(t, err)
++			if refusal.Code != "invalid_config" || refusal.ExitCode != 3 {
++				t.Fatalf("LocalMajors(%q) class = %s/%d, want invalid_config/3", config, refusal.Code, refusal.ExitCode)
++			}
++			if refusal.Reason != meshneg.ReasonUnknownConfig {
++				t.Fatalf("LocalMajors(%q) reason = %q", config, refusal.Reason)
++			}
++			if !errors.Is(err, meshneg.ErrUnknownConfig) {
++				t.Fatalf("LocalMajors(%q) error does not wrap ErrUnknownConfig", config)
++			}
++			if len(refusal.Local) != 0 || refusal.Peer != 0 {
++				t.Fatalf("LocalMajors(%q) refusal carries offer facts %+v", config, refusal)
++			}
++		})
++	}
++}
++
++// TestNegotiateMatrix drives every local-generation by peer-major pair with
++// decode-valid hellos through the production Negotiate entry.
++func TestNegotiateMatrix(t *testing.T) {
++	type expectation struct {
++		major int // selected major; 0 means refused no-common-major
++	}
++	matrix := map[string]map[string]expectation{
++		"1.0.0": {"2.0.0": {2}, "3.0.0": {}, "4.0.0": {}, "5.0.0": {}},
++		"2.0.0": {"2.0.0": {2}, "3.0.0": {3}, "4.0.0": {}, "5.0.0": {}},
++		"3.0.0": {"2.0.0": {2}, "3.0.0": {3}, "4.0.0": {4}, "5.0.0": {}},
++		"4.0.0": {"2.0.0": {}, "3.0.0": {}, "4.0.0": {}, "5.0.0": {5}},
++	}
++	configs := []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0"}
++	frames := []string{"2.0.0", "3.0.0", "4.0.0", "5.0.0"}
++	for _, config := range configs {
++		for _, frame := range frames {
++			want := matrix[config][frame]
++			t.Run(config+"-x-"+frame, func(t *testing.T) {
++				hello := decodedHello(t, frame, profileContracts(t, frame))
++				decision, err := meshneg.Negotiate(config, frame, hello)
++				if want.major == 0 {
++					refusal := asRefusal(t, err)
++					if refusal.Code != "incompatible_protocol" || refusal.ExitCode != 6 {
++						t.Fatalf("Negotiate(%s, %s) class = %s/%d, want incompatible_protocol/6",
++							config, frame, refusal.Code, refusal.ExitCode)
++					}
++					if refusal.Reason != meshneg.ReasonNoCommonMajor {
++						t.Fatalf("Negotiate(%s, %s) reason = %q", config, frame, refusal.Reason)
++					}
++					if !errors.Is(err, meshneg.ErrNoCommonMajor) {
++						t.Fatalf("Negotiate(%s, %s) error does not wrap ErrNoCommonMajor", config, frame)
++					}
++					return
++				}
++				if err != nil {
++					t.Fatal(err)
++				}
++				if decision.Major != want.major || decision.ProtocolVersion != frame {
++					t.Fatalf("Negotiate(%s, %s) = major %d/%s, want %d/%s",
++						config, frame, decision.Major, decision.ProtocolVersion, want.major, frame)
++				}
++			})
++		}
++	}
++}
++
++func TestSelectHighestCommon(t *testing.T) {
++	admitted := []struct {
++		name  string
++		local []int
++		peer  []int
++		want  int
++	}{
++		{"highest-wins", []int{2, 3, 4}, []int{2, 4}, 4},
++		{"single-overlap", []int{2, 3}, []int{3, 4}, 3},
++		{"config4-selects-5", []int{5}, []int{2, 3, 4, 5}, 5},
++		{"legacy-peak", []int{2, 3, 4}, []int{4}, 4},
++		{"core-only", []int{2}, []int{2}, 2},
++		{"unordered-input", []int{4, 2, 3}, []int{3, 2}, 3},
++	}
++	for _, tc := range admitted {
++		t.Run("admit-"+tc.name, func(t *testing.T) {
++			got, err := meshneg.Select(tc.local, tc.peer)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if got != tc.want {
++				t.Fatalf("Select(%v, %v) = %d, want %d", tc.local, tc.peer, got, tc.want)
++			}
++		})
++	}
++	refused := []struct {
++		name  string
++		local []int
++		peer  []int
++	}{
++		{"disjoint", []int{2}, []int{3}},
++		{"legacy-against-5", []int{2, 3, 4}, []int{5}},
++		{"config4-against-legacy", []int{5}, []int{2, 3, 4}},
++		{"empty-local", nil, []int{2}},
++		{"empty-peer", []int{2}, nil},
++		{"local-names-6", []int{2, 6}, []int{2}},
++		{"peer-names-1", []int{2}, []int{1}},
++		{"peer-mixes-1-with-common", []int{2}, []int{1, 2}},
++		{"both-name-6", []int{6}, []int{6}},
++		{"negative-major", []int{-2}, []int{-2}},
++		{"zero-major", []int{0}, []int{2}},
++	}
++	for _, tc := range refused {
++		t.Run("refuse-"+tc.name, func(t *testing.T) {
++			got, err := meshneg.Select(tc.local, tc.peer)
++			if got != 0 {
++				t.Fatalf("Select(%v, %v) = %d, want refusal", tc.local, tc.peer, got)
++			}
++			refusal := asRefusal(t, err)
++			if refusal.Code != "incompatible_protocol" || refusal.ExitCode != 6 {
++				t.Fatalf("Select(%v, %v) class = %s/%d, want incompatible_protocol/6",
++					tc.local, tc.peer, refusal.Code, refusal.ExitCode)
++			}
++			if refusal.Reason != meshneg.ReasonNoCommonMajor {
++				t.Fatalf("Select(%v, %v) reason = %q", tc.local, tc.peer, refusal.Reason)
++			}
++			if !errors.Is(err, meshneg.ErrNoCommonMajor) {
++				t.Fatalf("Select(%v, %v) error does not wrap ErrNoCommonMajor", tc.local, tc.peer)
++			}
++		})
++	}
++}
++
++func TestPeerOfferRefusals(t *testing.T) {
++	v2 := func(t *testing.T) map[string][]string { return profileContracts(t, "2.0.0") }
++	v3 := func(t *testing.T) map[string][]string { return profileContracts(t, "3.0.0") }
++
++	t.Run("frame-versions", func(t *testing.T) {
++		for _, frame := range []string{"", "1.0.0", "2.1.0", "3.0.1", "6.0.0", "v2.0.0", "02.0.0", "2.0", "2.0.0 "} {
++			hello := directHello(t, v2(t))
++			peer, err := meshneg.PeerOffer(frame, hello)
++			if peer != 0 {
++				t.Fatalf("PeerOffer(%q) = %d, want refusal", frame, peer)
++			}
++			refusal := asRefusal(t, err)
++			if refusal.Reason != meshneg.ReasonUnsupportedFrame || !errors.Is(err, meshneg.ErrUnsupportedFrame) {
++				t.Fatalf("PeerOffer(%q) reason = %q", frame, refusal.Reason)
++			}
++			if refusal.Code != "incompatible_protocol" || refusal.ExitCode != 6 {
++				t.Fatalf("PeerOffer(%q) class = %s/%d", frame, refusal.Code, refusal.ExitCode)
++			}
++		}
++	})
++
++	t.Run("shape", func(t *testing.T) {
++		cases := []struct {
++			name      string
++			frame     string
++			contracts func(t *testing.T) map[string][]string
++		}{
++			{"v2-bound-in-v3-frame", "3.0.0", v2},
++			{"v2-bound-in-v4-frame", "4.0.0", v2},
++			{"v2-bound-in-v5-frame", "5.0.0", v2},
++			{"v3-bound-in-v2-frame", "2.0.0", v3},
++			{"extra-error-key", "2.0.0", func(t *testing.T) map[string][]string {
++				m := v2(t)
++				m["error"] = []string{"1.0.0"}
++				return m
++			}},
++			{"extra-extension-key", "3.0.0", func(t *testing.T) map[string][]string {
++				m := v3(t)
++				m["extensions"] = []string{"1.0.0"}
++				return m
++			}},
++			{"missing-key", "2.0.0", func(t *testing.T) map[string][]string {
++				m := v2(t)
++				delete(m, "lease")
++				return m
++			}},
++			{"substituted-key", "2.0.0", func(t *testing.T) map[string][]string {
++				m := v2(t)
++				delete(m, "lease")
++				m["bogus"] = []string{"1.0.0"}
++				return m
++			}},
++			{"empty-rpc", "2.0.0", func(t *testing.T) map[string][]string {
++				m := v2(t)
++				m["rpc"] = nil
++				return m
++			}},
++			{"seventeen-rpc", "2.0.0", func(t *testing.T) map[string][]string {
++				m := v2(t)
++				rpc := make([]string, 0, 17)
++				for i := range 17 {
++					rpc = append(rpc, "2.0."+string(rune('0'+i/10))+string(rune('0'+i%10)))
++				}
++				m["rpc"] = rpc
++				return m
++			}},
++			{"v3-inexact-rpc", "3.0.0", func(t *testing.T) map[string][]string {
++				m := v3(t)
++				m["rpc"] = []string{"3.0.1"}
++				return m
++			}},
++			{"v4-inexact-rpc", "4.0.0", func(t *testing.T) map[string][]string {
++				m := profileContracts(t, "4.0.0")
++				m["rpc"] = []string{"4.0.0", "4.1.0"}
++				return m
++			}},
++			{"v5-inexact-rpc", "5.0.0", func(t *testing.T) map[string][]string {
++				m := profileContracts(t, "5.0.0")
++				m["rpc"] = []string{"5.0.0", "5.0.1"}
++				return m
++			}},
++		}
++		for _, tc := range cases {
++			t.Run(tc.name, func(t *testing.T) {
++				hello := directHello(t, tc.contracts(t))
++				peer, err := meshneg.PeerOffer(tc.frame, hello)
++				if peer != 0 {
++					t.Fatalf("PeerOffer(%s, %s) = %d, want refusal", tc.frame, tc.name, peer)
++				}
++				refusal := asRefusal(t, err)
++				if refusal.Reason != meshneg.ReasonContractShape || !errors.Is(err, meshneg.ErrContractShape) {
++					t.Fatalf("PeerOffer(%s, %s) reason = %q", tc.frame, tc.name, refusal.Reason)
++				}
++			})
++		}
++	})
++
++	t.Run("mixed", func(t *testing.T) {
++		cases := []struct {
++			name  string
++			frame string
++			rpc   []string
++		}{
++			{"two-majors-in-v2", "2.0.0", []string{"2.0.0", "3.0.0"}},
++			{"v3-only-in-v2-frame", "2.0.0", []string{"3.0.0"}},
++			{"v1-in-v2-frame", "2.0.0", []string{"1.0.0"}},
++			{"v2-in-v3-frame", "3.0.0", []string{"2.0.0"}},
++			{"v5-in-v4-frame", "4.0.0", []string{"5.0.0"}},
++			{"duplicate", "2.0.0", []string{"2.0.0", "2.0.0"}},
++			{"unsorted", "2.0.0", []string{"2.1.0", "2.0.0"}},
++			{"not-semver", "2.0.0", []string{"v2.0.0"}},
++			{"non-numeric-major", "2.0.0", []string{"99999999999999999999999.0.0"}},
++			{"empty-string", "2.0.0", []string{""}},
++			{"leading-zero", "2.0.0", []string{"02.0.0"}},
++			{"trailing-space", "2.0.0", []string{"2.0.0 "}},
++		}
++		for _, tc := range cases {
++			t.Run(tc.name, func(t *testing.T) {
++				m := profileContracts(t, tc.frame)
++				m["rpc"] = tc.rpc
++				hello := directHello(t, m)
++				peer, err := meshneg.PeerOffer(tc.frame, hello)
++				if peer != 0 {
++					t.Fatalf("PeerOffer(%s, %s) = %d, want refusal", tc.frame, tc.name, peer)
++				}
++				refusal := asRefusal(t, err)
++				if refusal.Reason != meshneg.ReasonMixedMajor || !errors.Is(err, meshneg.ErrMixedMajor) {
++					t.Fatalf("PeerOffer(%s, %s) reason = %q", tc.frame, tc.name, refusal.Reason)
++				}
++				if refusal.Code != "incompatible_protocol" || refusal.ExitCode != 6 {
++					t.Fatalf("PeerOffer(%s, %s) class = %s/%d", tc.frame, tc.name, refusal.Code, refusal.ExitCode)
++				}
++			})
++		}
++	})
++
++	t.Run("admitted-ranges", func(t *testing.T) {
++		// A v2 minor range stays major 2: minor selection within the
++		// common major is a stated bound, not a refusal.
++		m := v2(t)
++		m["rpc"] = []string{"2.0.0", "2.1.0"}
++		if peer, err := meshneg.PeerOffer("2.0.0", directHello(t, m)); peer != 2 || err != nil {
++			t.Fatalf("PeerOffer(v2 range) = %d, %v, want 2, nil", peer, err)
++		}
++		m = v2(t)
++		m["rpc"] = []string{"2.0.0", "2.0.0-alpha"}
++		if peer, err := meshneg.PeerOffer("2.0.0", directHello(t, m)); peer != 2 || err != nil {
++			t.Fatalf("PeerOffer(v2 prerelease) = %d, %v, want 2, nil", peer, err)
++		}
++		for _, frame := range []string{"3.0.0", "4.0.0", "5.0.0"} {
++			peer, err := meshneg.PeerOffer(frame, directHello(t, profileContracts(t, frame)))
++			if peer != int(frame[0]-'0') || err != nil {
++				t.Fatalf("PeerOffer(%s) = %d, %v", frame, peer, err)
++			}
++		}
++	})
++}
++
++func TestDecisionShapes(t *testing.T) {
++	type shape struct {
++		keys       int
++		namespaces []string
++		errVersion axerror.Version
++	}
++	sorted := func(names ...string) []string {
++		out := slices.Clone(names)
++		slices.Sort(out)
++		return out
++	}
++	core := []string{"blob", "event", "manifest", "record", "tombstone", "tombstone_ack"}
++	shapes := map[string]shape{
++		"2.0.0": {14, sorted(core...), axerror.Version100},
++		"3.0.0": {24, sorted(append(slices.Clone(core), "directory_record")...), axerror.Version120},
++		"4.0.0": {25, sorted(append(slices.Clone(core), "directory_record", "terminal_backend_evidence")...), axerror.Version130},
++		"5.0.0": {25, sorted(append(slices.Clone(core), "directory_record", "terminal_backend_evidence")...), axerror.Version130},
++	}
++	// Local generations that admit each frame: config-4 only for 5.0.0,
++	// the newest legacy generation otherwise.
++	configFor := map[string]string{"2.0.0": "3.0.0", "3.0.0": "3.0.0", "4.0.0": "3.0.0", "5.0.0": "4.0.0"}
++	for _, frame := range []string{"2.0.0", "3.0.0", "4.0.0", "5.0.0"} {
++		t.Run(frame, func(t *testing.T) {
++			config := configFor[frame]
++			hello := decodedHello(t, frame, profileContracts(t, frame))
++			decision, err := meshneg.Negotiate(config, frame, hello)
++			if err != nil {
++				t.Fatal(err)
++			}
++			want := shapes[frame]
++			if len(decision.Contracts) != want.keys {
++				t.Fatalf("Negotiate(%s, %s) contracts keys = %d, want %d", config, frame, len(decision.Contracts), want.keys)
++			}
++			profile, err := rpcwire.ContractProfile(frame)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if !maps.EqualFunc(decision.Contracts, profile, slices.Equal) {
++				t.Fatalf("Negotiate(%s, %s) contracts differ from the rpcwire profile", config, frame)
++			}
++			if !slices.Equal(decision.Namespaces, want.namespaces) {
++				t.Fatalf("Negotiate(%s, %s) namespaces = %v, want %v", config, frame, decision.Namespaces, want.namespaces)
++			}
++			if decision.ErrorVersion != want.errVersion {
++				t.Fatalf("Negotiate(%s, %s) error version = %s, want %s", config, frame, decision.ErrorVersion, want.errVersion)
++			}
++			if decision.ProtocolVersion != frame {
++				t.Fatalf("Negotiate(%s, %s) protocol version = %s", config, frame, decision.ProtocolVersion)
++			}
++			// RPC 5 carries the exact RPC-4 shapes with only the version
++			// changed (Section 11.10.1).
++			if frame == "5.0.0" {
++				four, err := meshneg.Negotiate("3.0.0", "4.0.0", decodedHello(t, "4.0.0", profileContracts(t, "4.0.0")))
++				if err != nil {
++					t.Fatal(err)
++				}
++				if !slices.Equal(decision.Namespaces, four.Namespaces) || decision.ErrorVersion != four.ErrorVersion {
++					t.Fatal("RPC 5 decision diverges from the RPC-4 shapes")
++				}
++				if len(decision.Contracts) != len(four.Contracts) {
++					t.Fatal("RPC 5 contracts key count diverges from RPC 4")
++				}
++				for key, versions := range four.Contracts {
++					got := decision.Contracts[key]
++					if key == "rpc" {
++						if !slices.Equal(got, []string{"5.0.0"}) {
++							t.Fatalf("RPC 5 rpc contracts = %v", got)
++						}
++						continue
++					}
++					if !slices.Equal(got, versions) {
++						t.Fatalf("RPC 5 contracts[%q] diverges from RPC 4", key)
++					}
++				}
++			}
++		})
++	}
++}
