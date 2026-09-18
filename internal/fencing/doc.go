@@ -32,7 +32,11 @@
 //     model their entry points (AuthorizeActivation, AuthorizeInput,
 //     AuthorizeMutation, AuthorizeCheckpoint, AuthorizeRestore,
 //     AuthorizeTerminateStale) and the callers report their own sync,
-//     handoff, and grant facts through Observation.
+//     handoff, and grant facts through Observation. StaleRelativeToWinner
+//     is the same gate's direction/tuple fact without the grant
+//     precondition: a grant authorizes, it never decides staleness, so
+//     projections that must fence grant-less incarnations read the
+//     verdict instead of re-comparing tuples.
 //
 // The gates are pure over durable inputs: they perform no writes, hold
 // no cache, and read no clock except the Now the caller supplies, so

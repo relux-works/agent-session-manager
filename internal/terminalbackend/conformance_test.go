@@ -264,6 +264,43 @@ func TestCheckTransitionAdmitsEveryTableRow(t *testing.T) {
 	}
 }
 
+// TestTransitionAuthorizationReportsEveryTableColumn pins the authorization
+// column accessor lifecycle owners delegate to: all ten operations report
+// their exact §4.C kind, and an unknown operation is a protocol error.
+func TestTransitionAuthorizationReportsEveryTableColumn(t *testing.T) {
+	t.Parallel()
+
+	for _, row := range []struct {
+		operation string
+		kind      string
+	}{
+		{"manifest", "none"},
+		{"probe", "none"},
+		{"create", "create"},
+		{"attach", "attach"},
+		{"status", "none"},
+		{"quiesce-input", "control"},
+		{"wait-safe-boundary", "control"},
+		{"request-stop", "control"},
+		{"terminate-stale", "force_stale"},
+		{"restore", "restore"},
+	} {
+		kind, err := terminalbackend.TransitionAuthorization(row.operation)
+		if err != nil {
+			t.Errorf("TransitionAuthorization(%q) error = %v, want %q", row.operation, err, row.kind)
+			continue
+		}
+		if kind != row.kind {
+			t.Errorf("TransitionAuthorization(%q) = %q, want literal %q", row.operation, kind, row.kind)
+		}
+	}
+	if _, err := terminalbackend.TransitionAuthorization("launch"); err == nil {
+		t.Error("TransitionAuthorization(launch) = nil, want the protocol refusal")
+	} else if !terminalbackend.IsProtocolError(err) {
+		t.Errorf("TransitionAuthorization(launch) error = %v, want terminal_backend_protocol_error", err)
+	}
+}
+
 // TestCheckTransitionRefusesEveryIllegalSource drives the full negative
 // matrix: every operation against every source it does not admit,
 // including unknown operations and states. A known operation against a

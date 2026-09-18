@@ -22,8 +22,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=140 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
-		"section coverage: bindings=68 full=2 partial=8 sliver=5 unevidenced=49 unmeasured=4 unowned=7 clauses_discharged=56/569\n"
+	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=147 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
+		"section coverage: bindings=69 full=2 partial=9 sliver=9 unevidenced=45 unmeasured=4 unowned=7 clauses_discharged=63/574\n"
 	if output.String() != want {
 		t.Fatalf("run() output = %q, want %q", output.String(), want)
 	}
@@ -55,8 +55,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run(assigned sections) error = %v", err)
 	}
-	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=140 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
-		"section coverage: bindings=68 full=2 partial=8 sliver=5 unevidenced=49 unmeasured=4 unowned=7 clauses_discharged=56/569\n"
+	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=147 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
+		"section coverage: bindings=69 full=2 partial=9 sliver=9 unevidenced=45 unmeasured=4 unowned=7 clauses_discharged=63/574\n"
 	if output.String() != want {
 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
 	}

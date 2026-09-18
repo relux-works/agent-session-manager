@@ -282,6 +282,7 @@ var backendIDFreeEntries = []struct {
 	{entry: "ParseOperation", reason: "operation vocabulary; constructs no BackendID refusal"},
 	{entry: "ParseSideEffect", reason: "side-effect vocabulary; constructs no BackendID refusal"},
 	{entry: "CheckTransition", reason: "lifecycle transition over states and operations; constructs no BackendID refusal"},
+	{entry: "TransitionAuthorization", reason: "authorization-column projection over operations; constructs no BackendID refusal"},
 	{entry: "CheckErrorAllowed", reason: "operation error vocabulary; constructs no BackendID refusal"},
 	{entry: "IdempotencyKey", reason: "key-shape validation over operation strings; constructs no BackendID refusal"},
 	{entry: "NewLedger", reason: "constructs an empty ledger; constructs no refusal"},

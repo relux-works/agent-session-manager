@@ -150,6 +150,10 @@ func assertNewBindingsAreReviewed(t *testing.T, previous, current map[string]own
 		if _, carried := previous[key]; carried {
 			continue
 		}
+		if upgrade, ok := storyNewV070Bindings[key]; ok {
+			assertStoryNewBinding(t, key, group, upgrade)
+			continue
+		}
 		story, ok := newV070Bindings[key]
 		if !ok {
 			t.Fatalf("v0.7.0 binding %q is not carried and not a reviewed addition", key)
@@ -168,6 +172,35 @@ func assertNewBindingsAreReviewed(t *testing.T, previous, current map[string]own
 		if _, ok := current[key]; !ok {
 			t.Fatalf("reviewed v0.7.0 binding %q is absent", key)
 		}
+	}
+	for key := range storyNewV070Bindings {
+		if _, ok := current[key]; !ok {
+			t.Fatalf("reviewed story binding %q is absent", key)
+		}
+	}
+}
+
+// assertStoryNewBinding pins a reviewed new-with-proof section binding
+// literally: a post-adoption story may introduce a section the trunk
+// baseline never bound when the binding carries enumerated proof, and
+// the clause lines remeasure in assertClauseLinesRemeasured.
+func assertStoryNewBinding(t *testing.T, key string, group ownershipGroup, upgrade storyBindingUpgrade) {
+	t.Helper()
+
+	if group.Production != upgrade.Production {
+		t.Fatalf("binding %q production = %+v, want %+v", key, group.Production, upgrade.Production)
+	}
+	if !reflect.DeepEqual(group.AcceptanceCases, upgrade.Cases) {
+		t.Fatalf("binding %q acceptance cases = %q, want %q", key, group.AcceptanceCases, upgrade.Cases)
+	}
+	if group.Coverage != upgrade.Coverage {
+		t.Fatalf("binding %q coverage = %s, want %s", key, group.Coverage, upgrade.Coverage)
+	}
+	if group.Gap != upgrade.Gap {
+		t.Fatalf("binding %q gap differs from the reviewed addition", key)
+	}
+	if !reflect.DeepEqual(group.Clauses, upgrade.Clauses) {
+		t.Fatalf("binding %q clauses differ from the reviewed addition", key)
 	}
 }
 
@@ -257,6 +290,18 @@ func assertClauseLinesRemeasured(t *testing.T, previous, current map[string]owne
 				t.Fatalf("binding %q clause %s v0.6.0 line %d is not the measured line %d",
 					key, oldClause.ID, oldClause.Line, measured060[key][oldClause.ID])
 			}
+			if measured070[key][newClause.ID] != newClause.Line {
+				t.Fatalf("binding %q clause %s v0.7.0 line %d is not the measured line %d",
+					key, newClause.ID, newClause.Line, measured070[key][newClause.ID])
+			}
+		}
+	}
+	for key := range storyNewV070Bindings {
+		now, ok := current[key]
+		if !ok {
+			continue
+		}
+		for _, newClause := range now.Clauses {
 			if measured070[key][newClause.ID] != newClause.Line {
 				t.Fatalf("binding %q clause %s v0.7.0 line %d is not the measured line %d",
 					key, newClause.ID, newClause.Line, measured070[key][newClause.ID])
@@ -568,7 +613,62 @@ type storyBindingUpgrade struct {
 	Clauses    []dischargedClause
 }
 
+// storyNewV070Bindings is the exact set of new-with-proof section bindings a
+// post-adoption story may introduce for a section the trunk baseline never
+// bound. STORY-260830-ptxkqe (ax-pane-and-terminal-instance-binding, final
+// leaf TASK-260830-2056mm) introduces section 4.1 with the lost-create
+// recovery clause it proves.
+var storyNewV070Bindings = map[string]storyBindingUpgrade{
+	"section:4.1": {
+		Production: codeReference{Path: "internal/termbind/recover.go", Declaration: "RecoverCreate"},
+		Cases:      []string{"terminal-create-recovery-exact"},
+		Coverage:   coverageSliver,
+		Gap:        "RecoverCreate discharges Section 4.1 clause 4.1#5: after a lost create result, one status read plus the durable (session_id, bootstrap_operation_id) binding proves absence or identifies the ONE child (unavailable with status_first when the effect cannot be disproven, never a second child, never a false absence claim). The other Section 4.1 clauses (backend semantic operations, wrapper validation and safe parking, the durable pair bind) belong to the operation matrix, the axpane wrapper, and the terminal backend receipt owners and stay unenumerated here.",
+		Clauses: []dischargedClause{
+			{ID: "4.1#5", Line: 1399, Excerpt: "<code>status</code> plus that binding MUST prove absence or identify the one", AcceptanceCases: []string{"terminal-create-recovery-exact"}},
+		},
+	},
+}
+
 var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
+	"section:4.B": {
+		Production: codeReference{Path: "internal/termbind/identity.go", Declaration: "CheckInstanceIdentity"},
+		Cases:      []string{"terminal-instance-identity-exact"},
+		Coverage:   coverageSliver,
+		Gap:        "CheckInstanceIdentity enforces Section 4.B clause 4.B#11 (terminal instance identity is never a PID, handle, socket, path, pipe, URL, token, or endpoint) across the Binding, operation bodies, bootstrap binding, and attach surfaces; the Terminal Instance Binding 1.0.0 closed object itself is parsed by ParseTerminalBinding with ID recompute (terminal-instance-binding-exact covers the unmeasured table rules). The other 11 Section 4.B clauses (Manifest/Probe/evidence reconciliation rules, reader ID recompute, generation boundary cases) are implemented in internal/terminalbackend Reconcile/AdmitProbe and stay unenumerated here.",
+		Clauses: []dischargedClause{
+			{ID: "4.B#11", Line: 1076, Excerpt: "Identity MUST NOT be a PID, handle, socket, path, named pipe, URL, token, or", AcceptanceCases: []string{"terminal-instance-identity-exact"}},
+		},
+	},
+	"section:4.D": {
+		Production: codeReference{Path: "internal/termbind/resolve.go", Declaration: "ResolveEvidence"},
+		Cases:      []string{"terminal-evidence-resolution-exact"},
+		Coverage:   coverageSliver,
+		Gap:        "ResolveEvidence discharges Section 4.D clause 4.D#2 by admitting every resolved Manifest, Probe, and Capability Evidence object through the landed Registry.AdmitProbe, which verifies the attestation signature before the object is treated as evidence; forged signatures refuse. The other Section 4.D clauses (registry-row equality 4.D#1 and the no-silent-fallback backend selection rule 4.D#3) are landed Reconcile behavior and explicit-selection behavior respectively and stay unenumerated here.",
+		Clauses: []dischargedClause{
+			{ID: "4.D#2", Line: 1296, Excerpt: "key registry and MUST verify the signature before treating the object as", AcceptanceCases: []string{"terminal-evidence-resolution-exact"}},
+		},
+	},
+	"section:5.2": {
+		Production: codeReference{Path: "internal/termbind/resolve.go", Declaration: "ResolveEvidence"},
+		Cases:      []string{"catalog-v050-exact", "core-record-identity-validation", "terminal-evidence-resolution-exact", "terminal-binding-events-exact"},
+		Coverage:   coverageSliver,
+		Gap:        "ResolveEvidence discharges Section 5.2 clauses 5.2#16 and 5.2#17 (evidence IDs resolve locally to validated Manifest/Probe/Evidence bound to the event tuple, never to a native reference or live-process fact); Section 5.2 clause 5.2#18 (v4 retained as inert immutable history, no derived state, no lower-version write) is pinned for Terminal Events by the EmitTerminalCreated emission path with sessrepo retention and the sessstate/sessquery readers (the retained-verbatim half, driven by TestV4RetainedAsImmutableHistory — the v1-only-reader half is a stated bound: no v1-v3-only reader exists on trunk). The other Section 5.2 envelope, table, authorship, ordering, and epoch clauses stay with the landed validateSessionEvent shape authority and sessrepo ordering, unenumerated here.",
+		Clauses: []dischargedClause{
+			{ID: "5.2#16", Line: 1971, Excerpt: "replicated. The evidence IDs MUST resolve locally to validated, sanitized", AcceptanceCases: []string{"terminal-evidence-resolution-exact"}},
+			{ID: "5.2#17", Line: 1973, Excerpt: "backend ID and versions. They MUST NOT resolve through the event to a native", AcceptanceCases: []string{"terminal-evidence-resolution-exact"}},
+			{ID: "5.2#18", Line: 1984, Excerpt: "as inert immutable history but MUST NOT derive runtime state or write a lower-", AcceptanceCases: []string{"terminal-binding-events-exact"}},
+		},
+	},
+	"section:7.A": {
+		Production: codeReference{Path: "internal/terminalbackend/descriptor.go", Declaration: "AdmitProviderDescriptor"},
+		Cases:      []string{"terminal-provider-descriptor-7a", "terminal-instance-identity-exact"},
+		Coverage:   coveragePartial,
+		Gap:        "AdmitProviderDescriptor discharges Section 7.A clause 7.A#1 (the Provider rejects a descriptor whose binding digest, backend, version, or generation does not match the AX-validated binding), pinned by the landed terminal-provider-descriptor-7a mismatch tests and the terminal-instance-identity-exact eight-form identity pin through the same entry. Section 7.A clause 7.A#2 (LeaseToken v2 fencing rules and the 3.x transport envelope) stays with provhost v2 machinery and the dual-stack follow-up, undisclosed here.",
+		Clauses: []dischargedClause{
+			{ID: "7.A#1", Line: 3724, Excerpt: "TerminalBackend. The Provider MUST reject a descriptor whose binding digest,", AcceptanceCases: []string{"terminal-provider-descriptor-7a", "terminal-instance-identity-exact"}},
+		},
+	},
 	"section:11.2": {
 		Production: codeReference{Path: "internal/rpcwire/envelope.go", Declaration: "DecodeRequest"},
 		Cases:      []string{"rpcwire-closed-bodies", "rpcwire-framing", "catalog-v050-exact"},
@@ -656,6 +756,104 @@ var storyNewV070Cases = map[string]acceptanceCase{
 			{Path: "internal/meshneg/conformance_test.go", Declaration: "TestRefusalShape"},
 			{Path: "internal/meshneg/adversarial_test.go", Declaration: "TestPeerOfferKeyMembershipPerKey"},
 			{Path: "internal/meshneg/adversarial_test.go", Declaration: "TestNegotiateOfferRefusalCarriesLocal"},
+		},
+	},
+	"terminal-instance-binding-exact": {
+		ID:         "terminal-instance-binding-exact",
+		Production: codeReference{Path: "internal/termbind/identity.go", Declaration: "ParseTerminalBinding"},
+		Tests: []codeReference{
+			{Path: "internal/termbind/identity_test.go", Declaration: "TestParseTerminalBindingAdmitsClosedFixture"},
+			{Path: "internal/termbind/identity_test.go", Declaration: "TestParseTerminalBindingClosedShape"},
+			{Path: "internal/termbind/identity_test.go", Declaration: "TestBindingIdentityAgreesWithLandedAdmission"},
+			{Path: "internal/termbind/binding_arms_test.go", Declaration: "TestParseTerminalBindingMemberArms"},
+			{Path: "internal/termbind/binding_arms_test.go", Declaration: "TestParseTerminalBindingRawExtensions"},
+			{Path: "internal/termbind/binding_arms_test.go", Declaration: "TestBindingIdentityRefusesHostileBytes"},
+			{Path: "internal/termbind/binding_arms_test.go", Declaration: "TestBindingIdentityVerdictAgreesWithLandedAdmission"},
+			{Path: "internal/termbind/binding_arms_test.go", Declaration: "TestBindingProtocolMajorAgreesWithLandedTuple"},
+		},
+	},
+	"terminal-instance-identity-exact": {
+		ID:         "terminal-instance-identity-exact",
+		Production: codeReference{Path: "internal/termbind/identity.go", Declaration: "CheckInstanceIdentity"},
+		Tests: []codeReference{
+			{Path: "internal/termbind/identity_test.go", Declaration: "TestCheckInstanceIdentityAdmitsUUIDv7"},
+			{Path: "internal/termbind/identity_test.go", Declaration: "TestCheckInstanceIdentityRefusesForbiddenForms"},
+			{Path: "internal/termbind/identity_test.go", Declaration: "TestParseTerminalBindingRefusesForbiddenIdentity"},
+			{Path: "internal/termbind/identity_test.go", Declaration: "TestAdmitMutationContextRefusesForbiddenIdentity"},
+			{Path: "internal/termbind/identity_test.go", Declaration: "TestAdmitStatusBodyRefusesForbiddenIdentity"},
+			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachRefusesForbiddenIdentity"},
+			{Path: "internal/termbind/identity_test.go", Declaration: "TestAdmitDescriptorRefusesForbiddenIdentity"},
+		},
+	},
+	"terminal-evidence-resolution-exact": {
+		ID:         "terminal-evidence-resolution-exact",
+		Production: codeReference{Path: "internal/termbind/resolve.go", Declaration: "ResolveEvidence"},
+		Tests: []codeReference{
+			{Path: "internal/termbind/resolve_test.go", Declaration: "TestResolveEvidenceAdmitsUniverse"},
+			{Path: "internal/termbind/resolve_test.go", Declaration: "TestResolveEvidenceShapeBounds"},
+			{Path: "internal/termbind/resolve_test.go", Declaration: "TestResolveEvidenceRefusesForeignKinds"},
+			{Path: "internal/termbind/resolve_test.go", Declaration: "TestResolveEvidenceRequiresManifestAndProbe"},
+			{Path: "internal/termbind/resolve_test.go", Declaration: "TestResolveEvidenceBindsEventTuple"},
+			{Path: "internal/termbind/resolve_test.go", Declaration: "TestResolveEvidenceRejectsSubstitution"},
+			{Path: "internal/termbind/resolve_test.go", Declaration: "TestResolveEvidenceDrivesLandedAdmission"},
+		},
+	},
+	"terminal-binding-events-exact": {
+		ID:         "terminal-binding-events-exact",
+		Production: codeReference{Path: "internal/termbind/emit.go", Declaration: "EmitTerminalCreated"},
+		Tests: []codeReference{
+			{Path: "internal/termbind/emit_test.go", Declaration: "TestEmitTerminalCreatedRoundTrip"},
+			{Path: "internal/termbind/emit_test.go", Declaration: "TestEmitClosedShapeRefusals"},
+			{Path: "internal/termbind/emit_test.go", Declaration: "TestEmitResolvesEvidence"},
+			{Path: "internal/termbind/emit_test.go", Declaration: "TestEmitUnderLosingLeaseRefuses"},
+			{Path: "internal/termbind/emit_test.go", Declaration: "TestEmitAppendsIdempotently"},
+			{Path: "internal/termbind/emit_test.go", Declaration: "TestEmittedEventCarriesNoBindingObject"},
+			{Path: "internal/termbind/skew_test.go", Declaration: "TestTakeoverSelectsNewBackendNewEvent"},
+			{Path: "internal/termbind/skew_test.go", Declaration: "TestV4RetainedAsImmutableHistory"},
+			{Path: "internal/termbind/crash_unix_test.go", Declaration: "TestEmitAppendHookSeams"},
+		},
+	},
+	"terminal-binding-resumed-exact": {
+		ID:         "terminal-binding-resumed-exact",
+		Production: codeReference{Path: "internal/termbind/emit.go", Declaration: "EmitResumed"},
+		Tests: []codeReference{
+			{Path: "internal/termbind/emit_test.go", Declaration: "TestEmitResumedRoundTrip"},
+			{Path: "internal/termbind/emit_test.go", Declaration: "TestEmitResolvesEvidence"},
+			{Path: "internal/termbind/emit_test.go", Declaration: "TestEmitResumedCheckpointBindingIsCallerBound"},
+		},
+	},
+	"terminal-create-recovery-exact": {
+		ID:         "terminal-create-recovery-exact",
+		Production: codeReference{Path: "internal/termbind/recover.go", Declaration: "RecoverCreate"},
+		Tests: []codeReference{
+			{Path: "internal/termbind/recover_test.go", Declaration: "TestRecoverCreateProvesAbsence"},
+			{Path: "internal/termbind/recover_test.go", Declaration: "TestRecoverCreateIdentifiesOneChild"},
+			{Path: "internal/termbind/recover_test.go", Declaration: "TestRecoverCreateDuplicateRetrySameVerdict"},
+			{Path: "internal/termbind/recover_test.go", Declaration: "TestRecoverCreateChangedOperationInWindowRefuses"},
+			{Path: "internal/termbind/recover_test.go", Declaration: "TestRecoverCreateChangedOperationPostWindowProceeds"},
+			{Path: "internal/termbind/recover_test.go", Declaration: "TestRecoverCreateLostResult"},
+			{Path: "internal/termbind/recover_test.go", Declaration: "TestRecoverCreateNeverClaimsAbsent"},
+			{Path: "internal/termbind/recover_test.go", Declaration: "TestRecoverCreateRecordedChildBackendAbsentReplays"},
+			{Path: "internal/termbind/recover_test.go", Declaration: "TestRecoverCreateUnknownIsNotAbsent"},
+			{Path: "internal/termbind/crash_unix_test.go", Declaration: "TestRecoverCreateAfterKillRecoversChild"},
+			{Path: "internal/termbind/recover_test.go", Declaration: "TestRecoverGenerationBoundBeforeStatusRead"},
+		},
+	},
+	"terminal-attach-receipt-exact": {
+		ID:         "terminal-attach-receipt-exact",
+		Production: codeReference{Path: "internal/termbind/attach.go", Declaration: "Attach"},
+		Tests: []codeReference{
+			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachRoundTrip"},
+			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachIdenticalRetryReplays"},
+			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachSecondClientRecordsAlongside"},
+			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachConflictRefusesMismatch"},
+			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachRefusesForbiddenIdentity"},
+			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachTransportVocabulary"},
+			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachRequiresLiveAuth"},
+			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachEmitsNeitherEventNorStateChange"},
+			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachUnknownIsNotAbsent"},
+			{Path: "internal/termbind/attach_test.go", Declaration: "TestAttachSessionMismatchRefuses"},
+			{Path: "internal/termbind/crash_unix_test.go", Declaration: "TestAttachCrashChildSelfTerminates"},
 		},
 	},
 }

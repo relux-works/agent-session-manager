@@ -531,14 +531,14 @@ type declaredRefusalArm struct {
 // them, and TestDefensiveBoundsAreExactlyThese pins the set.
 const boundDefensiveReparse = "defensive re-parse after validation; scalar owns the re-parse contract"
 
-// boundUnreachableVocabulary is the stated bound for CheckTransition's
-// "operation vocabulary" arm: CheckTransition parses its operation
-// through ParseOperation first, and lookupTransition covers every
-// admitted operation, so the miss branch is unreachable by
-// construction. TestCheckTransitionOperationVocabularyIsUnreachable pins
-// the coverage; adding an operation to ParseOperation without a
-// transition-table row fails the pin and promotes this row back to a
-// witnessed arm.
+// boundUnreachableVocabulary is the stated bound for the "operation
+// vocabulary" arms of CheckTransition and TransitionAuthorization: both
+// parse their operation through ParseOperation first, and
+// lookupTransition covers every admitted operation, so the miss branch
+// is unreachable by construction.
+// TestCheckTransitionOperationVocabularyIsUnreachable pins the coverage;
+// adding an operation to ParseOperation without a transition-table row
+// fails the pin and promotes these rows back to witnessed arms.
 const boundUnreachableVocabulary = "unreachable: ParseOperation admits exactly the tabled operations, so lookupTransition never misses"
 
 // boundDecoderContract is the stated bound for decodeCappedValue's two
@@ -637,6 +637,7 @@ var declaredRefusalArms = []declaredRefusalArm{
 	{"conformance.go", "CheckTransition", "CodePreconditionFailed", "lifecycle instance scope", 1, "CheckTransition", "", nil},
 	{"conformance.go", "CheckTransition", "CodePreconditionFailed", "lifecycle transition", 1, "CheckTransition", "", nil},
 	{"conformance.go", "CheckTransition", "CodeProtocolError", "operation vocabulary", 1, "CheckTransition", boundUnreachableVocabulary, nil},
+	{"conformance.go", "TransitionAuthorization", "CodeProtocolError", "operation vocabulary", 1, "TransitionAuthorization", boundUnreachableVocabulary, nil},
 	{"conformance.go", "IdempotencyKey", "CodeProtocolError", "idempotency key shape", 1, "IdempotencyKey", "", nil},
 	{"conformance.go", "IdempotencyKey", "CodeProtocolError", "idempotency key shape", 2, "IdempotencyKey", "", nil},
 	{"conformance.go", "IdempotencyKey", "CodeProtocolError", "idempotency key shape", 3, "IdempotencyKey", "", nil},
@@ -1025,6 +1026,7 @@ func TestDefensiveBoundsAreExactlyThese(t *testing.T) {
 		"manifest.go checkEvidenceLiveness CodeMismatch \"document timestamp\" #1":                 boundDefensiveReparse,
 		"manifest.go checkEvidenceLiveness CodeMismatch \"document timestamp\" #2":                 boundDefensiveReparse,
 		"conformance.go CheckTransition CodeProtocolError \"operation vocabulary\" #1":             boundUnreachableVocabulary,
+		"conformance.go TransitionAuthorization CodeProtocolError \"operation vocabulary\" #1":     boundUnreachableVocabulary,
 		"manifest.go decodeCappedValue CodeMismatch \"document syntax\" #3":                        boundDecoderContract,
 		"manifest.go decodeCappedValue CodeMismatch \"document syntax\" #6":                        boundDecoderContract,
 		"manifest.go objectIdentity CodeMismatch \"document identity\" #1":                         boundCanonicalPlumbing,
@@ -1071,18 +1073,19 @@ func TestDefensiveBoundsAreExactlyThese(t *testing.T) {
 }
 
 // TestCheckTransitionOperationVocabularyIsUnreachable proves the bound on
-// CheckTransition's "operation vocabulary" arm: CheckTransition parses
-// its operation through ParseOperation first, so the lookupTransition
-// miss branch fires only for an operation ParseOperation admits that the
-// table does not cover. Every admitted operation resolves, so no input
-// reaches the arm; adding an operation to ParseOperation without a table
-// row fails here and promotes the row back to a witnessed arm.
+// the "operation vocabulary" arms of CheckTransition and
+// TransitionAuthorization: both parse their operation through
+// ParseOperation first, so the lookupTransition miss branch fires only
+// for an operation ParseOperation admits that the table does not cover.
+// Every admitted operation resolves, so no input reaches either arm;
+// adding an operation to ParseOperation without a table row fails here
+// and promotes the rows back to witnessed arms.
 func TestCheckTransitionOperationVocabularyIsUnreachable(t *testing.T) {
 	t.Parallel()
 
 	// The admitted set is derived from ParseOperation's own switch, never
 	// listed: an eleventh admitted operation without a table row fails
-	// below and promotes the vocabulary row back to a witnessed arm.
+	// below and promotes the vocabulary rows back to witnessed arms.
 	admitted := parseOperationAdmittedSet(t)
 	if len(admitted) != 10 {
 		t.Fatalf("ParseOperation admits %d operations, want the ten closed operations; the pin must move with the vocabulary", len(admitted))
@@ -1092,7 +1095,10 @@ func TestCheckTransitionOperationVocabularyIsUnreachable(t *testing.T) {
 			t.Errorf("ParseOperation(%q) = %v, want admitted", operation, err)
 		}
 		if _, known := lookupTransition(Operation(operation)); !known {
-			t.Errorf("lookupTransition(%q) misses, so CheckTransition's vocabulary arm is reachable: witness it", operation)
+			t.Errorf("lookupTransition(%q) misses, so the vocabulary arms are reachable: witness them", operation)
+		}
+		if _, err := TransitionAuthorization(operation); err != nil {
+			t.Errorf("TransitionAuthorization(%q) = %v, want the tabled kind", operation, err)
 		}
 	}
 }

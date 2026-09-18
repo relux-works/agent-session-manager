@@ -2147,6 +2147,185 @@ result, and no runtime capability claim; the clause-to-test matrix with its
 stated bounds lives in
 [the task evidence map](internal/fencing/TRACEABILITY.md).
 
+## Pane enforcement wrapper (`ax pane` validation core)
+
+[`internal/axpane`](internal/axpane) implements the validation core of the
+`ax pane SESSION_ID` enforcement wrapper: the decision every managed pane runs
+before launching, reattaching, offering, parking, or refusing a provider
+(pinned Sections 4.B-4.D, 4.1-4.2, 5.2 Terminal Events, 5.7 newest checkpoint,
+7.A, and 13.1, plus the 2.4 profile authority). The pure core `Decide` returns
+exactly one of `launch`, `reattach`, `attach_remote`, `takeover_offer`,
+`parked(reason)`, or `refused(class)`, composing every check from a landed
+gate: owner epoch and fencing from `fencing` (activation or restore entry,
+sealed `LeaseToken`, parked vocabulary), the authoritative newest checkpoint
+from `sessstate` (the chain fold — the bootstrap window, checkpoint admission,
+and journal source binding all read it, never the lease record's checkpoint),
+materialization from `matjournal` plus checkpoint admission from
+`sessckpt`/`sessrepo` with the one successor-lease implication asserted
+after fencing, the effective profile from `sessprofile` with `provhost`
+mapping refusals, provider identity from `provhost` (bound to the exact
+build and to this session) with `resumesmoke` evidence as a
+precondition, backend identity and closed capabilities from `terminalbackend`,
+configuration from `config`, and refusal shapes from `axerror`. `Run`
+orchestrates the adapters over the durable stores and applies exactly the
+authorized effect: launch binds the bootstrap `(session_id,
+bootstrap_operation_id)` pair before any provider side effect (post-window
+pairs record their own receipt alongside the kept superseded receipts),
+reattach replays the pair's own recorded child, verified locally held foldable
+parks author `session.parked` under the winning lease through the
+`AuthorizeMutation` gate, remote/unverifiable/unfolderable parks author no
+chain event, and refused decisions write nothing. The bootstrap store installs
+under the no-replace plus fsync discipline with crash hooks, persists no PID,
+reattaches linearizably on the commit race, and sweeps stale pre-commit
+staging; a background caller, and any caller on a credential-requiring path,
+authorizes only through the admitted `credential_capable_execution_realm` row
+bound to the host binding, probed build, and current generation, refusing
+`capability_unavailable` with typed realm/readiness details otherwise (an
+expired or pre-reboot realm row refuses the same typed refusal), and no cached
+sentinel, `managername` observation, or bare boolean can authorize resume.
+Resume derives the effective profile from the checkpoint actually
+resumed — the required checkpoint when one is required, else the fold's
+newest, never the winning lease's handoff base — and a non-interactive
+create requires `headless_creation`.
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/axpane -count=1
+go test ./internal/axpane -cover -count=1
+```
+
+Run the narrowing battery (55 narrowing mutants plus one harmless control)
+with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 internal/axpane/mutant_harness.py
+```
+
+The harness mutates one production file in place, runs the named killer
+through the production entry point, restores the file from backup, and reports
+per-row verdicts with subprocess exits; `AX_MUTANT_VERBOSE=1` additionally
+prints the raw per-plant logs. Task validation logs and mutation artifacts are
+attached to `TASK-260830-1geqhj`. The package adds no `ax` command, no
+`doctor` result, and no runtime capability claim; the clause-to-test matrix
+with its stated bounds lives in
+[the task evidence map](internal/axpane/TRACEABILITY.md).
+
+
+## Terminal Instance lifecycle execution (`terminstance` engine)
+
+[`internal/terminstance`](internal/terminstance) executes the Terminal
+Instance lifecycle contract of the pinned Sections 4.B-4.D, 5.2, 7.A,
+13.1, and 13.7 over the landed `terminalbackend` semantic core: the closed
+`AXAuthorization` object (lease UUIDv4, epoch uint53 bound, holder
+UUIDv7, kind, timestamps, evidence digest) parsed through the landed
+`environ` closed-shape discipline, the closed `RetryDisposition` and
+`ProviderProofKind` enums, the mutating-request/response identity
+contract (`MutationContext`/`MutationResult` with exact idempotency key
+material per row), and the `Engine` that binds the durable idempotency
+receipt before the first side effect, rechecks authorization and
+generation immediately before each side effect, restores the source
+state on pre-effect errors, moves to `unavailable` with `status_first`
+on unprovable post-effect errors (never claiming `absent`), and cancels
+waiting — never a committed effect — on deadline. `creating` is entered
+only by `create` between receipt and first effect, only `quiesce-input`
+enters `quiescing`, and `stale_fenced` is entered only by fencing
+observation through the landed `fencing` park vocabulary, never by a
+backend operation — including under a remote winner, where staleness
+is read relative to the winner from the winner's own host, and
+including grant-less observations (no grant, lapsed grant, no clock
+reading, unusable policy), where the landed staleness verdict decides
+the direction/tuple arms without the grant precondition. A bound
+key without its completion reconciles through the production status
+entry: the same operation resumes under the same receipt when status
+proves the source, and refuses uncertain otherwise. The receipt store
+commits under the no-replace plus fsync discipline with crash hooks
+and byte-agrees with the landed `Ledger` encoding; status performs no
+receipt, effect, or transition of its own and a timeout or read
+failure is unknown, never absent.
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/terminstance -count=1
+go test ./internal/terminstance -cover -count=1
+```
+
+Run the narrowing battery (120 narrowing mutants, one tightening edge
+row, plus one harmless control) with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 internal/terminstance/mutant_harness.py
+```
+
+The harness mutates one production file in place, runs the named killer
+through the production entry point, restores the file from backup, and
+reports per-row verdicts with subprocess exits; `AX_MUTANT_VERBOSE=1`
+additionally prints the raw per-plant logs. Task validation logs and
+mutation artifacts are attached to `TASK-260830-kkh1an`. The package
+adds no `ax` command, no `doctor` result, and no runtime capability
+claim; the clause-to-test matrix with its stated bounds lives in
+[the task evidence map](internal/terminstance/TRACEABILITY.md).
+
+## Terminal binding events and recovery (`termbind` leaf)
+
+[`internal/termbind`](internal/termbind) writes versioned terminal binding
+events, recovers lost create results by bootstrap operation ID, and refuses
+PID/endpoint identity (pinned Sections 4.1, 4.B-4.D, 5.2 Terminal Events,
+and 7.A). `ParseTerminalBinding` owns the Terminal Instance Binding 1.0.0
+closed object no parser existed for, with the Section 4.B identity rule
+recomputed before use; `CheckInstanceIdentity` admits exactly the
+AX-allocated UUIDv7 and refuses the eight forbidden forms (PID, handle,
+socket, path, named pipe, URL, token, mutable endpoint) with the pinned
+protocol class on the Binding, the operation bodies (a documented
+redundancy — the landed parsers refuse the same code), and the attach
+receipts alike, and with a plain refusal that persists nothing on the
+bootstrap binding. `ResolveEvidence` resolves each
+v4 event's evidence IDs locally to exactly one Manifest, one Probe, and
+the Capability Evidence objects, bound to the event's backend tuple and
+admitted through the landed registry — a native reference, generation
+string, socket, pipe, endpoint, token, credential, terminal output,
+PID/handle, or any live-process fact refuses the mismatch class.
+`EmitTerminalCreated` and `EmitResumed` author the Session Event 4.0.0
+payloads through the `sessrepo` owner under a locally held lease; the
+binding digest travels as the opaque audit reference and the event bytes
+carry no binding object, generation, or native reference. `RecoverCreate`
+is read-only: no binding plus proven absence yields absence, a binding
+plus a matching status yields the ONE recorded child, and every unprovable
+shape yields unavailable with `status_first` — never a second child,
+never a false absence claim, with the bootstrap window derived from the
+fold's newest checkpoint. The attach receipt store records one durable
+client receipt per `(terminal_instance_id, client_id)` pair under the
+no-replace plus fsync discipline with crash hooks; attach emits neither
+event and cannot change lease or fencing state. A takeover or owner
+resume may select a different admitted backend with a new digest and a
+new v4 event, append-only, never a fork; the landed reader retains v4
+bytes verbatim as immutable history, while a v1-only reader staying
+inert is a stated bound (no v1-v3-only reader exists on trunk).
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/termbind -count=1
+go test ./internal/termbind -cover -count=1
+```
+
+Run the narrowing battery (34 narrowing mutants, one supplementary
+arm-delete row, plus one harmless control) with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 internal/termbind/mutant_harness.py
+```
+
+The harness mutates one production file in place, runs the named killer
+through the production entry point, restores the file from backup, and
+reports per-row verdicts with subprocess exits; `AX_MUTANT_VERBOSE=1`
+additionally prints the raw per-plant logs. Task validation logs and
+mutation artifacts are attached to `TASK-260830-2056mm`. The package
+adds no `ax` command, no `doctor` result, and no runtime capability
+claim; the clause-to-test matrix with its stated bounds lives in
+[the task evidence map](internal/termbind/TRACEABILITY.md).
+
 ## Ownership reducer properties
 
 The four story-pinned ownership invariants (pinned v0.6.0 Sections 2.2, 5.3,
@@ -3060,8 +3239,8 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7
 repository gate used by CI. Its reviewed
 [`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
 registry independently enumerates implementation owners for all 64 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 140
-executable acceptance cases, 68 exact section bindings with their declared
+contract rows, 36 pinned or catalog-referenced normative section keys, 147
+executable acceptance cases, 69 exact section bindings with their declared
 coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
 and the superseded v0.6.0 and v0.5.0 registries are checked as owned legacy projections.
@@ -3162,10 +3341,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=68 full=2 partial=8 sliver=5 unevidenced=49 unmeasured=4 unowned=7 clauses_discharged=56/569
+section coverage: bindings=69 full=2 partial=9 sliver=9 unevidenced=45 unmeasured=4 unowned=7 clauses_discharged=63/574
 ```
 
-Sixty-eight section bindings discharge 56 of the 569 normative clauses their
+Sixty-nine section bindings discharge 63 of the 574 normative clauses their
 sections carry. Two bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
@@ -3174,7 +3353,7 @@ refusal arm; and Section 2.4 at 4/4, bound to
 [`internal/sessprofile`](internal/sessprofile), whose derivation, checkpoint
 closure, fork projection, and mapping-failure clauses are discharged by the
 profile derivation, heads, fork-pair, and mapping-resolution acceptance
-cases), eight are
+cases), nine are
 `partial` (Section 13.13 at 9/11, bound to
 [`internal/matjournal`](internal/matjournal) with the
 [`internal/crashgate`](internal/crashgate) conformance harness, whose
@@ -3220,8 +3399,11 @@ RPC-5 Host Channel lane executes them; and Section 17.1 at 3/6, bound to
 [`internal/meshneg`](internal/meshneg), whose undischarged clauses `17.1#2`,
 `17.1#3`, and `17.1#6` are minor-version preservation, immutable-object
 extensions, and v1 materialization upgrade, none of which a major-only
-negotiator implements),
-five are
+negotiator implements; and Section 7.A at 1/2, bound to
+[`internal/terminalbackend`](internal/terminalbackend), whose discharged
+descriptor-rejection clause is enforced by `AdmitProviderDescriptor` while
+the LeaseToken v2 fencing rule stays with the provhost v2 machinery),
+nine are
 `sliver` (Section 10.3, whose chunk offset invariant is
 enforced by `validateBlobDescriptor` while its two receiver clauses have no
 implementation; Section 5.5 at 1/3, whose discharged negative-battery clause
@@ -3233,12 +3415,27 @@ unimplemented; and Section 2.2 at 4/22, bound to
 [`internal/fencing`](internal/fencing), whose discharged clauses are the
 single-owner, replica-restraint, winning-epoch-carriage, and
 losing-event-rejection invariants while the replication, secret, store,
-and directory invariants have no implementation; and Section 17.4 at 1/4, bound
+and directory invariants have no implementation; Section 17.4 at 1/4, bound
 to [`internal/meshneg`](internal/meshneg), whose discharged clause is the
 report-activation-unavailable sentence while upgrade, downgrade, and resume
-flows do not exist), four are `unmeasured` (Sections 7.3, 13.12, 13.14.5 and 15.2, each of
+flows do not exist; Section 4.1 at 1/5, bound to
+[`internal/termbind`](internal/termbind), whose discharged lost-result
+recovery clause is enforced by `RecoverCreate` while the wrapper
+validation, parking, and durable-bind clauses belong to their other
+owners; Section 4.B at 1/12, bound to
+[`internal/termbind`](internal/termbind), whose discharged identity rule
+is enforced by `CheckInstanceIdentity` while the manifest/probe/evidence
+reconciliation clauses stay with the landed admission; Section 4.D at
+1/3, bound to [`internal/termbind`](internal/termbind), whose discharged
+signature-verification clause is enforced through `ResolveEvidence`
+while the registry-row and no-fallback clauses stay unenumerated; and
+Section 5.2 at 3/18, bound to
+[`internal/termbind`](internal/termbind), whose discharged evidence
+resolution and inert-history clauses are enforced by `ResolveEvidence`
+and the v4 emission path while the envelope, ordering, and epoch
+clauses stay with the landed shape and store authorities), four are `unmeasured` (Sections 7.3, 13.12, 13.14.5 and 15.2, each of
 which carries a gap saying why the scanner measures zero and what is missing),
-and forty-nine are `unevidenced`. Seven sections are recorded unowned.
+and forty-five are `unevidenced`. Seven sections are recorded unowned.
 All 13 sections added by v0.6.0 name pending task owners in the reviewed
 registry gaps; these assignments grant no runtime admission. The
 [adoption ownership map](internal/traceability/adoption-v0.6.0.md) separates
@@ -3257,7 +3454,7 @@ ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-Two admitted bindings out of sixty-eight cover five clauses, and that is
+Two admitted bindings out of sixty-nine cover five clauses, and that is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and

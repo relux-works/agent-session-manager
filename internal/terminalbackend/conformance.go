@@ -340,6 +340,24 @@ func CheckTransition(operation, source string, interactive bool) (InstanceState,
 	return row.Target, append([]SideEffect(nil), row.Effects...), nil
 }
 
+// TransitionAuthorization reports the §4.C transition-table authorization
+// column for one operation: the exact kind the row requires (none, create,
+// attach, control, force_stale or restore). Lifecycle owners read the
+// column through this accessor instead of re-spelling the table, so a
+// drift between the table and any consumer is a failing agreement test,
+// never a silent twin. An unknown operation is a protocol error.
+func TransitionAuthorization(operation string) (string, error) {
+	parsedOperation, err := ParseOperation(operation)
+	if err != nil {
+		return "", err
+	}
+	row, known := lookupTransition(parsedOperation)
+	if !known {
+		return "", refuse(&Error{Code: CodeProtocolError, Detail: "operation vocabulary"})
+	}
+	return row.Authorization, nil
+}
+
 // allowedOperationErrors is the exact §4.C "Allowed error codes" column.
 // An error not listed for an operation MUST NOT be emitted by the backend
 // for a syntactically valid request; AX-local parsing may additionally
