@@ -1,0 +1,804 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index eed03e1..1d75ba1 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -3,6 +3,21 @@
+ > Institutional memory. Concise, factual, high-signal.
+ > Newest entries first. One block per insight.
+ 
++## 2026-09-21
++
++### BUG-260917-2fwf8e — fencing direction must beat lapsed-grant refusal
++
++- SCOPE: `internal/fencing.Authorize` arm precedence plus the required `terminstance.ObserveFencing` composition repair. `sessrepo.CheckFencingExpiry` remains the expiry owner; no lease-chain code or Section 5.2 park vocabulary changed. The direct question exposes the existing `remote_owner` park, while the composed relative question still fences stale incarnations through `StaleRelativeToWinner` when deferred expiry would otherwise hide the tuple verdict.
++- REPRO: the exact report-only probe bodies from `TASK-260830-1geqhj_review-evidence-rev1.tar.gz` were replayed against checkpoint `799c338e` and the candidate. Before: probe 10 returned `refused/lease_conflict`; after: `attach_remote`, `remote_owner`, `not_owner`. Direct V01 was `REFUSE(lease_conflict)` on all five entries before and `PARK(remote_owner,not_owner)` on activation/restore plus `REFUSE(not_owner)` on input/mutation/checkpoint after. V07/V08/V09/V14 moved identically and are named in the results.
++- FIX: policy validity is still refused as `invalid_arguments` before direction; only `fencing_grant_expired` is deferred. A remote winner therefore returns the existing `remote_owner` park, making v0.7.0 §4.2 step-4 attach/takeover reachable. `observeRemoteWinner` now adds a grant-independent `StaleRelativeToWinner` fallback for the relative lapsed-grant question: stale epoch/losing lease fences to literal `stale_fenced`, while winning/future tokens remain parked. A local lapsed grant remains `lease_conflict`.
++- EVIDENCE: `TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm` drives `Authorize`; `TestAuthorizeLapsedRemoteOwnerUsesDirectionForEveryEntry` drives all five entries; `TestAuthorizeLapsedLocalOwnerStaleTokenRemainsLeaseConflict` attacks the local-lapsed boundary; `TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext` drives `axpane.Decide` in restore and launch modes. Neighbours are live local grant → authorized, remote non-interactive owner → parked `remote_owner`, and local lapsed grant → `lease_conflict`; invalid policy remains `invalid_arguments`.
++- SUITE DIFF: the four importer packages were compared per test: baseline 1,073 PASS rows (`fencing` 310, `terminstance` 303, `axpane` 195, `termbind` 265) versus candidate 1,103 PASS rows (`328`, `310`, `200`, `265`). The normalized diff is 30 new named rows and zero existing status changes; the moved V01/V07/V08/V09/V14 inputs are recorded separately because their semantic output changed without a test failure.
++- MUTATION: fencing `mutants-full-v3` killed all 31 narrowing rows plus the token-preserving `T-census-alias`; `N-arm-order-expiry-before-direction` fails both the direct and all-entry regressions. Terminstance `mutants-terminstance-full-v4` killed 120 narrowing rows plus the one labelled tightening row; the lapsed fallback narrowing and the winning/future no-transition narrowing both fail, with the harmless control surviving. The old equivalent `N-fencing-operation-remote` row was retired and re-anchored composition is now named `N-fencing-remote-lapsed-not-stale`. No `__pycache__`/`.pyc` artifacts.
++- VALIDATION: targeted importer tests, both mutation batteries, the configured 30-command suite, `GOOS=windows GOARCH=amd64 go vet ./...`, and the race/coverage lanes all exited 0. `cataloggen -check` printed 180 `MISSING_ACTIVITY` diagnostics but exited 0; the raw output is retained rather than hidden.
++- BOUNDS: no public `ax` CLI row is claimed; attach/takeover is measured at `axpane.Decide` and direct fencing at `Authorize`. `internal/traceability` was not edited. Candidate remains UNCOMMITTED in the managed Story worktree.
++- AC: 3 of 3 task Acceptance Criteria rows are driven. The sub-matrices are 5 of 5 `Authorize` entries, 3 of 3 wrapper outcomes (attach/takeover/noninteractive park), 5 of 5 moved remote-lapsed grid classes plus 3 of 3 neighbouring vectors, 1 of 1 arm-order mutant, and 4 of 4 importer packages in the per-test diff. Named call sites and bounds are in `internal/fencing/TRACEABILITY.md`, `internal/terminstance/TRACEABILITY.md`, and the task-scoped results.
++- EVIDENCE: task-scoped logs, probe bodies, normalized per-test diff, mutation raw logs, conformance matrix, and `BUG-260917-2fwf8e_producer-evidence-v1.tar.gz` are under `.temp/BUG-260917-2fwf8e/`; outcome resources are attached before developer handoff.
++
+ ## 2026-09-18
+ 
+ ### TASK-260830-32ypr2 — projection fidelity over captured bytes (FINAL leaf, STORY-260830-1cyj0q)
+@@ -46,7 +61,7 @@
+ 
+ ### TASK-260830-kkh1an rev4 — Terminal Instance rework: grant-less fencing verdict, expiry recheck, P3 arms
+ - REWORKED after review-verdict-rev3 (no P1; P2 F3 production, P2 E3 evidence, 5 P3; the reviewer confirmed F1/F2/E1/E2 closed, the harness 100/100 twice, the 84/84 ratio, and a green suite — all kept untouched): F3 lands the exported `fencing.StaleRelativeToWinner` verdict (direction/tuple arms over a verified well-formed winner, no grant precondition — a grant authorizes, it never decides staleness) and composes it in `ObserveFencing` for grant-gated refusals, so the no-grant, lapsed-grant, no-clock and unusable-policy members fence from active/parked/quiescing under local and remote winners while unverified/ambiguous/winnerless/malformed/handoff-failed stay no-transition with the gate's own refusal or park; E3 commits the auth-expiry recheck witness (mid-operation expiry caught after one committed effect) plus a harness row that keeps the tuple recheck and drops the expiry recheck, and re-keys both E1 expired members onto the late-deadline instant so they kill on the receipt; P3-1..P3-4 commit the four reviewer witnesses with mirror rows, and P3-5 states the interim-proven create member with its `unavailable → terminate-stale` exit route.
+-- F1: the grant-precondition class is exactly four members (no grant, no clock reading, lapsed grant, unusable policy) because those are all four refusals `Authorize` can surface after the ownership arms pass — the verdict decides the tuple fact for all four uniformly by never consulting grant/clock/policy, so completeness is structural, not enumerated, and the relative question needs no fallback (same grant facts, and the grant arms do not read `LocalHostID`).
++- F1 (historical rev4 wording): the grant-precondition class is exactly four members (no grant, no clock reading, lapsed grant, unusable policy) because those are all four refusals `Authorize` can surface after the ownership arms pass — the verdict decides the tuple fact without grant/clock/policy. The current BUG-260917-2fwf8e entry above supersedes the old "relative question needs no fallback" sentence for lapsed remote grants: once ownership direction precedes expiry, that relative question can stop at deferred expiry and needs the explicit composition fallback.
+ - F2: a narrowing row that spans a definition and its use is one plant, not two — the E3 row captures the entry instant and passes it to the in-loop authorization check, and either half alone breaks the build, so the kill measures the pair (same precedent as the rev3 resumption row spanning two adjacent checks).
+ - F3: a grammar arm masked by a downstream arm is unmeasurable alone — the verdict's presented-session grammar arm needed the agreed-malformed member (both sides naming one malformed session, so only the grammar arm undecides it) because any other malformed session mismatches first.
+ - MUTATION EVIDENCE: 114 narrowing mutants plus one tightening edge row, all KILLED (`mutant_harness.py`, 116/116 with the harmless SURVIVED control on two full passes, verdict lists identical), per-plant raw logs with subprocess exits on both passes, production blobs byte-identical before/after/across. The eleven verdict rows mutate the landed package and are killed through `ObserveFencing`, so the composition — not the helper — is measured. The five surviving rev3 reviewer narrowings (RV3-M1/M2/M3/M4/M8) are mirrored as committed rows with committed killers; RV3-M6/M7 were already killed by the committed suite. Retired `N-fencing-epoch-only` (provably equivalent post-fix: a stale park implies a decided-stale verdict and both arms call `fenceLive` with the same refusal) and re-keyed `N-fencing-operation` to the non-live killer (launch-class now shows on the surfaced park vocabulary). No token-preserving source-text mutant applies: no gate inspects source text.
+diff --git a/README.md b/README.md
+index c44349b..5be49ac 100644
+--- a/README.md
++++ b/README.md
+@@ -2123,6 +2123,15 @@ no exported field or constructor — only the gate mints it — and an AST censu
+ pins that boundary with comment/string controls plus an alias-backdoor plant
+ that preserves the searched-for token while changing the construction path.
+ 
++For SPEC.v0.7.0 §4.2 step 4, `Authorize` resolves ownership direction before
++consuming grant expiry. A remote winner with a lapsed local grant therefore
++keeps the `remote_owner` park/cause reachable, so `axpane.Decide` can offer
++`attach_remote` or `takeover_offer`; a local owner with the same lapsed grant
++still refuses `lease_conflict`, while an unusable policy remains
++`invalid_arguments`. The direct regression and the labelled arm-order plant
++are recorded in
++[`internal/fencing/TRACEABILITY.md`](internal/fencing/TRACEABILITY.md).
++
+ Run the focused tests and coverage with:
+ 
+ ```bash
+@@ -2130,7 +2139,7 @@ go test ./internal/fencing -count=1
+ go test ./internal/fencing -cover -count=1
+ ```
+ 
+-Run the narrowing battery (30 narrowing mutants plus one token-preserving
++Run the narrowing battery (31 narrowing mutants plus one token-preserving
+ census mutant and three controls) with:
+ 
+ ```bash
+@@ -2235,7 +2244,12 @@ backend operation — including under a remote winner, where staleness
+ is read relative to the winner from the winner's own host, and
+ including grant-less observations (no grant, lapsed grant, no clock
+ reading, unusable policy), where the landed staleness verdict decides
+-the direction/tuple arms without the grant precondition. A bound
++the direction/tuple arms without the grant precondition. A lapsed remote
++grant is exposed by the direct restore question as the existing
++`remote_owner` park so the pane can offer attach/takeover; the relative
++winner-host question may still stop at deferred expiry, so
++`ObserveFencing` explicitly consults the same grant-independent verdict
++to fence stale tokens while leaving winning/future tokens parked. A bound
+ key without its completion reconciles through the production status
+ entry: the same operation resumes under the same receipt when status
+ proves the source, and refuses uncertain otherwise. The receipt store
+diff --git a/internal/axpane/decide_test.go b/internal/axpane/decide_test.go
+index d4134bb..1f29b7d 100644
+--- a/internal/axpane/decide_test.go
++++ b/internal/axpane/decide_test.go
+@@ -106,6 +106,52 @@ func lapsedObservation(now time.Time) fencing.Observation {
+ 	return observation
+ }
+ 
++// TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext drives the
++// after-restore caller around the fencing.Authorize result: interactive
++// remote ownership remains an attach/takeover offer, while a non-interactive
++// remote owner parks with the existing remote_owner vocabulary.
++func TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext(t *testing.T) {
++	cases := []struct {
++		name              string
++		attachAdmitted    bool
++		remoteInteractive bool
++		mode              Mode
++		want              Action
++		wantLiteral       string
++		wantReason        fencing.ParkReason
++		wantReasonLiteral string
++	}{
++		{name: "restore_interactive_attach", attachAdmitted: true, remoteInteractive: true, mode: ModeRestore, want: ActionAttachRemote, wantLiteral: "attach_remote"},
++		{name: "restore_interactive_takeover", attachAdmitted: false, remoteInteractive: true, mode: ModeRestore, want: ActionTakeoverOffer, wantLiteral: "takeover_offer"},
++		{name: "restore_noninteractive_park", attachAdmitted: true, remoteInteractive: false, mode: ModeRestore, want: ActionParked, wantLiteral: "parked", wantReason: fencing.ParkRemoteOwner, wantReasonLiteral: "remote_owner"},
++		{name: "launch_interactive_attach", attachAdmitted: true, remoteInteractive: true, mode: ModeLaunch, want: ActionAttachRemote, wantLiteral: "attach_remote"},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			deps := buildDecideDeps(t, tc.attachAdmitted)
++			input := validInput(t, deps)
++			input.Mode = tc.mode
++			input.Observation = lapsedObservation(fixtureNow())
++			input.Observation.Winner.HolderHostID = fixtureRemoteHost
++			input.RemoteInteractive = tc.remoteInteractive
++			decision := Decide(input)
++			if decision.Action != tc.want {
++				t.Fatalf("Decide() action=%s class=%s reason=%s cause=%v, want %s", decision.Action, decision.Class, decision.ParkReason, decision.Cause, tc.want)
++			}
++			if string(decision.Action) != tc.wantLiteral {
++				t.Fatalf("Decide() action=%q, want literal %q", decision.Action, tc.wantLiteral)
++			}
++			if tc.wantReason != "" && decision.ParkReason != tc.wantReason {
++				t.Fatalf("Decide() park reason=%s, want %s", decision.ParkReason, tc.wantReason)
++			}
++			if tc.wantReasonLiteral != "" && string(decision.ParkReason) != tc.wantReasonLiteral {
++				t.Fatalf("Decide() park reason=%q, want literal %q", decision.ParkReason, tc.wantReasonLiteral)
++			}
++			t.Logf("lapsed remote owner interactive=%t attach_admitted=%t: action=%s reason=%s cause=%v", tc.remoteInteractive, tc.attachAdmitted, decision.Action, decision.ParkReason, decision.Cause)
++		})
++	}
++}
++
+ func TestDecideLaunchPositive(t *testing.T) {
+ 	t.Parallel()
+ 	deps := buildDecideDeps(t, true)
+diff --git a/internal/fencing/TRACEABILITY.md b/internal/fencing/TRACEABILITY.md
+index a6953c8..f5ce1e5 100644
+--- a/internal/fencing/TRACEABILITY.md
++++ b/internal/fencing/TRACEABILITY.md
+@@ -37,7 +37,7 @@ entries at every required boundary.
+ | Lower epoch refused | `Authorize` via all five entries | `TestAuthorizeRefusesLowerEpoch` | Driven: a superseded epoch refuses `stale_owner` on input/mutation/checkpoint and parks `stale_owner` on activation/restore, for the standard old-lease vector and the winner-lease-at-lower-epoch vector. |
+ | Same-epoch loser refused | `Authorize` via all five entries | `TestAuthorizeRefusesSameEpochLoser` | Driven: a losing lease at the winning epoch refuses `lease_conflict` on input/mutation/checkpoint and parks `stale_owner` on activation/restore, for the standard and prefix-sharing losers. |
+ | Foreign session refused | `Authorize` via all five entries | `TestAuthorizeRefusesForeignSession` | Driven: a token for another session refuses `lease_conflict` on every entry, for the prefix-sharing and fully foreign sessions. |
+-| Expired grant refused | `Authorize` via all five entries → `sessrepo.CheckFencingExpiry` | `TestAuthorizeRefusesExpiredGrant` | Driven: a lapsed grant refuses `lease_conflict` on every entry so the holder revalidates; a grant at exactly the boundary stays current; an unusable policy refuses `invalid_arguments`. Expiry logic is reused from the `sessrepo` owner, never restated. |
++| Expired grant refused | local-owner `Authorize` via all five entries → `sessrepo.CheckFencingExpiry` | `TestAuthorizeRefusesExpiredGrant`, `TestAuthorizeLapsedLocalOwnerStaleTokenRemainsLeaseConflict`, `TestAuthorizeRemoteOwnerInvalidPolicyRemainsInvalidArguments` | Driven: a local lapsed grant refuses `lease_conflict` on every entry so the holder revalidates; a grant at exactly the boundary stays current; an unusable policy refuses `invalid_arguments` even with a remote winner. For a remote winner, the lapsed result is deferred until after ownership direction so `remote_owner` remains reachable. Expiry logic is reused from the `sessrepo` owner, never restated. |
+ | Absent lease parks or refuses | `Authorize` via all five entries; `Observe` | `TestAuthorizeParksAndRefusesAbsentWinner`, `TestObserveLoadsWinningLease/no_leases_yields_no_winner` | Driven: with no winning lease, launch entries park `restore_policy` with an empty winning lease ID while the other entries refuse `lease_conflict`; `Observe` reports absence as data, never an error. |
+ | Ambiguous ownership parks or refuses | `Authorize` via all five entries | `TestAuthorizeParksAndRefusesAmbiguous` | Driven: conflicting union observations park `restore_policy` under the winner on launch entries and refuse `lease_conflict` elsewhere. |
+ | Remote ownership parks or refuses | `Authorize` via all five entries | `TestAuthorizeParksAndRefusesRemote` | Driven: a remote winning holder parks `remote_owner` under the winner on launch entries and refuses `not_owner` elsewhere, for prefix-sharing and fully remote holders. |
+@@ -48,6 +48,45 @@ entries at every required boundary.
+ | Terminate-stale outside force recovery refused | `AuthorizeTerminateStale` | `TestTerminateStaleAuthorizesFencedTarget`, `TestTerminateStaleRefusesWithoutForce`, `TestTerminateStaleRefusesWithoutDiagnostics`, `TestTerminateStaleRefusesWithoutWinner`, `TestTerminateStaleRefusesLiveOwner`, `TestTerminateStaleRefusesForeignSession`, `TestTerminateStaleRefusesMalformedTarget`, `TestTerminateStaleRefusesGarbageWinner` | Driven: a fenced target (lower epoch, divergent, or beyond the winner) authorizes under explicit force recovery with preserved diagnostics; missing force, diagnostics, or winner, a live-owner target, a foreign session, and malformed members refuse their classes. |
+ | LeaseToken bound to provider operations from a passed gate only | `LeaseToken.Bind` | `TestBindProjectsMintedToken`, `TestBindRefusesUnknownOperation`, `TestMintedTokenIsStableAcrossEntries` | Driven: a token minted by a passed gate projects the exact triple onto `quiesce`, `capture`, and `materialize` identically from every entry; unknown operations refuse `invalid_arguments`. Resume, stop, materialize-commit, and native-store-plan carry the same triple on the wire but have no gate entry here (stated bound). |
+ 
++## BUG-260917-2fwf8e arm-precedence matrix
++
++The v0.7.0 §4.2 after-restore sequence requires the wrapper to offer
++remote attach/takeover at step 4 when another host owns the session in an
++interactive terminal. `Authorize` validates refresh-policy shape first,
++then resolves ownership direction before consuming a lapsed-grant result:
++a remote winner returns the existing `remote_owner` park/cause, allowing
++the caller to select `attach_remote` or `takeover_offer`; a local winner
++still reaches the expiry arm. An unusable policy remains the existing
++`invalid_arguments` refusal even for a remote winner. The lease chain and
++the Section 5.2 park vocabulary are unchanged.
++
++| Vector | Production call site | Named test | Expected result |
++| --- | --- | --- | --- |
++| Remote interactive owner + lapsed local grant | `Authorize(OperationRestore, ...)` directly; composed by `axpane.Decide` | `TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm`; `TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext/interactive_attach`; `/interactive_takeover` | `ParkDetails = remote_owner/<winning lease>` with `not_owner` cause, never `lease_conflict`; wrapper emits `attach_remote` or `takeover_offer`. |
++| Live local grant | `Authorize(OperationRestore, ...)` directly | `TestAuthorizeArmOrderingNeighbourVectors/live_local_grant` | Authorized token for the exact winning tuple. |
++| Remote non-interactive owner | `axpane.Decide` → `fencing.Authorize` | `TestAuthorizeArmOrderingNeighbourVectors/remote_owner_live_grant`; `TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext/restore_noninteractive_park` | The direct neighbour uses a live grant; the wrapper row uses the lapsed grant and remains `remote_owner`; a non-interactive caller parks without an offer/runtime. |
++| Local owner + lapsed grant | `Authorize(OperationRestore, ...)` directly | `TestAuthorizeArmOrderingNeighbourVectors/local_owner_lapsed_grant` | Literal `lease_conflict` refusal remains local-only. |
++| Arm precedence narrowing | `Authorize` direct regression | `N-arm-order-expiry-before-direction` in `internal/fencing/testdata/mutate.py` | Swapping expiry before direction is applied in isolation and kills `TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm`. |
++
++Direct fencing vector coverage for this leaf is 4 of 4 named neighbour rows,
++plus 5 of 5 `Authorize` operation entries in the lapsed-remote census and 5
++of 5 in the lapsed-local stale-token refusal census. The three wrapper-context
++rows are additionally driven through `Decide`, including `ModeLaunch` through
++the `AuthorizeActivation` call site. The full importer-set before/after
++per-test outcome diff is recorded in the task-scoped handoff results: 1,073
++baseline rows versus 1,103 candidate rows, with 30 new named rows and no
++existing row changing status.
++
++The report-only fencing grid names the moved inputs rather than hiding them in
++an unchanged pass total. V01 (probe 10), V07 (stale epoch), V08 (same-epoch
++loser), V09 (future epoch), and V14 (empty `LocalHostID`) were each
++`REFUSE(lease_conflict)` on all five entries before the fix. After the fix,
++each is `PARK(remote_owner,cause=not_owner)` on activation/restore and
++`REFUSE(not_owner)` on input/mutation/checkpoint. That move is intentional:
++the ownership-direction arm is now reachable before a lapsed-grant result;
++the local-owner lapsed-grant stale-token row remains `lease_conflict` on all
++five entries.
++
+ ## Refusal and recovery coverage
+ 
+ Every `N-` row is a genuine narrowing mutant: the gate stays present
+@@ -79,6 +118,7 @@ produces no named behavioral failure.
+ | Clock presence | `TestAuthorizeRefusesMissingClock/zero_validated` | N-clock admits exactly the clockless never-validated grant; the token authorizes and the negative fails by success. |
+ | Grant expiry | `TestAuthorizeRefusesExpiredGrant/lapsed` | N-expiry extends the interval by an hour; the lapsed-by-seconds grant authorizes while the never-validated grant still refuses. |
+ | Expiry classification | `TestAuthorizeRefusesExpiredGrant` | N-expiry-map swaps the lapsed/unusable classes; both vectors change class. |
++| Arm precedence: ownership direction before grant expiry | `TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm` | N-arm-order-expiry-before-direction swaps the two arms back to expiry-first; the remote lapsed-grant vector returns `lease_conflict` and the named test fails. |
+ | Ownership direction | `TestAuthorizeParksAndRefusesRemote/prefix_sharing` | N-remote-prefix compares first UUID segments only; the prefix-sharing remote holder authorizes while the fully remote holder still refuses. |
+ | Epoch equality, ahead side | `TestAuthorizeRefusesEpochBeyondWinner/exact_lease` | N-epoch-gte weakens `==` to `>=`; the ahead token authorizes while the lower-epoch vectors still refuse stale in the same run. |
+ | Epoch equality, lower side | `TestAuthorizeRefusesLowerEpoch/exact_lease` | N-epoch-lte weakens `==` to `<=`; the lower token authorizes past the epoch arm while the ahead vectors still refuse in the same run. |
+diff --git a/internal/fencing/authorize_order_test.go b/internal/fencing/authorize_order_test.go
+new file mode 100644
+index 0000000..edc24eb
+--- /dev/null
++++ b/internal/fencing/authorize_order_test.go
+@@ -0,0 +1,149 @@
++package fencing
++
++import (
++	"errors"
++	"strings"
++	"testing"
++	"time"
++)
++
++// TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm drives
++// Authorize itself at the after-restore boundary. The wrapper owns the
++// interactive/attach choice; fencing must first return the remote-owner park
++// so that choice remains reachable after the local grant lapses.
++func TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm(t *testing.T) {
++	observation := fenceObservation()
++	observation.Winner.HolderHostID = fenceHostB
++	observation.Now = fenceValidatedAt.Add(fencePolicy.RefreshInterval + time.Second)
++
++	_, err := Authorize(OperationRestore, fencePresented(), observation)
++	if err == nil {
++		t.Fatal("Authorize() succeeded for a remote owner")
++	}
++	if strings.Contains(err.Error(), "lease_conflict") {
++		t.Fatalf("Authorize() returned literal lease_conflict for the remote offer vector: %v", err)
++	}
++	reason, winningLease, parked := ParkDetails(err)
++	if !parked || string(reason) != "remote_owner" || winningLease != fenceLeaseA {
++		t.Fatalf("Authorize() = %v, want parked remote_owner under %s", err, fenceLeaseA)
++	}
++	if !errors.Is(err, ErrNotOwner) {
++		t.Fatalf("Authorize() = %v, want the remote-owner cause", err)
++	}
++	if !strings.Contains(err.Error(), "not_owner") {
++		t.Fatalf("Authorize() = %v, want literal not_owner cause", err)
++	}
++	t.Logf("remote interactive owner + lapsed local grant: park=%s lease=%s cause=not_owner", reason, winningLease)
++}
++
++// TestAuthorizeLapsedRemoteOwnerUsesDirectionForEveryEntry keeps the
++// direction-before-expiry arm ordering visible at every fencing entry:
++// launch entries park remote_owner/not_owner and non-launch entries refuse
++// not_owner, even when the local grant has lapsed.
++func TestAuthorizeLapsedRemoteOwnerUsesDirectionForEveryEntry(t *testing.T) {
++	for name, entry := range fenceEntries() {
++		t.Run(name, func(t *testing.T) {
++			observation := fenceObservation()
++			observation.Winner.HolderHostID = fenceHostB
++			observation.Now = fenceValidatedAt.Add(fencePolicy.RefreshInterval + time.Second)
++			_, err := entry.authorize(fencePresented(), observation)
++			if entry.launch {
++				mustPark(t, err, ParkRemoteOwner, fenceLeaseA, ErrNotOwner, name+"/remote_lapsed")
++			} else {
++				mustRefuse(t, err, ErrNotOwner, name+"/remote_lapsed")
++			}
++			if err == nil || !strings.Contains(err.Error(), "not_owner") || strings.Contains(err.Error(), "lease_conflict") {
++				t.Fatalf("%s/remote_lapsed = %v, want literal not_owner without lease_conflict", name, err)
++			}
++		})
++	}
++}
++
++// TestAuthorizeLapsedLocalOwnerStaleTokenRemainsLeaseConflict pins the
++// neighboring local stale-token class: expiry still wins over tuple arms
++// when direction is local, so every entry returns hard lease_conflict rather
++// than a stale_owner park or refusal.
++func TestAuthorizeLapsedLocalOwnerStaleTokenRemainsLeaseConflict(t *testing.T) {
++	stale := PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}
++	observation := fenceObservation()
++	observation.Now = fenceValidatedAt.Add(fencePolicy.RefreshInterval + time.Second)
++	for name, entry := range fenceEntries() {
++		t.Run(name, func(t *testing.T) {
++			_, err := entry.authorize(stale, observation)
++			mustRefuse(t, err, ErrLeaseConflict, name+"/local_lapsed_stale")
++			if !strings.Contains(err.Error(), "lease_conflict") || strings.Contains(err.Error(), "stale_owner") {
++				t.Fatalf("%s/local_lapsed_stale = %v, want literal lease_conflict without stale_owner", name, err)
++			}
++		})
++	}
++}
++
++func TestAuthorizeRemoteOwnerInvalidPolicyRemainsInvalidArguments(t *testing.T) {
++	observation := fenceObservation()
++	observation.Winner.HolderHostID = fenceHostB
++	observation.Policy.RefreshInterval = 0
++
++	_, err := Authorize(OperationRestore, fencePresented(), observation)
++	mustRefuse(t, err, ErrInvalidArguments, "remote owner + unusable refresh policy")
++	if IsParked(err) {
++		t.Fatalf("remote owner + unusable refresh policy = %v, want literal invalid_arguments refusal", err)
++	}
++	if !strings.Contains(err.Error(), "invalid_arguments") {
++		t.Fatalf("remote owner + unusable refresh policy = %v, want literal invalid_arguments refusal", err)
++	}
++	t.Logf("remote owner + unusable refresh policy: refusal=invalid_arguments")
++}
++
++// TestAuthorizeArmOrderingNeighbourVectors keeps the adjacent direct-gate
++// outcomes visible: a live local grant authorizes, a remote owner with a live
++// grant reaches the remote-owner arm, and a lapsed local grant remains
++// lease_conflict.
++func TestAuthorizeArmOrderingNeighbourVectors(t *testing.T) {
++	cases := []struct {
++		name   string
++		mutate func(*Observation)
++		check  func(*testing.T, LeaseToken, error)
++	}{
++		{
++			name: "live_local_grant",
++			check: func(t *testing.T, token LeaseToken, err error) {
++				mustMint(t, token, err, "live_local_grant")
++			},
++		},
++		{
++			name: "remote_owner_live_grant",
++			mutate: func(observation *Observation) {
++				observation.Winner.HolderHostID = fenceHostB
++			},
++			check: func(t *testing.T, _ LeaseToken, err error) {
++				mustPark(t, err, ParkRemoteOwner, fenceLeaseA, ErrNotOwner, "remote_owner_live_grant")
++				reason, _, parked := ParkDetails(err)
++				if !parked || string(reason) != "remote_owner" || !strings.Contains(err.Error(), "not_owner") {
++					t.Fatalf("remote_owner_live_grant = %v, want literal remote_owner/not_owner", err)
++				}
++			},
++		},
++		{
++			name: "local_owner_lapsed_grant",
++			mutate: func(observation *Observation) {
++				observation.Now = fenceValidatedAt.Add(fencePolicy.RefreshInterval + time.Second)
++			},
++			check: func(t *testing.T, _ LeaseToken, err error) {
++				mustRefuse(t, err, ErrLeaseConflict, "local_owner_lapsed_grant")
++				if !strings.Contains(err.Error(), "lease_conflict") {
++					t.Fatalf("local_owner_lapsed_grant = %v, want literal lease_conflict", err)
++				}
++			},
++		},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			observation := fenceObservation()
++			if tc.mutate != nil {
++				tc.mutate(&observation)
++			}
++			token, err := Authorize(OperationRestore, fencePresented(), observation)
++			tc.check(t, token, err)
++		})
++	}
++}
+diff --git a/internal/fencing/gate.go b/internal/fencing/gate.go
+index cd8f551..edec65b 100644
+--- a/internal/fencing/gate.go
++++ b/internal/fencing/gate.go
+@@ -288,10 +288,13 @@ func AuthorizeRestore(presented PresentedToken, observation Observation) (LeaseT
+ // nothing.
+ //
+ // Arm order is precedence: malformed calls die first, then foreign
+-// sessions, then ownership presence and verifiability, then the
+-// fencing grant, then ownership direction (the operative fact beats
+-// the credential: a stale token under a remote winner parks remote,
+-// it does not report stale), then the exact tuple match.
++// sessions, then ownership presence and verifiability, then fencing
++// grant presence and clock availability, then refresh-policy validity,
++// then ownership direction (the operative fact beats grant expiry: a
++// remote winner parks remote so the wrapper can offer attach/takeover),
++// then the lapsed-grant refusal, then the exact tuple match. Policy
++// validity is checked before direction; only the expired outcome is
++// deferred so the remote-owner arm remains reachable.
+ func Authorize(operation Operation, presented PresentedToken, observation Observation) (LeaseToken, error) {
+ 	if !validOperation(operation) {
+ 		return LeaseToken{}, refuse(ErrInvalidArguments, "unknown fencing operation %q", string(operation))
+@@ -341,10 +344,8 @@ func Authorize(operation Operation, presented PresentedToken, observation Observ
+ 	if observation.Now.IsZero() {
+ 		return LeaseToken{}, refuse(ErrInvalidArguments, "fencing observation for session %s carries no clock reading; expiry cannot be checked", observation.SessionID)
+ 	}
+-	if err := sessrepo.CheckFencingExpiry(observation.Grant, observation.Policy, observation.Now); err != nil {
+-		if errors.Is(err, sessrepo.ErrFencingExpired) {
+-			return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
+-		}
++	expiryErr := sessrepo.CheckFencingExpiry(observation.Grant, observation.Policy, observation.Now)
++	if expiryErr != nil && !errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
+ 		return LeaseToken{}, refuse(ErrInvalidArguments, "fencing observation for session %s carries an unusable refresh policy", observation.SessionID)
+ 	}
+ 	if observation.Winner.HolderHostID != observation.LocalHostID {
+@@ -353,6 +354,9 @@ func Authorize(operation Operation, presented PresentedToken, observation Observ
+ 		}
+ 		return LeaseToken{}, refuse(ErrNotOwner, "session %s is owned by remote host %s", observation.SessionID, observation.Winner.HolderHostID)
+ 	}
++	if errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
++		return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
++	}
+ 	epochsEqual := presented.Epoch == observation.Winner.Epoch
+ 	if !epochsEqual {
+ 		if presented.Epoch < observation.Winner.Epoch {
+diff --git a/internal/fencing/testdata/mutate.py b/internal/fencing/testdata/mutate.py
+index 7d7e082..2465a9f 100644
+--- a/internal/fencing/testdata/mutate.py
++++ b/internal/fencing/testdata/mutate.py
+@@ -39,6 +39,30 @@ SESSIONB = "0198f4c8-3e70-7a11-8a2b-1234567890ac"
+ GATE_IMPORT = '\t"errors"\n\t"fmt"\n\t"time"'
+ GATE_IMPORT_STRINGS = '\t"errors"\n\t"fmt"\n\t"strings"\n\t"time"'
+ 
++# The precedence plant deliberately preserves both gates and swaps only their
++# result arms. Policy validity remains before direction; the regression vector
++# must fail when the expired result is consumed before the remote-owner arm.
++DIRECTION_THEN_EXPIRY = """\tif observation.Winner.HolderHostID != observation.LocalHostID {
++		if launchClass(operation) {
++			return LeaseToken{}, park(ParkRemoteOwner, observation.Winner.LeaseID, ErrNotOwner)
++		}
++		return LeaseToken{}, refuse(ErrNotOwner, "session %s is owned by remote host %s", observation.SessionID, observation.Winner.HolderHostID)
++	}
++	if errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
++		return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
++	}
++"""
++EXPIRY_THEN_DIRECTION = """\tif errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
++		return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
++	}
++	if observation.Winner.HolderHostID != observation.LocalHostID {
++		if launchClass(operation) {
++			return LeaseToken{}, park(ParkRemoteOwner, observation.Winner.LeaseID, ErrNotOwner)
++		}
++		return LeaseToken{}, refuse(ErrNotOwner, "session %s is owned by remote host %s", observation.SessionID, observation.Winner.HolderHostID)
++	}
++"""
++
+ # Each mutant: (name, kind, file, edits|add-path+content, command, bound).
+ # kind edit: [(old, new)] applied to file, each anchored exactly once.
+ # kind add: writes path with content for the run, then removes it.
+@@ -110,10 +134,14 @@ MUTANTS = [
+      ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesExpiredGrant$", "-count=1", "-v"],
+      "Extend the refresh interval by an hour; the lapsed-by-seconds grant authorizes while the never-validated grant still refuses."),
+     ("N-expiry-map", "edit", "internal/fencing/gate.go",
+-     [("if errors.Is(err, sessrepo.ErrFencingExpired) {",
+-        "if errors.Is(err, sessrepo.ErrInvalidLease) {")],
++     [("if errors.Is(expiryErr, sessrepo.ErrFencingExpired) {",
++        "if errors.Is(expiryErr, sessrepo.ErrInvalidLease) {")],
+      ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesExpiredGrant$", "-count=1", "-v"],
+      "Swap the lapsed/unusable classes; both vectors change class and the test fails."),
++    ("N-arm-order-expiry-before-direction", "edit", "internal/fencing/gate.go",
++     [(DIRECTION_THEN_EXPIRY, EXPIRY_THEN_DIRECTION)],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorize(RemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm|LapsedRemoteOwnerUsesDirectionForEveryEntry)$", "-count=1", "-v"],
++     "Swap the ownership-direction and grant-expiry arms back to expiry-first; the direct remote-offer regression and every-entry witness return lease_conflict/not_owner mismatches and fail."),
+     ("N-remote-prefix", "edit", "internal/fencing/gate.go",
+      [(GATE_IMPORT, GATE_IMPORT_STRINGS),
+       ("if observation.Winner.HolderHostID != observation.LocalHostID {",
+diff --git a/internal/terminstance/TRACEABILITY.md b/internal/terminstance/TRACEABILITY.md
+index 45dbe4c..c2f7b76 100644
+--- a/internal/terminstance/TRACEABILITY.md
++++ b/internal/terminstance/TRACEABILITY.md
+@@ -175,8 +175,8 @@ Every addition extends a landed type or gate; nothing is forked:
+ 
+ | # | Clause | Committed test |
+ | --- | --- | --- |
+-| 85 | Grant-less stale fences: every grant-precondition member (no grant, lapsed grant, no clock reading, unusable policy) fences from active/parked/quiescing under local and remote winners, for the older-epoch and lease-mismatch tokens (48 transitions; the direct gate refuses grant-gated, never a park) | `TestRV3F3_GrantLessStaleFences` |
+-| 86 | Decided-not-stale leaves state grant-less: winning token and future epoch surface the grant refusal with no transition, local and remote | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` (4 subtests) |
++| 85 | Grant-less stale fences: every grant-precondition member (no grant, lapsed grant, no clock reading, unusable policy) fences from active/parked/quiescing under local and remote winners, for the older-epoch and lease-mismatch tokens (48 transitions). A direct remote lapsed-grant question now parks `remote_owner` for the attach/takeover caller; `ObserveFencing` then uses the grant-independent verdict when the relative question is stopped by deferred expiry (the direct gate's arm and the composed stale transition are separate assertions). | `TestRV3F3_GrantLessStaleFences`, `TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation` |
++| 86 | Decided-not-stale leaves state grant-less: winning token and future epoch surface the grant refusal or existing remote-owner park with no transition, local and remote | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` (4 subtests) |
+ | 87 | Undecidable observations leave state: unverified, ambiguous, no winner, malformed winner, session mismatch, failed handoff (park preserved), malformed session/epoch/lease — each with a second stale-shaped member — surface the gate's own refusal or park | `TestRV3F3_GrantLessUndecidedLeavesState` (9 subtests) |
+ | 88 | Live-source gate under the verdict path: creating fences grant-less; absent/stopped/stale_fenced/unavailable surface the grant refusal (local and remote) | `TestRV3F3_GrantLessNonLiveSourcesLeaveState`, `TestRV3_FencingNoLocalTupleComparison` (composition pin) |
+ | 89 | Auth expiry rechecked before each effect: mid-operation expiry caught after one committed effect (`ax authorization expiry`, after unavailable, new_authorization); the E1 expired members kill on the receipt via the late-deadline instant | `TestRV3W_M1_AuthExpiryRecheckedBeforeEachEffect`, `TestExecuteCreateEntryAuthorizationRefuses/expired`, `TestExecutePreEffectErrorsRestoreSource/entry_auth_expired` |
+@@ -193,8 +193,8 @@ Every addition extends a landed type or gate; nothing is forked:
+ 
+ ## Mutant table
+ 
+-`mutant_harness.py`: 122 rows, two full passes at 116 plus a full
+-pass at 122, 120 narrowing KILLED + 1 tightening KILLED + the
++`mutant_harness.py`: 122 rows, including the final full pass at 122,
++120 narrowing KILLED + 1 tightening KILLED + the
+ SURVIVED control, per-plant raw logs with subprocess exits all
+ passes, production blobs byte-identical before/after. Every row is narrowing except `N-auth-epoch-high`
+ (tightening: the weakening direction is equivalent because `environ`
+@@ -203,10 +203,15 @@ is observable; the row proves the edge is exactly 9007199254740991 by
+ refusing it) and `C-control` (harmless SURVIVED control). The eleven
+ `N-fencing-verdict-*` rows mutate the landed verdict and are killed
+ through `ObserveFencing`, so the composition — not the helper — is
+-measured; `N-fencing-verdict-composition` measures the `stale` half of
+-the `decided && stale` conjunction (dropping `decided` would be
+-equivalent, since the verdict never reports stale undecided). Retired
+-in rev4: `N-fencing-epoch-only` — a stale_owner park implies a
++measured; `N-fencing-remote-lapsed-fallback` narrows the explicit
++grant-independent fallback to same-epoch losses, while
++`N-fencing-remote-lapsed-not-stale` drops its `stale` conjunct and is
++killed by the winning/future-token no-transition rows. Retired in this
++rework: `N-fencing-operation-remote`, which became equivalent after the
++direct remote-lapsed arm moved before expiry; the relative mutation entry
++cannot change the final stale verdict because the fallback is
++grant-independent. Retired in rev4: `N-fencing-epoch-only` — a
++stale_owner park implies a
+ decided-stale verdict over the same observation (the verdict's
+ preconditions are a subset of the gate's pre-grant arms; pinned by
+ `TestStalenessAgreesWithGateOnHotPath`), and both arms call `fenceLive`
+@@ -256,8 +261,9 @@ fallback either way).
+ | N-store-torn | Torn receipt (4-byte file as absence) | `TestStoreLookupAbsenceIsNotFailure` |
+ | N-complete-unbound | Completion without receipt | `TestStoreCompleteRequiresReceipt` |
+ | N-fencing-remote | Fencing: relative question skipped, remote parks fenced | `TestObserveFencingRemoteWinnerWinningTokenLeavesState` |
+-| N-fencing-operation-remote | Fencing: relative question through mutation refuses stale | `TestObserveFencingRemoteWinnerStaleEpochFences` |
+ | N-fencing-remote-stale-only | Fencing: relative verdict fences any park | `TestObserveFencingRemoteWinnerFutureEpochLeavesState` |
++| N-fencing-remote-lapsed-fallback | Fencing: lapsed remote fallback narrowed to same-epoch losses | `TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation/stale_epoch` |
++| N-fencing-remote-lapsed-not-stale | Fencing: lapsed remote fallback fences decided-not-stale | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` |
+ | N-fencing-source-absent | Fencing: absent fenced | `TestObserveFencingNonLiveSourcesLeaveState` |
+ | N-fencing-source-stopped | Fencing: stopped fenced | `TestObserveFencingNonLiveSourcesLeaveState` |
+ | N-fencing-source-creating | Fencing: creating no longer fenced | `TestObserveFencingNonLiveSourcesLeaveState` |
+@@ -329,7 +335,6 @@ fallback either way).
+ | N-fencing-verdict-presented-session | Verdict session-grammar arm (agreed-malformed decided) | `TestRV3F3_GrantLessUndecidedLeavesState/malformed_session` |
+ | N-fencing-verdict-presented-epoch | Verdict epoch-zero arm (losing-lease zero decided) | `TestRV3F3_GrantLessUndecidedLeavesState/epoch_zero` |
+ | N-fencing-verdict-presented-lease | Verdict lease-grammar arm (epoch-1 malformed lease decided) | `TestRV3F3_GrantLessUndecidedLeavesState/malformed_lease` |
+-| N-fencing-verdict-composition | Composition fences on decided alone | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` |
+ | N-engine-recheck-auth-expiry | Per-effect expiry recheck dropped (tuple stays) | `TestRV3W_M1_AuthExpiryRecheckedBeforeEachEffect` |
+ | N-result-evidence-bound | Evidence bound admits 257 (both surfaces) | `TestRV3W_M2_EvidenceBoundEdge` |
+ | N-engine-conditional-disposition | Conditional arm reports status_first | `TestRV3W_M3_ConditionalCapabilityDisposition` |
+@@ -436,18 +441,19 @@ fallback either way).
+   to `activation` on the stale arms and chosen for the terminal
+   domain); the non-launch entries refuse stale tokens instead of
+   parking them, measured by `N-fencing-operation` on the direct
+-  question and `N-fencing-operation-remote` on the relative question.
+-  The relative question re-authorizes from the winner's own host; it
+-  composes the landed gate (no local tuple comparison) and fences
+-  only on the relative stale verdict from a live source. Grant-gated
+-  refusals (no grant, no clock reading, lapsed grant, unusable
+-  policy — the complete grant-precondition class, since these are all
+-  four refusals `Authorize` can surface after the ownership arms
+-  pass) consult the landed `StaleRelativeToWinner` verdict instead:
+-  decided-stale fences from a live source, decided-not-stale and
+-  undecidable surface the refusal. The relative question needs no
+-  fallback (it carries the direct grant facts unchanged and the grant
+-  arms do not read `LocalHostID`), and the failed-handoff park is
++  question. The relative question re-authorizes from the winner's own
++  host through the restore entry, so it composes the landed gate (no
++  local tuple comparison) and fences only on the relative stale verdict
++  from a live source. Grant-gated refusals (no grant, no clock reading,
++  lapsed grant, unusable policy — the complete grant-precondition class,
++  since these are all four refusals `Authorize` can surface after the
++  ownership arms pass) consult the landed `StaleRelativeToWinner`
++  verdict instead: decided-stale fences from a live source,
++  decided-not-stale and undecidable surface the refusal. A lapsed remote
++  grant is special only in that the direct question now returns the
++  existing `remote_owner` park before consuming expiry; if the relative
++  question stops at the deferred expiry result, the explicit fallback
++  consults the same grant-independent verdict. The failed-handoff park is
+   preserved (ownership history, not a grant precondition).
+ - `internal/traceability` untouched per the Story contract; the final
+   leaf carries the registry bindings and the re-pin.
+@@ -484,4 +490,4 @@ fallback either way).
+   (`N-engine-recheck-auth-expiry-third`,
+   `N-resume-checkresult-stale`,
+   `N-resume-checkresult-disposition`, `N-resume-corrupt-image`,
+-  `N-engine-loop-deadline-instant`, `N-auth-kind-case`).
+\ No newline at end of file
++  `N-engine-loop-deadline-instant`, `N-auth-kind-case`).
+diff --git a/internal/terminstance/fencing.go b/internal/terminstance/fencing.go
+index 6399cf4..4a67d26 100644
+--- a/internal/terminstance/fencing.go
++++ b/internal/terminstance/fencing.go
+@@ -36,19 +36,23 @@ import (
+ // inside the landed Authorize; no local tuple comparison exists here.
+ //
+ // A stale token refused by the gate's GRANT precondition still fences:
+-// the grant arms (no grant, no clock reading, lapsed grant, unusable
+-// policy) fire before the direction/tuple arms, so without a second
+-// verdict a cold force-takeover incarnation — one that can never hold
+-// a live grant, because VerifyFencingToken refuses its stale epoch
+-// and grants never survive a controller restart — would never reach
+-// stale_fenced. The landed StaleRelativeToWinner verdict decides the
+-// direction/tuple arms over the verified well-formed winner without
+-// the grant precondition, and a decided stale verdict fences from a
+-// live incarnation exactly like the gate's own stale park. The
+-// relative question needs no such fallback: it carries the direct
+-// observation's grant facts unchanged and the grant arms do not read
+-// LocalHostID, so a direct remote park implies the relative question
+-// passes the grant arms.
++// no grant, no clock reading, and an unusable policy still return before
++// direction/tuple arms, so without a second verdict a cold force-takeover
++// incarnation — one that can never hold a live grant, because
++// VerifyFencingToken refuses its stale epoch and grants never survive a
++// controller restart — would never reach stale_fenced. A lapsed grant is
++// different at the direct question: Authorize defers only its expiry
++// result until after ownership direction, so a remote winner surfaces
++// remote_owner for the wrapper's attach/takeover decision. The relative
++// question from the winner's host can still stop at that deferred expiry
++// result, so observeRemoteWinner consults the landed
++// StaleRelativeToWinner verdict there as well. Stale tokens fence, while
++// winning and future tokens remain the original remote park. For local
++// ownership, and for the remaining hard grant refusals, the same verdict
++// decides the direction/tuple arms over the verified well-formed winner
++// without the grant precondition, and a decided stale verdict fences from
++// a live incarnation exactly like the gate's own stale park. The relative
++// question carries the direct observation's grant facts unchanged.
+ //
+ // Only a live incarnation fences: creating, parked, active and
+ // quiescing move to stale_fenced, while absent and stopped (no
+@@ -108,6 +112,11 @@ func observeRemoteWinner(current terminalbackend.InstanceState, presented fencin
+ 	if relativeReason, _, relativeParked := fencing.ParkDetails(relativeErr); relativeParked && relativeReason == fencing.ParkStaleOwner {
+ 		return fenceLive(current, authErr)
+ 	}
++	// A lapsed grant can defer the relative question before its tuple arm;
++	// the grant-independent verdict still fences a stale incarnation.
++	if stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale {
++		return fenceLive(current, authErr)
++	}
+ 	return current, false, authErr
+ }
+ 
+diff --git a/internal/terminstance/fencing_grantless_test.go b/internal/terminstance/fencing_grantless_test.go
+index 375d741..6187120 100644
+--- a/internal/terminstance/fencing_grantless_test.go
++++ b/internal/terminstance/fencing_grantless_test.go
+@@ -9,9 +9,11 @@ import (
+ 	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
+ )
+ 
+-// grantlessShapes rosters the four grant-precondition members: the
+-// landed gate refuses each before its direction/tuple arms, so each
+-// reaches the staleness verdict instead of a park.
++// grantlessShapes rosters the four grant-precondition members. Missing
++// grant, missing clock, and unusable policy still refuse before the
++// direction/tuple arms. A lapsed grant defers only its expiry outcome at
++// the direct remote-owner question; the composed stale verdict still
++// fences a stale incarnation.
+ func grantlessShapes() map[string]func(*fencing.Observation) {
+ 	return map[string]func(*fencing.Observation){
+ 		"no grant": func(observation *fencing.Observation) {
+@@ -32,13 +34,13 @@ func grantlessShapes() map[string]func(*fencing.Observation) {
+ 
+ // TestRV3F3_GrantLessStaleFences is the regression test for the
+ // rev2-F2/rev3-F3 class: a stale incarnation whose observation carries
+-// no LIVE fencing grant still fences. Every grant-precondition member
+-// (no grant, lapsed grant, no clock reading, unusable policy) fences
+-// from active, parked and quiescing, under a local and a remote
+-// winner alike, for the older-epoch and the same-epoch lease-mismatch
+-// tokens. The direct gate question refuses grant-gated (never a
+-// park), so each fencing below comes from the composed staleness
+-// verdict, not from Authorize.
++// no LIVE fencing grant still fences. Every hard grant-precondition member
++// (no grant, no clock reading, unusable policy) fences from active, parked
++// and quiescing, under a local and a remote winner alike, for the
++// older-epoch and the same-epoch lease-mismatch tokens. A lapsed grant
++// under a remote winner is split across the two composed questions:
++// Authorize surfaces the literal remote_owner park, then the
++// grant-independent stale verdict fences the stale incarnation.
+ func TestRV3F3_GrantLessStaleFences(t *testing.T) {
+ 	staleEpoch := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 1, LeaseID: fixtureLeaseB}
+ 	losingLease := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 2, LeaseID: fixtureLeaseB}
+@@ -53,6 +55,26 @@ func TestRV3F3_GrantLessStaleFences(t *testing.T) {
+ 					t.Run(name, func(t *testing.T) {
+ 						observation := winner()
+ 						shape(&observation)
++						if shapeName == "lapsed grant" && winnerName == "remote winner" {
++							_, authErr := fencing.Authorize(fencing.OperationRestore, presented, observation)
++							if authErr == nil {
++								t.Fatal("direct gate question = nil, want remote_owner park")
++							}
++							reason, _, parked := fencing.ParkDetails(authErr)
++							if !parked {
++								t.Fatalf("direct gate question = %v, want remote_owner park", authErr)
++							}
++							requireLiteral(t, "direct park reason", string(reason), "remote_owner")
++							state, transitioned, err := ObserveFencing(current, presented, observation)
++							if err != nil {
++								t.Fatalf("ObserveFencing() error = %v, want stale_fenced transition", err)
++							}
++							if !transitioned {
++								t.Fatal("ObserveFencing() transitioned = false, want stale_fenced")
++							}
++							requireLiteral(t, "state", string(state), "stale_fenced")
++							return
++						}
+ 						if _, err := fencing.Authorize(fencing.OperationRestore, presented, observation); err == nil || fencing.IsParked(err) {
+ 							t.Fatalf("direct gate question = %v, want the grant-gated refusal (never a park)", err)
+ 						}
+@@ -71,10 +93,42 @@ func TestRV3F3_GrantLessStaleFences(t *testing.T) {
+ 	}
+ }
+ 
++// TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation keeps the
++// composition property independently named: the direct remote-owner park is
++// the offer signal, but a stale incarnation still reaches stale_fenced through
++// the relative, grant-independent verdict.
++func TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation(t *testing.T) {
++	tokens := map[string]fencing.PresentedToken{
++		"stale_epoch":  {SessionID: fixtureSessionA, Epoch: 1, LeaseID: fixtureLeaseB},
++		"losing_lease": {SessionID: fixtureSessionA, Epoch: 2, LeaseID: fixtureLeaseB},
++	}
++	for tokenName, presented := range tokens {
++		for _, current := range []terminalbackend.InstanceState{
++			terminalbackend.StateActive, terminalbackend.StateParked, terminalbackend.StateQuiescing,
++		} {
++			t.Run(tokenName+"/"+string(current), func(t *testing.T) {
++				observation := remoteWinnerObservation()
++				observation.Grant.ValidatedAt = fixtureNow().Add(-2 * time.Hour)
++				state, transitioned, err := ObserveFencing(current, presented, observation)
++				if err != nil {
++					t.Fatalf("ObserveFencing() error = %v, want stale_fenced transition", err)
++				}
++				if !transitioned {
++					t.Fatal("ObserveFencing() transitioned = false, want stale_fenced")
++				}
++				requireLiteral(t, "state", string(state), "stale_fenced")
++			})
++		}
++	}
++}
++
+ // TestRV3F3_GrantLessDecidedNotStaleLeavesState pins the decided
+ // members that must NOT fence without a grant: the winning token and
+ // a future-epoch token surface the grant refusal with no transition,
+-// under a local and a remote winner alike.
++// under a local and a remote winner alike. A lapsed grant under a
++// remote winner follows the remote_owner park arm for the non-stale
++// winning/future tokens, while stale-shaped tokens are fenced by the
++// relative verdict.
+ func TestRV3F3_GrantLessDecidedNotStaleLeavesState(t *testing.T) {
+ 	winning := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 2, LeaseID: fixtureLease}
+ 	future := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 3, LeaseID: fixtureLeaseB}
+@@ -94,6 +148,24 @@ func TestRV3F3_GrantLessDecidedNotStaleLeavesState(t *testing.T) {
+ 				observation := tc.winner()
+ 				shape(&observation)
+ 				state, transitioned, err := ObserveFencing(terminalbackend.StateActive, tc.presented, observation)
++				if shapeName == "lapsed grant" && (tc.name == "winning_token_remote" || tc.name == "future_epoch_remote") {
++					if err == nil {
++						t.Fatal("ObserveFencing(lapsed grant) = nil, want the remote_owner park")
++					}
++					if !fencing.IsParked(err) {
++						t.Fatalf("ObserveFencing(lapsed grant) = %v, want remote_owner park", err)
++					}
++					if transitioned {
++						t.Fatal("ObserveFencing(lapsed grant) transitioned = true, want no transition")
++					}
++					requireLiteral(t, "lapsed remote state", string(state), "active")
++					reason, _, parked := fencing.ParkDetails(err)
++					if !parked {
++						t.Fatalf("ParkDetails(lapsed grant) = %v, want remote_owner park", err)
++					}
++					requireLiteral(t, "lapsed remote park reason", string(reason), "remote_owner")
++					continue
++				}
+ 				if err == nil {
+ 					t.Fatalf("ObserveFencing(%s) = nil, want the grant refusal surfaced", shapeName)
+ 				}
+diff --git a/internal/terminstance/mutant_harness.py b/internal/terminstance/mutant_harness.py
+index 4a7e891..900e61c 100644
+--- a/internal/terminstance/mutant_harness.py
++++ b/internal/terminstance/mutant_harness.py
+@@ -751,16 +751,6 @@ MUTANTS = [
+         expect="KILLED",
+         note="Reports exactly the inverted evidence order; the effect order still sorts ascending.",
+     ),
+-    Mutant(
+-        name="N-fencing-operation-remote",
+-        path=f"{PACKAGE}/fencing.go",
+-        find="\t_, relativeErr := fencing.Authorize(fencing.OperationRestore, presented, relative)\n",
+-        replace="\t_, relativeErr := fencing.Authorize(fencing.OperationMutation, presented, relative)\n",
+-        count=1,
+-        run="TestObserveFencingRemoteWinnerStaleEpochFences",
+-        expect="KILLED",
+-        note="Asks the relative question through exactly the non-launch mutation entry, which refuses stale tokens instead of parking them; the remote-winner observation no longer fences.",
+-    ),
+     Mutant(
+         name="N-fencing-remote-stale-only",
+         path=f"{PACKAGE}/fencing.go",
+@@ -771,6 +761,16 @@ MUTANTS = [
+         expect="KILLED",
+         note="Fences on any relative park instead of exactly stale_owner; the future-epoch restore_policy member pins it.",
+     ),
++    Mutant(
++        name="N-fencing-remote-lapsed-fallback",
++        path=f"{PACKAGE}/fencing.go",
++        find="\t// A lapsed grant can defer the relative question before its tuple arm;\n\t// the grant-independent verdict still fences a stale incarnation.\n\tif stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale {\n",
++        replace="\t// A lapsed grant can defer the relative question before its tuple arm;\n\t// the grant-independent verdict still fences a stale incarnation.\n\tif stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale && presented.Epoch == observation.Winner.Epoch {\n",
++        count=1,
++        run="TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation/stale_epoch",
++        expect="KILLED",
++        note="Narrows the lapsed-grant fallback to same-epoch losses, leaving the older-epoch stale incarnation active; the direct remote-winner property must still fence both stale shapes.",
++    ),
+     Mutant(
+         name="N-fencing-source-absent",
+         path=f"{PACKAGE}/fencing.go",
+@@ -1142,14 +1142,14 @@ MUTANTS = [
+         note="Decides exactly epoch-1 malformed-lease tokens; other malformed leases stay undecided.",
+     ),
+     Mutant(
+-        name="N-fencing-verdict-composition",
++        name="N-fencing-remote-lapsed-not-stale",
+         path=f"{PACKAGE}/fencing.go",
+-        find="\tif stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale {\n",
+-        replace="\tif _, decided := fencing.StaleRelativeToWinner(presented, observation); decided {\n",
++        find="\t// A lapsed grant can defer the relative question before its tuple arm;\n\t// the grant-independent verdict still fences a stale incarnation.\n\tif stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale {\n",
++        replace="\t// A lapsed grant can defer the relative question before its tuple arm;\n\t// the grant-independent verdict still fences a stale incarnation.\n\tif _, decided := fencing.StaleRelativeToWinner(presented, observation); decided {\n",
+         count=1,
+         run="TestRV3F3_GrantLessDecidedNotStaleLeavesState",
+         expect="KILLED",
+-        note="Fences on decided alone instead of decided-stale: the winning token and the future epoch fence grant-less. (Dropping the decided conjunct instead would be equivalent — the verdict never reports stale undecided — so the decided half is measured by the eleven verdict rows above.)",
++        note="Fences a winning or future token from the lapsed remote-winner path by dropping the stale half of the grant-independent fallback; the named no-transition rows fail while the direct remote-offer arm remains present.",
+     ),
+     Mutant(
+         name="N-engine-recheck-auth-expiry",

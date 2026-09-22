@@ -1,0 +1,1955 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index eed03e1..f0e7598 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -3,6 +3,34 @@
+ > Institutional memory. Concise, factual, high-signal.
+ > Newest entries first. One block per insight.
+ 
++## 2026-09-22
++
++### BUG-260917-3lddu0 — superseded leases are refused before append admission
++
++- FIX: `Repository.AppendEvent` now calls `checkWinningLease` after loading the durable lease winner and before `checkAppend`. Lower-epoch events refuse `ErrStaleLease`; same-epoch losing leases refuse `ErrDivergentBranch`. Refused branch bytes remain immutable and addressable, while the authoritative chain is unchanged. Historical replay intentionally does not apply this owner-side gate.
++- REPRO: the exact trunk baseline at `799c338e401fca0b24859c0b870cd665927209f2` was driven through an adapted production `AppendEvent` probe: a successor won while the tail still named A, then A's append returned `err=<nil>` and the negative expected stale refusal. The archived review probe 15 records the old blast radius verbatim: losing-lease `profile.changed` drove `profile=yolo` with mapping `--dangerously-bypass-approvals-and-sandbox`. The candidate test `TestLosingLeaseProfileEventIgnored` now refuses the append and proves `Run` cannot use that source.
++- AC: 2 of 2 leaf rows are driven. The gate × production-entry census is 8 of 8 cells: 4 lower-epoch (`AppendEvent`, `SetProfile`, `Emit`, `EmitParked`) and 4 same-epoch loser cells, with no unreachable cell. `N-stale-winning-admission` and `N-same-epoch-winning-admission` retain the gate, admit one rejected class each, and are KILLED; harmless comment SURVIVED, NOT_APPLIED and compile controls are classified separately.
++- IMPORTER DIFF: complete importer mask is `./internal/axpane ./internal/crashgate ./internal/fencing ./internal/sessckpt ./internal/sessprofile ./internal/sessquery ./internal/sessstate ./internal/termbind ./internal/terminstance`. Before/after: 2,018/2,025 outcome keys; 7 named new negative-test outcomes, 0 removed, 0 changed; all 9 package summaries PASS. The seven moved inputs are the four `Emit`/`EmitParked` gate-entry tests and the `SetProfile` parent plus its two arm outcomes; direct sessrepo tests are outside the importer set and are named in the matrix.
++- TRACEABILITY: candidate registry digest re-derived as `ed6f016f73e390071743b09aded229e781d95408b0b9eeb3f134fcb87bb9a893`; exact-tree tracecheck prints `contracts=64 normative_sections=36 acceptance_cases=154 fixtures=33 compatibility_contracts=55 assigned_scopes=0` and `section coverage: bindings=69 full=4 partial=9 sliver=9 unevidenced=43 unmeasured=4 unowned=7 clauses_discharged=70/574`. Section 2.4 admits; section 5.3 correctly refuses assigned-scope admission at 7/8 partial coverage.
++- P3 DISPOSITIONS: the axpane `decide.go` “lapsed grants refuse” qualifier remains untouched and is scoped to the local-owner path; `observeRemoteWinner` structural redundancy is record-only; the grant-less remote interactive-owner step-4 product question remains unresolved and undecided; evidence records the candidate tree OID before this logbook append (`276c515c90665327b991fe1cdf78ef8086cd409c`) and keeps the exact test masks beside every row count.
++- VALIDATION: all 30 commands from `spawn.worktree_isolation.validation.commands` exited 0, including full test, race, coverage, fuzz, tracecheck, catalog check, Linux/Windows builds, JSON parse, board validation, and diff check. Explicit `GOOS=windows GOARCH=amd64 go vet ./...` also exited 0. `task-board validate` printed pre-existing `MISSING_ACTIVITY` diagnostics but exited 0. Logs are under `.temp/BUG-260917-3lddu0/validation/`.
++- HANDOFF: final tests are in `.temp/BUG-260917-3lddu0/final-tests/`; mutation evidence is in `mutants-append-03/`; importer outcomes and tracecheck logs are task-scoped; the candidate remains UNCOMMITTED in the Story worktree for snapshot handoff.
++
++## 2026-09-21
++
++### BUG-260917-2fwf8e — fencing direction must beat lapsed-grant refusal
++
++- SCOPE: `internal/fencing.Authorize` arm precedence plus the required `terminstance.ObserveFencing` composition repair. `sessrepo.CheckFencingExpiry` remains the expiry owner; no lease-chain code or Section 5.2 park vocabulary changed. The direct question exposes the existing `remote_owner` park, while the composed relative question still fences stale incarnations through `StaleRelativeToWinner` when deferred expiry would otherwise hide the tuple verdict.
++- REPRO: the exact report-only probe bodies from `TASK-260830-1geqhj_review-evidence-rev1.tar.gz` were replayed against checkpoint `799c338e` and the candidate. Before: probe 10 returned `refused/lease_conflict`; after: `attach_remote`, `remote_owner`, `not_owner`. Direct V01 was `REFUSE(lease_conflict)` on all five entries before and `PARK(remote_owner,not_owner)` on activation/restore plus `REFUSE(not_owner)` on input/mutation/checkpoint after. V07/V08/V09/V14 moved identically and are named in the results.
++- FIX: policy validity is still refused as `invalid_arguments` before direction; only `fencing_grant_expired` is deferred. A remote winner therefore returns the existing `remote_owner` park, making v0.7.0 §4.2 step-4 attach/takeover reachable. `observeRemoteWinner` now adds a grant-independent `StaleRelativeToWinner` fallback for the relative lapsed-grant question: stale epoch/losing lease fences to literal `stale_fenced`, while winning/future tokens remain parked. A local lapsed grant remains `lease_conflict`.
++- EVIDENCE: `TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm` drives `Authorize`; `TestAuthorizeLapsedRemoteOwnerUsesDirectionForEveryEntry` drives all five entries; `TestAuthorizeLapsedLocalOwnerStaleTokenRemainsLeaseConflict` attacks the local-lapsed boundary; `TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext` drives `axpane.Decide` in restore and launch modes. Neighbours are live local grant → authorized, remote non-interactive owner → parked `remote_owner`, and local lapsed grant → `lease_conflict`; invalid policy remains `invalid_arguments`.
++- SUITE DIFF: the four importer packages were compared per test: baseline 1,073 PASS rows (`fencing` 310, `terminstance` 303, `axpane` 195, `termbind` 265) versus candidate 1,103 PASS rows (`328`, `310`, `200`, `265`). The normalized diff is 30 new named rows and zero existing status changes; the moved V01/V07/V08/V09/V14 inputs are recorded separately because their semantic output changed without a test failure.
++- MUTATION: fencing `mutants-fencing-final-v3` and its pass 2 killed all 31 narrowing rows plus the token-preserving `T-census-alias`; `N-arm-order-expiry-before-direction` fails both the direct and all-entry regressions in both passes. Terminstance `mutants-terminstance-final-v3` and its pass 2 each ran 123 rows: 121 narrowing rows plus the one labelled tightening row were killed, with the harmless control surviving. The lapsed inner fallback, the new outer fallback, and the winning/future no-transition narrowing all fail. The old equivalent `N-fencing-operation-remote` row was retired. Reviewer RM-O5 (relative question through mutation) and RM-O6 (relative `stale_owner` arm removed) both survived twice over the complete importer set; the retained relative arm is therefore documented as a measured redundant path, while the explicit `StaleRelativeToWinner` fallbacks remain the load-bearing composition. No `__pycache__`/`.pyc` artifacts.
++- VALIDATION: targeted importer tests, both mutation batteries, the configured 30-command suite, `GOOS=windows GOARCH=amd64 go vet ./...`, and the race/coverage lanes all exited 0. `cataloggen -adopted -check` (command 25) was silent and exited 0; `task-board validate` (command 29) printed the existing 180 `MISSING_ACTIVITY` diagnostics and exited 0. The raw output is retained rather than hidden.
++- BOUNDS: no public `ax` CLI row is claimed; attach/takeover is measured at `axpane.Decide` and direct fencing at `Authorize`. `internal/traceability` was not edited. Candidate remains UNCOMMITTED in the managed Story worktree.
++- AC: 3 of 3 task Acceptance Criteria rows and 6 of 6 task DoD behavior rows are driven. The sub-matrices are 5 of 5 `Authorize` entries, 3 of 3 wrapper outcomes (attach/takeover/noninteractive park), 5 of 5 moved remote-lapsed grid classes plus 3 of 3 neighbouring vectors, 1 of 1 arm-order mutant, and 4 of 4 importer packages in the per-test diff. Named call sites, the gate × entry census, moved outcomes, measured bounds, and the explicit rev2 stop statement are in the task-scoped results and conformance matrix.
++- EVIDENCE: task-scoped logs, probe bodies, normalized per-test diff, mutation raw logs, conformance matrix, and `BUG-260917-2fwf8e_producer-evidence.tar.gz` are under `.temp/BUG-260917-2fwf8e/`; outcome resources are updated from these exact paths and read back/diffed before developer handoff.
++
+ ## 2026-09-18
+ 
+ ### TASK-260830-32ypr2 — projection fidelity over captured bytes (FINAL leaf, STORY-260830-1cyj0q)
+@@ -46,7 +74,7 @@
+ 
+ ### TASK-260830-kkh1an rev4 — Terminal Instance rework: grant-less fencing verdict, expiry recheck, P3 arms
+ - REWORKED after review-verdict-rev3 (no P1; P2 F3 production, P2 E3 evidence, 5 P3; the reviewer confirmed F1/F2/E1/E2 closed, the harness 100/100 twice, the 84/84 ratio, and a green suite — all kept untouched): F3 lands the exported `fencing.StaleRelativeToWinner` verdict (direction/tuple arms over a verified well-formed winner, no grant precondition — a grant authorizes, it never decides staleness) and composes it in `ObserveFencing` for grant-gated refusals, so the no-grant, lapsed-grant, no-clock and unusable-policy members fence from active/parked/quiescing under local and remote winners while unverified/ambiguous/winnerless/malformed/handoff-failed stay no-transition with the gate's own refusal or park; E3 commits the auth-expiry recheck witness (mid-operation expiry caught after one committed effect) plus a harness row that keeps the tuple recheck and drops the expiry recheck, and re-keys both E1 expired members onto the late-deadline instant so they kill on the receipt; P3-1..P3-4 commit the four reviewer witnesses with mirror rows, and P3-5 states the interim-proven create member with its `unavailable → terminate-stale` exit route.
+-- F1: the grant-precondition class is exactly four members (no grant, no clock reading, lapsed grant, unusable policy) because those are all four refusals `Authorize` can surface after the ownership arms pass — the verdict decides the tuple fact for all four uniformly by never consulting grant/clock/policy, so completeness is structural, not enumerated, and the relative question needs no fallback (same grant facts, and the grant arms do not read `LocalHostID`).
++- F1 (historical rev4 wording): the grant-precondition class is exactly four members (no grant, no clock reading, lapsed grant, unusable policy) because those are all four refusals `Authorize` can surface after the ownership arms pass — the verdict decides the tuple fact without grant/clock/policy. The current BUG-260917-2fwf8e entry above supersedes the old "relative question needs no fallback" sentence for lapsed remote grants: once ownership direction precedes expiry, that relative question can stop at deferred expiry and needs the explicit composition fallback.
+ - F2: a narrowing row that spans a definition and its use is one plant, not two — the E3 row captures the entry instant and passes it to the in-loop authorization check, and either half alone breaks the build, so the kill measures the pair (same precedent as the rev3 resumption row spanning two adjacent checks).
+ - F3: a grammar arm masked by a downstream arm is unmeasurable alone — the verdict's presented-session grammar arm needed the agreed-malformed member (both sides naming one malformed session, so only the grammar arm undecides it) because any other malformed session mismatches first.
+ - MUTATION EVIDENCE: 114 narrowing mutants plus one tightening edge row, all KILLED (`mutant_harness.py`, 116/116 with the harmless SURVIVED control on two full passes, verdict lists identical), per-plant raw logs with subprocess exits on both passes, production blobs byte-identical before/after/across. The eleven verdict rows mutate the landed package and are killed through `ObserveFencing`, so the composition — not the helper — is measured. The five surviving rev3 reviewer narrowings (RV3-M1/M2/M3/M4/M8) are mirrored as committed rows with committed killers; RV3-M6/M7 were already killed by the committed suite. Retired `N-fencing-epoch-only` (provably equivalent post-fix: a stale park implies a decided-stale verdict and both arms call `fenceLive` with the same refusal) and re-keyed `N-fencing-operation` to the non-live killer (launch-class now shows on the surfaced park vocabulary). No token-preserving source-text mutant applies: no gate inspects source text.
+diff --git a/README.md b/README.md
+index c44349b..52282b9 100644
+--- a/README.md
++++ b/README.md
+@@ -1774,6 +1774,17 @@ rename seam proves no torn final and a safe identical retry. Query-layer
+ admission is unchanged and admits store-minted records without behavioral
+ change.
+ 
++The story-final append-admission gate adds one owner-side check before
++`checkAppend`: a new event under a lower epoch or a same-epoch losing lease
++is refused even when the chain tail still names that lease, while its
++immutable bytes remain preserved. Direct `AppendEvent`, `SetProfile`,
++`Emit`, and `EmitParked` entry tests cover both arms (8 of 8 gate-entry
++cells), and the profile-source test drives `Run` to prove a losing
++`profile.changed` cannot become effective. The focused narrowing battery is
++reproducible with
++`PYTHONDONTWRITEBYTECODE=1 python3 internal/sessrepo/testdata/mutate_append_admission.py /absolute/path/to/evidence-dir`;
++its task-scoped logs and outcome matrix live under `.temp/BUG-260917-3lddu0/`.
++
+ The package derives no lifecycle state, renders no list/status output, and
+ learns no peer names: the Section 5.7 reducer, the full Section 2.3 order with
+ interactive choice, and Section 14.4 rendering belong to the sibling leaves
+@@ -1821,6 +1832,11 @@ refusal site, plus one token-preserving timestamp mutant — 27 killed, 0
+ survivors; plus SURVIVED, NOT_APPLIED, and COMPILE_OR_HARNESS_FAILURE
+ controls reported separately),
+ covering every lease gate at its production entry with per-plant raw logs.
++The story-final append-admission battery is a separate focused harness in
++`internal/sessrepo/testdata/mutate_append_admission.py`: its two narrowing
++mutants retain the gate, admit one rejected lease class each, and are killed
++by direct and composing writer tests; the harmless, not-applied, and compile
++controls are classified separately.
+ 
+ ## Session State Reducer
+ 
+@@ -2123,6 +2139,15 @@ no exported field or constructor — only the gate mints it — and an AST censu
+ pins that boundary with comment/string controls plus an alias-backdoor plant
+ that preserves the searched-for token while changing the construction path.
+ 
++For SPEC.v0.7.0 §4.2 step 4, `Authorize` resolves ownership direction before
++consuming grant expiry. A remote winner with a lapsed local grant therefore
++keeps the `remote_owner` park/cause reachable, so `axpane.Decide` can offer
++`attach_remote` or `takeover_offer`; a local owner with the same lapsed grant
++still refuses `lease_conflict`, while an unusable policy remains
++`invalid_arguments`. The direct regression and the labelled arm-order plant
++are recorded in
++[`internal/fencing/TRACEABILITY.md`](internal/fencing/TRACEABILITY.md).
++
+ Run the focused tests and coverage with:
+ 
+ ```bash
+@@ -2130,7 +2155,7 @@ go test ./internal/fencing -count=1
+ go test ./internal/fencing -cover -count=1
+ ```
+ 
+-Run the narrowing battery (30 narrowing mutants plus one token-preserving
++Run the narrowing battery (31 narrowing mutants plus one token-preserving
+ census mutant and three controls) with:
+ 
+ ```bash
+@@ -2235,7 +2260,12 @@ backend operation — including under a remote winner, where staleness
+ is read relative to the winner from the winner's own host, and
+ including grant-less observations (no grant, lapsed grant, no clock
+ reading, unusable policy), where the landed staleness verdict decides
+-the direction/tuple arms without the grant precondition. A bound
++the direction/tuple arms without the grant precondition. A lapsed remote
++grant is exposed by the direct restore question as the existing
++`remote_owner` park so the pane can offer attach/takeover; the relative
++winner-host question may still stop at deferred expiry, so
++`ObserveFencing` explicitly consults the same grant-independent verdict
++to fence stale tokens while leaving winning/future tokens parked. A bound
+ key without its completion reconciles through the production status
+ entry: the same operation resumes under the same receipt when status
+ proves the source, and refuses uncertain otherwise. The receipt store
+@@ -2251,7 +2281,7 @@ go test ./internal/terminstance -count=1
+ go test ./internal/terminstance -cover -count=1
+ ```
+ 
+-Run the narrowing battery (120 narrowing mutants, one tightening edge
++Run the narrowing battery (121 narrowing mutants, one tightening edge
+ row, plus one harmless control) with:
+ 
+ ```bash
+@@ -3323,7 +3353,7 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
+ registry independently enumerates implementation owners for all 64 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 152
++contract rows, 36 pinned or catalog-referenced normative section keys, 154
+ executable acceptance cases, 69 exact section bindings with their declared
+ coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
+ Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
+@@ -3557,6 +3587,9 @@ both registered against the `config-versioned-readers` acceptance case.
+ Section 2.4 is the first multi-clause admission: its four clauses are
+ discharged by the `sessprofile-derive`, `sessprofile-derive-heads`,
+ `sessprofile-fork-pair`, and `provhost-mapping-resolution` acceptance cases.
++The story-final `story-260917-losing-lease-profile-source` case adds the
++production append-admission refusal/source proof to clause 2.4#2 without
++changing the measured 4/4 section ratio.
+ Sections 7.8 and 10.2 are the clone-story admissions: the seven clauses are
+ discharged by the `clone-capture-contracts`, `clone-native-capture`,
+ `clone-projection-fidelity`, `session-adapter-call-binding`,
+@@ -3700,6 +3733,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
+ | `sessquery` mutation harness | Run isolated selector, plan, summary, and admission narrowing/order mutants with exact replacement and real test-exit classification | `python3 internal/sessquery/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
+ | `fencing` mutation harness | Run isolated fencing-gate narrowing mutants, one token-preserving census mutant, and three controls with real test-exit classification | `python3 internal/fencing/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
+ | `ownership properties` mutation harness | Run isolated ownership-invariant narrowing mutants and three controls with real test-exit classification | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessstate/testdata/mutate_properties.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
++| `sessrepo` append-admission mutation harness | Run the two winning-lease narrowing mutants through direct `AppendEvent` and the composing `SetProfile`, `Emit`, and `EmitParked` production entries, with explicit control classification | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessrepo/testdata/mutate_append_admission.py /absolute/path/to/evidence-dir` | `mutants.json`, raw per-plant logs, copied mutation sources, and control logs under the supplied evidence directory |
+ | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
+ | Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -adopted -output internal/catalog/catalog_gen.go -check` (`-metadata`/`-contracts` select the same inputs explicitly); `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+ | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
+diff --git a/internal/axpane/TRACEABILITY.md b/internal/axpane/TRACEABILITY.md
+index a2ef11a..7257094 100644
+--- a/internal/axpane/TRACEABILITY.md
++++ b/internal/axpane/TRACEABILITY.md
+@@ -310,3 +310,28 @@ they add no new contract):
+   fail-closed (no decision launches without its closure), never
+   a silent proceed. Deferring the load to launch-class
+   decisions is future work, not this leaf.
++
++## Story-final BUG-260917-3lddu0: losing-lease profile source
++
++The production append gate is owned by `sessrepo`; this package supplies
++the wrapper entries that must not bypass it. `TestLosingLeaseProfileEventIgnored`
++drives `world.repo.AppendEvent` after a successor lease wins while the
++tail still belongs to lease A, asserts the literal `ErrStaleLease`, then
++loads the profile through `LoadProfile`/`sessprofile.Derive` and runs the
++production `Run` path. The effective result stays standard with no
++losing-event source, so the archived probe-15 yolo/
++`--dangerously-bypass-approvals-and-sandbox` outcome cannot be reproduced.
++
++The four wrapper entry cells are independently driven by
++`TestEmitReachesAppendAdmissionGateAfterStaleObservation`,
++`TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation`,
++`TestEmitReachesSameEpochAppendAdmissionGate`, and
++`TestEmitParkedReachesSameEpochAppendAdmissionGate`; their corresponding
++lower-epoch and same-epoch narrowing mutants are recorded in the
++sessrepo matrix. No production axpane implementation was changed for
++this leaf. The `decide.go` doc-comment qualifier that “lapsed grants
++refuse” remains intentionally untouched: it is true for the local-owner
++path, while remote-owner relative staleness is the separate structural
++case documented in the task result. The `observeRemoteWinner` redundancy
++and grant-less remote-owner product question remain recorded-only
++dispositions, not simplifications or decisions here.
+diff --git a/internal/axpane/decide_test.go b/internal/axpane/decide_test.go
+index d4134bb..1f29b7d 100644
+--- a/internal/axpane/decide_test.go
++++ b/internal/axpane/decide_test.go
+@@ -106,6 +106,52 @@ func lapsedObservation(now time.Time) fencing.Observation {
+ 	return observation
+ }
+ 
++// TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext drives the
++// after-restore caller around the fencing.Authorize result: interactive
++// remote ownership remains an attach/takeover offer, while a non-interactive
++// remote owner parks with the existing remote_owner vocabulary.
++func TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext(t *testing.T) {
++	cases := []struct {
++		name              string
++		attachAdmitted    bool
++		remoteInteractive bool
++		mode              Mode
++		want              Action
++		wantLiteral       string
++		wantReason        fencing.ParkReason
++		wantReasonLiteral string
++	}{
++		{name: "restore_interactive_attach", attachAdmitted: true, remoteInteractive: true, mode: ModeRestore, want: ActionAttachRemote, wantLiteral: "attach_remote"},
++		{name: "restore_interactive_takeover", attachAdmitted: false, remoteInteractive: true, mode: ModeRestore, want: ActionTakeoverOffer, wantLiteral: "takeover_offer"},
++		{name: "restore_noninteractive_park", attachAdmitted: true, remoteInteractive: false, mode: ModeRestore, want: ActionParked, wantLiteral: "parked", wantReason: fencing.ParkRemoteOwner, wantReasonLiteral: "remote_owner"},
++		{name: "launch_interactive_attach", attachAdmitted: true, remoteInteractive: true, mode: ModeLaunch, want: ActionAttachRemote, wantLiteral: "attach_remote"},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			deps := buildDecideDeps(t, tc.attachAdmitted)
++			input := validInput(t, deps)
++			input.Mode = tc.mode
++			input.Observation = lapsedObservation(fixtureNow())
++			input.Observation.Winner.HolderHostID = fixtureRemoteHost
++			input.RemoteInteractive = tc.remoteInteractive
++			decision := Decide(input)
++			if decision.Action != tc.want {
++				t.Fatalf("Decide() action=%s class=%s reason=%s cause=%v, want %s", decision.Action, decision.Class, decision.ParkReason, decision.Cause, tc.want)
++			}
++			if string(decision.Action) != tc.wantLiteral {
++				t.Fatalf("Decide() action=%q, want literal %q", decision.Action, tc.wantLiteral)
++			}
++			if tc.wantReason != "" && decision.ParkReason != tc.wantReason {
++				t.Fatalf("Decide() park reason=%s, want %s", decision.ParkReason, tc.wantReason)
++			}
++			if tc.wantReasonLiteral != "" && string(decision.ParkReason) != tc.wantReasonLiteral {
++				t.Fatalf("Decide() park reason=%q, want literal %q", decision.ParkReason, tc.wantReasonLiteral)
++			}
++			t.Logf("lapsed remote owner interactive=%t attach_admitted=%t: action=%s reason=%s cause=%v", tc.remoteInteractive, tc.attachAdmitted, decision.Action, decision.ParkReason, decision.Cause)
++		})
++	}
++}
++
+ func TestDecideLaunchPositive(t *testing.T) {
+ 	t.Parallel()
+ 	deps := buildDecideDeps(t, true)
+diff --git a/internal/axpane/rev3_test.go b/internal/axpane/rev3_test.go
+index 5a4746f..2f260e6 100644
+--- a/internal/axpane/rev3_test.go
++++ b/internal/axpane/rev3_test.go
+@@ -521,9 +521,9 @@ func TestRunSupersededPairIdenticalRetry(t *testing.T) {
+ 	if err != nil || first.Decision.Action != ActionLaunch {
+ 		t.Fatalf("first launch = (%v, %v)", first.Decision.Action, err)
+ 	}
++	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
+ 	successor := "cccccccc-dddd-4eee-8fff-000000000001"
+ 	successorLease(t, world.repo, successor, fixtureLocalHost, world.ckptID)
+-	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
+ 	world.mat = journalSourced(t, world.ckptID)
+ 	run := func(op, instance string) Outcome {
+ 		request := runRequest(t, world)
+@@ -679,9 +679,9 @@ func TestRunCreateFromStoppedPostWindow(t *testing.T) {
+ 	if _, err := Run(world.stores(), runRequest(t, world)); err != nil {
+ 		t.Fatal(err)
+ 	}
++	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
+ 	successor := "cccccccc-dddd-4eee-8fff-000000000001"
+ 	successorLease(t, world.repo, successor, fixtureLocalHost, world.ckptID)
+-	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
+ 	request := runRequest(t, world)
+ 	request.Mode = ModeLaunch
+ 	request.BootstrapOperationID = fixtureOtherOp
+diff --git a/internal/axpane/rework_test.go b/internal/axpane/rework_test.go
+index 2313031..720b9d9 100644
+--- a/internal/axpane/rework_test.go
++++ b/internal/axpane/rework_test.go
+@@ -13,6 +13,7 @@ import (
+ 	"github.com/relux-works/agent-session-manager/internal/fencing"
+ 	"github.com/relux-works/agent-session-manager/internal/matjournal"
+ 	"github.com/relux-works/agent-session-manager/internal/sessckpt"
++	"github.com/relux-works/agent-session-manager/internal/sessprofile"
+ 	"github.com/relux-works/agent-session-manager/internal/sessrepo"
+ 	"github.com/relux-works/agent-session-manager/internal/sessstate"
+ 	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
+@@ -269,9 +270,9 @@ func TestRunPostWindowSupersedes(t *testing.T) {
+ 	if err != nil || first.Decision.Action != ActionLaunch {
+ 		t.Fatalf("first launch = (%v, %v)", first.Decision.Action, err)
+ 	}
++	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
+ 	successor := "cccccccc-dddd-4eee-8fff-000000000001"
+ 	successorLease(t, world.repo, successor, fixtureLocalHost, world.ckptID)
+-	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
+ 	world.mat = journalSourced(t, world.ckptID)
+ 	request := runRequest(t, world)
+ 	request.Mode = ModeRestore
+@@ -496,6 +497,142 @@ func TestEmitUnderLosingLeaseRefuses(t *testing.T) {
+ 	})
+ }
+ 
++// TestEmitReachesAppendAdmissionGateAfterStaleObservation drives the
++// wrapper's exported Emit entry with a stale-but-well-formed observation.
++// AuthorizeMutation may accept that caller snapshot, but Repository.AppendEvent
++// must still refuse the lower-epoch event once successor B is durable.
++func TestEmitReachesAppendAdmissionGateAfterStaleObservation(t *testing.T) {
++	t.Parallel()
++	world := buildRunWorld(t)
++	successorLease(t, world.repo, "cccccccc-dddd-4eee-8fff-000000000003", fixtureLocalHost, world.ckptID)
++	_, tail, err := ChainTail(world.repo, fixtureSession)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, _, err = Emit(world.repo, EmitParams{
++		SessionID: fixtureSession, CreatedByHost: fixtureLocalHost,
++		LeaseEpoch: 1, LeaseID: fixtureLeaseA, LeaseSequence: tail.LeaseSequence + 1,
++		Predecessors: []string{tail.EventID}, CreatedAt: fixtureCreatedAt,
++		EventType: "profile.changed", SchemaVersion: "1.0.0",
++		Payload:   map[string]any{"from": "standard", "to": "yolo", "confirmed": true},
++		Presented: fixturePresented(), Observation: fixtureObservation(fixtureNow()),
++	})
++	if err == nil || !errors.Is(err, sessrepo.ErrStaleLease) {
++		t.Fatalf("Emit(stale observation) error = %v, want stale lease refusal from AppendEvent", err)
++	}
++	events, err := world.repo.ListEvents(fixtureSession)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 1 || events[0].EventID != tail.EventID {
++		t.Fatalf("chain after refused Emit = %+v, want the original tail only", events)
++	}
++}
++
++// TestEmitReachesSameEpochAppendAdmissionGate exercises the same-epoch loser
++// arm through Emit: C is the chain tail at epoch 2, then successor B wins the
++// lease store at that same epoch while the caller still presents C.
++func TestEmitReachesSameEpochAppendAdmissionGate(t *testing.T) {
++	t.Parallel()
++	world := buildRunWorld(t)
++	losing := "cccccccc-dddd-4eee-8fff-000000000005"
++	losingID := appendChainEvent(t, world.repo, "profile.changed", 2, losing, 1, world.headID, map[string]any{
++		"from": "standard", "to": "yolo", "confirmed": true,
++	})
++	successorLease(t, world.repo, "cccccccc-dddd-4eee-8fff-000000000006", fixtureLocalHost, world.ckptID)
++	observation := fixtureObservation(fixtureNow())
++	observation.Winner.Epoch = 2
++	observation.Winner.LeaseID = losing
++	observation.Grant.Token.Epoch = 2
++	observation.Grant.Token.LeaseID = losing
++	_, _, err := Emit(world.repo, EmitParams{
++		SessionID: fixtureSession, CreatedByHost: fixtureLocalHost,
++		LeaseEpoch: 2, LeaseID: losing, LeaseSequence: 2,
++		Predecessors: []string{losingID}, CreatedAt: fixtureCreatedAt,
++		EventType: "profile.changed", SchemaVersion: "1.0.0",
++		Payload:   map[string]any{"from": "yolo", "to": "standard", "confirmed": false},
++		Presented: fencing.PresentedToken{SessionID: fixtureSession, Epoch: 2, LeaseID: losing}, Observation: observation,
++	})
++	if err == nil || !errors.Is(err, sessrepo.ErrDivergentBranch) {
++		t.Fatalf("Emit(same-epoch loser) error = %v, want divergent branch refusal from AppendEvent", err)
++	}
++	events, err := world.repo.ListEvents(fixtureSession)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 2 || events[1].EventID != losingID {
++		t.Fatalf("chain after refused same-epoch Emit = %+v, want the losing tail only", events)
++	}
++}
++
++// TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation drives the
++// nested parked writer through EmitParked and Emit, proving the same admission
++// gate is not skipped by the lifecycle/foldable-state wrapper.
++func TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation(t *testing.T) {
++	t.Parallel()
++	world := buildRunWorld(t)
++	failedID := appendChainEvent(t, world.repo, "session.failed", 1, fixtureLeaseA, 2, world.headID, map[string]any{
++		"error_code": "bootstrap_probe", "retryable": false, "operation_id": nil,
++	})
++	successorLease(t, world.repo, "cccccccc-dddd-4eee-8fff-000000000004", fixtureLocalHost, world.ckptID)
++	_, _, err := EmitParked(world.repo, Decision{
++		Action: ActionParked, ParkReason: fencing.ParkStaleOwner, WinningLeaseID: fixtureLeaseA,
++	}, EmitParams{
++		SessionID: fixtureSession, CreatedByHost: fixtureLocalHost,
++		LeaseEpoch: 1, LeaseID: fixtureLeaseA, LeaseSequence: 3,
++		Predecessors: []string{failedID}, CreatedAt: fixtureCreatedAt,
++		Presented: fixturePresented(), Observation: fixtureObservation(fixtureNow()),
++	})
++	if err == nil || !errors.Is(err, sessrepo.ErrStaleLease) {
++		t.Fatalf("EmitParked(stale observation) error = %v, want stale lease refusal from AppendEvent", err)
++	}
++	events, err := world.repo.ListEvents(fixtureSession)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 2 || events[1].EventID != failedID {
++		t.Fatalf("chain after refused EmitParked = %+v, want the failed tail only", events)
++	}
++}
++
++// TestEmitParkedReachesSameEpochAppendAdmissionGate exercises the nested
++// parked writer on the same-epoch loser arm.
++func TestEmitParkedReachesSameEpochAppendAdmissionGate(t *testing.T) {
++	t.Parallel()
++	world := buildRunWorld(t)
++	losing := "cccccccc-dddd-4eee-8fff-000000000007"
++	failedID := appendChainEvent(t, world.repo, "session.failed", 1, fixtureLeaseA, 2, world.headID, map[string]any{
++		"error_code": "bootstrap_probe", "retryable": false, "operation_id": nil,
++	})
++	losingID := appendChainEvent(t, world.repo, "session.failed", 2, losing, 1, failedID, map[string]any{
++		"error_code": "bootstrap_probe", "retryable": false, "operation_id": nil,
++	})
++	successorLease(t, world.repo, "cccccccc-dddd-4eee-8fff-000000000008", fixtureLocalHost, world.ckptID)
++	observation := fixtureObservation(fixtureNow())
++	observation.Winner.Epoch = 2
++	observation.Winner.LeaseID = losing
++	observation.Grant.Token.Epoch = 2
++	observation.Grant.Token.LeaseID = losing
++	_, _, err := EmitParked(world.repo, Decision{
++		Action: ActionParked, ParkReason: fencing.ParkStaleOwner, WinningLeaseID: losing,
++	}, EmitParams{
++		SessionID: fixtureSession, CreatedByHost: fixtureLocalHost,
++		LeaseEpoch: 2, LeaseID: losing, LeaseSequence: 2,
++		Predecessors: []string{losingID}, CreatedAt: fixtureCreatedAt,
++		Presented: fencing.PresentedToken{SessionID: fixtureSession, Epoch: 2, LeaseID: losing}, Observation: observation,
++	})
++	if err == nil || !errors.Is(err, sessrepo.ErrDivergentBranch) {
++		t.Fatalf("EmitParked(same-epoch loser) error = %v, want divergent branch refusal from AppendEvent", err)
++	}
++	events, err := world.repo.ListEvents(fixtureSession)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 3 || events[2].EventID != losingID {
++		t.Fatalf("chain after refused same-epoch EmitParked = %+v, want the losing tail only", events)
++	}
++}
++
+ // TestLosingLeaseProfileEventIgnored pins P1-1 (probe 15, §2.4): a
+ // profile.changed authored under the superseded lease after a local
+ // successor won never becomes the launch profile. On rev1 this
+@@ -515,17 +652,43 @@ func TestLosingLeaseProfileEventIgnored(t *testing.T) {
+ 	}); err != nil {
+ 		t.Fatalf("CompareAndSwapLease() error = %v", err)
+ 	}
+-	changed := appendChainEvent(t, world.repo, "profile.changed", 1, fixtureLeaseA, 2, world.headID, map[string]any{
+-		"from": "standard", "to": "yolo", "confirmed": true,
+-	})
++	changed := identifyObject(t, map[string]any{
++		"schema": "urn:ax:schema:session-event", "schema_version": "1.0.0", "event_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
++		"subject_id": fixtureSession, "session_id": fixtureSession, "event_type": "profile.changed", "created_by_host_id": fixtureLocalHost,
++		"lease_epoch": 1, "lease_id": fixtureLeaseA, "lease_sequence": 2, "predecessors": []string{world.headID},
++		"created_at": fixtureCreatedAt, "payload": map[string]any{"from": "standard", "to": "yolo", "confirmed": true}, "extensions": map[string]any{},
++	}, "event_id")
++	if _, err := world.repo.AppendEvent(fixtureSession, changed); !errors.Is(err, sessrepo.ErrStaleLease) {
++		t.Fatalf("AppendEvent(losing profile.changed) error = %v, want stale lease refusal", err)
++	}
++	record, events, err := LoadProfile(world.repo, fixtureSession)
++	if err != nil {
++		t.Fatalf("LoadProfile() after losing append = %v", err)
++	}
++	profile, err := sessprofile.Derive(record, events)
++	if err != nil {
++		t.Fatalf("Derive() after losing append = %v", err)
++	}
++	if profile.Profile != sessprofile.ProfileStandard || profile.HasSource {
++		t.Fatalf("effective profile after refused losing append = %+v, want standard with no source", profile)
++	}
++	var changedRef struct {
++		EventID string `json:"event_id"`
++	}
++	if err := json.Unmarshal(changed, &changedRef); err != nil {
++		t.Fatalf("decode losing event identity = %v", err)
++	}
+ 	request := runRequest(t, world)
+ 	request.Presented = fencing.PresentedToken{SessionID: fixtureSession, Epoch: 2, LeaseID: successor}
+ 	outcome, err := Run(world.stores(), request)
+ 	if err != nil {
+ 		t.Fatalf("Run() error = %v", err)
+ 	}
+-	if outcome.Decision.Action == ActionLaunch && outcome.Decision.Profile.Source == changed {
+-		t.Fatalf("Run() launch profile source = losing-lease %s, want the checkpoint closure", changed[:20])
++	if outcome.Decision.Action == ActionLaunch && outcome.Decision.Profile.Profile == "yolo" {
++		t.Fatalf("Run() launch profile = %+v, losing-lease yolo must never be effective", outcome.Decision.Profile)
++	}
++	if outcome.Decision.Action == ActionLaunch && outcome.Decision.Profile.Source == changedRef.EventID {
++		t.Fatalf("Run() launch profile source = losing-lease %s, want the checkpoint closure", changedRef.EventID[:20])
+ 	}
+ 	if outcome.Decision.Action == ActionLaunch && outcome.Decision.Profile.Profile != "standard" {
+ 		t.Fatalf("Run() launch profile = %+v, want standard from the closure", outcome.Decision.Profile)
+diff --git a/internal/fencing/TRACEABILITY.md b/internal/fencing/TRACEABILITY.md
+index a6953c8..eff515d 100644
+--- a/internal/fencing/TRACEABILITY.md
++++ b/internal/fencing/TRACEABILITY.md
+@@ -37,7 +37,7 @@ entries at every required boundary.
+ | Lower epoch refused | `Authorize` via all five entries | `TestAuthorizeRefusesLowerEpoch` | Driven: a superseded epoch refuses `stale_owner` on input/mutation/checkpoint and parks `stale_owner` on activation/restore, for the standard old-lease vector and the winner-lease-at-lower-epoch vector. |
+ | Same-epoch loser refused | `Authorize` via all five entries | `TestAuthorizeRefusesSameEpochLoser` | Driven: a losing lease at the winning epoch refuses `lease_conflict` on input/mutation/checkpoint and parks `stale_owner` on activation/restore, for the standard and prefix-sharing losers. |
+ | Foreign session refused | `Authorize` via all five entries | `TestAuthorizeRefusesForeignSession` | Driven: a token for another session refuses `lease_conflict` on every entry, for the prefix-sharing and fully foreign sessions. |
+-| Expired grant refused | `Authorize` via all five entries → `sessrepo.CheckFencingExpiry` | `TestAuthorizeRefusesExpiredGrant` | Driven: a lapsed grant refuses `lease_conflict` on every entry so the holder revalidates; a grant at exactly the boundary stays current; an unusable policy refuses `invalid_arguments`. Expiry logic is reused from the `sessrepo` owner, never restated. |
++| Expired grant refused | local-owner `Authorize` via all five entries → `sessrepo.CheckFencingExpiry` | `TestAuthorizeRefusesExpiredGrant`, `TestAuthorizeLapsedLocalOwnerStaleTokenRemainsLeaseConflict`, `TestAuthorizeRemoteOwnerInvalidPolicyRemainsInvalidArguments` | Driven: a local lapsed grant refuses `lease_conflict` on every entry so the holder revalidates; a grant at exactly the boundary stays current; an unusable policy refuses `invalid_arguments` even with a remote winner. For a remote winner, the lapsed result is deferred until after ownership direction so `remote_owner` remains reachable. Expiry logic is reused from the `sessrepo` owner, never restated. |
+ | Absent lease parks or refuses | `Authorize` via all five entries; `Observe` | `TestAuthorizeParksAndRefusesAbsentWinner`, `TestObserveLoadsWinningLease/no_leases_yields_no_winner` | Driven: with no winning lease, launch entries park `restore_policy` with an empty winning lease ID while the other entries refuse `lease_conflict`; `Observe` reports absence as data, never an error. |
+ | Ambiguous ownership parks or refuses | `Authorize` via all five entries | `TestAuthorizeParksAndRefusesAmbiguous` | Driven: conflicting union observations park `restore_policy` under the winner on launch entries and refuse `lease_conflict` elsewhere. |
+ | Remote ownership parks or refuses | `Authorize` via all five entries | `TestAuthorizeParksAndRefusesRemote` | Driven: a remote winning holder parks `remote_owner` under the winner on launch entries and refuses `not_owner` elsewhere, for prefix-sharing and fully remote holders. |
+@@ -48,6 +48,45 @@ entries at every required boundary.
+ | Terminate-stale outside force recovery refused | `AuthorizeTerminateStale` | `TestTerminateStaleAuthorizesFencedTarget`, `TestTerminateStaleRefusesWithoutForce`, `TestTerminateStaleRefusesWithoutDiagnostics`, `TestTerminateStaleRefusesWithoutWinner`, `TestTerminateStaleRefusesLiveOwner`, `TestTerminateStaleRefusesForeignSession`, `TestTerminateStaleRefusesMalformedTarget`, `TestTerminateStaleRefusesGarbageWinner` | Driven: a fenced target (lower epoch, divergent, or beyond the winner) authorizes under explicit force recovery with preserved diagnostics; missing force, diagnostics, or winner, a live-owner target, a foreign session, and malformed members refuse their classes. |
+ | LeaseToken bound to provider operations from a passed gate only | `LeaseToken.Bind` | `TestBindProjectsMintedToken`, `TestBindRefusesUnknownOperation`, `TestMintedTokenIsStableAcrossEntries` | Driven: a token minted by a passed gate projects the exact triple onto `quiesce`, `capture`, and `materialize` identically from every entry; unknown operations refuse `invalid_arguments`. Resume, stop, materialize-commit, and native-store-plan carry the same triple on the wire but have no gate entry here (stated bound). |
+ 
++## BUG-260917-2fwf8e arm-precedence matrix
++
++The v0.7.0 §4.2 after-restore sequence requires the wrapper to offer
++remote attach/takeover at step 4 when another host owns the session in an
++interactive terminal. `Authorize` validates refresh-policy shape first,
++then resolves ownership direction before consuming a lapsed-grant result:
++a remote winner returns the existing `remote_owner` park/cause, allowing
++the caller to select `attach_remote` or `takeover_offer`; a local winner
++still reaches the expiry arm. An unusable policy remains the existing
++`invalid_arguments` refusal even for a remote winner. The lease chain and
++the Section 5.2 park vocabulary are unchanged.
++
++| Vector | Production call site | Named test | Expected result |
++| --- | --- | --- | --- |
++| Remote interactive owner + lapsed local grant | `Authorize(OperationRestore, ...)` directly; composed by `axpane.Decide` | `TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm`; `TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext/{restore_interactive_attach,restore_interactive_takeover,launch_interactive_attach}` | `ParkDetails = remote_owner/<winning lease>` with `not_owner` cause, never `lease_conflict`; wrapper emits `attach_remote` or `takeover_offer`. |
++| Live local grant | `Authorize(OperationRestore, ...)` directly | `TestAuthorizeArmOrderingNeighbourVectors/live_local_grant` | Authorized token for the exact winning tuple. |
++| Remote non-interactive owner | `axpane.Decide` → `fencing.Authorize` | `TestAuthorizeArmOrderingNeighbourVectors/remote_owner_live_grant`; `TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext/restore_noninteractive_park` | The direct neighbour uses a live grant; the wrapper row uses the lapsed grant and remains `remote_owner`; a non-interactive caller parks without an offer/runtime. |
++| Local owner + lapsed grant | `Authorize(OperationRestore, ...)` directly | `TestAuthorizeArmOrderingNeighbourVectors/local_owner_lapsed_grant` | Literal `lease_conflict` refusal remains local-only. |
++| Arm precedence narrowing | `Authorize` direct regression | `N-arm-order-expiry-before-direction` in `internal/fencing/testdata/mutate.py` | Swapping expiry before direction is applied in isolation and kills `TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm`. |
++
++Direct fencing vector coverage for this leaf is 4 of 4 named neighbour rows,
++plus 5 of 5 `Authorize` operation entries in the lapsed-remote census and 5
++of 5 in the lapsed-local stale-token refusal census. The three wrapper-context
++rows are additionally driven through `Decide`, including `ModeLaunch` through
++the `AuthorizeActivation` call site. The full importer-set before/after
++per-test outcome diff is recorded in the task-scoped handoff results: 1,073
++baseline rows versus 1,103 candidate rows, with 30 new named rows and no
++existing row changing status.
++
++The report-only fencing grid names the moved inputs rather than hiding them in
++an unchanged pass total. V01 (probe 10), V07 (stale epoch), V08 (same-epoch
++loser), V09 (future epoch), and V14 (empty `LocalHostID`) were each
++`REFUSE(lease_conflict)` on all five entries before the fix. After the fix,
++each is `PARK(remote_owner,cause=not_owner)` on activation/restore and
++`REFUSE(not_owner)` on input/mutation/checkpoint. That move is intentional:
++the ownership-direction arm is now reachable before a lapsed-grant result;
++the local-owner lapsed-grant stale-token row remains `lease_conflict` on all
++five entries.
++
+ ## Refusal and recovery coverage
+ 
+ Every `N-` row is a genuine narrowing mutant: the gate stays present
+@@ -79,6 +118,7 @@ produces no named behavioral failure.
+ | Clock presence | `TestAuthorizeRefusesMissingClock/zero_validated` | N-clock admits exactly the clockless never-validated grant; the token authorizes and the negative fails by success. |
+ | Grant expiry | `TestAuthorizeRefusesExpiredGrant/lapsed` | N-expiry extends the interval by an hour; the lapsed-by-seconds grant authorizes while the never-validated grant still refuses. |
+ | Expiry classification | `TestAuthorizeRefusesExpiredGrant` | N-expiry-map swaps the lapsed/unusable classes; both vectors change class. |
++| Arm precedence: ownership direction before grant expiry | `TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm` | N-arm-order-expiry-before-direction swaps the two arms back to expiry-first; the remote lapsed-grant vector returns `lease_conflict` and the named test fails. |
+ | Ownership direction | `TestAuthorizeParksAndRefusesRemote/prefix_sharing` | N-remote-prefix compares first UUID segments only; the prefix-sharing remote holder authorizes while the fully remote holder still refuses. |
+ | Epoch equality, ahead side | `TestAuthorizeRefusesEpochBeyondWinner/exact_lease` | N-epoch-gte weakens `==` to `>=`; the ahead token authorizes while the lower-epoch vectors still refuse stale in the same run. |
+ | Epoch equality, lower side | `TestAuthorizeRefusesLowerEpoch/exact_lease` | N-epoch-lte weakens `==` to `<=`; the lower token authorizes past the epoch arm while the ahead vectors still refuse in the same run. |
+diff --git a/internal/fencing/authorize_order_test.go b/internal/fencing/authorize_order_test.go
+new file mode 100644
+index 0000000..edc24eb
+--- /dev/null
++++ b/internal/fencing/authorize_order_test.go
+@@ -0,0 +1,149 @@
++package fencing
++
++import (
++	"errors"
++	"strings"
++	"testing"
++	"time"
++)
++
++// TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm drives
++// Authorize itself at the after-restore boundary. The wrapper owns the
++// interactive/attach choice; fencing must first return the remote-owner park
++// so that choice remains reachable after the local grant lapses.
++func TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm(t *testing.T) {
++	observation := fenceObservation()
++	observation.Winner.HolderHostID = fenceHostB
++	observation.Now = fenceValidatedAt.Add(fencePolicy.RefreshInterval + time.Second)
++
++	_, err := Authorize(OperationRestore, fencePresented(), observation)
++	if err == nil {
++		t.Fatal("Authorize() succeeded for a remote owner")
++	}
++	if strings.Contains(err.Error(), "lease_conflict") {
++		t.Fatalf("Authorize() returned literal lease_conflict for the remote offer vector: %v", err)
++	}
++	reason, winningLease, parked := ParkDetails(err)
++	if !parked || string(reason) != "remote_owner" || winningLease != fenceLeaseA {
++		t.Fatalf("Authorize() = %v, want parked remote_owner under %s", err, fenceLeaseA)
++	}
++	if !errors.Is(err, ErrNotOwner) {
++		t.Fatalf("Authorize() = %v, want the remote-owner cause", err)
++	}
++	if !strings.Contains(err.Error(), "not_owner") {
++		t.Fatalf("Authorize() = %v, want literal not_owner cause", err)
++	}
++	t.Logf("remote interactive owner + lapsed local grant: park=%s lease=%s cause=not_owner", reason, winningLease)
++}
++
++// TestAuthorizeLapsedRemoteOwnerUsesDirectionForEveryEntry keeps the
++// direction-before-expiry arm ordering visible at every fencing entry:
++// launch entries park remote_owner/not_owner and non-launch entries refuse
++// not_owner, even when the local grant has lapsed.
++func TestAuthorizeLapsedRemoteOwnerUsesDirectionForEveryEntry(t *testing.T) {
++	for name, entry := range fenceEntries() {
++		t.Run(name, func(t *testing.T) {
++			observation := fenceObservation()
++			observation.Winner.HolderHostID = fenceHostB
++			observation.Now = fenceValidatedAt.Add(fencePolicy.RefreshInterval + time.Second)
++			_, err := entry.authorize(fencePresented(), observation)
++			if entry.launch {
++				mustPark(t, err, ParkRemoteOwner, fenceLeaseA, ErrNotOwner, name+"/remote_lapsed")
++			} else {
++				mustRefuse(t, err, ErrNotOwner, name+"/remote_lapsed")
++			}
++			if err == nil || !strings.Contains(err.Error(), "not_owner") || strings.Contains(err.Error(), "lease_conflict") {
++				t.Fatalf("%s/remote_lapsed = %v, want literal not_owner without lease_conflict", name, err)
++			}
++		})
++	}
++}
++
++// TestAuthorizeLapsedLocalOwnerStaleTokenRemainsLeaseConflict pins the
++// neighboring local stale-token class: expiry still wins over tuple arms
++// when direction is local, so every entry returns hard lease_conflict rather
++// than a stale_owner park or refusal.
++func TestAuthorizeLapsedLocalOwnerStaleTokenRemainsLeaseConflict(t *testing.T) {
++	stale := PresentedToken{SessionID: fenceSessionA, Epoch: 1, LeaseID: fenceLeaseOld}
++	observation := fenceObservation()
++	observation.Now = fenceValidatedAt.Add(fencePolicy.RefreshInterval + time.Second)
++	for name, entry := range fenceEntries() {
++		t.Run(name, func(t *testing.T) {
++			_, err := entry.authorize(stale, observation)
++			mustRefuse(t, err, ErrLeaseConflict, name+"/local_lapsed_stale")
++			if !strings.Contains(err.Error(), "lease_conflict") || strings.Contains(err.Error(), "stale_owner") {
++				t.Fatalf("%s/local_lapsed_stale = %v, want literal lease_conflict without stale_owner", name, err)
++			}
++		})
++	}
++}
++
++func TestAuthorizeRemoteOwnerInvalidPolicyRemainsInvalidArguments(t *testing.T) {
++	observation := fenceObservation()
++	observation.Winner.HolderHostID = fenceHostB
++	observation.Policy.RefreshInterval = 0
++
++	_, err := Authorize(OperationRestore, fencePresented(), observation)
++	mustRefuse(t, err, ErrInvalidArguments, "remote owner + unusable refresh policy")
++	if IsParked(err) {
++		t.Fatalf("remote owner + unusable refresh policy = %v, want literal invalid_arguments refusal", err)
++	}
++	if !strings.Contains(err.Error(), "invalid_arguments") {
++		t.Fatalf("remote owner + unusable refresh policy = %v, want literal invalid_arguments refusal", err)
++	}
++	t.Logf("remote owner + unusable refresh policy: refusal=invalid_arguments")
++}
++
++// TestAuthorizeArmOrderingNeighbourVectors keeps the adjacent direct-gate
++// outcomes visible: a live local grant authorizes, a remote owner with a live
++// grant reaches the remote-owner arm, and a lapsed local grant remains
++// lease_conflict.
++func TestAuthorizeArmOrderingNeighbourVectors(t *testing.T) {
++	cases := []struct {
++		name   string
++		mutate func(*Observation)
++		check  func(*testing.T, LeaseToken, error)
++	}{
++		{
++			name: "live_local_grant",
++			check: func(t *testing.T, token LeaseToken, err error) {
++				mustMint(t, token, err, "live_local_grant")
++			},
++		},
++		{
++			name: "remote_owner_live_grant",
++			mutate: func(observation *Observation) {
++				observation.Winner.HolderHostID = fenceHostB
++			},
++			check: func(t *testing.T, _ LeaseToken, err error) {
++				mustPark(t, err, ParkRemoteOwner, fenceLeaseA, ErrNotOwner, "remote_owner_live_grant")
++				reason, _, parked := ParkDetails(err)
++				if !parked || string(reason) != "remote_owner" || !strings.Contains(err.Error(), "not_owner") {
++					t.Fatalf("remote_owner_live_grant = %v, want literal remote_owner/not_owner", err)
++				}
++			},
++		},
++		{
++			name: "local_owner_lapsed_grant",
++			mutate: func(observation *Observation) {
++				observation.Now = fenceValidatedAt.Add(fencePolicy.RefreshInterval + time.Second)
++			},
++			check: func(t *testing.T, _ LeaseToken, err error) {
++				mustRefuse(t, err, ErrLeaseConflict, "local_owner_lapsed_grant")
++				if !strings.Contains(err.Error(), "lease_conflict") {
++					t.Fatalf("local_owner_lapsed_grant = %v, want literal lease_conflict", err)
++				}
++			},
++		},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			observation := fenceObservation()
++			if tc.mutate != nil {
++				tc.mutate(&observation)
++			}
++			token, err := Authorize(OperationRestore, fencePresented(), observation)
++			tc.check(t, token, err)
++		})
++	}
++}
+diff --git a/internal/fencing/gate.go b/internal/fencing/gate.go
+index cd8f551..edec65b 100644
+--- a/internal/fencing/gate.go
++++ b/internal/fencing/gate.go
+@@ -288,10 +288,13 @@ func AuthorizeRestore(presented PresentedToken, observation Observation) (LeaseT
+ // nothing.
+ //
+ // Arm order is precedence: malformed calls die first, then foreign
+-// sessions, then ownership presence and verifiability, then the
+-// fencing grant, then ownership direction (the operative fact beats
+-// the credential: a stale token under a remote winner parks remote,
+-// it does not report stale), then the exact tuple match.
++// sessions, then ownership presence and verifiability, then fencing
++// grant presence and clock availability, then refresh-policy validity,
++// then ownership direction (the operative fact beats grant expiry: a
++// remote winner parks remote so the wrapper can offer attach/takeover),
++// then the lapsed-grant refusal, then the exact tuple match. Policy
++// validity is checked before direction; only the expired outcome is
++// deferred so the remote-owner arm remains reachable.
+ func Authorize(operation Operation, presented PresentedToken, observation Observation) (LeaseToken, error) {
+ 	if !validOperation(operation) {
+ 		return LeaseToken{}, refuse(ErrInvalidArguments, "unknown fencing operation %q", string(operation))
+@@ -341,10 +344,8 @@ func Authorize(operation Operation, presented PresentedToken, observation Observ
+ 	if observation.Now.IsZero() {
+ 		return LeaseToken{}, refuse(ErrInvalidArguments, "fencing observation for session %s carries no clock reading; expiry cannot be checked", observation.SessionID)
+ 	}
+-	if err := sessrepo.CheckFencingExpiry(observation.Grant, observation.Policy, observation.Now); err != nil {
+-		if errors.Is(err, sessrepo.ErrFencingExpired) {
+-			return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
+-		}
++	expiryErr := sessrepo.CheckFencingExpiry(observation.Grant, observation.Policy, observation.Now)
++	if expiryErr != nil && !errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
+ 		return LeaseToken{}, refuse(ErrInvalidArguments, "fencing observation for session %s carries an unusable refresh policy", observation.SessionID)
+ 	}
+ 	if observation.Winner.HolderHostID != observation.LocalHostID {
+@@ -353,6 +354,9 @@ func Authorize(operation Operation, presented PresentedToken, observation Observ
+ 		}
+ 		return LeaseToken{}, refuse(ErrNotOwner, "session %s is owned by remote host %s", observation.SessionID, observation.Winner.HolderHostID)
+ 	}
++	if errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
++		return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
++	}
+ 	epochsEqual := presented.Epoch == observation.Winner.Epoch
+ 	if !epochsEqual {
+ 		if presented.Epoch < observation.Winner.Epoch {
+diff --git a/internal/fencing/testdata/mutate.py b/internal/fencing/testdata/mutate.py
+index 7d7e082..2465a9f 100644
+--- a/internal/fencing/testdata/mutate.py
++++ b/internal/fencing/testdata/mutate.py
+@@ -39,6 +39,30 @@ SESSIONB = "0198f4c8-3e70-7a11-8a2b-1234567890ac"
+ GATE_IMPORT = '\t"errors"\n\t"fmt"\n\t"time"'
+ GATE_IMPORT_STRINGS = '\t"errors"\n\t"fmt"\n\t"strings"\n\t"time"'
+ 
++# The precedence plant deliberately preserves both gates and swaps only their
++# result arms. Policy validity remains before direction; the regression vector
++# must fail when the expired result is consumed before the remote-owner arm.
++DIRECTION_THEN_EXPIRY = """\tif observation.Winner.HolderHostID != observation.LocalHostID {
++		if launchClass(operation) {
++			return LeaseToken{}, park(ParkRemoteOwner, observation.Winner.LeaseID, ErrNotOwner)
++		}
++		return LeaseToken{}, refuse(ErrNotOwner, "session %s is owned by remote host %s", observation.SessionID, observation.Winner.HolderHostID)
++	}
++	if errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
++		return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
++	}
++"""
++EXPIRY_THEN_DIRECTION = """\tif errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
++		return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
++	}
++	if observation.Winner.HolderHostID != observation.LocalHostID {
++		if launchClass(operation) {
++			return LeaseToken{}, park(ParkRemoteOwner, observation.Winner.LeaseID, ErrNotOwner)
++		}
++		return LeaseToken{}, refuse(ErrNotOwner, "session %s is owned by remote host %s", observation.SessionID, observation.Winner.HolderHostID)
++	}
++"""
++
+ # Each mutant: (name, kind, file, edits|add-path+content, command, bound).
+ # kind edit: [(old, new)] applied to file, each anchored exactly once.
+ # kind add: writes path with content for the run, then removes it.
+@@ -110,10 +134,14 @@ MUTANTS = [
+      ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesExpiredGrant$", "-count=1", "-v"],
+      "Extend the refresh interval by an hour; the lapsed-by-seconds grant authorizes while the never-validated grant still refuses."),
+     ("N-expiry-map", "edit", "internal/fencing/gate.go",
+-     [("if errors.Is(err, sessrepo.ErrFencingExpired) {",
+-        "if errors.Is(err, sessrepo.ErrInvalidLease) {")],
++     [("if errors.Is(expiryErr, sessrepo.ErrFencingExpired) {",
++        "if errors.Is(expiryErr, sessrepo.ErrInvalidLease) {")],
+      ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesExpiredGrant$", "-count=1", "-v"],
+      "Swap the lapsed/unusable classes; both vectors change class and the test fails."),
++    ("N-arm-order-expiry-before-direction", "edit", "internal/fencing/gate.go",
++     [(DIRECTION_THEN_EXPIRY, EXPIRY_THEN_DIRECTION)],
++     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorize(RemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm|LapsedRemoteOwnerUsesDirectionForEveryEntry)$", "-count=1", "-v"],
++     "Swap the ownership-direction and grant-expiry arms back to expiry-first; the direct remote-offer regression and every-entry witness return lease_conflict/not_owner mismatches and fail."),
+     ("N-remote-prefix", "edit", "internal/fencing/gate.go",
+      [(GATE_IMPORT, GATE_IMPORT_STRINGS),
+       ("if observation.Winner.HolderHostID != observation.LocalHostID {",
+diff --git a/internal/sessprofile/setprofile_test.go b/internal/sessprofile/setprofile_test.go
+index a199560..1685f34 100644
+--- a/internal/sessprofile/setprofile_test.go
++++ b/internal/sessprofile/setprofile_test.go
+@@ -4,6 +4,8 @@ import (
+ 	"bytes"
+ 	"errors"
+ 	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
+ )
+ 
+ func validSetProfileRequest() SetProfileRequest {
+@@ -74,6 +76,74 @@ func TestSetProfileAppendsUnderChainHead(t *testing.T) {
+ 	}
+ }
+ 
++// TestSetProfileRefusesSupersededLeaseWhileTailStillMatches drives the
++// sessrepo admission gate through the composing profile writer: successor B
++// is stored while the chain tail remains under A, then SetProfile's A event
++// must be refused instead of extending that still-matching tail.
++func TestSetProfileRefusesSupersededLeaseWhileTailStillMatches(t *testing.T) {
++	t.Run("lower epoch", func(t *testing.T) {
++		repository := openTestRepository(t)
++		reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
++		first, err := repository.CreateLease(testSessionID, sessrepo.CreateLeaseInput{
++			LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt,
++		})
++		if err != nil {
++			t.Fatal(err)
++		}
++		tail := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++		if _, err := repository.CompareAndSwapLease(testSessionID, sessrepo.LeaseExpectation{RecordID: first.RecordID}, sessrepo.SuccessorLeaseInput{
++			CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: testLeaseIDB, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt},
++			Reason:           "graceful_takeover", CheckpointID: zeroDigest,
++		}); err != nil {
++			t.Fatal(err)
++		}
++		request := validSetProfileRequest()
++		_, err = (&Transactor{Repo: repository}).SetProfile(request)
++		if err == nil || !errors.Is(err, sessrepo.ErrStaleLease) {
++			t.Fatalf("SetProfile(superseded lease) error = %v, want stale lease refusal", err)
++		}
++		events, err := repository.ListEvents(testSessionID)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if len(events) != 1 || events[0].EventID != tail {
++			t.Fatalf("chain after refused SetProfile = %+v, want the original tail only", events)
++		}
++	})
++
++	t.Run("same epoch loser", func(t *testing.T) {
++		repository := openTestRepository(t)
++		reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
++		tail := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 2, testLeaseIDC, 1, "session.created", createdPayload(reference.RecordID))
++		first, err := repository.CreateLease(testSessionID, sessrepo.CreateLeaseInput{
++			LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt,
++		})
++		if err != nil {
++			t.Fatal(err)
++		}
++		if _, err := repository.CompareAndSwapLease(testSessionID, sessrepo.LeaseExpectation{RecordID: first.RecordID}, sessrepo.SuccessorLeaseInput{
++			CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: testLeaseIDB, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt},
++			Reason:           "graceful_takeover", CheckpointID: zeroDigest,
++		}); err != nil {
++			t.Fatal(err)
++		}
++		request := validSetProfileRequest()
++		request.LeaseEpoch = 2
++		request.LeaseID = testLeaseIDC
++		_, err = (&Transactor{Repo: repository}).SetProfile(request)
++		if err == nil || !errors.Is(err, sessrepo.ErrDivergentBranch) {
++			t.Fatalf("SetProfile(same-epoch loser) error = %v, want divergent branch refusal", err)
++		}
++		events, err := repository.ListEvents(testSessionID)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if len(events) != 1 || events[0].EventID != tail {
++			t.Fatalf("chain after refused same-epoch SetProfile = %+v, want the original tail only", events)
++		}
++	})
++}
++
+ func TestSetProfileDerivesFromFromEffectivePair(t *testing.T) {
+ 	repository := openTestRepository(t)
+ 	createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
+diff --git a/internal/sessrepo/TRACEABILITY.md b/internal/sessrepo/TRACEABILITY.md
+index 88abab9..d6578a1 100644
+--- a/internal/sessrepo/TRACEABILITY.md
++++ b/internal/sessrepo/TRACEABILITY.md
+@@ -109,3 +109,54 @@ Crash/idempotency matrix (Section 13.13 outcomes):
+   validation already admitted the inputs, so a mint failure is an
+   internal inconsistency. The narrowing batteries rely on this: a
+   weakened grammar gate fails closed at mint with a changed class.
++
++## Story-final BUG-260917-3lddu0: winning-lease append admission
++
++This leaf adds the owner-side admission gate in
++`Repository.AppendEvent`: once a session has a lease store, a new event
++must be at the winning epoch and, at that epoch, must name the winning
++lease. The gate is `checkWinningLease` in `chain.go`; historical replay
++does not call it, because an earlier winner's already-authoritative event
++remains valid history after a successor wins. A refused lower-epoch or
++same-epoch losing event is still installed as an immutable blob, while
++the authoritative chain is unchanged.
++
++The two leaf acceptance rows are fully driven: **2 of 2**. The first row
++is the direct stale-tail refusal; the second proves that a refused
++`profile.changed` cannot become the effective source through `Run`.
++
++| Gate arm | `Repository.AppendEvent` | `sessprofile.Transactor.SetProfile` | `axpane.Emit` | `axpane.EmitParked` |
++| --- | --- | --- | --- | --- |
++| Lower epoch → `ErrStaleLease` | `TestAppendEventRefusesSupersededLeaseWhileTailStillMatches` | `TestSetProfileRefusesSupersededLeaseWhileTailStillMatches/lower_epoch` | `TestEmitReachesAppendAdmissionGateAfterStaleObservation` | `TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation` |
++| Same-epoch loser → `ErrDivergentBranch` | `TestAppendEventRefusesSameEpochLosingLeaseWhileTailStillMatches` | `TestSetProfileRefusesSupersededLeaseWhileTailStillMatches/same_epoch_loser` | `TestEmitReachesSameEpochAppendAdmissionGate` | `TestEmitParkedReachesSameEpochAppendAdmissionGate` |
++
++The gate-entry census is **8 of 8 cells driven**, with no unreachable
++cell and symmetry of 4 lower-epoch cells to 4 same-epoch cells. Every
++cell reaches `AppendEvent` through the named production entry; the
++existing `checkAppend` continuity gate is unchanged and remains covered
++by its pre-existing census. The complete importer comparison uses the
++mask `./internal/axpane ./internal/crashgate ./internal/fencing
++./internal/sessckpt ./internal/sessprofile ./internal/sessquery
++./internal/sessstate ./internal/termbind ./internal/terminstance`:
++all 9 packages pass, with 2,018 before and 2,025 after outcome keys,
++7 named new negative-test outcomes, and 0 removed or changed outcomes.
++
++The final narrowing battery is
++`PYTHONDONTWRITEBYTECODE=1 python3 internal/sessrepo/testdata/mutate_append_admission.py <evidence-dir>`
++from `.temp/BUG-260917-3lddu0/mutants-append-03/`. Both
++`N-stale-winning-admission` and `N-same-epoch-winning-admission` retain
++the gate but admit exactly one rejected class and are **KILLED** through
++the direct, SetProfile, Emit, and EmitParked tests. The harmless comment
++control is `SURVIVED`; `C-not-applied` is `NOT_APPLIED`; the compile
++control is `COMPILE_OR_HARNESS_FAILURE`; both control-before and
++control-after suites exit 0. There is no source-text-inspecting gate, so
++a token-preserving source-text mutant is not applicable.
++
++The bounds are deliberate: an empty lease store keeps bootstrap/unit
++fixtures compatible, and a higher unknown event epoch remains subject
++to the existing `checkAppend`/lease admission behavior. No public `ax`
++CLI entry exists in this repository. The sibling profile test
++`TestLosingLeaseProfileEventIgnored` drives the same append gate and then
++checks `sessprofile.Derive` and `Run`: the losing event is refused,
++`standard` with no source remains effective, and the yolo/bypass mapping
++cannot launch.
+diff --git a/internal/sessrepo/census_test.go b/internal/sessrepo/census_test.go
+index a25efd8..9055234 100644
+--- a/internal/sessrepo/census_test.go
++++ b/internal/sessrepo/census_test.go
+@@ -657,7 +657,7 @@ func unclassifiableEqualitySpellings(syntax *ast.File, fileSet *token.FileSet, d
+ func sessrepoEqualityLedger() map[string]string {
+ 	return map[string]string{
+ 		"sessrepo.go:262":    "TestCreateSessionRefusesResumeWithDifferingBytes // N10 length-only",
+-		"chain.go:426":       "TestAppendEventRefusesSameLengthDisagreeingBytes // N13 length-only",
++		"chain.go:442":       "TestAppendEventRefusesSameLengthDisagreeingBytes // N13 length-only",
+ 		"lease_store.go:650": "TestInstallDisagreeingBytesRefuses/same_length // N length-only",
+ 	}
+ }
+diff --git a/internal/sessrepo/chain.go b/internal/sessrepo/chain.go
+index 810777b..f0cbca3 100644
+--- a/internal/sessrepo/chain.go
++++ b/internal/sessrepo/chain.go
+@@ -194,6 +194,22 @@ func checkAppend(recordID string, tail *EventSummary, event eventView) error {
+ 	return nil
+ }
+ 
++// checkWinningLease enforces the owner-side admission rule for a new event
++// once a session has a lease store. Historical chain replay intentionally
++// does not call this helper: an event authored by an earlier winner remains
++// valid history after a successor wins. A new lower-epoch event, or a new
++// same-epoch event from a losing lease, is an unapplied branch even when the
++// chain tail still names the old lease.
++func checkWinningLease(winner LeaseSummary, event eventView) error {
++	if event.leaseEpoch < winner.Epoch {
++		return refuse(ErrStaleLease, "event lease epoch %d precedes winning lease epoch %d", event.leaseEpoch, winner.Epoch)
++	}
++	if event.leaseEpoch == winner.Epoch && event.leaseID != winner.LeaseID {
++		return refuse(ErrDivergentBranch, "event lease %s loses to winning lease %s at epoch %d", event.leaseID, winner.LeaseID, winner.Epoch)
++	}
++	return nil
++}
++
+ func containsDigest(haystack []string, needle string) bool {
+ 	for _, candidate := range haystack {
+ 		if candidate == needle {
+diff --git a/internal/sessrepo/sessrepo.go b/internal/sessrepo/sessrepo.go
+index 5baeea6..649d2b3 100644
+--- a/internal/sessrepo/sessrepo.go
++++ b/internal/sessrepo/sessrepo.go
+@@ -307,6 +307,23 @@ func (repository *Repository) AppendEvent(sessionID string, eventJSON []byte) (E
+ 		previous := view.chain.Events[len(view.chain.Events)-1]
+ 		tail = &previous
+ 	}
++	leases, err := repository.loadLeasesLocked(view.directory, view.record.sessionID)
++	if err != nil {
++		return EventRef{}, err
++	}
++	if len(leases) > 0 {
++		if err := checkWinningLease(leases[len(leases)-1], event); err != nil {
++			// Losing-lease branches are preserved as immutable blobs but
++			// never applied: the bytes stay addressable while the chain is
++			// untouched, including when the old lease is still the tail.
++			if errors.Is(err, ErrDivergentBranch) || errors.Is(err, ErrStaleLease) {
++				if preserveErr := installEventBlob(filepath.Join(view.directory, "events", blobFileName(event.eventID)), eventJSON); preserveErr != nil {
++					return EventRef{}, fmt.Errorf("preserve unapplied branch: %v: %w", preserveErr, err)
++				}
++			}
++			return EventRef{}, err
++		}
++	}
+ 	if err := checkAppend(view.chain.RecordID, tail, event); err != nil {
+ 		// Losing-lease branches are preserved as immutable blobs but never
+ 		// applied: the bytes stay addressable while the chain is untouched.
+diff --git a/internal/sessrepo/sessrepo_test.go b/internal/sessrepo/sessrepo_test.go
+index a241693..61aa528 100644
+--- a/internal/sessrepo/sessrepo_test.go
++++ b/internal/sessrepo/sessrepo_test.go
+@@ -737,6 +737,107 @@ func TestAppendEventRefusesStaleLeaseEpoch(t *testing.T) {
+ 	mustErrorIs(t, err, ErrStaleLease, "AppendEvent(stale epoch)")
+ }
+ 
++// TestAppendEventRefusesSupersededLeaseWhileTailStillMatches pins the
++// production append admission gate behind the exact stale-lease shape from
++// review probe 9: successor B is already the stored winner, but the
++// authoritative tail still belongs to lease A. The losing profile.changed
++// event must be refused and preserved without changing the chain.
++func TestAppendEventRefusesSupersededLeaseWhileTailStillMatches(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	firstLease := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, firstLease.Epoch, firstLease.LeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	secondLease := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: firstLease.RecordID}, successorLeaseFixture())
++	losing := buildEvent(t, eventOptions{
++		sessionID:    testSessionID,
++		predecessors: []string{first.EventID},
++		epoch:        firstLease.Epoch,
++		leaseID:      firstLease.LeaseID,
++		sequence:     2,
++		eventType:    "profile.changed",
++		payload:      map[string]any{"from": "standard", "to": "yolo", "confirmed": true},
++	})
++	_, err := repository.AppendEvent(testSessionID, losing)
++	mustErrorIs(t, err, ErrStaleLease, "AppendEvent(profile.changed under superseded lease)")
++	if secondLease.Epoch != 2 || secondLease.LeaseID != testLeaseIDB {
++		t.Fatalf("successor lease = %+v, want epoch 2 lease %s", secondLease, testLeaseIDB)
++	}
++	events, err := repository.ListEvents(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 1 || events[0].LeaseID != firstLease.LeaseID {
++		t.Fatalf("chain after stale append = %+v, want the original lease-A tail only", events)
++	}
++	var eventID struct {
++		EventID string `json:"event_id"`
++	}
++	if err := json.Unmarshal(losing, &eventID); err != nil {
++		t.Fatal(err)
++	}
++	preserved, err := os.ReadFile(blobPathFor(t, repository, testSessionID, eventID.EventID))
++	if err != nil {
++		t.Fatalf("losing event was not preserved: %v", err)
++	}
++	if string(preserved) != string(losing) {
++		t.Fatal("preserved losing profile.changed bytes differ")
++	}
++
++	t.Run("same-epoch losing lease", func(t *testing.T) {
++		repository := openTestRepository(t)
++		reference := createTestSession(t, repository)
++		firstLease := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++		first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, firstLease.Epoch, firstLease.LeaseID, 1, "session.created", createdPayload(reference.RecordID))
++		secondLease := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: firstLease.RecordID}, successorLeaseFixture())
++		second, _ := appendTestEvent(t, repository, testSessionID, []string{first.EventID}, secondLease.Epoch, secondLease.LeaseID, 1, "session.idle", idlePayload())
++		losing := buildEvent(t, eventOptions{
++			sessionID:    testSessionID,
++			predecessors: []string{second.EventID},
++			epoch:        secondLease.Epoch,
++			leaseID:      testLeaseIDC,
++			sequence:     2,
++			eventType:    "session.idle",
++			payload:      idlePayload(),
++		})
++		_, err := repository.AppendEvent(testSessionID, losing)
++		mustErrorIs(t, err, ErrDivergentBranch, "AppendEvent(same-epoch losing lease)")
++	})
++}
++
++// TestAppendEventRefusesSameEpochLosingLeaseWhileTailStillMatches exercises
++// the other winner-gate arm with a tail that already belongs to the losing
++// same-epoch lease. The chain-only bootstrap is built before lease records
++// exist; once winner B is installed, a new C event must not extend that old
++// tail even though checkAppend alone would accept its sequence and link.
++func TestAppendEventRefusesSameEpochLosingLeaseWhileTailStillMatches(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository)
++	tail, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 2, testLeaseIDC, 1, "session.created", createdPayload(reference.RecordID))
++	firstLease := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
++	secondLease := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: firstLease.RecordID}, successorLeaseFixture())
++	if secondLease.Epoch != 2 || secondLease.LeaseID != testLeaseIDB {
++		t.Fatalf("successor lease = %+v, want epoch 2 lease %s", secondLease, testLeaseIDB)
++	}
++	losing := buildEvent(t, eventOptions{
++		sessionID:    testSessionID,
++		predecessors: []string{tail.EventID},
++		epoch:        2,
++		leaseID:      testLeaseIDC,
++		sequence:     2,
++		eventType:    "session.idle",
++		payload:      idlePayload(),
++	})
++	_, err := repository.AppendEvent(testSessionID, losing)
++	mustErrorIs(t, err, ErrDivergentBranch, "AppendEvent(same-epoch losing tail)")
++	events, err := repository.ListEvents(testSessionID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(events) != 1 || events[0].LeaseID != testLeaseIDC {
++		t.Fatalf("chain after same-epoch losing append = %+v, want the original lease-C tail only", events)
++	}
++}
++
+ func TestAppendEventRefusesDisagreeingDigestPathBytes(t *testing.T) {
+ 	repository := openTestRepository(t)
+ 	reference := createTestSession(t, repository)
+@@ -776,7 +877,7 @@ func blobPathFor(t *testing.T, repository *Repository, sessionID, eventID string
+ }
+ 
+ // TestAppendEventRefusesSameLengthDisagreeingBytes is the same-length
+-// vector for the installEventBlob content-equality gate (chain.go:426):
++// vector for the installEventBlob content-equality gate (chain.go:442):
+ // the planted bytes differ from the genuine event in exactly one bit but
+ // carry the identical byte length, so a narrowed equality that compares
+ // lengths only would admit them as already installed, write the chain
+diff --git a/internal/sessrepo/testdata/mutate_append_admission.py b/internal/sessrepo/testdata/mutate_append_admission.py
+new file mode 100644
+index 0000000..4c3aee7
+--- /dev/null
++++ b/internal/sessrepo/testdata/mutate_append_admission.py
+@@ -0,0 +1,155 @@
++#!/usr/bin/env python3
++"""Run narrowing mutants for the sessrepo append winner gate.
++
++Usage: PYTHONDONTWRITEBYTECODE=1 python3 \
++  internal/sessrepo/testdata/mutate_append_admission.py /absolute/evidence-dir
++
++Each N-mutant keeps the gate present and admits exactly one rejected lease
++class. The selected Go tests drive Repository.AppendEvent directly and through
++the composing SetProfile, Emit, and EmitParked entries, so a surviving mutant
++is a real production-entry failure rather than a source-text check.
++"""
++
++import hashlib
++import json
++from pathlib import Path
++import re
++import shutil
++import subprocess
++import sys
++
++
++ROOT = Path(__file__).resolve().parents[3]
++OUTPUT = Path(sys.argv[1]).resolve()
++OUTPUT.mkdir(parents=True, exist_ok=True)
++COPY = OUTPUT / "mutation-source"
++if COPY.exists():
++    raise SystemExit("refusing to overwrite an existing mutation source")
++COPY.mkdir()
++shutil.copytree(ROOT / "internal", COPY / "internal")
++for name in ("go.mod", "go.sum", "README.md", "LOGBOOK.md"):
++    shutil.copy2(ROOT / name, COPY / name)
++
++
++TESTS = {
++    "N-stale-winning-admission": r"^(TestAppendEventRefusesSupersededLeaseWhileTailStillMatches|TestSetProfileRefusesSupersededLeaseWhileTailStillMatches|TestEmitReachesAppendAdmissionGateAfterStaleObservation|TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation)$",
++    "N-same-epoch-winning-admission": r"^(TestAppendEventRefusesSameEpochLosingLeaseWhileTailStillMatches|TestSetProfileRefusesSupersededLeaseWhileTailStillMatches|TestEmitReachesSameEpochAppendAdmissionGate|TestEmitParkedReachesSameEpochAppendAdmissionGate)$",
++    "C-harmless-comment": r"^TestAppendEventChainInOrder$",
++    "C-not-applied": r"^TestAppendEventChainInOrder$",
++    "C-compile-failure": r"^TestAppendEventChainInOrder$",
++}
++
++
++def command_for(name):
++    pattern = TESTS.get(name)
++    if pattern is None:
++        raise SystemExit(f"no behavioral test mapping for {name}")
++    return ["go", "test", "./internal/sessrepo", "./internal/sessprofile", "./internal/axpane", "-run", pattern, "-count=1", "-v"]
++
++
++sources = {
++    "chain": COPY / "internal/sessrepo/chain.go",
++    "sessrepo": COPY / "internal/sessrepo/sessrepo.go",
++}
++originals = {name: path.read_bytes() for name, path in sources.items()}
++results = []
++env = dict(__import__("os").environ)
++env["PYTHONDONTWRITEBYTECODE"] = "1"
++
++
++def run(name, source_name, old, new, note):
++    source = sources[source_name]
++    original = source.read_text()
++    count = original.count(old)
++    if count != 1:
++        results.append({"mutant": name, "classification": "NOT_APPLIED", "count": count, "bound": note})
++        print(name, "NOT_APPLIED", count, flush=True)
++        return
++    source.write_text(original.replace(old, new))
++    command = command_for(name)
++    log_path = OUTPUT / f"{name}.log"
++    try:
++        with log_path.open("w") as log:
++            process = subprocess.run(command, cwd=COPY, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=180)
++        text = log_path.read_text()
++        failures = re.findall(r"^\s*--- FAIL: ([^ ]+)", text, re.M)
++        ran_tests = re.findall(r"^=== RUN ", text, re.M)
++        if not ran_tests or process.returncode not in (0, 1):
++            classification = "COMPILE_OR_HARNESS_FAILURE"
++        elif process.returncode == 0:
++            classification = "SURVIVED"
++        elif failures:
++            classification = "KILLED"
++        else:
++            classification = "COMPILE_OR_HARNESS_FAILURE"
++        results.append({
++            "mutant": name,
++            "classification": classification,
++            "exit": process.returncode,
++            "failed_tests": failures,
++            "bound": note,
++            "command": command,
++        })
++        print(name, classification, process.returncode, ", ".join(failures), flush=True)
++    finally:
++        source.write_text(original)
++        if source.read_bytes() != originals[source_name]:
++            raise SystemExit(f"failed to restore {source_name} after {name}")
++
++
++PACKAGE_COMMAND = ["go", "test", "./internal/sessrepo", "./internal/sessprofile", "./internal/axpane", "-count=1"]
++
++with (OUTPUT / "control-before.log").open("w") as log:
++    before = subprocess.run(PACKAGE_COMMAND, cwd=COPY, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=300)
++results.append({"mutant": "control-before", "classification": "CONTROL", "exit": before.returncode})
++if before.returncode:
++    raise SystemExit("baseline failed")
++
++run(
++    "N-stale-winning-admission",
++    "chain",
++    "if event.leaseEpoch < winner.Epoch {",
++    'if event.leaseEpoch < winner.Epoch && event.leaseID == "never-a-real-lease" {',
++    "Admit the lower-epoch stale event while retaining the winner gate and same-epoch arm.",
++)
++run(
++    "N-same-epoch-winning-admission",
++    "chain",
++    "if event.leaseEpoch == winner.Epoch && event.leaseID != winner.LeaseID {",
++    'if event.leaseEpoch == winner.Epoch && event.leaseID != winner.LeaseID && event.leaseID == "never-a-real-lease" {',
++    "Admit a same-epoch losing lease while retaining the lower-epoch arm.",
++)
++run(
++    "C-harmless-comment",
++    "chain",
++    "// checkWinningLease enforces the owner-side admission rule for a new event",
++    "// checkWinningLease is a behavior-preserving owner-side admission rule for a new event",
++    "Comment-only control must survive.",
++)
++run(
++    "C-not-applied",
++    "chain",
++    "TOKEN_NOT_PRESENT_IN_CHAIN_SOURCE",
++    "replacement",
++    "Missing patch control must be reported, never counted as a kill.",
++)
++run(
++    "C-compile-failure",
++    "chain",
++    "package sessrepo",
++    "package sessrepo\nthis is not Go",
++    "Compilation control is not a behavioral kill.",
++)
++
++with (OUTPUT / "control-after.log").open("w") as log:
++    after = subprocess.run(PACKAGE_COMMAND, cwd=COPY, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=300)
++results.append({"mutant": "control-after", "classification": "CONTROL", "exit": after.returncode})
++
++for name, path in sources.items():
++    if path.read_bytes() != originals[name]:
++        raise SystemExit(f"source changed after battery: {name}")
++(OUTPUT / "mutants.json").write_text(json.dumps(results, indent=2) + "\n")
++bad = [row for row in results if row["mutant"].startswith("N-") and row["classification"] != "KILLED"]
++if after.returncode:
++    bad.append({"mutant": "control-after", "classification": "CONTROL_FAILED"})
++raise SystemExit(1 if bad else 0)
+diff --git a/internal/terminstance/TRACEABILITY.md b/internal/terminstance/TRACEABILITY.md
+index 45dbe4c..cc27355 100644
+--- a/internal/terminstance/TRACEABILITY.md
++++ b/internal/terminstance/TRACEABILITY.md
+@@ -175,8 +175,8 @@ Every addition extends a landed type or gate; nothing is forked:
+ 
+ | # | Clause | Committed test |
+ | --- | --- | --- |
+-| 85 | Grant-less stale fences: every grant-precondition member (no grant, lapsed grant, no clock reading, unusable policy) fences from active/parked/quiescing under local and remote winners, for the older-epoch and lease-mismatch tokens (48 transitions; the direct gate refuses grant-gated, never a park) | `TestRV3F3_GrantLessStaleFences` |
+-| 86 | Decided-not-stale leaves state grant-less: winning token and future epoch surface the grant refusal with no transition, local and remote | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` (4 subtests) |
++| 85 | Grant-less stale fences: every grant-precondition member (no grant, lapsed grant, no clock reading, unusable policy) fences from active/parked/quiescing under local and remote winners, for the older-epoch and lease-mismatch tokens (48 transitions). A direct remote lapsed-grant question now parks `remote_owner` for the attach/takeover caller; `ObserveFencing` then uses the grant-independent verdict when the relative question is stopped by deferred expiry (the direct gate's arm and the composed stale transition are separate assertions). | `TestRV3F3_GrantLessStaleFences`, `TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation` |
++| 86 | Decided-not-stale leaves state grant-less: winning token and future epoch surface the grant refusal or existing remote-owner park with no transition, local and remote | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` (4 subtests) |
+ | 87 | Undecidable observations leave state: unverified, ambiguous, no winner, malformed winner, session mismatch, failed handoff (park preserved), malformed session/epoch/lease — each with a second stale-shaped member — surface the gate's own refusal or park | `TestRV3F3_GrantLessUndecidedLeavesState` (9 subtests) |
+ | 88 | Live-source gate under the verdict path: creating fences grant-less; absent/stopped/stale_fenced/unavailable surface the grant refusal (local and remote) | `TestRV3F3_GrantLessNonLiveSourcesLeaveState`, `TestRV3_FencingNoLocalTupleComparison` (composition pin) |
+ | 89 | Auth expiry rechecked before each effect: mid-operation expiry caught after one committed effect (`ax authorization expiry`, after unavailable, new_authorization); the E1 expired members kill on the receipt via the late-deadline instant | `TestRV3W_M1_AuthExpiryRecheckedBeforeEachEffect`, `TestExecuteCreateEntryAuthorizationRefuses/expired`, `TestExecutePreEffectErrorsRestoreSource/entry_auth_expired` |
+@@ -193,8 +193,8 @@ Every addition extends a landed type or gate; nothing is forked:
+ 
+ ## Mutant table
+ 
+-`mutant_harness.py`: 122 rows, two full passes at 116 plus a full
+-pass at 122, 120 narrowing KILLED + 1 tightening KILLED + the
++`mutant_harness.py`: 123 rows, including the final full pass at 123,
++121 narrowing KILLED + 1 tightening KILLED + the
+ SURVIVED control, per-plant raw logs with subprocess exits all
+ passes, production blobs byte-identical before/after. Every row is narrowing except `N-auth-epoch-high`
+ (tightening: the weakening direction is equivalent because `environ`
+@@ -203,10 +203,21 @@ is observable; the row proves the edge is exactly 9007199254740991 by
+ refusing it) and `C-control` (harmless SURVIVED control). The eleven
+ `N-fencing-verdict-*` rows mutate the landed verdict and are killed
+ through `ObserveFencing`, so the composition — not the helper — is
+-measured; `N-fencing-verdict-composition` measures the `stale` half of
+-the `decided && stale` conjunction (dropping `decided` would be
+-equivalent, since the verdict never reports stale undecided). Retired
+-in rev4: `N-fencing-epoch-only` — a stale_owner park implies a
++measured; `N-fencing-remote-lapsed-fallback` narrows the explicit
++grant-independent fallback to same-epoch losses, while
++`N-fencing-remote-lapsed-not-stale` drops its `stale` conjunct and is
++killed by the winning/future-token no-transition rows. Retired in this
++rework: `N-fencing-operation-remote`, which became equivalent after the
++direct remote-lapsed arm moved before expiry; the relative mutation entry
++cannot change the final stale verdict because the fallback is
++grant-independent. This is a measured bound, not an omitted check:
++reviewer plants RM-O5 (`relative-question-through-mutation`) and RM-O6
++(`relative-question-dropped`) both SURVIVED twice over the complete
++importer set, so the retained relative question and its `stale_owner` arm
++are redundant for the remote-lapsed composition. The outer fallback is
++separately pinned by `N-fencing-remote-lapsed-outer-fallback`. Retired in
++rev4: `N-fencing-epoch-only` — a
++stale_owner park implies a
+ decided-stale verdict over the same observation (the verdict's
+ preconditions are a subset of the gate's pre-grant arms; pinned by
+ `TestStalenessAgreesWithGateOnHotPath`), and both arms call `fenceLive`
+@@ -256,8 +267,10 @@ fallback either way).
+ | N-store-torn | Torn receipt (4-byte file as absence) | `TestStoreLookupAbsenceIsNotFailure` |
+ | N-complete-unbound | Completion without receipt | `TestStoreCompleteRequiresReceipt` |
+ | N-fencing-remote | Fencing: relative question skipped, remote parks fenced | `TestObserveFencingRemoteWinnerWinningTokenLeavesState` |
+-| N-fencing-operation-remote | Fencing: relative question through mutation refuses stale | `TestObserveFencingRemoteWinnerStaleEpochFences` |
+ | N-fencing-remote-stale-only | Fencing: relative verdict fences any park | `TestObserveFencingRemoteWinnerFutureEpochLeavesState` |
++| N-fencing-remote-lapsed-fallback | Fencing: lapsed remote fallback narrowed to same-epoch losses | `TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation/stale_epoch` |
++| N-fencing-remote-lapsed-not-stale | Fencing: lapsed remote fallback fences decided-not-stale | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` |
++| N-fencing-remote-lapsed-outer-fallback | Fencing: outer fallback fences decided-not-stale local-winner observations | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` |
+ | N-fencing-source-absent | Fencing: absent fenced | `TestObserveFencingNonLiveSourcesLeaveState` |
+ | N-fencing-source-stopped | Fencing: stopped fenced | `TestObserveFencingNonLiveSourcesLeaveState` |
+ | N-fencing-source-creating | Fencing: creating no longer fenced | `TestObserveFencingNonLiveSourcesLeaveState` |
+@@ -329,7 +342,6 @@ fallback either way).
+ | N-fencing-verdict-presented-session | Verdict session-grammar arm (agreed-malformed decided) | `TestRV3F3_GrantLessUndecidedLeavesState/malformed_session` |
+ | N-fencing-verdict-presented-epoch | Verdict epoch-zero arm (losing-lease zero decided) | `TestRV3F3_GrantLessUndecidedLeavesState/epoch_zero` |
+ | N-fencing-verdict-presented-lease | Verdict lease-grammar arm (epoch-1 malformed lease decided) | `TestRV3F3_GrantLessUndecidedLeavesState/malformed_lease` |
+-| N-fencing-verdict-composition | Composition fences on decided alone | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` |
+ | N-engine-recheck-auth-expiry | Per-effect expiry recheck dropped (tuple stays) | `TestRV3W_M1_AuthExpiryRecheckedBeforeEachEffect` |
+ | N-result-evidence-bound | Evidence bound admits 257 (both surfaces) | `TestRV3W_M2_EvidenceBoundEdge` |
+ | N-engine-conditional-disposition | Conditional arm reports status_first | `TestRV3W_M3_ConditionalCapabilityDisposition` |
+@@ -436,19 +448,22 @@ fallback either way).
+   to `activation` on the stale arms and chosen for the terminal
+   domain); the non-launch entries refuse stale tokens instead of
+   parking them, measured by `N-fencing-operation` on the direct
+-  question and `N-fencing-operation-remote` on the relative question.
+-  The relative question re-authorizes from the winner's own host; it
+-  composes the landed gate (no local tuple comparison) and fences
+-  only on the relative stale verdict from a live source. Grant-gated
+-  refusals (no grant, no clock reading, lapsed grant, unusable
+-  policy — the complete grant-precondition class, since these are all
+-  four refusals `Authorize` can surface after the ownership arms
+-  pass) consult the landed `StaleRelativeToWinner` verdict instead:
+-  decided-stale fences from a live source, decided-not-stale and
+-  undecidable surface the refusal. The relative question needs no
+-  fallback (it carries the direct grant facts unchanged and the grant
+-  arms do not read `LocalHostID`), and the failed-handoff park is
+-  preserved (ownership history, not a grant precondition).
++  question. The relative question re-authorizes from the winner's own
++  host through the restore entry, so it composes the landed gate (no
++  local tuple comparison). Grant-gated refusals (no grant, no clock
++  reading, lapsed grant, unusable policy — the complete grant-precondition
++  class, since these are all four refusals `Authorize` can surface after
++  the ownership arms pass) consult the landed `StaleRelativeToWinner`
++  verdict instead: decided-stale fences from a live source,
++  decided-not-stale and undecidable surface the refusal. A lapsed remote
++  grant is special only in that the direct question now returns the
++  existing `remote_owner` park before consuming expiry; if the relative
++  question stops at the deferred expiry result, the explicit inner and
++  outer fallbacks consult the same grant-independent verdict. RM-O5 and
++  RM-O6 both survived twice over the complete importer set, so the
++  relative `stale_owner` branch is retained but is a measured redundant
++  path for this composition, not its claimed mechanism. The failed-handoff
++  park is preserved (ownership history, not a grant precondition).
+ - `internal/traceability` untouched per the Story contract; the final
+   leaf carries the registry bindings and the re-pin.
+ 
+@@ -484,4 +499,4 @@ fallback either way).
+   (`N-engine-recheck-auth-expiry-third`,
+   `N-resume-checkresult-stale`,
+   `N-resume-checkresult-disposition`, `N-resume-corrupt-image`,
+-  `N-engine-loop-deadline-instant`, `N-auth-kind-case`).
+\ No newline at end of file
++  `N-engine-loop-deadline-instant`, `N-auth-kind-case`).
+diff --git a/internal/terminstance/fencing.go b/internal/terminstance/fencing.go
+index 6399cf4..176205b 100644
+--- a/internal/terminstance/fencing.go
++++ b/internal/terminstance/fencing.go
+@@ -36,19 +36,31 @@ import (
+ // inside the landed Authorize; no local tuple comparison exists here.
+ //
+ // A stale token refused by the gate's GRANT precondition still fences:
+-// the grant arms (no grant, no clock reading, lapsed grant, unusable
+-// policy) fire before the direction/tuple arms, so without a second
+-// verdict a cold force-takeover incarnation — one that can never hold
+-// a live grant, because VerifyFencingToken refuses its stale epoch
+-// and grants never survive a controller restart — would never reach
+-// stale_fenced. The landed StaleRelativeToWinner verdict decides the
+-// direction/tuple arms over the verified well-formed winner without
+-// the grant precondition, and a decided stale verdict fences from a
+-// live incarnation exactly like the gate's own stale park. The
+-// relative question needs no such fallback: it carries the direct
+-// observation's grant facts unchanged and the grant arms do not read
+-// LocalHostID, so a direct remote park implies the relative question
+-// passes the grant arms.
++// no grant, no clock reading, and an unusable policy still return before
++// direction/tuple arms, so without a second verdict a cold force-takeover
++// incarnation — one that can never hold a live grant, because
++// VerifyFencingToken refuses its stale epoch and grants never survive a
++// controller restart — would never reach stale_fenced. A lapsed grant is
++// different at the direct question: Authorize defers only its expiry
++// result until after ownership direction, so a remote winner surfaces
++// remote_owner for the wrapper's attach/takeover decision. The relative
++// question from the winner's host can still stop at that deferred expiry
++// result, so observeRemoteWinner consults the landed
++// StaleRelativeToWinner verdict there as well. Stale tokens fence, while
++// winning and future tokens remain the original remote park. For local
++// ownership, and for the remaining hard grant refusals, the same verdict
++// decides the direction/tuple arms over the verified well-formed winner
++// without the grant precondition, and a decided stale verdict fences from
++// a live incarnation exactly like the gate's own stale park. The relative
++// question carries the direct observation's grant facts unchanged.
++//
++// This relative arm is retained as an explicit composed check, but it is not
++// claimed as load-bearing for the remote-lapsed composition. The complete
++// importer-set reviewer plants RM-O5 (relative question through mutation)
++// and RM-O6 (relative stale_owner arm removed) both SURVIVED twice: the
++// grant-independent StaleRelativeToWinner fallback below determines the same
++// stale/non-stale result. That is a measured bound on this retained arm, not
++// a claim that either relative branch independently carries this behavior.
+ //
+ // Only a live incarnation fences: creating, parked, active and
+ // quiescing move to stale_fenced, while absent and stopped (no
+@@ -108,6 +120,11 @@ func observeRemoteWinner(current terminalbackend.InstanceState, presented fencin
+ 	if relativeReason, _, relativeParked := fencing.ParkDetails(relativeErr); relativeParked && relativeReason == fencing.ParkStaleOwner {
+ 		return fenceLive(current, authErr)
+ 	}
++	// A lapsed grant can defer the relative question before its tuple arm;
++	// the grant-independent verdict still fences a stale incarnation.
++	if stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale {
++		return fenceLive(current, authErr)
++	}
+ 	return current, false, authErr
+ }
+ 
+diff --git a/internal/terminstance/fencing_grantless_test.go b/internal/terminstance/fencing_grantless_test.go
+index 375d741..6187120 100644
+--- a/internal/terminstance/fencing_grantless_test.go
++++ b/internal/terminstance/fencing_grantless_test.go
+@@ -9,9 +9,11 @@ import (
+ 	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
+ )
+ 
+-// grantlessShapes rosters the four grant-precondition members: the
+-// landed gate refuses each before its direction/tuple arms, so each
+-// reaches the staleness verdict instead of a park.
++// grantlessShapes rosters the four grant-precondition members. Missing
++// grant, missing clock, and unusable policy still refuse before the
++// direction/tuple arms. A lapsed grant defers only its expiry outcome at
++// the direct remote-owner question; the composed stale verdict still
++// fences a stale incarnation.
+ func grantlessShapes() map[string]func(*fencing.Observation) {
+ 	return map[string]func(*fencing.Observation){
+ 		"no grant": func(observation *fencing.Observation) {
+@@ -32,13 +34,13 @@ func grantlessShapes() map[string]func(*fencing.Observation) {
+ 
+ // TestRV3F3_GrantLessStaleFences is the regression test for the
+ // rev2-F2/rev3-F3 class: a stale incarnation whose observation carries
+-// no LIVE fencing grant still fences. Every grant-precondition member
+-// (no grant, lapsed grant, no clock reading, unusable policy) fences
+-// from active, parked and quiescing, under a local and a remote
+-// winner alike, for the older-epoch and the same-epoch lease-mismatch
+-// tokens. The direct gate question refuses grant-gated (never a
+-// park), so each fencing below comes from the composed staleness
+-// verdict, not from Authorize.
++// no LIVE fencing grant still fences. Every hard grant-precondition member
++// (no grant, no clock reading, unusable policy) fences from active, parked
++// and quiescing, under a local and a remote winner alike, for the
++// older-epoch and the same-epoch lease-mismatch tokens. A lapsed grant
++// under a remote winner is split across the two composed questions:
++// Authorize surfaces the literal remote_owner park, then the
++// grant-independent stale verdict fences the stale incarnation.
+ func TestRV3F3_GrantLessStaleFences(t *testing.T) {
+ 	staleEpoch := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 1, LeaseID: fixtureLeaseB}
+ 	losingLease := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 2, LeaseID: fixtureLeaseB}
+@@ -53,6 +55,26 @@ func TestRV3F3_GrantLessStaleFences(t *testing.T) {
+ 					t.Run(name, func(t *testing.T) {
+ 						observation := winner()
+ 						shape(&observation)
++						if shapeName == "lapsed grant" && winnerName == "remote winner" {
++							_, authErr := fencing.Authorize(fencing.OperationRestore, presented, observation)
++							if authErr == nil {
++								t.Fatal("direct gate question = nil, want remote_owner park")
++							}
++							reason, _, parked := fencing.ParkDetails(authErr)
++							if !parked {
++								t.Fatalf("direct gate question = %v, want remote_owner park", authErr)
++							}
++							requireLiteral(t, "direct park reason", string(reason), "remote_owner")
++							state, transitioned, err := ObserveFencing(current, presented, observation)
++							if err != nil {
++								t.Fatalf("ObserveFencing() error = %v, want stale_fenced transition", err)
++							}
++							if !transitioned {
++								t.Fatal("ObserveFencing() transitioned = false, want stale_fenced")
++							}
++							requireLiteral(t, "state", string(state), "stale_fenced")
++							return
++						}
+ 						if _, err := fencing.Authorize(fencing.OperationRestore, presented, observation); err == nil || fencing.IsParked(err) {
+ 							t.Fatalf("direct gate question = %v, want the grant-gated refusal (never a park)", err)
+ 						}
+@@ -71,10 +93,42 @@ func TestRV3F3_GrantLessStaleFences(t *testing.T) {
+ 	}
+ }
+ 
++// TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation keeps the
++// composition property independently named: the direct remote-owner park is
++// the offer signal, but a stale incarnation still reaches stale_fenced through
++// the relative, grant-independent verdict.
++func TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation(t *testing.T) {
++	tokens := map[string]fencing.PresentedToken{
++		"stale_epoch":  {SessionID: fixtureSessionA, Epoch: 1, LeaseID: fixtureLeaseB},
++		"losing_lease": {SessionID: fixtureSessionA, Epoch: 2, LeaseID: fixtureLeaseB},
++	}
++	for tokenName, presented := range tokens {
++		for _, current := range []terminalbackend.InstanceState{
++			terminalbackend.StateActive, terminalbackend.StateParked, terminalbackend.StateQuiescing,
++		} {
++			t.Run(tokenName+"/"+string(current), func(t *testing.T) {
++				observation := remoteWinnerObservation()
++				observation.Grant.ValidatedAt = fixtureNow().Add(-2 * time.Hour)
++				state, transitioned, err := ObserveFencing(current, presented, observation)
++				if err != nil {
++					t.Fatalf("ObserveFencing() error = %v, want stale_fenced transition", err)
++				}
++				if !transitioned {
++					t.Fatal("ObserveFencing() transitioned = false, want stale_fenced")
++				}
++				requireLiteral(t, "state", string(state), "stale_fenced")
++			})
++		}
++	}
++}
++
+ // TestRV3F3_GrantLessDecidedNotStaleLeavesState pins the decided
+ // members that must NOT fence without a grant: the winning token and
+ // a future-epoch token surface the grant refusal with no transition,
+-// under a local and a remote winner alike.
++// under a local and a remote winner alike. A lapsed grant under a
++// remote winner follows the remote_owner park arm for the non-stale
++// winning/future tokens, while stale-shaped tokens are fenced by the
++// relative verdict.
+ func TestRV3F3_GrantLessDecidedNotStaleLeavesState(t *testing.T) {
+ 	winning := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 2, LeaseID: fixtureLease}
+ 	future := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 3, LeaseID: fixtureLeaseB}
+@@ -94,6 +148,24 @@ func TestRV3F3_GrantLessDecidedNotStaleLeavesState(t *testing.T) {
+ 				observation := tc.winner()
+ 				shape(&observation)
+ 				state, transitioned, err := ObserveFencing(terminalbackend.StateActive, tc.presented, observation)
++				if shapeName == "lapsed grant" && (tc.name == "winning_token_remote" || tc.name == "future_epoch_remote") {
++					if err == nil {
++						t.Fatal("ObserveFencing(lapsed grant) = nil, want the remote_owner park")
++					}
++					if !fencing.IsParked(err) {
++						t.Fatalf("ObserveFencing(lapsed grant) = %v, want remote_owner park", err)
++					}
++					if transitioned {
++						t.Fatal("ObserveFencing(lapsed grant) transitioned = true, want no transition")
++					}
++					requireLiteral(t, "lapsed remote state", string(state), "active")
++					reason, _, parked := fencing.ParkDetails(err)
++					if !parked {
++						t.Fatalf("ParkDetails(lapsed grant) = %v, want remote_owner park", err)
++					}
++					requireLiteral(t, "lapsed remote park reason", string(reason), "remote_owner")
++					continue
++				}
+ 				if err == nil {
+ 					t.Fatalf("ObserveFencing(%s) = nil, want the grant refusal surfaced", shapeName)
+ 				}
+diff --git a/internal/terminstance/mutant_harness.py b/internal/terminstance/mutant_harness.py
+index 4a7e891..f71aa8e 100644
+--- a/internal/terminstance/mutant_harness.py
++++ b/internal/terminstance/mutant_harness.py
+@@ -751,16 +751,6 @@ MUTANTS = [
+         expect="KILLED",
+         note="Reports exactly the inverted evidence order; the effect order still sorts ascending.",
+     ),
+-    Mutant(
+-        name="N-fencing-operation-remote",
+-        path=f"{PACKAGE}/fencing.go",
+-        find="\t_, relativeErr := fencing.Authorize(fencing.OperationRestore, presented, relative)\n",
+-        replace="\t_, relativeErr := fencing.Authorize(fencing.OperationMutation, presented, relative)\n",
+-        count=1,
+-        run="TestObserveFencingRemoteWinnerStaleEpochFences",
+-        expect="KILLED",
+-        note="Asks the relative question through exactly the non-launch mutation entry, which refuses stale tokens instead of parking them; the remote-winner observation no longer fences.",
+-    ),
+     Mutant(
+         name="N-fencing-remote-stale-only",
+         path=f"{PACKAGE}/fencing.go",
+@@ -771,6 +761,16 @@ MUTANTS = [
+         expect="KILLED",
+         note="Fences on any relative park instead of exactly stale_owner; the future-epoch restore_policy member pins it.",
+     ),
++    Mutant(
++        name="N-fencing-remote-lapsed-fallback",
++        path=f"{PACKAGE}/fencing.go",
++        find="\t// A lapsed grant can defer the relative question before its tuple arm;\n\t// the grant-independent verdict still fences a stale incarnation.\n\tif stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale {\n",
++        replace="\t// A lapsed grant can defer the relative question before its tuple arm;\n\t// the grant-independent verdict still fences a stale incarnation.\n\tif stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale && presented.Epoch == observation.Winner.Epoch {\n",
++        count=1,
++        run="TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation/stale_epoch",
++        expect="KILLED",
++        note="Narrows the lapsed-grant fallback to same-epoch losses, leaving the older-epoch stale incarnation active; the direct remote-winner property must still fence both stale shapes.",
++    ),
+     Mutant(
+         name="N-fencing-source-absent",
+         path=f"{PACKAGE}/fencing.go",
+@@ -1142,14 +1142,24 @@ MUTANTS = [
+         note="Decides exactly epoch-1 malformed-lease tokens; other malformed leases stay undecided.",
+     ),
+     Mutant(
+-        name="N-fencing-verdict-composition",
++        name="N-fencing-remote-lapsed-not-stale",
++        path=f"{PACKAGE}/fencing.go",
++        find="\t// A lapsed grant can defer the relative question before its tuple arm;\n\t// the grant-independent verdict still fences a stale incarnation.\n\tif stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale {\n",
++        replace="\t// A lapsed grant can defer the relative question before its tuple arm;\n\t// the grant-independent verdict still fences a stale incarnation.\n\tif _, decided := fencing.StaleRelativeToWinner(presented, observation); decided {\n",
++        count=1,
++        run="TestRV3F3_GrantLessDecidedNotStaleLeavesState",
++        expect="KILLED",
++        note="Fences a winning or future token from the lapsed remote-winner path by dropping the stale half of the grant-independent fallback; the named no-transition rows fail while the direct remote-offer arm remains present.",
++    ),
++    Mutant(
++        name="N-fencing-remote-lapsed-outer-fallback",
+         path=f"{PACKAGE}/fencing.go",
+-        find="\tif stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale {\n",
+-        replace="\tif _, decided := fencing.StaleRelativeToWinner(presented, observation); decided {\n",
++        find="\tif stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale {\n\t\treturn fenceLive(current, authErr)\n\t}\n\treturn current, false, authErr\n}\n\n// observeRemoteWinner resolves a remote-winner park:",
++        replace="\tif _, decided := fencing.StaleRelativeToWinner(presented, observation); decided {\n\t\treturn fenceLive(current, authErr)\n\t}\n\treturn current, false, authErr\n}\n\n// observeRemoteWinner resolves a remote-winner park:",
+         count=1,
+         run="TestRV3F3_GrantLessDecidedNotStaleLeavesState",
+         expect="KILLED",
+-        note="Fences on decided alone instead of decided-stale: the winning token and the future epoch fence grant-less. (Dropping the decided conjunct instead would be equivalent — the verdict never reports stale undecided — so the decided half is measured by the eleven verdict rows above.)",
++        note="Outer ObserveFencing fallback admits decided-but-not-stale local-winner observations; the winning/future no-transition rows must still reject them. Unique anchor includes the outer return and observeRemoteWinner declaration.",
+     ),
+     Mutant(
+         name="N-engine-recheck-auth-expiry",
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index 8e5e7a7..787adfe 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=152 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
++	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=154 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
+ 		"section coverage: bindings=69 full=4 partial=9 sliver=9 unevidenced=43 unmeasured=4 unowned=7 clauses_discharged=70/574\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+@@ -55,7 +55,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=152 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
++	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=154 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
+ 		"section coverage: bindings=69 full=4 partial=9 sliver=9 unevidenced=43 unmeasured=4 unowned=7 clauses_discharged=70/574\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+diff --git a/internal/traceability/ownership.v0.7.0.json b/internal/traceability/ownership.v0.7.0.json
+index 61fea5a..bfb3c48 100644
+--- a/internal/traceability/ownership.v0.7.0.json
++++ b/internal/traceability/ownership.v0.7.0.json
+@@ -2876,6 +2876,19 @@
+         }
+       ]
+     },
++    {
++      "id": "story-260917-losing-lease-profile-source",
++      "production": {
++        "path": "internal/sessprofile/profile.go",
++        "declaration": "Derive"
++      },
++      "tests": [
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestLosingLeaseProfileEventIgnored"
++        }
++      ]
++    },
+     {
+       "id": "sessprofile-fork-pair",
+       "production": {
+@@ -3268,6 +3281,43 @@
+         }
+       ]
+     },
++    {
++      "id": "story-260917-append-winning-lease-admission",
++      "production": {
++        "path": "internal/sessrepo/sessrepo.go",
++        "declaration": "AppendEvent"
++      },
++      "tests": [
++        {
++          "path": "internal/sessrepo/sessrepo_test.go",
++          "declaration": "TestAppendEventRefusesSupersededLeaseWhileTailStillMatches"
++        },
++        {
++          "path": "internal/sessrepo/sessrepo_test.go",
++          "declaration": "TestAppendEventRefusesSameEpochLosingLeaseWhileTailStillMatches"
++        },
++        {
++          "path": "internal/sessprofile/setprofile_test.go",
++          "declaration": "TestSetProfileRefusesSupersededLeaseWhileTailStillMatches"
++        },
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestEmitReachesAppendAdmissionGateAfterStaleObservation"
++        },
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation"
++        },
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestEmitReachesSameEpochAppendAdmissionGate"
++        },
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestEmitParkedReachesSameEpochAppendAdmissionGate"
++        }
++      ]
++    },
+     {
+       "id": "lease-union-resolution",
+       "production": {
+@@ -4398,7 +4448,8 @@
+         "sessprofile-derive",
+         "sessprofile-derive-heads",
+         "sessprofile-fork-pair",
+-        "provhost-mapping-resolution"
++        "provhost-mapping-resolution",
++        "story-260917-losing-lease-profile-source"
+       ],
+       "coverage": "full",
+       "clauses": [
+@@ -4415,7 +4466,8 @@
+           "line": 666,
+           "excerpt": "Losing-lease or ambiguous events MUST NOT change it.",
+           "acceptance_cases": [
+-            "sessprofile-derive"
++            "sessprofile-derive",
++            "story-260917-losing-lease-profile-source"
+           ]
+         },
+         {
+@@ -4738,7 +4790,8 @@
+         "lease-fencing-gates",
+         "core-record-identity-validation",
+         "lease-ownership-union-properties",
+-        "lease-ownership-store-properties"
++        "lease-ownership-store-properties",
++        "story-260917-append-winning-lease-admission"
+       ],
+       "coverage": "partial",
+       "gap": "CompareAndSwapLease with the fencing gates discharges 7 of the 8 Section 5.3 clauses; clause 5.3#5 (every new takeover lease MUST use max_observed_epoch + 1 from the initiator's union) stays unimplemented because the union maximum is caller-side input and no takeover flow exists in this repository yet. The ownership property cases (union-order independence and loser preservation over Reduce, clock non-authority and single authority over the lease store) add executable proofs for the discharged 5.3#6 and 5.3#7 divergent-preservation evidence without changing the 7-of-8 ratio.",
+@@ -4784,7 +4837,8 @@
+           "acceptance_cases": [
+             "lease-divergent-preservation",
+             "lease-union-resolution",
+-            "lease-ownership-union-properties"
++            "lease-ownership-union-properties",
++            "story-260917-append-winning-lease-admission"
+           ]
+         },
+         {
+@@ -4794,7 +4848,8 @@
+           "acceptance_cases": [
+             "lease-divergent-preservation",
+             "lease-union-resolution",
+-            "lease-ownership-union-properties"
++            "lease-ownership-union-properties",
++            "story-260917-append-winning-lease-admission"
+           ]
+         },
+         {
+diff --git a/internal/traceability/registry_rederivation_test.go b/internal/traceability/registry_rederivation_test.go
+index 8b00337..30a2358 100644
+--- a/internal/traceability/registry_rederivation_test.go
++++ b/internal/traceability/registry_rederivation_test.go
+@@ -635,6 +635,32 @@ var storyNewV070Bindings = map[string]storyBindingUpgrade{
+ }
+ 
+ var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
++	"section:2.4": {
++		Production: codeReference{Path: "internal/sessprofile/profile.go", Declaration: "Derive"},
++		Cases:      []string{"sessprofile-derive", "sessprofile-derive-heads", "sessprofile-fork-pair", "provhost-mapping-resolution", "story-260917-losing-lease-profile-source"},
++		Coverage:   coverageFull,
++		Clauses: []dischargedClause{
++			{ID: "2.4#1", Line: 661, Excerpt: "MUST fail with <code>profile_mapping_unavailable</code> if the adapter cannot map the stored profile for the probed provider version.", AcceptanceCases: []string{"provhost-mapping-resolution"}},
++			{ID: "2.4#2", Line: 666, Excerpt: "Losing-lease or ambiguous events MUST NOT change it.", AcceptanceCases: []string{"sessprofile-derive", "story-260917-losing-lease-profile-source"}},
++			{ID: "2.4#3", Line: 670, Excerpt: "a bundle, resume, or fork MUST NOT fall back to the Session Record creation value when the closure contains a later change.", AcceptanceCases: []string{"sessprofile-derive", "sessprofile-derive-heads"}},
++			{ID: "2.4#4", Line: 678, Excerpt: "MUST NOT be treated as a profile event in the new session's event chain.", AcceptanceCases: []string{"sessprofile-fork-pair"}},
++		},
++	},
++	"section:5.3": {
++		Production: codeReference{Path: "internal/sessrepo/lease_store.go", Declaration: "CompareAndSwapLease"},
++		Cases:      []string{"lease-record-lifecycle", "lease-fencing-revalidation", "lease-checkpoint-admission", "lease-divergent-preservation", "lease-union-resolution", "lease-fencing-gates", "core-record-identity-validation", "lease-ownership-union-properties", "lease-ownership-store-properties", "story-260917-append-winning-lease-admission"},
++		Coverage:   coveragePartial,
++		Gap:        "CompareAndSwapLease with the fencing gates discharges 7 of the 8 Section 5.3 clauses; clause 5.3#5 (every new takeover lease MUST use max_observed_epoch + 1 from the initiator's union) stays unimplemented because the union maximum is caller-side input and no takeover flow exists in this repository yet. The ownership property cases (union-order independence and loser preservation over Reduce, clock non-authority and single authority over the lease store) add executable proofs for the discharged 5.3#6 and 5.3#7 divergent-preservation evidence without changing the 7-of-8 ratio.",
++		Clauses: []dischargedClause{
++			{ID: "5.3#1", Line: 2006, Excerpt: "| <code>created_by_host_id</code> | UUIDv7 | MUST equal <code>issued_by_host_id</code> |", AcceptanceCases: []string{"core-record-identity-validation"}},
++			{ID: "5.3#2", Line: 2036, Excerpt: "tie-break. A valid epoch greater than 1 MUST name a known predecessor for the", AcceptanceCases: []string{"lease-record-lifecycle", "lease-checkpoint-admission"}},
++			{ID: "5.3#3", Line: 2037, Excerpt: "same session, MUST equal that predecessor's epoch plus one, and MUST reference", AcceptanceCases: []string{"lease-record-lifecycle", "lease-checkpoint-admission"}},
++			{ID: "5.3#4", Line: 2039, Excerpt: "<code>create</code> lease MUST have a null predecessor and MAY have a null", AcceptanceCases: []string{"lease-record-lifecycle"}},
++			{ID: "5.3#6", Line: 2046, Excerpt: "lease wins. Events under the losing same-epoch lease and all lower epochs MUST", AcceptanceCases: []string{"lease-divergent-preservation", "lease-union-resolution", "lease-ownership-union-properties", "story-260917-append-winning-lease-admission"}},
++			{ID: "5.3#7", Line: 2047, Excerpt: "be preserved in a divergent branch and MUST NOT affect authoritative state.", AcceptanceCases: []string{"lease-divergent-preservation", "lease-union-resolution", "lease-ownership-union-properties", "story-260917-append-winning-lease-admission"}},
++			{ID: "5.3#8", Line: 2049, Excerpt: "An owner process MUST revalidate its fencing token before:", AcceptanceCases: []string{"lease-fencing-revalidation", "lease-fencing-gates"}},
++		},
++	},
+ 	"section:4.B": {
+ 		Production: codeReference{Path: "internal/termbind/identity.go", Declaration: "CheckInstanceIdentity"},
+ 		Cases:      []string{"terminal-instance-identity-exact"},
+@@ -729,10 +755,40 @@ var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
+ 	},
+ }
+ 
++// storyBindingExtensions are the two already-measured bindings that this
++// Story extends with executed admission/source cases. Unlike the historical
++// post-adoption upgrades above, these do not promote an unevidenced stub; the
++// extension is limited to adding the new Story's acceptance owners to clauses
++// already discharged by the carried binding.
++var storyBindingExtensions = map[string]struct{}{
++	"section:2.4": {},
++	"section:5.3": {},
++}
++
+ // storyNewV070Cases is the exact set of acceptance cases the post-adoption
+ // story final leaves add to the adopted registry. Each is pinned literally;
+ // any further addition still fails as an unreviewed claim.
+ var storyNewV070Cases = map[string]acceptanceCase{
++	"story-260917-append-winning-lease-admission": {
++		ID:         "story-260917-append-winning-lease-admission",
++		Production: codeReference{Path: "internal/sessrepo/sessrepo.go", Declaration: "AppendEvent"},
++		Tests: []codeReference{
++			{Path: "internal/sessrepo/sessrepo_test.go", Declaration: "TestAppendEventRefusesSupersededLeaseWhileTailStillMatches"},
++			{Path: "internal/sessrepo/sessrepo_test.go", Declaration: "TestAppendEventRefusesSameEpochLosingLeaseWhileTailStillMatches"},
++			{Path: "internal/sessprofile/setprofile_test.go", Declaration: "TestSetProfileRefusesSupersededLeaseWhileTailStillMatches"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestEmitReachesAppendAdmissionGateAfterStaleObservation"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestEmitReachesSameEpochAppendAdmissionGate"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestEmitParkedReachesSameEpochAppendAdmissionGate"},
++		},
++	},
++	"story-260917-losing-lease-profile-source": {
++		ID:         "story-260917-losing-lease-profile-source",
++		Production: codeReference{Path: "internal/sessprofile/profile.go", Declaration: "Derive"},
++		Tests: []codeReference{
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestLosingLeaseProfileEventIgnored"},
++		},
++	},
+ 	"rpcwire-closed-bodies": {
+ 		ID:         "rpcwire-closed-bodies",
+ 		Production: codeReference{Path: "internal/rpcwire/envelope.go", Declaration: "DecodeRequest"},
+@@ -934,13 +990,14 @@ var storyNewV070Cases = map[string]acceptanceCase{
+ 	},
+ }
+ 
+-// assertStoryBindingUpgrade pins one reviewed post-adoption upgrade: the
+-// v0.6.0 base must be the unevidenced stub the adoption carried, and the
+-// v0.7.0 binding must equal the reviewed upgrade literally.
++// assertStoryBindingUpgrade pins one reviewed post-adoption upgrade. The
++// historical upgrades promote unevidenced stubs; the explicitly listed Story
++// extensions retain their measured base and only add reviewed acceptance
++// owners to already discharged clauses. Every resulting field is still exact.
+ func assertStoryBindingUpgrade(t *testing.T, key string, old, now ownershipGroup, upgrade storyBindingUpgrade) {
+ 	t.Helper()
+ 
+-	if old.Coverage != coverageUnevidenced || len(old.Clauses) != 0 {
++	if _, extension := storyBindingExtensions[key]; !extension && (old.Coverage != coverageUnevidenced || len(old.Clauses) != 0) {
+ 		t.Fatalf("binding %q upgrade base is not the unevidenced stub: coverage %s with %d clauses", key, old.Coverage, len(old.Clauses))
+ 	}
+ 	if now.Production != upgrade.Production {
+@@ -968,7 +1025,7 @@ func assertStoryBindingUpgrade(t *testing.T, key string, old, now ownershipGroup
+ func assertStoryBindingClausesRemeasured(t *testing.T, key string, old, now ownershipGroup, measured070 map[string]map[string]int) {
+ 	t.Helper()
+ 
+-	if len(old.Clauses) != 0 {
++	if _, extension := storyBindingExtensions[key]; !extension && len(old.Clauses) != 0 {
+ 		t.Fatalf("binding %q upgrade base carries %d clauses, want the unevidenced stub", key, len(old.Clauses))
+ 	}
+ 	for _, newClause := range now.Clauses {
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index fcf231e..3b513ef 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "614eb55d70b4b83f1ff668b8bfe9830d0655189a3a76f65edefb5159c6710ecb"
++	reviewedOwnershipCanonicalSHA256 = "ed6f016f73e390071743b09aded229e781d95408b0b9eeb3f134fcb87bb9a893"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 89904c9..3578c8d 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -29,7 +29,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              64,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        152,
++		AcceptanceCases:        154,
+ 		Fixtures:               33,
+ 		CompatibilityContracts: 55,
+ 		SectionBindings:        69,
