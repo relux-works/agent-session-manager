@@ -37,7 +37,7 @@ entries at every required boundary.
 | Lower epoch refused | `Authorize` via all five entries | `TestAuthorizeRefusesLowerEpoch` | Driven: a superseded epoch refuses `stale_owner` on input/mutation/checkpoint and parks `stale_owner` on activation/restore, for the standard old-lease vector and the winner-lease-at-lower-epoch vector. |
 | Same-epoch loser refused | `Authorize` via all five entries | `TestAuthorizeRefusesSameEpochLoser` | Driven: a losing lease at the winning epoch refuses `lease_conflict` on input/mutation/checkpoint and parks `stale_owner` on activation/restore, for the standard and prefix-sharing losers. |
 | Foreign session refused | `Authorize` via all five entries | `TestAuthorizeRefusesForeignSession` | Driven: a token for another session refuses `lease_conflict` on every entry, for the prefix-sharing and fully foreign sessions. |
-| Expired grant refused | `Authorize` via all five entries → `sessrepo.CheckFencingExpiry` | `TestAuthorizeRefusesExpiredGrant` | Driven: a lapsed grant refuses `lease_conflict` on every entry so the holder revalidates; a grant at exactly the boundary stays current; an unusable policy refuses `invalid_arguments`. Expiry logic is reused from the `sessrepo` owner, never restated. |
+| Expired grant refused | local-owner `Authorize` via all five entries → `sessrepo.CheckFencingExpiry` | `TestAuthorizeRefusesExpiredGrant`, `TestAuthorizeLapsedLocalOwnerStaleTokenRemainsLeaseConflict`, `TestAuthorizeRemoteOwnerInvalidPolicyRemainsInvalidArguments` | Driven: a local lapsed grant refuses `lease_conflict` on every entry so the holder revalidates; a grant at exactly the boundary stays current; an unusable policy refuses `invalid_arguments` even with a remote winner. For a remote winner, the lapsed result is deferred until after ownership direction so `remote_owner` remains reachable. Expiry logic is reused from the `sessrepo` owner, never restated. |
 | Absent lease parks or refuses | `Authorize` via all five entries; `Observe` | `TestAuthorizeParksAndRefusesAbsentWinner`, `TestObserveLoadsWinningLease/no_leases_yields_no_winner` | Driven: with no winning lease, launch entries park `restore_policy` with an empty winning lease ID while the other entries refuse `lease_conflict`; `Observe` reports absence as data, never an error. |
 | Ambiguous ownership parks or refuses | `Authorize` via all five entries | `TestAuthorizeParksAndRefusesAmbiguous` | Driven: conflicting union observations park `restore_policy` under the winner on launch entries and refuse `lease_conflict` elsewhere. |
 | Remote ownership parks or refuses | `Authorize` via all five entries | `TestAuthorizeParksAndRefusesRemote` | Driven: a remote winning holder parks `remote_owner` under the winner on launch entries and refuses `not_owner` elsewhere, for prefix-sharing and fully remote holders. |
@@ -47,6 +47,45 @@ entries at every required boundary.
 | Token forgery refused | `LeaseToken.Bind`; constructor census | `TestBindRefusesForgedToken`, `TestLeaseTokenConstructorCensus`, `TestLeaseTokenCensusPlants`, `TestLeaseTokenUnforgeableOutsidePackage` | Driven: zero and field-assembled tokens refuse `lease_conflict` on every provider operation; only `token.go` names the seal types or assembles a non-empty token; comment/string mentions are not references while alias, direct, and shadowing forgeries are rejected; an outside package assembling the token by field name fails to build while the public-surface fixture builds. |
 | Terminate-stale outside force recovery refused | `AuthorizeTerminateStale` | `TestTerminateStaleAuthorizesFencedTarget`, `TestTerminateStaleRefusesWithoutForce`, `TestTerminateStaleRefusesWithoutDiagnostics`, `TestTerminateStaleRefusesWithoutWinner`, `TestTerminateStaleRefusesLiveOwner`, `TestTerminateStaleRefusesForeignSession`, `TestTerminateStaleRefusesMalformedTarget`, `TestTerminateStaleRefusesGarbageWinner` | Driven: a fenced target (lower epoch, divergent, or beyond the winner) authorizes under explicit force recovery with preserved diagnostics; missing force, diagnostics, or winner, a live-owner target, a foreign session, and malformed members refuse their classes. |
 | LeaseToken bound to provider operations from a passed gate only | `LeaseToken.Bind` | `TestBindProjectsMintedToken`, `TestBindRefusesUnknownOperation`, `TestMintedTokenIsStableAcrossEntries` | Driven: a token minted by a passed gate projects the exact triple onto `quiesce`, `capture`, and `materialize` identically from every entry; unknown operations refuse `invalid_arguments`. Resume, stop, materialize-commit, and native-store-plan carry the same triple on the wire but have no gate entry here (stated bound). |
+
+## BUG-260917-2fwf8e arm-precedence matrix
+
+The v0.7.0 §4.2 after-restore sequence requires the wrapper to offer
+remote attach/takeover at step 4 when another host owns the session in an
+interactive terminal. `Authorize` validates refresh-policy shape first,
+then resolves ownership direction before consuming a lapsed-grant result:
+a remote winner returns the existing `remote_owner` park/cause, allowing
+the caller to select `attach_remote` or `takeover_offer`; a local winner
+still reaches the expiry arm. An unusable policy remains the existing
+`invalid_arguments` refusal even for a remote winner. The lease chain and
+the Section 5.2 park vocabulary are unchanged.
+
+| Vector | Production call site | Named test | Expected result |
+| --- | --- | --- | --- |
+| Remote interactive owner + lapsed local grant | `Authorize(OperationRestore, ...)` directly; composed by `axpane.Decide` | `TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm`; `TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext/{restore_interactive_attach,restore_interactive_takeover,launch_interactive_attach}` | `ParkDetails = remote_owner/<winning lease>` with `not_owner` cause, never `lease_conflict`; wrapper emits `attach_remote` or `takeover_offer`. |
+| Live local grant | `Authorize(OperationRestore, ...)` directly | `TestAuthorizeArmOrderingNeighbourVectors/live_local_grant` | Authorized token for the exact winning tuple. |
+| Remote non-interactive owner | `axpane.Decide` → `fencing.Authorize` | `TestAuthorizeArmOrderingNeighbourVectors/remote_owner_live_grant`; `TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext/restore_noninteractive_park` | The direct neighbour uses a live grant; the wrapper row uses the lapsed grant and remains `remote_owner`; a non-interactive caller parks without an offer/runtime. |
+| Local owner + lapsed grant | `Authorize(OperationRestore, ...)` directly | `TestAuthorizeArmOrderingNeighbourVectors/local_owner_lapsed_grant` | Literal `lease_conflict` refusal remains local-only. |
+| Arm precedence narrowing | `Authorize` direct regression | `N-arm-order-expiry-before-direction` in `internal/fencing/testdata/mutate.py` | Swapping expiry before direction is applied in isolation and kills `TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm`. |
+
+Direct fencing vector coverage for this leaf is 4 of 4 named neighbour rows,
+plus 5 of 5 `Authorize` operation entries in the lapsed-remote census and 5
+of 5 in the lapsed-local stale-token refusal census. The three wrapper-context
+rows are additionally driven through `Decide`, including `ModeLaunch` through
+the `AuthorizeActivation` call site. The full importer-set before/after
+per-test outcome diff is recorded in the task-scoped handoff results: 1,073
+baseline rows versus 1,103 candidate rows, with 30 new named rows and no
+existing row changing status.
+
+The report-only fencing grid names the moved inputs rather than hiding them in
+an unchanged pass total. V01 (probe 10), V07 (stale epoch), V08 (same-epoch
+loser), V09 (future epoch), and V14 (empty `LocalHostID`) were each
+`REFUSE(lease_conflict)` on all five entries before the fix. After the fix,
+each is `PARK(remote_owner,cause=not_owner)` on activation/restore and
+`REFUSE(not_owner)` on input/mutation/checkpoint. That move is intentional:
+the ownership-direction arm is now reachable before a lapsed-grant result;
+the local-owner lapsed-grant stale-token row remains `lease_conflict` on all
+five entries.
 
 ## Refusal and recovery coverage
 
@@ -79,6 +118,7 @@ produces no named behavioral failure.
 | Clock presence | `TestAuthorizeRefusesMissingClock/zero_validated` | N-clock admits exactly the clockless never-validated grant; the token authorizes and the negative fails by success. |
 | Grant expiry | `TestAuthorizeRefusesExpiredGrant/lapsed` | N-expiry extends the interval by an hour; the lapsed-by-seconds grant authorizes while the never-validated grant still refuses. |
 | Expiry classification | `TestAuthorizeRefusesExpiredGrant` | N-expiry-map swaps the lapsed/unusable classes; both vectors change class. |
+| Arm precedence: ownership direction before grant expiry | `TestAuthorizeRemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm` | N-arm-order-expiry-before-direction swaps the two arms back to expiry-first; the remote lapsed-grant vector returns `lease_conflict` and the named test fails. |
 | Ownership direction | `TestAuthorizeParksAndRefusesRemote/prefix_sharing` | N-remote-prefix compares first UUID segments only; the prefix-sharing remote holder authorizes while the fully remote holder still refuses. |
 | Epoch equality, ahead side | `TestAuthorizeRefusesEpochBeyondWinner/exact_lease` | N-epoch-gte weakens `==` to `>=`; the ahead token authorizes while the lower-epoch vectors still refuse stale in the same run. |
 | Epoch equality, lower side | `TestAuthorizeRefusesLowerEpoch/exact_lease` | N-epoch-lte weakens `==` to `<=`; the lower token authorizes past the epoch arm while the ahead vectors still refuse in the same run. |

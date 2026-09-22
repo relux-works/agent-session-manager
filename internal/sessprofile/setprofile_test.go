@@ -4,6 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"testing"
+
+	"github.com/relux-works/agent-session-manager/internal/sessrepo"
+)
+
+const (
+	profileAdmissionLosingLease = "cccccccc-dddd-4eee-8fff-111111111111"
+	profileAdmissionLowerLease  = "11111111-2222-4333-8444-555555555555"
 )
 
 func validSetProfileRequest() SetProfileRequest {
@@ -71,6 +78,76 @@ func TestSetProfileAppendsUnderChainHead(t *testing.T) {
 	}
 	if len(event.Predecessors) != 1 || event.Predecessors[0] != second {
 		t.Fatalf("committed predecessors = %v, want exactly the tail", event.Predecessors)
+	}
+}
+
+// TestSetProfileRefusesSupersededLeaseWhileTailStillMatches drives the
+// sessrepo admission gate through the composing profile writer: successor B
+// is stored while the chain tail remains under A, then SetProfile's A event
+// must be refused instead of extending that still-matching tail.
+func TestSetProfileRefusesSupersededLeaseWhileTailStillMatches(t *testing.T) {
+	t.Run("lower epoch", func(t *testing.T) {
+		repository := openTestRepository(t)
+		reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
+		first, err := repository.CreateLease(testSessionID, sessrepo.CreateLeaseInput{
+			LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tail := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
+		if _, err := repository.CompareAndSwapLease(testSessionID, sessrepo.LeaseExpectation{RecordID: first.RecordID}, sessrepo.SuccessorLeaseInput{
+			CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: testLeaseIDB, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt},
+			Reason:           "graceful_takeover", CheckpointID: zeroDigest,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		request := validSetProfileRequest()
+		_, err = (&Transactor{Repo: repository}).SetProfile(request)
+		if err == nil || !errors.Is(err, sessrepo.ErrStaleLease) {
+			t.Fatalf("SetProfile(superseded lease) error = %v, want stale lease refusal", err)
+		}
+		events, err := repository.ListEvents(testSessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(events) != 1 || events[0].EventID != tail {
+			t.Fatalf("chain after refused SetProfile = %+v, want the original tail only", events)
+		}
+	})
+
+	for _, losingLeaseID := range []string{profileAdmissionLosingLease, profileAdmissionLowerLease} {
+		t.Run("same epoch loser "+losingLeaseID, func(t *testing.T) {
+			repository := openTestRepository(t)
+			reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
+			tail := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 2, losingLeaseID, 1, "session.created", createdPayload(reference.RecordID))
+			first, err := repository.CreateLease(testSessionID, sessrepo.CreateLeaseInput{
+				LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := repository.CompareAndSwapLease(testSessionID, sessrepo.LeaseExpectation{RecordID: first.RecordID}, sessrepo.SuccessorLeaseInput{
+				CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: testLeaseIDB, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt},
+				Reason:           "graceful_takeover", CheckpointID: zeroDigest,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			request := validSetProfileRequest()
+			request.LeaseEpoch = 2
+			request.LeaseID = losingLeaseID
+			_, err = (&Transactor{Repo: repository}).SetProfile(request)
+			if err == nil || !errors.Is(err, sessrepo.ErrDivergentBranch) {
+				t.Fatalf("SetProfile(same-epoch loser) error = %v, want divergent branch refusal", err)
+			}
+			events, err := repository.ListEvents(testSessionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 1 || events[0].EventID != tail {
+				t.Fatalf("chain after refused same-epoch SetProfile = %+v, want the original tail only", events)
+			}
+		})
 	}
 }
 

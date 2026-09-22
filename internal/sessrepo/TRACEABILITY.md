@@ -109,3 +109,76 @@ Crash/idempotency matrix (Section 13.13 outcomes):
   validation already admitted the inputs, so a mint failure is an
   internal inconsistency. The narrowing batteries rely on this: a
   weakened grammar gate fails closed at mint with a changed class.
+
+## Story-final BUG-260917-3lddu0: winning-lease append admission
+
+This leaf adds the owner-side admission gate in
+`Repository.AppendEvent`: once a session has a lease store, a new event
+must be at the winning epoch and, at that epoch, must name the winning
+lease. The gate is `checkWinningLease` in `chain.go`; historical replay
+does not call it, because an earlier winner's already-authoritative event
+remains valid history after a successor wins. A refused lower-epoch or
+same-epoch losing event is still installed as an immutable blob, while
+the authoritative chain is unchanged.
+
+The two leaf acceptance rows are fully driven: **2 of 2**. The profile-source
+row is route (b): it is closed by the append gate at
+`internal/sessrepo/sessrepo.go:AppendEvent`. `sessprofile.Derive` is
+unchanged, cannot see the lease store, and is recorded as a bound rather than
+an independent losing-lease guarantee. Independent lease-aware derivation-side
+authority is owned by `STORY-260922-cpkajd` / `TASK-260922-31qyyi`
+(`lease-aware-profile-source-authority` /
+`derivation-side-profile-source-gate`), including the higher-epoch and
+empty-lease-store classes disclosed below.
+
+| Gate arm | `Repository.AppendEvent` | `sessprofile.Transactor.SetProfile` | `axpane.Emit` | `axpane.EmitParked` | `Run → EmitParked` |
+| --- | --- | --- | --- | --- | --- |
+| Lower epoch → `ErrStaleLease` | `TestAppendEventRefusesSupersededLeaseWhileTailStillMatches` | `TestSetProfileRefusesSupersededLeaseWhileTailStillMatches/lower epoch` | `TestEmitReachesAppendAdmissionGateAfterStaleObservation` | `TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation` | Bound: unreachable except by an interleaving between `Observe` and `AppendEvent`, closed by the durable gate. Owner `internal/axpane/run.go:Run` + `internal/sessrepo/sessrepo.go:AppendEvent`. |
+| Same-epoch loser → `ErrDivergentBranch` | `TestAppendEventRefusesSameEpochLosingLeaseWhileTailStillMatches` (both loser IDs) | `TestSetProfileRefusesSupersededLeaseWhileTailStillMatches` (both loser-ID subtests) | `TestEmitReachesSameEpochAppendAdmissionGate` (both loser IDs) | `TestEmitParkedReachesSameEpochAppendAdmissionGate` (both loser IDs) | Bound: unreachable except by an interleaving between `Observe` and `AppendEvent`, closed by the durable gate. Owner `internal/axpane/run.go:Run` + `internal/sessrepo/sessrepo.go:AppendEvent`. |
+
+The gate-entry census is **8 of 10 cells driven** and **2 of 10 cells
+bounded**. Measured row symmetry is lower epoch **4 of 4** and same-epoch
+loser **4 of 4** across the four reachable writer entries; the Run row is
+bounded on both arms. Every reachable entry has a named test and a matching
+narrowing row. The same-epoch tests cover both loser-ID directions,
+`cccccccc-dddd-4eee-8fff-111111111111` and
+`11111111-2222-4333-8444-555555555555`, and direct plus axpane paths
+read back the preserved blob.
+
+The complete importer comparison uses the exact mask
+`./internal/axpane ./internal/crashgate ./internal/fencing
+./internal/sessckpt ./internal/sessprofile ./internal/sessquery
+./internal/sessstate ./internal/termbind ./internal/terminstance`:
+all 9 packages pass, with 2,018 before and 2,030 after test-status keys
+(including 9 package rows, or 2,009 / 2,021 actual test rows), 12 additions,
+0 removals, and 0 changed statuses. The adopted reviewer runtime grid over
+the same importer set records 130 outcome keys / 2,926 calls before versus
+137 / 2,955 after, with 10 added and 3 removed outcome keys. Stable-name
+fixture meaning changes are recorded in the task matrix and axpane
+TRACEABILITY; the status grid cannot report those semantic moves.
+
+The final append-admission narrowing battery was run twice from the exact
+candidate source, under `mutants-append-rev3-pass1/` and
+`mutants-append-rev3-pass2/`. Both true mutants retain the gate and
+admit exactly one reachable rejected class; both are **KILLED** on both runs.
+`N-stale-winning-admission` retains the gate but admits only the
+reachable lower-epoch A member; `N-same-epoch-winning-admission` retains
+the gate but admits only reachable loser C. The direct, SetProfile, Emit,
+and EmitParked tests kill both true mutants. The harmless comment control is
+`SURVIVED`, the missing-token control is `NOT_APPLIED`, and the
+syntax control is `COMPILE_OR_HARNESS_FAILURE`; controls are not kills.
+No source-text-inspecting gate exists, so a token-preserving source-text
+mutant is not applicable.
+
+Bounds: an empty lease store skips the winner gate and can admit valid
+`(epoch 7, lease B)` sequence 1; owner
+`internal/sessrepo/sessrepo.go:AppendEvent` / `checkWinningLease` plus
+the lease lifecycle caller/store. An unknown higher epoch remains admitted
+by `checkWinningLease` and may become a profile source; owner
+`internal/sessrepo/chain.go:checkWinningLease` composed by
+`AppendEvent`. That is not independent Section 2.4 ambiguity closure.
+The sibling profile test `TestLosingLeaseProfileEventIgnored` drives the
+same append gate and then checks `sessprofile.Derive` and `Run`:
+the losing event is refused, `standard` with no source remains effective,
+and the yolo/bypass mapping cannot launch. No public `ax` CLI entry
+exists in this repository.

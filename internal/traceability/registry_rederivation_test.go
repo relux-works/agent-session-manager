@@ -635,6 +635,33 @@ var storyNewV070Bindings = map[string]storyBindingUpgrade{
 }
 
 var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
+	"section:2.4": {
+		Production: codeReference{Path: "internal/sessprofile/profile.go", Declaration: "Derive"},
+		Cases:      []string{"sessprofile-derive", "sessprofile-derive-heads", "sessprofile-fork-pair", "provhost-mapping-resolution", "story-260917-losing-lease-profile-source"},
+		Coverage:   coverageFull,
+		Gap:        "",
+		Clauses: []dischargedClause{
+			{ID: "2.4#1", Line: 661, Excerpt: "MUST fail with <code>profile_mapping_unavailable</code> if the adapter cannot map the stored profile for the probed provider version.", AcceptanceCases: []string{"provhost-mapping-resolution"}},
+			{ID: "2.4#2", Line: 666, Excerpt: "Losing-lease or ambiguous events MUST NOT change it.", AcceptanceCases: []string{"sessprofile-derive", "story-260917-losing-lease-profile-source"}},
+			{ID: "2.4#3", Line: 670, Excerpt: "a bundle, resume, or fork MUST NOT fall back to the Session Record creation value when the closure contains a later change.", AcceptanceCases: []string{"sessprofile-derive", "sessprofile-derive-heads"}},
+			{ID: "2.4#4", Line: 678, Excerpt: "MUST NOT be treated as a profile event in the new session's event chain.", AcceptanceCases: []string{"sessprofile-fork-pair"}},
+		},
+	},
+	"section:5.3": {
+		Production: codeReference{Path: "internal/sessrepo/lease_store.go", Declaration: "CompareAndSwapLease"},
+		Cases:      []string{"lease-record-lifecycle", "lease-fencing-revalidation", "lease-checkpoint-admission", "lease-divergent-preservation", "lease-union-resolution", "lease-fencing-gates", "core-record-identity-validation", "lease-ownership-union-properties", "lease-ownership-store-properties", "story-260917-append-winning-lease-admission"},
+		Coverage:   coveragePartial,
+		Gap:        "CompareAndSwapLease with the fencing gates discharges 7 of the 8 Section 5.3 clauses; clause 5.3#5 (every new takeover lease MUST use max_observed_epoch + 1 from the initiator's union) stays unimplemented because the union maximum is caller-side input and no takeover flow exists in this repository yet. The ownership property cases (union-order independence and loser preservation over Reduce, clock non-authority and single authority over the lease store) add executable proofs for the discharged 5.3#6 and 5.3#7 divergent-preservation evidence without changing the 7-of-8 ratio.",
+		Clauses: []dischargedClause{
+			{ID: "5.3#1", Line: 2006, Excerpt: "| <code>created_by_host_id</code> | UUIDv7 | MUST equal <code>issued_by_host_id</code> |", AcceptanceCases: []string{"core-record-identity-validation"}},
+			{ID: "5.3#2", Line: 2036, Excerpt: "tie-break. A valid epoch greater than 1 MUST name a known predecessor for the", AcceptanceCases: []string{"lease-record-lifecycle", "lease-checkpoint-admission"}},
+			{ID: "5.3#3", Line: 2037, Excerpt: "same session, MUST equal that predecessor's epoch plus one, and MUST reference", AcceptanceCases: []string{"lease-record-lifecycle", "lease-checkpoint-admission"}},
+			{ID: "5.3#4", Line: 2039, Excerpt: "<code>create</code> lease MUST have a null predecessor and MAY have a null", AcceptanceCases: []string{"lease-record-lifecycle"}},
+			{ID: "5.3#6", Line: 2046, Excerpt: "lease wins. Events under the losing same-epoch lease and all lower epochs MUST", AcceptanceCases: []string{"lease-divergent-preservation", "lease-union-resolution", "lease-ownership-union-properties", "story-260917-append-winning-lease-admission"}},
+			{ID: "5.3#7", Line: 2047, Excerpt: "be preserved in a divergent branch and MUST NOT affect authoritative state.", AcceptanceCases: []string{"lease-divergent-preservation", "lease-union-resolution", "lease-ownership-union-properties", "story-260917-append-winning-lease-admission"}},
+			{ID: "5.3#8", Line: 2049, Excerpt: "An owner process MUST revalidate its fencing token before:", AcceptanceCases: []string{"lease-fencing-revalidation", "lease-fencing-gates"}},
+		},
+	},
 	"section:4.B": {
 		Production: codeReference{Path: "internal/termbind/identity.go", Declaration: "CheckInstanceIdentity"},
 		Cases:      []string{"terminal-instance-identity-exact"},
@@ -729,10 +756,40 @@ var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
 	},
 }
 
+// storyBindingExtensions are the three already-measured bindings that this
+// Story extends with executed admission/source cases. Unlike the historical
+// post-adoption upgrades above, these do not promote an unevidenced stub; the
+// extension is limited to adding the new Story's acceptance owners to clauses
+// already discharged by the carried binding.
+var storyBindingExtensions = map[string]struct{}{
+	"section:2.4": {},
+	"section:5.3": {},
+}
+
 // storyNewV070Cases is the exact set of acceptance cases the post-adoption
 // story final leaves add to the adopted registry. Each is pinned literally;
 // any further addition still fails as an unreviewed claim.
 var storyNewV070Cases = map[string]acceptanceCase{
+	"story-260917-append-winning-lease-admission": {
+		ID:         "story-260917-append-winning-lease-admission",
+		Production: codeReference{Path: "internal/sessrepo/sessrepo.go", Declaration: "AppendEvent"},
+		Tests: []codeReference{
+			{Path: "internal/sessrepo/sessrepo_test.go", Declaration: "TestAppendEventRefusesSupersededLeaseWhileTailStillMatches"},
+			{Path: "internal/sessrepo/sessrepo_test.go", Declaration: "TestAppendEventRefusesSameEpochLosingLeaseWhileTailStillMatches"},
+			{Path: "internal/sessprofile/setprofile_test.go", Declaration: "TestSetProfileRefusesSupersededLeaseWhileTailStillMatches"},
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestEmitReachesAppendAdmissionGateAfterStaleObservation"},
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation"},
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestEmitReachesSameEpochAppendAdmissionGate"},
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestEmitParkedReachesSameEpochAppendAdmissionGate"},
+		},
+	},
+	"story-260917-losing-lease-profile-source": {
+		ID:         "story-260917-losing-lease-profile-source",
+		Production: codeReference{Path: "internal/sessrepo/sessrepo.go", Declaration: "AppendEvent"},
+		Tests: []codeReference{
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestLosingLeaseProfileEventIgnored"},
+		},
+	},
 	"rpcwire-closed-bodies": {
 		ID:         "rpcwire-closed-bodies",
 		Production: codeReference{Path: "internal/rpcwire/envelope.go", Declaration: "DecodeRequest"},
@@ -934,13 +991,14 @@ var storyNewV070Cases = map[string]acceptanceCase{
 	},
 }
 
-// assertStoryBindingUpgrade pins one reviewed post-adoption upgrade: the
-// v0.6.0 base must be the unevidenced stub the adoption carried, and the
-// v0.7.0 binding must equal the reviewed upgrade literally.
+// assertStoryBindingUpgrade pins one reviewed post-adoption upgrade. The
+// historical upgrades promote unevidenced stubs; the explicitly listed Story
+// extensions retain their measured base and only add reviewed acceptance
+// owners to already discharged clauses. Every resulting field is still exact.
 func assertStoryBindingUpgrade(t *testing.T, key string, old, now ownershipGroup, upgrade storyBindingUpgrade) {
 	t.Helper()
 
-	if old.Coverage != coverageUnevidenced || len(old.Clauses) != 0 {
+	if _, extension := storyBindingExtensions[key]; !extension && (old.Coverage != coverageUnevidenced || len(old.Clauses) != 0) {
 		t.Fatalf("binding %q upgrade base is not the unevidenced stub: coverage %s with %d clauses", key, old.Coverage, len(old.Clauses))
 	}
 	if now.Production != upgrade.Production {
@@ -968,7 +1026,7 @@ func assertStoryBindingUpgrade(t *testing.T, key string, old, now ownershipGroup
 func assertStoryBindingClausesRemeasured(t *testing.T, key string, old, now ownershipGroup, measured070 map[string]map[string]int) {
 	t.Helper()
 
-	if len(old.Clauses) != 0 {
+	if _, extension := storyBindingExtensions[key]; !extension && len(old.Clauses) != 0 {
 		t.Fatalf("binding %q upgrade base carries %d clauses, want the unevidenced stub", key, len(old.Clauses))
 	}
 	for _, newClause := range now.Clauses {

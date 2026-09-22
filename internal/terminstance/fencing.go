@@ -36,19 +36,31 @@ import (
 // inside the landed Authorize; no local tuple comparison exists here.
 //
 // A stale token refused by the gate's GRANT precondition still fences:
-// the grant arms (no grant, no clock reading, lapsed grant, unusable
-// policy) fire before the direction/tuple arms, so without a second
-// verdict a cold force-takeover incarnation — one that can never hold
-// a live grant, because VerifyFencingToken refuses its stale epoch
-// and grants never survive a controller restart — would never reach
-// stale_fenced. The landed StaleRelativeToWinner verdict decides the
-// direction/tuple arms over the verified well-formed winner without
-// the grant precondition, and a decided stale verdict fences from a
-// live incarnation exactly like the gate's own stale park. The
-// relative question needs no such fallback: it carries the direct
-// observation's grant facts unchanged and the grant arms do not read
-// LocalHostID, so a direct remote park implies the relative question
-// passes the grant arms.
+// no grant, no clock reading, and an unusable policy still return before
+// direction/tuple arms, so without a second verdict a cold force-takeover
+// incarnation — one that can never hold a live grant, because
+// VerifyFencingToken refuses its stale epoch and grants never survive a
+// controller restart — would never reach stale_fenced. A lapsed grant is
+// different at the direct question: Authorize defers only its expiry
+// result until after ownership direction, so a remote winner surfaces
+// remote_owner for the wrapper's attach/takeover decision. The relative
+// question from the winner's host can still stop at that deferred expiry
+// result, so observeRemoteWinner consults the landed
+// StaleRelativeToWinner verdict there as well. Stale tokens fence, while
+// winning and future tokens remain the original remote park. For local
+// ownership, and for the remaining hard grant refusals, the same verdict
+// decides the direction/tuple arms over the verified well-formed winner
+// without the grant precondition, and a decided stale verdict fences from
+// a live incarnation exactly like the gate's own stale park. The relative
+// question carries the direct observation's grant facts unchanged.
+//
+// This relative arm is retained as an explicit composed check, but it is not
+// claimed as load-bearing for the remote-lapsed composition. The complete
+// importer-set reviewer plants RM-O5 (relative question through mutation)
+// and RM-O6 (relative stale_owner arm removed) both SURVIVED twice: the
+// grant-independent StaleRelativeToWinner fallback below determines the same
+// stale/non-stale result. That is a measured bound on this retained arm, not
+// a claim that either relative branch independently carries this behavior.
 //
 // Only a live incarnation fences: creating, parked, active and
 // quiescing move to stale_fenced, while absent and stopped (no
@@ -106,6 +118,11 @@ func observeRemoteWinner(current terminalbackend.InstanceState, presented fencin
 		return current, false, authErr
 	}
 	if relativeReason, _, relativeParked := fencing.ParkDetails(relativeErr); relativeParked && relativeReason == fencing.ParkStaleOwner {
+		return fenceLive(current, authErr)
+	}
+	// A lapsed grant can defer the relative question before its tuple arm;
+	// the grant-independent verdict still fences a stale incarnation.
+	if stale, decided := fencing.StaleRelativeToWinner(presented, observation); decided && stale {
 		return fenceLive(current, authErr)
 	}
 	return current, false, authErr

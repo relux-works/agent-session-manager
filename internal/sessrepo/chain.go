@@ -194,6 +194,22 @@ func checkAppend(recordID string, tail *EventSummary, event eventView) error {
 	return nil
 }
 
+// checkWinningLease enforces the owner-side admission rule for a new event
+// once a session has a lease store. Historical chain replay intentionally
+// does not call this helper: an event authored by an earlier winner remains
+// valid history after a successor wins. A new lower-epoch event, or a new
+// same-epoch event from a losing lease, is an unapplied branch even when the
+// chain tail still names the old lease.
+func checkWinningLease(winner LeaseSummary, event eventView) error {
+	if event.leaseEpoch < winner.Epoch {
+		return refuse(ErrStaleLease, "event lease epoch %d precedes winning lease epoch %d", event.leaseEpoch, winner.Epoch)
+	}
+	if event.leaseEpoch == winner.Epoch && event.leaseID != winner.LeaseID {
+		return refuse(ErrDivergentBranch, "event lease %s loses to winning lease %s at epoch %d", event.leaseID, winner.LeaseID, winner.Epoch)
+	}
+	return nil
+}
+
 func containsDigest(haystack []string, needle string) bool {
 	for _, candidate := range haystack {
 		if candidate == needle {

@@ -39,6 +39,30 @@ SESSIONB = "0198f4c8-3e70-7a11-8a2b-1234567890ac"
 GATE_IMPORT = '\t"errors"\n\t"fmt"\n\t"time"'
 GATE_IMPORT_STRINGS = '\t"errors"\n\t"fmt"\n\t"strings"\n\t"time"'
 
+# The precedence plant deliberately preserves both gates and swaps only their
+# result arms. Policy validity remains before direction; the regression vector
+# must fail when the expired result is consumed before the remote-owner arm.
+DIRECTION_THEN_EXPIRY = """\tif observation.Winner.HolderHostID != observation.LocalHostID {
+		if launchClass(operation) {
+			return LeaseToken{}, park(ParkRemoteOwner, observation.Winner.LeaseID, ErrNotOwner)
+		}
+		return LeaseToken{}, refuse(ErrNotOwner, "session %s is owned by remote host %s", observation.SessionID, observation.Winner.HolderHostID)
+	}
+	if errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
+		return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
+	}
+"""
+EXPIRY_THEN_DIRECTION = """\tif errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
+		return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
+	}
+	if observation.Winner.HolderHostID != observation.LocalHostID {
+		if launchClass(operation) {
+			return LeaseToken{}, park(ParkRemoteOwner, observation.Winner.LeaseID, ErrNotOwner)
+		}
+		return LeaseToken{}, refuse(ErrNotOwner, "session %s is owned by remote host %s", observation.SessionID, observation.Winner.HolderHostID)
+	}
+"""
+
 # Each mutant: (name, kind, file, edits|add-path+content, command, bound).
 # kind edit: [(old, new)] applied to file, each anchored exactly once.
 # kind add: writes path with content for the run, then removes it.
@@ -110,10 +134,14 @@ MUTANTS = [
      ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesExpiredGrant$", "-count=1", "-v"],
      "Extend the refresh interval by an hour; the lapsed-by-seconds grant authorizes while the never-validated grant still refuses."),
     ("N-expiry-map", "edit", "internal/fencing/gate.go",
-     [("if errors.Is(err, sessrepo.ErrFencingExpired) {",
-        "if errors.Is(err, sessrepo.ErrInvalidLease) {")],
+     [("if errors.Is(expiryErr, sessrepo.ErrFencingExpired) {",
+        "if errors.Is(expiryErr, sessrepo.ErrInvalidLease) {")],
      ["go", "test", "./internal/fencing", "-run", r"^TestAuthorizeRefusesExpiredGrant$", "-count=1", "-v"],
      "Swap the lapsed/unusable classes; both vectors change class and the test fails."),
+    ("N-arm-order-expiry-before-direction", "edit", "internal/fencing/gate.go",
+     [(DIRECTION_THEN_EXPIRY, EXPIRY_THEN_DIRECTION)],
+     ["go", "test", "./internal/fencing", "-run", r"^TestAuthorize(RemoteInteractiveOwnerLapsedGrantUsesRemoteOfferArm|LapsedRemoteOwnerUsesDirectionForEveryEntry)$", "-count=1", "-v"],
+     "Swap the ownership-direction and grant-expiry arms back to expiry-first; the direct remote-offer regression and every-entry witness return lease_conflict/not_owner mismatches and fail."),
     ("N-remote-prefix", "edit", "internal/fencing/gate.go",
      [(GATE_IMPORT, GATE_IMPORT_STRINGS),
       ("if observation.Winner.HolderHostID != observation.LocalHostID {",

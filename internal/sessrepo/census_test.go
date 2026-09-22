@@ -657,7 +657,7 @@ func unclassifiableEqualitySpellings(syntax *ast.File, fileSet *token.FileSet, d
 func sessrepoEqualityLedger() map[string]string {
 	return map[string]string{
 		"sessrepo.go:262":    "TestCreateSessionRefusesResumeWithDifferingBytes // N10 length-only",
-		"chain.go:426":       "TestAppendEventRefusesSameLengthDisagreeingBytes // N13 length-only",
+		"chain.go:442":       "TestAppendEventRefusesSameLengthDisagreeingBytes // N13 length-only",
 		"lease_store.go:650": "TestInstallDisagreeingBytesRefuses/same_length // N length-only",
 	}
 }

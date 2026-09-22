@@ -307,6 +307,23 @@ func (repository *Repository) AppendEvent(sessionID string, eventJSON []byte) (E
 		previous := view.chain.Events[len(view.chain.Events)-1]
 		tail = &previous
 	}
+	leases, err := repository.loadLeasesLocked(view.directory, view.record.sessionID)
+	if err != nil {
+		return EventRef{}, err
+	}
+	if len(leases) > 0 {
+		if err := checkWinningLease(leases[len(leases)-1], event); err != nil {
+			// Losing-lease branches are preserved as immutable blobs but
+			// never applied: the bytes stay addressable while the chain is
+			// untouched, including when the old lease is still the tail.
+			if errors.Is(err, ErrDivergentBranch) || errors.Is(err, ErrStaleLease) {
+				if preserveErr := installEventBlob(filepath.Join(view.directory, "events", blobFileName(event.eventID)), eventJSON); preserveErr != nil {
+					return EventRef{}, fmt.Errorf("preserve unapplied branch: %v: %w", preserveErr, err)
+				}
+			}
+			return EventRef{}, err
+		}
+	}
 	if err := checkAppend(view.chain.RecordID, tail, event); err != nil {
 		// Losing-lease branches are preserved as immutable blobs but never
 		// applied: the bytes stay addressable while the chain is untouched.

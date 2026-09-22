@@ -22,6 +22,7 @@ import (
 // empty binding store.
 type runWorld struct {
 	repo     *sessrepo.Repository
+	repoRoot string
 	recordID string
 	headID   string
 	mat      *matjournal.Store
@@ -35,7 +36,8 @@ type runWorld struct {
 func buildRunWorld(t *testing.T) *runWorld {
 	t.Helper()
 	world := &runWorld{universe: buildBackendUniverse(t, true)}
-	world.repo, world.recordID = chainFixture(t)
+	world.repoRoot = t.TempDir()
+	world.repo, world.recordID = chainFixtureAt(t, world.repoRoot)
 	events, err := world.repo.ListEvents(fixtureSession)
 	if err != nil {
 		t.Fatal(err)

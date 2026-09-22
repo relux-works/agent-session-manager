@@ -521,9 +521,9 @@ func TestRunSupersededPairIdenticalRetry(t *testing.T) {
 	if err != nil || first.Decision.Action != ActionLaunch {
 		t.Fatalf("first launch = (%v, %v)", first.Decision.Action, err)
 	}
+	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
 	successor := "cccccccc-dddd-4eee-8fff-000000000001"
 	successorLease(t, world.repo, successor, fixtureLocalHost, world.ckptID)
-	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
 	world.mat = journalSourced(t, world.ckptID)
 	run := func(op, instance string) Outcome {
 		request := runRequest(t, world)
@@ -679,9 +679,9 @@ func TestRunCreateFromStoppedPostWindow(t *testing.T) {
 	if _, err := Run(world.stores(), runRequest(t, world)); err != nil {
 		t.Fatal(err)
 	}
+	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
 	successor := "cccccccc-dddd-4eee-8fff-000000000001"
 	successorLease(t, world.repo, successor, fixtureLocalHost, world.ckptID)
-	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
 	request := runRequest(t, world)
 	request.Mode = ModeLaunch
 	request.BootstrapOperationID = fixtureOtherOp

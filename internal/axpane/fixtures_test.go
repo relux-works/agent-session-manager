@@ -29,18 +29,20 @@ import (
 // Fixture identities. UUIDv7 values keep the version and variant
 // nibbles of the landed fixtures and vary only trailing hex.
 const (
-	fixtureSession    = "0198f4c8-3e70-7a11-8a2b-1234567890ab"
-	fixtureForeign    = "0198f4c8-3e70-7a11-8a2b-1234567890ff"
-	fixtureLocalHost  = "0198f4c8-4a10-7b22-8b3c-1234567890ab"
-	fixtureRemoteHost = "0198f4c8-4a10-7b22-8b3c-1234567890ac"
-	fixtureLeaseA     = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
-	fixtureLeaseB     = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
-	fixtureBootstrap  = "0198f4c8-7d40-7e55-8e6f-1234567890ab"
-	fixtureOtherOp    = "0198f4c8-7d40-7e55-8e6f-1234567890ac"
-	fixtureMat        = "0198f4c8-9a10-7b22-8b3c-1234567890ab"
-	fixturePrepareOp  = "0198f4c8-9a10-7b22-8b3c-1234567890ac"
-	fixtureInstance   = "0198f4c9-1111-7aaa-8aaa-1234567890ab"
-	fixtureCreatedAt  = "2026-08-19T04:09:30.000Z"
+	fixtureSession             = "0198f4c8-3e70-7a11-8a2b-1234567890ab"
+	fixtureForeign             = "0198f4c8-3e70-7a11-8a2b-1234567890ff"
+	fixtureLocalHost           = "0198f4c8-4a10-7b22-8b3c-1234567890ab"
+	fixtureRemoteHost          = "0198f4c8-4a10-7b22-8b3c-1234567890ac"
+	fixtureLeaseA              = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	fixtureLeaseB              = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
+	fixtureLeaseAdmissionLoser = "cccccccc-dddd-4eee-8fff-111111111111"
+	fixtureLeaseAdmissionLower = "11111111-2222-4333-8444-555555555555"
+	fixtureBootstrap           = "0198f4c8-7d40-7e55-8e6f-1234567890ab"
+	fixtureOtherOp             = "0198f4c8-7d40-7e55-8e6f-1234567890ac"
+	fixtureMat                 = "0198f4c8-9a10-7b22-8b3c-1234567890ab"
+	fixturePrepareOp           = "0198f4c8-9a10-7b22-8b3c-1234567890ac"
+	fixtureInstance            = "0198f4c9-1111-7aaa-8aaa-1234567890ab"
+	fixtureCreatedAt           = "2026-08-19T04:09:30.000Z"
 )
 
 func fixtureNow() time.Time {
@@ -565,8 +567,12 @@ func identifyObject(t *testing.T, value map[string]any, field string) []byte {
 // epoch-1 lease, returning the repository, the session/record IDs,
 // and the created event digest.
 func chainFixture(t *testing.T) (*sessrepo.Repository, string) {
+	return chainFixtureAt(t, t.TempDir())
+}
+
+func chainFixtureAt(t *testing.T, root string) (*sessrepo.Repository, string) {
 	t.Helper()
-	repository, err := sessrepo.Open(t.TempDir())
+	repository, err := sessrepo.Open(root)
 	if err != nil {
 		t.Fatal(err)
 	}

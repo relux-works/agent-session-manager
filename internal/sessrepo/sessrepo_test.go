@@ -15,14 +15,15 @@ import (
 // RFC 4122 variant; every UUIDv4 keeps nibble 4. The session, host, group,
 // and workspace values are the SPEC.md Section 5.1 example identities.
 const (
-	testSessionID   = "0198f4c8-3e70-7a11-8a2b-1234567890ab"
-	testSessionIDB  = "0198f4c8-3e70-7a11-8a2b-1234567890ac"
-	testHostID      = "0198f4c8-4a10-7b22-8b3c-1234567890ab"
-	testGroupID     = "0198f4c8-5b20-7c33-8c4d-1234567890ab"
-	testWorkspaceID = "0198f4c8-6c30-7d44-8d5e-1234567890ab"
-	testLeaseID     = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
-	testLeaseIDB    = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
-	testCreatedAt   = "2026-08-19T04:00:00.000Z"
+	testSessionID    = "0198f4c8-3e70-7a11-8a2b-1234567890ab"
+	testSessionIDB   = "0198f4c8-3e70-7a11-8a2b-1234567890ac"
+	testHostID       = "0198f4c8-4a10-7b22-8b3c-1234567890ab"
+	testGroupID      = "0198f4c8-5b20-7c33-8c4d-1234567890ab"
+	testWorkspaceID  = "0198f4c8-6c30-7d44-8d5e-1234567890ab"
+	testLeaseID      = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	testLeaseIDB     = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
+	testLeaseIDLower = "11111111-2222-4333-8444-555555555555"
+	testCreatedAt    = "2026-08-19T04:00:00.000Z"
 )
 
 const zeroDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
@@ -737,6 +738,124 @@ func TestAppendEventRefusesStaleLeaseEpoch(t *testing.T) {
 	mustErrorIs(t, err, ErrStaleLease, "AppendEvent(stale epoch)")
 }
 
+// TestAppendEventRefusesSupersededLeaseWhileTailStillMatches pins the
+// production append admission gate behind the exact stale-lease shape from
+// review probe 9: successor B is already the stored winner, but the
+// authoritative tail still belongs to lease A. The losing profile.changed
+// event must be refused and preserved without changing the chain.
+func TestAppendEventRefusesSupersededLeaseWhileTailStillMatches(t *testing.T) {
+	repository := openTestRepository(t)
+	reference := createTestSession(t, repository)
+	firstLease := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
+	first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, firstLease.Epoch, firstLease.LeaseID, 1, "session.created", createdPayload(reference.RecordID))
+	secondLease := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: firstLease.RecordID}, successorLeaseFixture())
+	losing := buildEvent(t, eventOptions{
+		sessionID:    testSessionID,
+		predecessors: []string{first.EventID},
+		epoch:        firstLease.Epoch,
+		leaseID:      firstLease.LeaseID,
+		sequence:     2,
+		eventType:    "profile.changed",
+		payload:      map[string]any{"from": "standard", "to": "yolo", "confirmed": true},
+	})
+	_, err := repository.AppendEvent(testSessionID, losing)
+	mustErrorIs(t, err, ErrStaleLease, "AppendEvent(profile.changed under superseded lease)")
+	if secondLease.Epoch != 2 || secondLease.LeaseID != testLeaseIDB {
+		t.Fatalf("successor lease = %+v, want epoch 2 lease %s", secondLease, testLeaseIDB)
+	}
+	events, err := repository.ListEvents(testSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].LeaseID != firstLease.LeaseID {
+		t.Fatalf("chain after stale append = %+v, want the original lease-A tail only", events)
+	}
+	var eventID struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.Unmarshal(losing, &eventID); err != nil {
+		t.Fatal(err)
+	}
+	preserved, err := os.ReadFile(blobPathFor(t, repository, testSessionID, eventID.EventID))
+	if err != nil {
+		t.Fatalf("losing event was not preserved: %v", err)
+	}
+	if string(preserved) != string(losing) {
+		t.Fatal("preserved losing profile.changed bytes differ")
+	}
+
+	t.Run("same-epoch losing lease", func(t *testing.T) {
+		repository := openTestRepository(t)
+		reference := createTestSession(t, repository)
+		firstLease := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
+		first, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, firstLease.Epoch, firstLease.LeaseID, 1, "session.created", createdPayload(reference.RecordID))
+		secondLease := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: firstLease.RecordID}, successorLeaseFixture())
+		second, _ := appendTestEvent(t, repository, testSessionID, []string{first.EventID}, secondLease.Epoch, secondLease.LeaseID, 1, "session.idle", idlePayload())
+		losing := buildEvent(t, eventOptions{
+			sessionID:    testSessionID,
+			predecessors: []string{second.EventID},
+			epoch:        secondLease.Epoch,
+			leaseID:      testLeaseIDC,
+			sequence:     2,
+			eventType:    "session.idle",
+			payload:      idlePayload(),
+		})
+		_, err := repository.AppendEvent(testSessionID, losing)
+		mustErrorIs(t, err, ErrDivergentBranch, "AppendEvent(same-epoch losing lease)")
+	})
+}
+
+// TestAppendEventRefusesSameEpochLosingLeaseWhileTailStillMatches exercises
+// the other winner-gate arm with a tail that already belongs to the losing
+// same-epoch lease. The chain-only bootstrap is built before lease records
+// exist; once winner B is installed, a new C event must not extend that old
+// tail even though checkAppend alone would accept its sequence and link.
+func TestAppendEventRefusesSameEpochLosingLeaseWhileTailStillMatches(t *testing.T) {
+	for _, losingLeaseID := range []string{testLeaseIDC, testLeaseIDLower} {
+		t.Run(losingLeaseID, func(t *testing.T) {
+			repository := openTestRepository(t)
+			reference := createTestSession(t, repository)
+			tail, _ := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 2, losingLeaseID, 1, "session.created", createdPayload(reference.RecordID))
+			firstLease := mustCreateLease(t, repository, testSessionID, createLeaseFixture())
+			secondLease := mustCompareAndSwap(t, repository, testSessionID, LeaseExpectation{RecordID: firstLease.RecordID}, successorLeaseFixture())
+			if secondLease.Epoch != 2 || secondLease.LeaseID != testLeaseIDB {
+				t.Fatalf("successor lease = %+v, want epoch 2 lease %s", secondLease, testLeaseIDB)
+			}
+			losing := buildEvent(t, eventOptions{
+				sessionID:    testSessionID,
+				predecessors: []string{tail.EventID},
+				epoch:        2,
+				leaseID:      losingLeaseID,
+				sequence:     2,
+				eventType:    "session.idle",
+				payload:      idlePayload(),
+			})
+			_, err := repository.AppendEvent(testSessionID, losing)
+			mustErrorIs(t, err, ErrDivergentBranch, "AppendEvent(same-epoch losing tail)")
+			events, err := repository.ListEvents(testSessionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 1 || events[0].LeaseID != losingLeaseID {
+				t.Fatalf("chain after same-epoch losing append = %+v, want the original losing tail only", events)
+			}
+			var eventID struct {
+				EventID string `json:"event_id"`
+			}
+			if err := json.Unmarshal(losing, &eventID); err != nil {
+				t.Fatal(err)
+			}
+			preserved, err := os.ReadFile(blobPathFor(t, repository, testSessionID, eventID.EventID))
+			if err != nil {
+				t.Fatalf("same-epoch losing event was not preserved: %v", err)
+			}
+			if string(preserved) != string(losing) {
+				t.Fatal("preserved same-epoch losing bytes differ")
+			}
+		})
+	}
+}
+
 func TestAppendEventRefusesDisagreeingDigestPathBytes(t *testing.T) {
 	repository := openTestRepository(t)
 	reference := createTestSession(t, repository)
@@ -776,7 +895,7 @@ func blobPathFor(t *testing.T, repository *Repository, sessionID, eventID string
 }
 
 // TestAppendEventRefusesSameLengthDisagreeingBytes is the same-length
-// vector for the installEventBlob content-equality gate (chain.go:426):
+// vector for the installEventBlob content-equality gate (chain.go:442):
 // the planted bytes differ from the genuine event in exactly one bit but
 // carry the identical byte length, so a narrowed equality that compares
 // lengths only would admit them as already installed, write the chain

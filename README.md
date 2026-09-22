@@ -1774,6 +1774,20 @@ rename seam proves no torn final and a safe identical retry. Query-layer
 admission is unchanged and admits store-minted records without behavioral
 change.
 
+The story-final append-admission gate adds one owner-side check before
+`checkAppend`: a new event under a lower epoch or a same-epoch losing lease
+is refused even when the chain tail still names that lease, while its
+immutable bytes remain preserved. Direct `AppendEvent`, `SetProfile`,
+`Emit`, and `EmitParked` entry tests cover both arms (8 of 10
+gate-entry cells); the two `Run → EmitParked` cells are stated bounds:
+unreachable except by an interleaving between `Observe` and `AppendEvent`,
+closed by the durable gate, owned by `axpane.Run` plus
+`sessrepo.Repository.AppendEvent`. The profile-source test drives
+`Run` to prove a losing `profile.changed` cannot become effective
+through the append gate. The focused narrowing battery is reproducible with
+`PYTHONDONTWRITEBYTECODE=1 python3 internal/sessrepo/testdata/mutate_append_admission.py /absolute/path/to/evidence-dir`;
+its task-scoped logs and outcome matrix live under `.temp/BUG-260917-3lddu0/`.
+
 The package derives no lifecycle state, renders no list/status output, and
 learns no peer names: the Section 5.7 reducer, the full Section 2.3 order with
 interactive choice, and Section 14.4 rendering belong to the sibling leaves
@@ -1821,6 +1835,11 @@ refusal site, plus one token-preserving timestamp mutant — 27 killed, 0
 survivors; plus SURVIVED, NOT_APPLIED, and COMPILE_OR_HARNESS_FAILURE
 controls reported separately),
 covering every lease gate at its production entry with per-plant raw logs.
+The story-final append-admission battery is a separate focused harness in
+`internal/sessrepo/testdata/mutate_append_admission.py`: its two narrowing
+mutants retain the gate, admit one rejected lease class each, and are killed
+by direct and composing writer tests; the harmless, not-applied, and compile
+controls are classified separately.
 
 ## Session State Reducer
 
@@ -1947,12 +1966,15 @@ validated record with its authoritative chain into the session-head pair
 `DeriveForHeads` derives over a checkpoint's transitive event-head
 closure, consulting only closure events, so a later local-only change
 never affects the pair and the derivation never falls back to the
-creation value while the closure holds a change. Chain continuity is
-re-checked over the input for the same reason the lifecycle reducer
-re-checks it: a chain-forbidden reordering refuses with
-`invalid_state_transition` instead of silently deriving a different pair,
-and a losing-lease or ambiguous event refuses instead of changing the
-derivation. Confirmation is a publication rule, not derivation input: a
+creation value while the closure holds a change. New losing-lease events
+are rejected by `sessrepo.Repository.AppendEvent` before they reach this
+fold. Chain continuity is re-checked over the input for the same reason
+the lifecycle reducer re-checks it: a chain-forbidden reordering or
+ambiguous input refuses with `invalid_state_transition` instead of
+silently deriving a different pair. `Derive` itself cannot observe the
+lease store and therefore does not independently prove that an already
+continuous losing-lease event is absent. Confirmation is a publication rule,
+not derivation input: a
 chained change is authoritative by construction and the fold reads only
 its target. `Projector` binds the pure reducer to a repository through
 `ListSessions`, `GetRecord`, `ListEvents`, and `GetEvent` only, so a
@@ -2123,6 +2145,15 @@ no exported field or constructor — only the gate mints it — and an AST censu
 pins that boundary with comment/string controls plus an alias-backdoor plant
 that preserves the searched-for token while changing the construction path.
 
+For SPEC.v0.7.0 §4.2 step 4, `Authorize` resolves ownership direction before
+consuming grant expiry. A remote winner with a lapsed local grant therefore
+keeps the `remote_owner` park/cause reachable, so `axpane.Decide` can offer
+`attach_remote` or `takeover_offer`; a local owner with the same lapsed grant
+still refuses `lease_conflict`, while an unusable policy remains
+`invalid_arguments`. The direct regression and the labelled arm-order plant
+are recorded in
+[`internal/fencing/TRACEABILITY.md`](internal/fencing/TRACEABILITY.md).
+
 Run the focused tests and coverage with:
 
 ```bash
@@ -2130,7 +2161,7 @@ go test ./internal/fencing -count=1
 go test ./internal/fencing -cover -count=1
 ```
 
-Run the narrowing battery (30 narrowing mutants plus one token-preserving
+Run the narrowing battery (31 narrowing mutants plus one token-preserving
 census mutant and three controls) with:
 
 ```bash
@@ -2235,7 +2266,12 @@ backend operation — including under a remote winner, where staleness
 is read relative to the winner from the winner's own host, and
 including grant-less observations (no grant, lapsed grant, no clock
 reading, unusable policy), where the landed staleness verdict decides
-the direction/tuple arms without the grant precondition. A bound
+the direction/tuple arms without the grant precondition. A lapsed remote
+grant is exposed by the direct restore question as the existing
+`remote_owner` park so the pane can offer attach/takeover; the relative
+winner-host question may still stop at deferred expiry, so
+`ObserveFencing` explicitly consults the same grant-independent verdict
+to fence stale tokens while leaving winning/future tokens parked. A bound
 key without its completion reconciles through the production status
 entry: the same operation resumes under the same receipt when status
 proves the source, and refuses uncertain otherwise. The receipt store
@@ -2251,7 +2287,7 @@ go test ./internal/terminstance -count=1
 go test ./internal/terminstance -cover -count=1
 ```
 
-Run the narrowing battery (120 narrowing mutants, one tightening edge
+Run the narrowing battery (121 narrowing mutants, one tightening edge
 row, plus one harmless control) with:
 
 ```bash
@@ -3323,7 +3359,7 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7
 repository gate used by CI. Its reviewed
 [`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
 registry independently enumerates implementation owners for all 64 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 152
+contract rows, 36 pinned or catalog-referenced normative section keys, 154
 executable acceptance cases, 69 exact section bindings with their declared
 coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
@@ -3557,6 +3593,16 @@ both registered against the `config-versioned-readers` acceptance case.
 Section 2.4 is the first multi-clause admission: its four clauses are
 discharged by the `sessprofile-derive`, `sessprofile-derive-heads`,
 `sessprofile-fork-pair`, and `provhost-mapping-resolution` acceptance cases.
+The story-final `story-260917-losing-lease-profile-source` case is referenced
+by the Section 2.4 binding and clause 2.4#2, adding the production
+append-admission refusal/source proof without changing the measured 4/4
+section ratio. This leaf closes that property only through the durable
+`AppendEvent` gate (route (b)); independent lease-aware derivation-side
+authority is owned by `STORY-260922-cpkajd` / `TASK-260922-31qyyi`
+(`lease-aware-profile-source-authority` /
+`derivation-side-profile-source-gate`). That bound includes the disclosed
+never-minted higher-epoch and empty-lease-store classes; this leaf does not
+implement or decide them.
 Sections 7.8 and 10.2 are the clone-story admissions: the seven clauses are
 discharged by the `clone-capture-contracts`, `clone-native-capture`,
 `clone-projection-fidelity`, `session-adapter-call-binding`,
@@ -3700,6 +3746,7 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | `sessquery` mutation harness | Run isolated selector, plan, summary, and admission narrowing/order mutants with exact replacement and real test-exit classification | `python3 internal/sessquery/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
 | `fencing` mutation harness | Run isolated fencing-gate narrowing mutants, one token-preserving census mutant, and three controls with real test-exit classification | `python3 internal/fencing/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
 | `ownership properties` mutation harness | Run isolated ownership-invariant narrowing mutants and three controls with real test-exit classification | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessstate/testdata/mutate_properties.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
+| `sessrepo` append-admission mutation harness | Run the two winning-lease narrowing mutants through direct `AppendEvent` and the composing `SetProfile`, `Emit`, and `EmitParked` production entries, with explicit control classification | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessrepo/testdata/mutate_append_admission.py /absolute/path/to/evidence-dir` | `mutants.json`, raw per-plant logs, copied mutation sources, and control logs under the supplied evidence directory |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
 | Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -adopted -output internal/catalog/catalog_gen.go -check` (`-metadata`/`-contracts` select the same inputs explicitly); `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |

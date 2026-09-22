@@ -175,8 +175,8 @@ Every addition extends a landed type or gate; nothing is forked:
 
 | # | Clause | Committed test |
 | --- | --- | --- |
-| 85 | Grant-less stale fences: every grant-precondition member (no grant, lapsed grant, no clock reading, unusable policy) fences from active/parked/quiescing under local and remote winners, for the older-epoch and lease-mismatch tokens (48 transitions; the direct gate refuses grant-gated, never a park) | `TestRV3F3_GrantLessStaleFences` |
-| 86 | Decided-not-stale leaves state grant-less: winning token and future epoch surface the grant refusal with no transition, local and remote | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` (4 subtests) |
+| 85 | Grant-less stale fences: every grant-precondition member (no grant, lapsed grant, no clock reading, unusable policy) fences from active/parked/quiescing under local and remote winners, for the older-epoch and lease-mismatch tokens (48 transitions). A direct remote lapsed-grant question now parks `remote_owner` for the attach/takeover caller; `ObserveFencing` then uses the grant-independent verdict when the relative question is stopped by deferred expiry (the direct gate's arm and the composed stale transition are separate assertions). | `TestRV3F3_GrantLessStaleFences`, `TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation` |
+| 86 | Decided-not-stale leaves state grant-less: winning token and future epoch surface the grant refusal or existing remote-owner park with no transition, local and remote | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` (4 subtests) |
 | 87 | Undecidable observations leave state: unverified, ambiguous, no winner, malformed winner, session mismatch, failed handoff (park preserved), malformed session/epoch/lease — each with a second stale-shaped member — surface the gate's own refusal or park | `TestRV3F3_GrantLessUndecidedLeavesState` (9 subtests) |
 | 88 | Live-source gate under the verdict path: creating fences grant-less; absent/stopped/stale_fenced/unavailable surface the grant refusal (local and remote) | `TestRV3F3_GrantLessNonLiveSourcesLeaveState`, `TestRV3_FencingNoLocalTupleComparison` (composition pin) |
 | 89 | Auth expiry rechecked before each effect: mid-operation expiry caught after one committed effect (`ax authorization expiry`, after unavailable, new_authorization); the E1 expired members kill on the receipt via the late-deadline instant | `TestRV3W_M1_AuthExpiryRecheckedBeforeEachEffect`, `TestExecuteCreateEntryAuthorizationRefuses/expired`, `TestExecutePreEffectErrorsRestoreSource/entry_auth_expired` |
@@ -193,8 +193,8 @@ Every addition extends a landed type or gate; nothing is forked:
 
 ## Mutant table
 
-`mutant_harness.py`: 122 rows, two full passes at 116 plus a full
-pass at 122, 120 narrowing KILLED + 1 tightening KILLED + the
+`mutant_harness.py`: 123 rows, including the final full pass at 123,
+121 narrowing KILLED + 1 tightening KILLED + the
 SURVIVED control, per-plant raw logs with subprocess exits all
 passes, production blobs byte-identical before/after. Every row is narrowing except `N-auth-epoch-high`
 (tightening: the weakening direction is equivalent because `environ`
@@ -203,10 +203,21 @@ is observable; the row proves the edge is exactly 9007199254740991 by
 refusing it) and `C-control` (harmless SURVIVED control). The eleven
 `N-fencing-verdict-*` rows mutate the landed verdict and are killed
 through `ObserveFencing`, so the composition — not the helper — is
-measured; `N-fencing-verdict-composition` measures the `stale` half of
-the `decided && stale` conjunction (dropping `decided` would be
-equivalent, since the verdict never reports stale undecided). Retired
-in rev4: `N-fencing-epoch-only` — a stale_owner park implies a
+measured; `N-fencing-remote-lapsed-fallback` narrows the explicit
+grant-independent fallback to same-epoch losses, while
+`N-fencing-remote-lapsed-not-stale` drops its `stale` conjunct and is
+killed by the winning/future-token no-transition rows. Retired in this
+rework: `N-fencing-operation-remote`, which became equivalent after the
+direct remote-lapsed arm moved before expiry; the relative mutation entry
+cannot change the final stale verdict because the fallback is
+grant-independent. This is a measured bound, not an omitted check:
+reviewer plants RM-O5 (`relative-question-through-mutation`) and RM-O6
+(`relative-question-dropped`) both SURVIVED twice over the complete
+importer set, so the retained relative question and its `stale_owner` arm
+are redundant for the remote-lapsed composition. The outer fallback is
+separately pinned by `N-fencing-remote-lapsed-outer-fallback`. Retired in
+rev4: `N-fencing-epoch-only` — a
+stale_owner park implies a
 decided-stale verdict over the same observation (the verdict's
 preconditions are a subset of the gate's pre-grant arms; pinned by
 `TestStalenessAgreesWithGateOnHotPath`), and both arms call `fenceLive`
@@ -256,8 +267,10 @@ fallback either way).
 | N-store-torn | Torn receipt (4-byte file as absence) | `TestStoreLookupAbsenceIsNotFailure` |
 | N-complete-unbound | Completion without receipt | `TestStoreCompleteRequiresReceipt` |
 | N-fencing-remote | Fencing: relative question skipped, remote parks fenced | `TestObserveFencingRemoteWinnerWinningTokenLeavesState` |
-| N-fencing-operation-remote | Fencing: relative question through mutation refuses stale | `TestObserveFencingRemoteWinnerStaleEpochFences` |
 | N-fencing-remote-stale-only | Fencing: relative verdict fences any park | `TestObserveFencingRemoteWinnerFutureEpochLeavesState` |
+| N-fencing-remote-lapsed-fallback | Fencing: lapsed remote fallback narrowed to same-epoch losses | `TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation/stale_epoch` |
+| N-fencing-remote-lapsed-not-stale | Fencing: lapsed remote fallback fences decided-not-stale | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` |
+| N-fencing-remote-lapsed-outer-fallback | Fencing: outer fallback fences decided-not-stale local-winner observations | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` |
 | N-fencing-source-absent | Fencing: absent fenced | `TestObserveFencingNonLiveSourcesLeaveState` |
 | N-fencing-source-stopped | Fencing: stopped fenced | `TestObserveFencingNonLiveSourcesLeaveState` |
 | N-fencing-source-creating | Fencing: creating no longer fenced | `TestObserveFencingNonLiveSourcesLeaveState` |
@@ -329,7 +342,6 @@ fallback either way).
 | N-fencing-verdict-presented-session | Verdict session-grammar arm (agreed-malformed decided) | `TestRV3F3_GrantLessUndecidedLeavesState/malformed_session` |
 | N-fencing-verdict-presented-epoch | Verdict epoch-zero arm (losing-lease zero decided) | `TestRV3F3_GrantLessUndecidedLeavesState/epoch_zero` |
 | N-fencing-verdict-presented-lease | Verdict lease-grammar arm (epoch-1 malformed lease decided) | `TestRV3F3_GrantLessUndecidedLeavesState/malformed_lease` |
-| N-fencing-verdict-composition | Composition fences on decided alone | `TestRV3F3_GrantLessDecidedNotStaleLeavesState` |
 | N-engine-recheck-auth-expiry | Per-effect expiry recheck dropped (tuple stays) | `TestRV3W_M1_AuthExpiryRecheckedBeforeEachEffect` |
 | N-result-evidence-bound | Evidence bound admits 257 (both surfaces) | `TestRV3W_M2_EvidenceBoundEdge` |
 | N-engine-conditional-disposition | Conditional arm reports status_first | `TestRV3W_M3_ConditionalCapabilityDisposition` |
@@ -436,19 +448,22 @@ fallback either way).
   to `activation` on the stale arms and chosen for the terminal
   domain); the non-launch entries refuse stale tokens instead of
   parking them, measured by `N-fencing-operation` on the direct
-  question and `N-fencing-operation-remote` on the relative question.
-  The relative question re-authorizes from the winner's own host; it
-  composes the landed gate (no local tuple comparison) and fences
-  only on the relative stale verdict from a live source. Grant-gated
-  refusals (no grant, no clock reading, lapsed grant, unusable
-  policy — the complete grant-precondition class, since these are all
-  four refusals `Authorize` can surface after the ownership arms
-  pass) consult the landed `StaleRelativeToWinner` verdict instead:
-  decided-stale fences from a live source, decided-not-stale and
-  undecidable surface the refusal. The relative question needs no
-  fallback (it carries the direct grant facts unchanged and the grant
-  arms do not read `LocalHostID`), and the failed-handoff park is
-  preserved (ownership history, not a grant precondition).
+  question. The relative question re-authorizes from the winner's own
+  host through the restore entry, so it composes the landed gate (no
+  local tuple comparison). Grant-gated refusals (no grant, no clock
+  reading, lapsed grant, unusable policy — the complete grant-precondition
+  class, since these are all four refusals `Authorize` can surface after
+  the ownership arms pass) consult the landed `StaleRelativeToWinner`
+  verdict instead: decided-stale fences from a live source,
+  decided-not-stale and undecidable surface the refusal. A lapsed remote
+  grant is special only in that the direct question now returns the
+  existing `remote_owner` park before consuming expiry; if the relative
+  question stops at the deferred expiry result, the explicit inner and
+  outer fallbacks consult the same grant-independent verdict. RM-O5 and
+  RM-O6 both survived twice over the complete importer set, so the
+  relative `stale_owner` branch is retained but is a measured redundant
+  path for this composition, not its claimed mechanism. The failed-handoff
+  park is preserved (ownership history, not a grant precondition).
 - `internal/traceability` untouched per the Story contract; the final
   leaf carries the registry bindings and the re-pin.
 

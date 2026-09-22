@@ -288,10 +288,13 @@ func AuthorizeRestore(presented PresentedToken, observation Observation) (LeaseT
 // nothing.
 //
 // Arm order is precedence: malformed calls die first, then foreign
-// sessions, then ownership presence and verifiability, then the
-// fencing grant, then ownership direction (the operative fact beats
-// the credential: a stale token under a remote winner parks remote,
-// it does not report stale), then the exact tuple match.
+// sessions, then ownership presence and verifiability, then fencing
+// grant presence and clock availability, then refresh-policy validity,
+// then ownership direction (the operative fact beats grant expiry: a
+// remote winner parks remote so the wrapper can offer attach/takeover),
+// then the lapsed-grant refusal, then the exact tuple match. Policy
+// validity is checked before direction; only the expired outcome is
+// deferred so the remote-owner arm remains reachable.
 func Authorize(operation Operation, presented PresentedToken, observation Observation) (LeaseToken, error) {
 	if !validOperation(operation) {
 		return LeaseToken{}, refuse(ErrInvalidArguments, "unknown fencing operation %q", string(operation))
@@ -341,10 +344,8 @@ func Authorize(operation Operation, presented PresentedToken, observation Observ
 	if observation.Now.IsZero() {
 		return LeaseToken{}, refuse(ErrInvalidArguments, "fencing observation for session %s carries no clock reading; expiry cannot be checked", observation.SessionID)
 	}
-	if err := sessrepo.CheckFencingExpiry(observation.Grant, observation.Policy, observation.Now); err != nil {
-		if errors.Is(err, sessrepo.ErrFencingExpired) {
-			return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
-		}
+	expiryErr := sessrepo.CheckFencingExpiry(observation.Grant, observation.Policy, observation.Now)
+	if expiryErr != nil && !errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
 		return LeaseToken{}, refuse(ErrInvalidArguments, "fencing observation for session %s carries an unusable refresh policy", observation.SessionID)
 	}
 	if observation.Winner.HolderHostID != observation.LocalHostID {
@@ -352,6 +353,9 @@ func Authorize(operation Operation, presented PresentedToken, observation Observ
 			return LeaseToken{}, park(ParkRemoteOwner, observation.Winner.LeaseID, ErrNotOwner)
 		}
 		return LeaseToken{}, refuse(ErrNotOwner, "session %s is owned by remote host %s", observation.SessionID, observation.Winner.HolderHostID)
+	}
+	if errors.Is(expiryErr, sessrepo.ErrFencingExpired) {
+		return LeaseToken{}, refuse(ErrLeaseConflict, "fencing grant for session %s lapsed; revalidate the winning token", observation.SessionID)
 	}
 	epochsEqual := presented.Epoch == observation.Winner.Epoch
 	if !epochsEqual {

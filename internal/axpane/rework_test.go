@@ -13,6 +13,7 @@ import (
 	"github.com/relux-works/agent-session-manager/internal/fencing"
 	"github.com/relux-works/agent-session-manager/internal/matjournal"
 	"github.com/relux-works/agent-session-manager/internal/sessckpt"
+	"github.com/relux-works/agent-session-manager/internal/sessprofile"
 	"github.com/relux-works/agent-session-manager/internal/sessrepo"
 	"github.com/relux-works/agent-session-manager/internal/sessstate"
 	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
@@ -269,9 +270,9 @@ func TestRunPostWindowSupersedes(t *testing.T) {
 	if err != nil || first.Decision.Action != ActionLaunch {
 		t.Fatalf("first launch = (%v, %v)", first.Decision.Action, err)
 	}
+	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
 	successor := "cccccccc-dddd-4eee-8fff-000000000001"
 	successorLease(t, world.repo, successor, fixtureLocalHost, world.ckptID)
-	world.headID = publishCheckpoint(t, world.repo, world.headID, 2, world.ckptID)
 	world.mat = journalSourced(t, world.ckptID)
 	request := runRequest(t, world)
 	request.Mode = ModeRestore
@@ -496,6 +497,180 @@ func TestEmitUnderLosingLeaseRefuses(t *testing.T) {
 	})
 }
 
+// TestEmitReachesAppendAdmissionGateAfterStaleObservation drives the
+// wrapper's exported Emit entry with a stale-but-well-formed observation.
+// AuthorizeMutation may accept that caller snapshot, but Repository.AppendEvent
+// must still refuse the lower-epoch event once successor B is durable.
+func TestEmitReachesAppendAdmissionGateAfterStaleObservation(t *testing.T) {
+	t.Parallel()
+	world := buildRunWorld(t)
+	successorLease(t, world.repo, "cccccccc-dddd-4eee-8fff-000000000003", fixtureLocalHost, world.ckptID)
+	_, tail, err := ChainTail(world.repo, fixtureSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = Emit(world.repo, EmitParams{
+		SessionID: fixtureSession, CreatedByHost: fixtureLocalHost,
+		LeaseEpoch: 1, LeaseID: fixtureLeaseA, LeaseSequence: tail.LeaseSequence + 1,
+		Predecessors: []string{tail.EventID}, CreatedAt: fixtureCreatedAt,
+		EventType: "profile.changed", SchemaVersion: "1.0.0",
+		Payload:   map[string]any{"from": "standard", "to": "yolo", "confirmed": true},
+		Presented: fixturePresented(), Observation: fixtureObservation(fixtureNow()),
+	})
+	if err == nil || !errors.Is(err, sessrepo.ErrStaleLease) {
+		t.Fatalf("Emit(stale observation) error = %v, want stale lease refusal from AppendEvent", err)
+	}
+	events, err := world.repo.ListEvents(fixtureSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].EventID != tail.EventID {
+		t.Fatalf("chain after refused Emit = %+v, want the original tail only", events)
+	}
+}
+
+// TestEmitReachesSameEpochAppendAdmissionGate exercises the same-epoch loser
+// arm through Emit: C is the chain tail at epoch 2, then successor B wins the
+// lease store at that same epoch while the caller still presents C.
+func TestEmitReachesSameEpochAppendAdmissionGate(t *testing.T) {
+	t.Parallel()
+	for _, losing := range []string{fixtureLeaseAdmissionLoser, fixtureLeaseAdmissionLower} {
+		t.Run(losing, func(t *testing.T) {
+			world := buildRunWorld(t)
+			losingID := appendChainEvent(t, world.repo, "profile.changed", 2, losing, 1, world.headID, map[string]any{
+				"from": "standard", "to": "yolo", "confirmed": true,
+			})
+			successorLease(t, world.repo, fixtureLeaseB, fixtureLocalHost, world.ckptID)
+			observation := fixtureObservation(fixtureNow())
+			observation.Winner.Epoch = 2
+			observation.Winner.LeaseID = losing
+			observation.Grant.Token.Epoch = 2
+			observation.Grant.Token.LeaseID = losing
+			_, _, err := Emit(world.repo, EmitParams{
+				SessionID: fixtureSession, CreatedByHost: fixtureLocalHost,
+				LeaseEpoch: 2, LeaseID: losing, LeaseSequence: 2,
+				Predecessors: []string{losingID}, CreatedAt: fixtureCreatedAt,
+				EventType: "profile.changed", SchemaVersion: "1.0.0",
+				Payload:   map[string]any{"from": "yolo", "to": "standard", "confirmed": false},
+				Presented: fencing.PresentedToken{SessionID: fixtureSession, Epoch: 2, LeaseID: losing}, Observation: observation,
+			})
+			if err == nil || !errors.Is(err, sessrepo.ErrDivergentBranch) {
+				t.Fatalf("Emit(same-epoch loser) error = %v, want divergent branch refusal from AppendEvent", err)
+			}
+			events, err := world.repo.ListEvents(fixtureSession)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 2 || events[1].EventID != losingID {
+				t.Fatalf("chain after refused same-epoch Emit = %+v, want the losing tail only", events)
+			}
+			assertPreservedAdmissionBlob(t, world.repoRoot, losing, 2, 2, "profile.changed")
+		})
+	}
+}
+
+// TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation drives the
+// nested parked writer through EmitParked and Emit, proving the same admission
+// gate is not skipped by the lifecycle/foldable-state wrapper.
+func TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation(t *testing.T) {
+	t.Parallel()
+	world := buildRunWorld(t)
+	failedID := appendChainEvent(t, world.repo, "session.failed", 1, fixtureLeaseA, 2, world.headID, map[string]any{
+		"error_code": "bootstrap_probe", "retryable": false, "operation_id": nil,
+	})
+	successorLease(t, world.repo, "cccccccc-dddd-4eee-8fff-000000000004", fixtureLocalHost, world.ckptID)
+	_, _, err := EmitParked(world.repo, Decision{
+		Action: ActionParked, ParkReason: fencing.ParkStaleOwner, WinningLeaseID: fixtureLeaseA,
+	}, EmitParams{
+		SessionID: fixtureSession, CreatedByHost: fixtureLocalHost,
+		LeaseEpoch: 1, LeaseID: fixtureLeaseA, LeaseSequence: 3,
+		Predecessors: []string{failedID}, CreatedAt: fixtureCreatedAt,
+		Presented: fixturePresented(), Observation: fixtureObservation(fixtureNow()),
+	})
+	if err == nil || !errors.Is(err, sessrepo.ErrStaleLease) {
+		t.Fatalf("EmitParked(stale observation) error = %v, want stale lease refusal from AppendEvent", err)
+	}
+	events, err := world.repo.ListEvents(fixtureSession)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[1].EventID != failedID {
+		t.Fatalf("chain after refused EmitParked = %+v, want the failed tail only", events)
+	}
+}
+
+// TestEmitParkedReachesSameEpochAppendAdmissionGate exercises the nested
+// parked writer on the same-epoch loser arm.
+func TestEmitParkedReachesSameEpochAppendAdmissionGate(t *testing.T) {
+	t.Parallel()
+	for _, losing := range []string{fixtureLeaseAdmissionLoser, fixtureLeaseAdmissionLower} {
+		t.Run(losing, func(t *testing.T) {
+			world := buildRunWorld(t)
+			failedID := appendChainEvent(t, world.repo, "session.failed", 1, fixtureLeaseA, 2, world.headID, map[string]any{
+				"error_code": "bootstrap_probe", "retryable": false, "operation_id": nil,
+			})
+			losingID := appendChainEvent(t, world.repo, "session.failed", 2, losing, 1, failedID, map[string]any{
+				"error_code": "bootstrap_probe", "retryable": false, "operation_id": nil,
+			})
+			successorLease(t, world.repo, fixtureLeaseB, fixtureLocalHost, world.ckptID)
+			observation := fixtureObservation(fixtureNow())
+			observation.Winner.Epoch = 2
+			observation.Winner.LeaseID = losing
+			observation.Grant.Token.Epoch = 2
+			observation.Grant.Token.LeaseID = losing
+			_, _, err := EmitParked(world.repo, Decision{
+				Action: ActionParked, ParkReason: fencing.ParkStaleOwner, WinningLeaseID: losing,
+			}, EmitParams{
+				SessionID: fixtureSession, CreatedByHost: fixtureLocalHost,
+				LeaseEpoch: 2, LeaseID: losing, LeaseSequence: 2,
+				Predecessors: []string{losingID}, CreatedAt: fixtureCreatedAt,
+				Presented: fencing.PresentedToken{SessionID: fixtureSession, Epoch: 2, LeaseID: losing}, Observation: observation,
+			})
+			if err == nil || !errors.Is(err, sessrepo.ErrDivergentBranch) {
+				t.Fatalf("EmitParked(same-epoch loser) error = %v, want divergent branch refusal from AppendEvent", err)
+			}
+			events, err := world.repo.ListEvents(fixtureSession)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 3 || events[2].EventID != losingID {
+				t.Fatalf("chain after refused same-epoch EmitParked = %+v, want the losing tail only", events)
+			}
+			assertPreservedAdmissionBlob(t, world.repoRoot, losing, 2, 2, "session.parked")
+		})
+	}
+}
+
+func assertPreservedAdmissionBlob(t *testing.T, root, leaseID string, epoch, sequence uint64, eventType string) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, "sessions", fixtureSession, "events"))
+	if err != nil {
+		t.Fatalf("read event blob directory: %v", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(root, "sessions", fixtureSession, "events", entry.Name()))
+		if err != nil {
+			t.Fatalf("read preserved event blob %q: %v", entry.Name(), err)
+		}
+		var event struct {
+			EventType     string `json:"event_type"`
+			LeaseEpoch    uint64 `json:"lease_epoch"`
+			LeaseID       string `json:"lease_id"`
+			LeaseSequence uint64 `json:"lease_sequence"`
+		}
+		if err := json.Unmarshal(raw, &event); err != nil {
+			t.Fatalf("decode event blob %q: %v", entry.Name(), err)
+		}
+		if event.EventType == eventType && event.LeaseEpoch == epoch && event.LeaseID == leaseID && event.LeaseSequence == sequence {
+			return
+		}
+	}
+	t.Fatalf("preserved %s event blob for lease %s epoch %d sequence %d not found", eventType, leaseID, epoch, sequence)
+}
+
 // TestLosingLeaseProfileEventIgnored pins P1-1 (probe 15, §2.4): a
 // profile.changed authored under the superseded lease after a local
 // successor won never becomes the launch profile. On rev1 this
@@ -515,17 +690,43 @@ func TestLosingLeaseProfileEventIgnored(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CompareAndSwapLease() error = %v", err)
 	}
-	changed := appendChainEvent(t, world.repo, "profile.changed", 1, fixtureLeaseA, 2, world.headID, map[string]any{
-		"from": "standard", "to": "yolo", "confirmed": true,
-	})
+	changed := identifyObject(t, map[string]any{
+		"schema": "urn:ax:schema:session-event", "schema_version": "1.0.0", "event_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		"subject_id": fixtureSession, "session_id": fixtureSession, "event_type": "profile.changed", "created_by_host_id": fixtureLocalHost,
+		"lease_epoch": 1, "lease_id": fixtureLeaseA, "lease_sequence": 2, "predecessors": []string{world.headID},
+		"created_at": fixtureCreatedAt, "payload": map[string]any{"from": "standard", "to": "yolo", "confirmed": true}, "extensions": map[string]any{},
+	}, "event_id")
+	if _, err := world.repo.AppendEvent(fixtureSession, changed); !errors.Is(err, sessrepo.ErrStaleLease) {
+		t.Fatalf("AppendEvent(losing profile.changed) error = %v, want stale lease refusal", err)
+	}
+	record, events, err := LoadProfile(world.repo, fixtureSession)
+	if err != nil {
+		t.Fatalf("LoadProfile() after losing append = %v", err)
+	}
+	profile, err := sessprofile.Derive(record, events)
+	if err != nil {
+		t.Fatalf("Derive() after losing append = %v", err)
+	}
+	if profile.Profile != sessprofile.ProfileStandard || profile.HasSource {
+		t.Fatalf("effective profile after refused losing append = %+v, want standard with no source", profile)
+	}
+	var changedRef struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.Unmarshal(changed, &changedRef); err != nil {
+		t.Fatalf("decode losing event identity = %v", err)
+	}
 	request := runRequest(t, world)
 	request.Presented = fencing.PresentedToken{SessionID: fixtureSession, Epoch: 2, LeaseID: successor}
 	outcome, err := Run(world.stores(), request)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if outcome.Decision.Action == ActionLaunch && outcome.Decision.Profile.Source == changed {
-		t.Fatalf("Run() launch profile source = losing-lease %s, want the checkpoint closure", changed[:20])
+	if outcome.Decision.Action == ActionLaunch && outcome.Decision.Profile.Profile == "yolo" {
+		t.Fatalf("Run() launch profile = %+v, losing-lease yolo must never be effective", outcome.Decision.Profile)
+	}
+	if outcome.Decision.Action == ActionLaunch && outcome.Decision.Profile.Source == changedRef.EventID {
+		t.Fatalf("Run() launch profile source = losing-lease %s, want the checkpoint closure", changedRef.EventID[:20])
 	}
 	if outcome.Decision.Action == ActionLaunch && outcome.Decision.Profile.Profile != "standard" {
 		t.Fatalf("Run() launch profile = %+v, want standard from the closure", outcome.Decision.Profile)

@@ -106,6 +106,52 @@ func lapsedObservation(now time.Time) fencing.Observation {
 	return observation
 }
 
+// TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext drives the
+// after-restore caller around the fencing.Authorize result: interactive
+// remote ownership remains an attach/takeover offer, while a non-interactive
+// remote owner parks with the existing remote_owner vocabulary.
+func TestDecideLapsedRemoteOwnerOffersOrParksByInteractiveContext(t *testing.T) {
+	cases := []struct {
+		name              string
+		attachAdmitted    bool
+		remoteInteractive bool
+		mode              Mode
+		want              Action
+		wantLiteral       string
+		wantReason        fencing.ParkReason
+		wantReasonLiteral string
+	}{
+		{name: "restore_interactive_attach", attachAdmitted: true, remoteInteractive: true, mode: ModeRestore, want: ActionAttachRemote, wantLiteral: "attach_remote"},
+		{name: "restore_interactive_takeover", attachAdmitted: false, remoteInteractive: true, mode: ModeRestore, want: ActionTakeoverOffer, wantLiteral: "takeover_offer"},
+		{name: "restore_noninteractive_park", attachAdmitted: true, remoteInteractive: false, mode: ModeRestore, want: ActionParked, wantLiteral: "parked", wantReason: fencing.ParkRemoteOwner, wantReasonLiteral: "remote_owner"},
+		{name: "launch_interactive_attach", attachAdmitted: true, remoteInteractive: true, mode: ModeLaunch, want: ActionAttachRemote, wantLiteral: "attach_remote"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			deps := buildDecideDeps(t, tc.attachAdmitted)
+			input := validInput(t, deps)
+			input.Mode = tc.mode
+			input.Observation = lapsedObservation(fixtureNow())
+			input.Observation.Winner.HolderHostID = fixtureRemoteHost
+			input.RemoteInteractive = tc.remoteInteractive
+			decision := Decide(input)
+			if decision.Action != tc.want {
+				t.Fatalf("Decide() action=%s class=%s reason=%s cause=%v, want %s", decision.Action, decision.Class, decision.ParkReason, decision.Cause, tc.want)
+			}
+			if string(decision.Action) != tc.wantLiteral {
+				t.Fatalf("Decide() action=%q, want literal %q", decision.Action, tc.wantLiteral)
+			}
+			if tc.wantReason != "" && decision.ParkReason != tc.wantReason {
+				t.Fatalf("Decide() park reason=%s, want %s", decision.ParkReason, tc.wantReason)
+			}
+			if tc.wantReasonLiteral != "" && string(decision.ParkReason) != tc.wantReasonLiteral {
+				t.Fatalf("Decide() park reason=%q, want literal %q", decision.ParkReason, tc.wantReasonLiteral)
+			}
+			t.Logf("lapsed remote owner interactive=%t attach_admitted=%t: action=%s reason=%s cause=%v", tc.remoteInteractive, tc.attachAdmitted, decision.Action, decision.ParkReason, decision.Cause)
+		})
+	}
+}
+
 func TestDecideLaunchPositive(t *testing.T) {
 	t.Parallel()
 	deps := buildDecideDeps(t, true)

@@ -9,9 +9,11 @@ import (
 	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
 )
 
-// grantlessShapes rosters the four grant-precondition members: the
-// landed gate refuses each before its direction/tuple arms, so each
-// reaches the staleness verdict instead of a park.
+// grantlessShapes rosters the four grant-precondition members. Missing
+// grant, missing clock, and unusable policy still refuse before the
+// direction/tuple arms. A lapsed grant defers only its expiry outcome at
+// the direct remote-owner question; the composed stale verdict still
+// fences a stale incarnation.
 func grantlessShapes() map[string]func(*fencing.Observation) {
 	return map[string]func(*fencing.Observation){
 		"no grant": func(observation *fencing.Observation) {
@@ -32,13 +34,13 @@ func grantlessShapes() map[string]func(*fencing.Observation) {
 
 // TestRV3F3_GrantLessStaleFences is the regression test for the
 // rev2-F2/rev3-F3 class: a stale incarnation whose observation carries
-// no LIVE fencing grant still fences. Every grant-precondition member
-// (no grant, lapsed grant, no clock reading, unusable policy) fences
-// from active, parked and quiescing, under a local and a remote
-// winner alike, for the older-epoch and the same-epoch lease-mismatch
-// tokens. The direct gate question refuses grant-gated (never a
-// park), so each fencing below comes from the composed staleness
-// verdict, not from Authorize.
+// no LIVE fencing grant still fences. Every hard grant-precondition member
+// (no grant, no clock reading, unusable policy) fences from active, parked
+// and quiescing, under a local and a remote winner alike, for the
+// older-epoch and the same-epoch lease-mismatch tokens. A lapsed grant
+// under a remote winner is split across the two composed questions:
+// Authorize surfaces the literal remote_owner park, then the
+// grant-independent stale verdict fences the stale incarnation.
 func TestRV3F3_GrantLessStaleFences(t *testing.T) {
 	staleEpoch := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 1, LeaseID: fixtureLeaseB}
 	losingLease := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 2, LeaseID: fixtureLeaseB}
@@ -53,6 +55,26 @@ func TestRV3F3_GrantLessStaleFences(t *testing.T) {
 					t.Run(name, func(t *testing.T) {
 						observation := winner()
 						shape(&observation)
+						if shapeName == "lapsed grant" && winnerName == "remote winner" {
+							_, authErr := fencing.Authorize(fencing.OperationRestore, presented, observation)
+							if authErr == nil {
+								t.Fatal("direct gate question = nil, want remote_owner park")
+							}
+							reason, _, parked := fencing.ParkDetails(authErr)
+							if !parked {
+								t.Fatalf("direct gate question = %v, want remote_owner park", authErr)
+							}
+							requireLiteral(t, "direct park reason", string(reason), "remote_owner")
+							state, transitioned, err := ObserveFencing(current, presented, observation)
+							if err != nil {
+								t.Fatalf("ObserveFencing() error = %v, want stale_fenced transition", err)
+							}
+							if !transitioned {
+								t.Fatal("ObserveFencing() transitioned = false, want stale_fenced")
+							}
+							requireLiteral(t, "state", string(state), "stale_fenced")
+							return
+						}
 						if _, err := fencing.Authorize(fencing.OperationRestore, presented, observation); err == nil || fencing.IsParked(err) {
 							t.Fatalf("direct gate question = %v, want the grant-gated refusal (never a park)", err)
 						}
@@ -71,10 +93,42 @@ func TestRV3F3_GrantLessStaleFences(t *testing.T) {
 	}
 }
 
+// TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation keeps the
+// composition property independently named: the direct remote-owner park is
+// the offer signal, but a stale incarnation still reaches stale_fenced through
+// the relative, grant-independent verdict.
+func TestObserveFencingRemoteWinnerLapsedGrantFencesStaleIncarnation(t *testing.T) {
+	tokens := map[string]fencing.PresentedToken{
+		"stale_epoch":  {SessionID: fixtureSessionA, Epoch: 1, LeaseID: fixtureLeaseB},
+		"losing_lease": {SessionID: fixtureSessionA, Epoch: 2, LeaseID: fixtureLeaseB},
+	}
+	for tokenName, presented := range tokens {
+		for _, current := range []terminalbackend.InstanceState{
+			terminalbackend.StateActive, terminalbackend.StateParked, terminalbackend.StateQuiescing,
+		} {
+			t.Run(tokenName+"/"+string(current), func(t *testing.T) {
+				observation := remoteWinnerObservation()
+				observation.Grant.ValidatedAt = fixtureNow().Add(-2 * time.Hour)
+				state, transitioned, err := ObserveFencing(current, presented, observation)
+				if err != nil {
+					t.Fatalf("ObserveFencing() error = %v, want stale_fenced transition", err)
+				}
+				if !transitioned {
+					t.Fatal("ObserveFencing() transitioned = false, want stale_fenced")
+				}
+				requireLiteral(t, "state", string(state), "stale_fenced")
+			})
+		}
+	}
+}
+
 // TestRV3F3_GrantLessDecidedNotStaleLeavesState pins the decided
 // members that must NOT fence without a grant: the winning token and
 // a future-epoch token surface the grant refusal with no transition,
-// under a local and a remote winner alike.
+// under a local and a remote winner alike. A lapsed grant under a
+// remote winner follows the remote_owner park arm for the non-stale
+// winning/future tokens, while stale-shaped tokens are fenced by the
+// relative verdict.
 func TestRV3F3_GrantLessDecidedNotStaleLeavesState(t *testing.T) {
 	winning := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 2, LeaseID: fixtureLease}
 	future := fencing.PresentedToken{SessionID: fixtureSessionA, Epoch: 3, LeaseID: fixtureLeaseB}
@@ -94,6 +148,24 @@ func TestRV3F3_GrantLessDecidedNotStaleLeavesState(t *testing.T) {
 				observation := tc.winner()
 				shape(&observation)
 				state, transitioned, err := ObserveFencing(terminalbackend.StateActive, tc.presented, observation)
+				if shapeName == "lapsed grant" && (tc.name == "winning_token_remote" || tc.name == "future_epoch_remote") {
+					if err == nil {
+						t.Fatal("ObserveFencing(lapsed grant) = nil, want the remote_owner park")
+					}
+					if !fencing.IsParked(err) {
+						t.Fatalf("ObserveFencing(lapsed grant) = %v, want remote_owner park", err)
+					}
+					if transitioned {
+						t.Fatal("ObserveFencing(lapsed grant) transitioned = true, want no transition")
+					}
+					requireLiteral(t, "lapsed remote state", string(state), "active")
+					reason, _, parked := fencing.ParkDetails(err)
+					if !parked {
+						t.Fatalf("ParkDetails(lapsed grant) = %v, want remote_owner park", err)
+					}
+					requireLiteral(t, "lapsed remote park reason", string(reason), "remote_owner")
+					continue
+				}
 				if err == nil {
 					t.Fatalf("ObserveFencing(%s) = nil, want the grant refusal surfaced", shapeName)
 				}

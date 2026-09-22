@@ -310,3 +310,49 @@ they add no new contract):
   fail-closed (no decision launches without its closure), never
   a silent proceed. Deferring the load to launch-class
   decisions is future work, not this leaf.
+
+## Story-final BUG-260917-3lddu0: losing-lease profile source
+
+The production append gate is owned by `sessrepo`; this package supplies
+the wrapper entries that must not bypass it. `TestLosingLeaseProfileEventIgnored`
+drives `world.repo.AppendEvent` after a successor lease wins while the
+tail still belongs to lease A, asserts the literal `ErrStaleLease`, then
+loads the profile through `LoadProfile`/`sessprofile.Derive` and runs the
+production `Run` path. The effective result stays standard with no
+losing-event source, so the archived probe-15 yolo/
+`--dangerously-bypass-approvals-and-sandbox` outcome cannot be reproduced.
+
+The four wrapper entry cells are independently driven by
+`TestEmitReachesAppendAdmissionGateAfterStaleObservation`,
+`TestEmitParkedReachesAppendAdmissionGateAfterStaleObservation`,
+`TestEmitReachesSameEpochAppendAdmissionGate`, and
+`TestEmitParkedReachesSameEpochAppendAdmissionGate`; their corresponding
+lower-epoch and same-epoch narrowing mutants are recorded in the
+sessrepo matrix. The same-epoch cells cover both loser-ID directions and
+read the preserved event blob back from the repository.
+
+The four landed tests below changed fixture meaning under stable names, so
+the importer test-status grid cannot expose the moves. The complete status
+comparison includes 2,018 / 2,030 keys (9 package rows included), or 2,009 /
+2,021 actual test rows; the independent runtime outcome grid is recorded in
+the task evidence and keys actual `AppendEvent` outcomes.
+
+| Test | Fixture/meaning correction | Moved input class | Spec |
+| --- | --- | --- | --- |
+| `TestRunPostWindowSupersedes` | `publishCheckpoint` now precedes successor B. | Old A-owned `session.idle` + `session.stopped` after B → `ErrStaleLease`; now pre-takeover admitted. | §5.2/§5.3 |
+| `TestRunSupersededPairIdenticalRetry` | Same checkpoint-before-successor correction; retry assertions stay unchanged. | Same lower-epoch A-after-B stop-event class → `ErrStaleLease`; now pre-takeover history. | §5.2/§5.3 |
+| `TestRunCreateFromStoppedPostWindow` | Stopped/checkpointed state is made while A owns it, then B follows. | Same lower-epoch A-after-B stop-event class → `ErrStaleLease`; now pre-takeover history. | §5.2/§5.3 |
+| `TestLosingLeaseProfileEventIgnored` | The raw production append is now asserted to refuse before the profile/Run checks. | Losing A-owned `profile.changed` after B: admitted/yolo/bypass before → refused/preserved now. | §2.4 + §5.3 |
+
+The first three are graceful-takeover fixture corrections; the old ordering
+would hit the new owner gate. The last is the probe-15 regression and names
+the old yolo/`--dangerously-bypass-approvals-and-sandbox` outcome.
+No production axpane implementation was changed for this leaf. This is route
+(b): the append gate closes the profile-source property; independent
+lease-aware derivation-side authority is owned by
+`STORY-260922-cpkajd` / `TASK-260922-31qyyi` and is not implemented here.
+The
+`decide.go` doc-comment qualifier that “lapsed grants refuse” remains
+untouched and scoped to the local-owner path. The
+`observeRemoteWinner` redundancy and grant-less remote-owner product
+question remain record-only dispositions, not simplifications or decisions.
