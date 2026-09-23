@@ -296,14 +296,8 @@ MUTANTS = [
     Mutant(
         name="N-profile-closure",
         path=f"{PACKAGE}/decide.go",
-        find="""\tif len(heads) > 0 {
-\t\treturn sessprofile.DeriveForHeads(input.ProfileRecord, input.ProfileEvents, heads)
-\t}
-""",
-        replace="""\tif len(heads) > 0 && input.Mode != ModeRestore {
-\t\treturn sessprofile.DeriveForHeads(input.ProfileRecord, input.ProfileEvents, heads)
-\t}
-""",
+        find="\t\treturn input.ProfileData.DeriveForHeads(heads)\n",
+        replace="\t\tif input.Mode != ModeRestore {\n\t\t\treturn input.ProfileData.DeriveForHeads(heads)\n\t\t}\n",
         count=1,
         run="TestDecideResumeProfileUsesClosure",
         expect="KILLED",

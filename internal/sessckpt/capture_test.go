@@ -294,6 +294,23 @@ func TestCaptureDirectInstallsAttestedRecord(t *testing.T) {
 	}
 }
 
+func TestEventHeadsReattestsCheckpointClosureForSession(t *testing.T) {
+	chain, created := chainFixture(t)
+	store := openTestStore(t)
+	ref, _ := mustCapture(t, store, chain, testInputs([]string{created}, testOpA))
+
+	heads, err := store.EventHeads(chain, ref.CheckpointID, testSessionID)
+	if err != nil {
+		t.Fatalf("EventHeads(valid checkpoint) error = %v", err)
+	}
+	if len(heads) != 1 || heads[0] != created {
+		t.Fatalf("EventHeads() = %v, want [%s]", heads, created)
+	}
+	if _, err := store.EventHeads(chain, ref.CheckpointID, testHostA); err == nil {
+		t.Fatal("EventHeads(foreign session) error = nil, want session binding refusal")
+	}
+}
+
 func TestCaptureTaskBoardVariantInstalls(t *testing.T) {
 	chain, created := chainFixture(t)
 	store := openTestStore(t)

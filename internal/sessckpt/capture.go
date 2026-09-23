@@ -205,6 +205,32 @@ func (store *Store) Get(checkpointID string) ([]byte, error) {
 	return raw, nil
 }
 
+// EventHeads returns the checkpoint's attested event-head closure for the
+// named session. It reuses the same strict shape extraction and source-chain
+// binding as Capture and Admit; callers never need to decode checkpoint bytes
+// or treat a readable blob as an admitted closure.
+func (store *Store) EventHeads(chain *sessrepo.Repository, checkpointID, sessionID string) ([]string, error) {
+	raw, err := store.Get(checkpointID)
+	if err != nil {
+		return nil, err
+	}
+	members, fault := environ.DecodeStrictObject(raw)
+	if fault != nil {
+		return nil, invalid("decode stored checkpoint closure: %v", fault)
+	}
+	admitted, err := extractAdmitted(members)
+	if err != nil {
+		return nil, err
+	}
+	if admitted.sessionID != sessionID {
+		return nil, invalid("checkpoint session %s does not match requested session %s", admitted.sessionID, sessionID)
+	}
+	if err := checkRawHeadBinding(chain, admitted); err != nil {
+		return nil, err
+	}
+	return append([]string(nil), admitted.heads...), nil
+}
+
 // admittedMembers carries the closure legs extracted from attested
 // raw bytes for the variant and head gates.
 type admittedMembers struct {

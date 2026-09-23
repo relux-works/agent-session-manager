@@ -29,7 +29,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 	want := Report{
 		Contracts:              64,
 		NormativeSections:      36,
-		AcceptanceCases:        154,
+		AcceptanceCases:        155,
 		Fixtures:               33,
 		CompatibilityContracts: 55,
 		SectionBindings:        69,

@@ -3359,7 +3359,7 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7
 repository gate used by CI. Its reviewed
 [`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
 registry independently enumerates implementation owners for all 64 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 154
+contract rows, 36 pinned or catalog-referenced normative section keys, 155
 executable acceptance cases, 69 exact section bindings with their declared
 coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
@@ -3593,16 +3593,16 @@ both registered against the `config-versioned-readers` acceptance case.
 Section 2.4 is the first multi-clause admission: its four clauses are
 discharged by the `sessprofile-derive`, `sessprofile-derive-heads`,
 `sessprofile-fork-pair`, and `provhost-mapping-resolution` acceptance cases.
-The story-final `story-260917-losing-lease-profile-source` case is referenced
-by the Section 2.4 binding and clause 2.4#2, adding the production
-append-admission refusal/source proof without changing the measured 4/4
-section ratio. This leaf closes that property only through the durable
-`AppendEvent` gate (route (b)); independent lease-aware derivation-side
-authority is owned by `STORY-260922-cpkajd` / `TASK-260922-31qyyi`
-(`lease-aware-profile-source-authority` /
-`derivation-side-profile-source-gate`). That bound includes the disclosed
-never-minted higher-epoch and empty-lease-store classes; this leaf does not
-implement or decide them.
+The story-final `story-260917-losing-lease-profile-source` case remains
+referenced by the Section 2.4 binding and clause 2.4#2 for the append-admission
+refusal. `story-260922-derivation-side-profile-source` now binds the same
+clause to `internal/sessprofile.Derivation.Derive`, which applies the winning
+lease facts and captured handoff closure independently of append admission.
+Its tests pin the post-handoff losing lease, an unminted higher-epoch tuple,
+an unminted same-epoch tuple, and the empty lease store; a source inside the
+winning lease's captured closure stays effective. The measured Section 2.4
+ratio remains 4/4 because this leaf extends the existing clause edge without
+adding a normative clause.
 Sections 7.8 and 10.2 are the clone-story admissions: the seven clauses are
 discharged by the `clone-capture-contracts`, `clone-native-capture`,
 `clone-projection-fidelity`, `session-adapter-call-binding`,
@@ -3747,6 +3747,8 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
 | `fencing` mutation harness | Run isolated fencing-gate narrowing mutants, one token-preserving census mutant, and three controls with real test-exit classification | `python3 internal/fencing/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
 | `ownership properties` mutation harness | Run isolated ownership-invariant narrowing mutants and three controls with real test-exit classification | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessstate/testdata/mutate_properties.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
 | `sessrepo` append-admission mutation harness | Run the two winning-lease narrowing mutants through direct `AppendEvent` and the composing `SetProfile`, `Emit`, and `EmitParked` production entries, with explicit control classification | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessrepo/testdata/mutate_append_admission.py /absolute/path/to/evidence-dir` | `mutants.json`, raw per-plant logs, copied mutation sources, and control logs under the supplied evidence directory |
+| `sessprofile` source-authority mutation harness | Re-derive five live profile-source call paths with `sessrepo.checkWinningLease` disabled; kill exact-event M1 at each path, kill epoch-only M2 through the same-epoch `deriveProfile` witness, then prove both mutants fail plain `go test ./...` with the append gate enabled | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessprofile/testdata/mutate_profile_authority.py /absolute/path/to/evidence-dir` | `mutants.json`, instrumented baseline, per-path M1 logs, M2 logs, gate-on full-suite mutant logs, harmless control, and raw exits under the supplied evidence directory |
+| `sessprofile` importer outcome comparator | Disable the append gate in isolated base and candidate trees, discover every direct Go importer, and compare runtime profile and writer outcomes by `(package, entry, input)`, including `Projector.ProjectForHeads` | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessprofile/testdata/compare_importers.py /absolute/path/to/evidence-dir` | `outcome-comparison.json`, generated probe source, before/after Go-list importer rows, and raw runtime logs under the supplied evidence directory; scratch source copies are removed after the report is written |
 | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
 | Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -adopted -output internal/catalog/catalog_gen.go -check` (`-metadata`/`-contracts` select the same inputs explicitly); `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
 | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |

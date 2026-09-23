@@ -9,11 +9,11 @@ behavior is preserved: the closed Checkpoint Record 1.0.0 member
 set is unchanged between the two revisions.
 
 Production entry points: `Store.Capture`, `Store.Admit`,
-`Store.Get` (`internal/sessckpt/capture.go`); durable install
-(`internal/sessckpt/store.go`). No CLI surface is offered; the
-`sessckpt` package is a library only.
+`Store.Get`, and `Store.EventHeads` (`internal/sessckpt/capture.go`);
+durable install (`internal/sessckpt/store.go`). No CLI surface is
+offered; the `sessckpt` package is a library only.
 
-## AC coverage (8 of 8 rows driven through the production entries)
+## AC coverage (9 of 9 rows driven through the production entries)
 
 | # | AC row | Production call site | Named tests |
 | --- | --- | --- | --- |
@@ -25,6 +25,7 @@ Production entry points: `Store.Capture`, `Store.Admit`,
 | 6 | Exact contract fixtures and negative/refusal cases | `Capture`, `Admit`, `Get` + `sessrepo.AttestCheckpointRecord` | `TestSpecExampleAttestsThroughConsumerOwner`, `TestCaptureDirectInstallsAttestedRecord` (closed member set equals the normative example), CP-N1 (`cp_n1_background_idle_false`), CP-N2 (`cp_n2_direct_null_provider`), CP-N3 (`cp_n3_both_present`), CP-N4 (`TestAdmitRefusesUnknownSafeBoundaryMember` with benign re-identified control), `TestAdmitRefusesMalformedFrames`, `TestGetRefusesUnknownAndTorn` |
 | 7 | Crash/idempotency evidence for durable capture | `Store.install` (blob-first, receipt-second, no-replace) + `BeforeWrite`/`AfterBlob`/`AfterCommit` hooks | `TestCrashBeforeDurableWriteIsSafeRetry`, `TestCrashBetweenBlobAndReceiptResumes`, `TestCrashAfterReceiptReplaysRecordedResult`, `TestCaptureCrashChildSelfTerminates` (real SIGKILL), `TestCaptureWithMovedInputsRefuses`, `TestCaptureRefusesDisagreeingDigestPath`, `TestCaptureReplayIsIdempotent`, `TestCaptureIdenticalClosuresShareIdentity` |
 | 8 | No unsupported capability advertised | no `cmd/` surface, no provider/task-board I/O in the package | Stated bound (see below); `gofmt`/`go vet`/`go build` clean, README/doctor untouched by this change |
+| 9 | Re-attest the event heads used by profile derivation | `Store.EventHeads` → `Get` + `extractAdmitted` + `checkRawHeadBinding` against `sessrepo.Repository` | `TestEventHeadsReattestsCheckpointClosureForSession` |
 
 ## Pinned-clause map
 

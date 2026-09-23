@@ -170,15 +170,14 @@ syntax control is `COMPILE_OR_HARNESS_FAILURE`; controls are not kills.
 No source-text-inspecting gate exists, so a token-preserving source-text
 mutant is not applicable.
 
-Bounds: an empty lease store skips the winner gate and can admit valid
-`(epoch 7, lease B)` sequence 1; owner
-`internal/sessrepo/sessrepo.go:AppendEvent` / `checkWinningLease` plus
-the lease lifecycle caller/store. An unknown higher epoch remains admitted
-by `checkWinningLease` and may become a profile source; owner
-`internal/sessrepo/chain.go:checkWinningLease` composed by
-`AppendEvent`. That is not independent Section 2.4 ambiguity closure.
-The sibling profile test `TestLosingLeaseProfileEventIgnored` drives the
-same append gate and then checks `sessprofile.Derive` and `Run`:
-the losing event is refused, `standard` with no source remains effective,
-and the yolo/bypass mapping cannot launch. No public `ax` CLI entry
-exists in this repository.
+Append-boundary bounds: an empty lease store skips the winner gate and can
+admit a valid `(epoch 7, lease B)` sequence 1; an unknown higher epoch also
+passes `checkWinningLease`, because it is not lower than or tied with the
+winner. These remain `sessrepo.AppendEvent` admission facts. They no longer
+imply profile-source authority: `internal/sessprofile.Derivation.Derive`
+requires an exact tuple from the validated lease list, and a previous lease
+must also lie in the winner's captured handoff closure. The separately named
+`TestAppendGateRefusesLosingLeaseProfileEvent` proves only the append refusal;
+the independent disabled-gate derivation evidence and moved source classes
+are recorded in `internal/sessprofile/TRACEABILITY.md`. No public `ax` CLI
+entry exists in this repository.

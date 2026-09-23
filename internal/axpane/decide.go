@@ -272,19 +272,13 @@ type Input struct {
 	CheckpointDoc      []byte
 	CheckpointID       string
 
-	// ProfileRecord and ProfileEvents are the decoded session
-	// surface the sessprofile reducer derives the effective pair
-	// from. ProfileHeads, when non-empty, is the validated
-	// checkpoint's event-head closure: resume derives from the
-	// closure (DeriveForHeads), never the session head, so a
-	// head-only or losing-lease change cannot become the launch
-	// profile. Run loads the heads from the checkpoint actually
-	// resumed — the required checkpoint when one is required,
-	// else the fold's newest — never the winning lease's handoff
-	// base; I/O-free callers supply them by hand.
-	ProfileRecord sessprofile.Record
-	ProfileEvents []sessprofile.Event
-	ProfileHeads  []string
+	// ProfileData carries the decoded session surface together with
+	// the durable winning-lease and handoff-closure facts used by
+	// sessprofile to select an effective source. ProfileHeads, when
+	// non-empty, further narrows derivation to the checkpoint actually
+	// resumed; it never widens the lease-authorized source set.
+	ProfileData  sessprofile.Derivation
+	ProfileHeads []string
 
 	// Provider carries the probed build, stored identity, and
 	// optional discovery proof.
@@ -782,9 +776,9 @@ func deriveProfile(input Input) (sessprofile.Pair, error) {
 		heads = closure
 	}
 	if len(heads) > 0 {
-		return sessprofile.DeriveForHeads(input.ProfileRecord, input.ProfileEvents, heads)
+		return input.ProfileData.DeriveForHeads(heads)
 	}
-	return sessprofile.Derive(input.ProfileRecord, input.ProfileEvents)
+	return input.ProfileData.Derive()
 }
 
 // checkProviderIdentity composes the provhost resume gate: the exact

@@ -671,11 +671,10 @@ func assertPreservedAdmissionBlob(t *testing.T, root, leaseID string, epoch, seq
 	t.Fatalf("preserved %s event blob for lease %s epoch %d sequence %d not found", eventType, leaseID, epoch, sequence)
 }
 
-// TestLosingLeaseProfileEventIgnored pins P1-1 (probe 15, §2.4): a
-// profile.changed authored under the superseded lease after a local
-// successor won never becomes the launch profile. On rev1 this
-// drove yolo/E2.
-func TestLosingLeaseProfileEventIgnored(t *testing.T) {
+// TestAppendGateRefusesLosingLeaseProfileEvent pins the independent durable
+// append refusal. Derivation authority is covered by the instrumented tests
+// below, which run with this append gate disabled.
+func TestAppendGateRefusesLosingLeaseProfileEvent(t *testing.T) {
 	t.Parallel()
 	world := buildRunWorld(t)
 	leases, err := world.repo.ListLeases(fixtureSession)
@@ -699,16 +698,16 @@ func TestLosingLeaseProfileEventIgnored(t *testing.T) {
 	if _, err := world.repo.AppendEvent(fixtureSession, changed); !errors.Is(err, sessrepo.ErrStaleLease) {
 		t.Fatalf("AppendEvent(losing profile.changed) error = %v, want stale lease refusal", err)
 	}
-	record, events, err := LoadProfile(world.repo, fixtureSession)
+	profile, err := LoadProfile(world.repo, world.ckpt, fixtureSession)
 	if err != nil {
 		t.Fatalf("LoadProfile() after losing append = %v", err)
 	}
-	profile, err := sessprofile.Derive(record, events)
+	pair, err := profile.Derive()
 	if err != nil {
-		t.Fatalf("Derive() after losing append = %v", err)
+		t.Fatalf("Derivation.Derive() after losing append = %v", err)
 	}
-	if profile.Profile != sessprofile.ProfileStandard || profile.HasSource {
-		t.Fatalf("effective profile after refused losing append = %+v, want standard with no source", profile)
+	if pair.Profile != sessprofile.ProfileStandard || pair.HasSource {
+		t.Fatalf("effective profile after refused losing append = %+v, want standard with no source", pair)
 	}
 	var changedRef struct {
 		EventID string `json:"event_id"`
@@ -731,6 +730,188 @@ func TestLosingLeaseProfileEventIgnored(t *testing.T) {
 	if outcome.Decision.Action == ActionLaunch && outcome.Decision.Profile.Profile != "standard" {
 		t.Fatalf("Run() launch profile = %+v, want standard from the closure", outcome.Decision.Profile)
 	}
+}
+
+// gateOnLosingProfileWorld appends a profile change while lease A is still
+// the winner, then transfers ownership to B with a checkpoint that predates
+// that change. The append is admitted by the real gate, but the later source
+// is outside B's attested handoff closure.
+func gateOnLosingProfileWorld(t *testing.T) (*runWorld, string) {
+	t.Helper()
+	world := buildRunWorld(t)
+	losingID := appendChainEvent(t, world.repo, "profile.changed", 1, fixtureLeaseA, 2, world.headID, map[string]any{
+		"from": "standard", "to": "yolo", "confirmed": true,
+	})
+	successorLease(t, world.repo, fixtureLeaseB, fixtureLocalHost, world.ckptID)
+	t.Logf("gate-on losing profile event id=%s", losingID)
+	return world, losingID
+}
+
+func appendProfileChange(t *testing.T, repository *sessrepo.Repository, epoch uint64, leaseID string, sequence int, predecessor, from, to string) (string, error) {
+	t.Helper()
+	raw := identifyObject(t, map[string]any{
+		"schema": "urn:ax:schema:session-event", "schema_version": "1.0.0", "event_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		"subject_id": fixtureSession, "session_id": fixtureSession, "event_type": "profile.changed", "created_by_host_id": fixtureLocalHost,
+		"lease_epoch": epoch, "lease_id": leaseID, "lease_sequence": sequence, "predecessors": []string{predecessor},
+		"created_at": fixtureCreatedAt, "payload": map[string]any{"from": from, "to": to, "confirmed": true}, "extensions": map[string]any{},
+	}, "event_id")
+	reference, err := repository.AppendEvent(fixtureSession, raw)
+	if err != nil {
+		return "", err
+	}
+	return reference.EventID, nil
+}
+
+func assertRecordProfilePair(t *testing.T, pair sessprofile.Pair, where string) {
+	t.Helper()
+	if pair.Profile != sessprofile.ProfileStandard || pair.HasSource || pair.Source != "" {
+		t.Fatalf("%s = %+v, want standard with no source", where, pair)
+	}
+}
+
+func TestLoadProfileDoesNotExposeLosingLeaseAsEffectiveSource(t *testing.T) {
+	world, losingID := gateOnLosingProfileWorld(t)
+	loaded, err := LoadProfile(world.repo, world.ckpt, fixtureSession)
+	if err != nil {
+		t.Fatalf("LoadProfile() error = %v", err)
+	}
+	pair, err := loaded.Derive()
+	if err != nil {
+		t.Fatalf("LoadProfile result Derive() error = %v", err)
+	}
+	assertRecordProfilePair(t, pair, "LoadProfile effective pair")
+	if pair.Source == losingID {
+		t.Fatalf("LoadProfile source = losing event %s", losingID)
+	}
+}
+
+func TestProbe15DisabledAppendGateProjector(t *testing.T) {
+	world, losingID := gateOnLosingProfileWorld(t)
+	lateID, appendErr := appendProfileChange(t, world.repo, 1, fixtureLeaseA, 3, losingID, "yolo", "standard")
+	if appendErr != nil && !errors.Is(appendErr, sessrepo.ErrStaleLease) {
+		t.Fatalf("AppendEvent(post-takeover old-lease profile.changed) error = %v, want the append refusal or an instrumented admission", appendErr)
+	}
+	if appendErr == nil {
+		t.Logf("instrumented post-takeover profile event id=%s", lateID)
+	} else {
+		t.Logf("append gate refused post-takeover event; derivation still runs: %v", appendErr)
+	}
+	pair, err := (&sessprofile.Projector{Repo: world.repo, Ckpt: world.ckpt}).Project(fixtureSession)
+	if err != nil {
+		t.Fatalf("Projector.Project() error = %v", err)
+	}
+	assertRecordProfilePair(t, pair, "Projector.Project effective pair")
+	if pair.Source == losingID {
+		t.Fatalf("Projector.Project source = losing event %s", losingID)
+	}
+	if lateID != "" && pair.Source == lateID {
+		t.Fatalf("Projector.Project source = post-takeover losing event %s", lateID)
+	}
+	t.Logf("Projector.Project() = {Profile:%s, HasSource:%t, Source:%s}", pair.Profile, pair.HasSource, pair.Source)
+}
+
+func TestProjectorForHeadsDoesNotExposeLosingLeaseAsEffectiveSource(t *testing.T) {
+	world, losingID := gateOnLosingProfileWorld(t)
+	pair, err := (&sessprofile.Projector{Repo: world.repo, Ckpt: world.ckpt}).ProjectForHeads(fixtureSession, []string{losingID})
+	if err != nil {
+		t.Fatalf("Projector.ProjectForHeads() error = %v", err)
+	}
+	assertRecordProfilePair(t, pair, "Projector.ProjectForHeads effective pair")
+	if pair.Source == losingID {
+		t.Fatalf("Projector.ProjectForHeads source = losing event %s", losingID)
+	}
+}
+
+func TestSetProfileFromEndDoesNotReplayLosingLeaseChange(t *testing.T) {
+	world, losingID := gateOnLosingProfileWorld(t)
+	appendChainEvent(t, world.repo, "session.failed", 2, fixtureLeaseB, 1, losingID, map[string]any{
+		"error_code": "bootstrap_probe", "retryable": false, "operation_id": nil,
+	})
+	result, err := (&sessprofile.Transactor{Repo: world.repo, Ckpt: world.ckpt}).SetProfile(sessprofile.SetProfileRequest{
+		SessionID: fixtureSession, To: sessprofile.ProfileYOLO, Confirmed: true,
+		LeaseEpoch: 2, LeaseID: fixtureLeaseB, CreatedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt,
+	})
+	if err != nil {
+		t.Fatalf("SetProfile() from-end under winning lease = %v", err)
+	}
+	if result.PreviousProfile != sessprofile.ProfileStandard || result.NewProfile != sessprofile.ProfileYOLO || result.EventID == losingID {
+		t.Fatalf("SetProfile() = %+v, want a new standard-to-yolo event after ignoring the losing source", result)
+	}
+}
+
+func TestAxpaneDeriveProfileDoesNotUseLosingLeaseSource(t *testing.T) {
+	world, losingID := gateOnLosingProfileWorld(t)
+	loaded, err := LoadProfile(world.repo, world.ckpt, fixtureSession)
+	if err != nil {
+		t.Fatalf("LoadProfile() error = %v", err)
+	}
+	pair, err := deriveProfile(Input{ProfileData: loaded})
+	if err != nil {
+		t.Fatalf("deriveProfile() error = %v", err)
+	}
+	assertRecordProfilePair(t, pair, "deriveProfile effective pair")
+	if pair.Source == losingID {
+		t.Fatalf("deriveProfile source = losing event %s", losingID)
+	}
+}
+
+func TestAxpaneDeriveProfileRejectsUnmintedSameEpochLeaseTuple(t *testing.T) {
+	const recordID = "sha256:ebebebebebebebebebebebebebebebebebebebebebebebebebebebebebebebeb"
+	const createdID = "sha256:ecececececececececececececececececececececececececececececececec"
+	const changeID = "sha256:edededededededededededededededededededededededededededededededed"
+	const handoffID = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	derivation := sessprofile.Derivation{
+		Record: sessprofile.Record{SessionID: fixtureSession, RecordID: recordID, Creation: sessprofile.ProfileStandard},
+		Events: []sessprofile.Event{
+			{ID: createdID, Type: "session.created", SchemaVersion: "1.0.0", SessionID: fixtureSession, LeaseEpoch: 1, LeaseID: fixtureLeaseA, Sequence: 1, Predecessors: []string{recordID}},
+			{ID: changeID, Type: "profile.changed", SchemaVersion: "1.0.0", SessionID: fixtureSession, LeaseEpoch: 2, LeaseID: fixtureLeaseA, Sequence: 1, Predecessors: []string{createdID}, Payload: map[string]any{"from": sessprofile.ProfileStandard, "to": sessprofile.ProfileYOLO, "confirmed": true}},
+		},
+		Authority: sessprofile.SourceAuthority{
+			Winner:            sessrepo.LeaseSummary{SessionID: fixtureSession, RecordID: handoffID, LeaseID: fixtureLeaseB, Epoch: 2, Checkpoint: handoffID, HasCheckpoint: true},
+			HasWinner:         true,
+			Leases:            []sessrepo.LeaseSummary{{SessionID: fixtureSession, RecordID: recordID, LeaseID: fixtureLeaseA, Epoch: 1}, {SessionID: fixtureSession, RecordID: handoffID, LeaseID: fixtureLeaseB, Epoch: 2, Checkpoint: handoffID, HasCheckpoint: true}},
+			HandoffHeads:      []string{changeID},
+			HasHandoffClosure: true,
+		},
+	}
+	derived, err := deriveProfile(Input{ProfileData: derivation})
+	if err != nil {
+		t.Fatalf("deriveProfile(unminted same-epoch lease tuple) error = %v", err)
+	}
+	assertRecordProfilePair(t, derived, "deriveProfile unminted same-epoch lease tuple")
+}
+
+func TestLoadProfileEmptyLeaseStoreKeepsSessionRecordAuthority(t *testing.T) {
+	repository, err := sessrepo.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal([]byte(sessionRecordFixture), &record); err != nil {
+		t.Fatal(err)
+	}
+	reference, err := repository.CreateSession(identifyObject(t, record, "record_id"))
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	changed := identifyObject(t, map[string]any{
+		"schema": "urn:ax:schema:session-event", "schema_version": "1.0.0", "event_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		"subject_id": fixtureSession, "session_id": fixtureSession, "event_type": "profile.changed", "created_by_host_id": fixtureLocalHost,
+		"lease_epoch": 1, "lease_id": fixtureLeaseA, "lease_sequence": 1, "predecessors": []string{reference.RecordID},
+		"created_at": fixtureCreatedAt, "payload": map[string]any{"from": "standard", "to": "yolo", "confirmed": true}, "extensions": map[string]any{},
+	}, "event_id")
+	if _, err := repository.AppendEvent(fixtureSession, changed); err != nil {
+		t.Fatalf("AppendEvent(empty lease store) error = %v", err)
+	}
+	loaded, err := LoadProfile(repository, nil, fixtureSession)
+	if err != nil {
+		t.Fatalf("LoadProfile(empty lease store) error = %v", err)
+	}
+	pair, err := loaded.Derive()
+	if err != nil {
+		t.Fatalf("Derivation.Derive(empty lease store) error = %v", err)
+	}
+	assertRecordProfilePair(t, pair, "LoadProfile(empty lease store)")
 }
 
 // TestDecideRealmBindingMismatchRefuses pins P1-2: realm evidence

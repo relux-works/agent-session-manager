@@ -68,7 +68,7 @@ func validInput(t *testing.T, deps *decideDeps) Input {
 	if err != nil {
 		t.Fatalf("BuildDescriptor() error = %v", err)
 	}
-	record, events, err := LoadProfile(deps.repo, fixtureSession)
+	profile, err := LoadProfile(deps.repo, deps.ckpt, fixtureSession)
 	if err != nil {
 		t.Fatalf("LoadProfile() error = %v", err)
 	}
@@ -80,8 +80,7 @@ func validInput(t *testing.T, deps *decideDeps) Input {
 		Presented:            fixturePresented(),
 		Observation:          fixtureObservation(now),
 		Backend:              deps.universe.facts(t),
-		ProfileRecord:        record,
-		ProfileEvents:        events,
+		ProfileData:          profile,
 		Provider: ProviderFacts{
 			Build:    fixtureBuild(),
 			Identity: fixtureIdentity(t),
@@ -592,7 +591,7 @@ func TestDecideTable(t *testing.T) {
 		{
 			name: "refused_profile_derivation_corrupt",
 			mutate: func(t *testing.T, deps *decideDeps, input *Input) {
-				input.ProfileRecord.Creation = "bogus"
+				input.ProfileData.Record.Creation = "bogus"
 			},
 			want:      ActionRefused,
 			wantClass: ClassIntegrityFailure,

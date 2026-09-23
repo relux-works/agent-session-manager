@@ -60,39 +60,43 @@ func ObserveOwnership(repository *sessrepo.Repository, sessionID string, input f
 	return fencing.Observe(repository, sessionID, input)
 }
 
-// LoadProfile loads the decoded session surface the sessprofile
-// reducer derives the effective pair from: the Session Record plus
-// the authoritative chain in index order.
-func LoadProfile(repository *sessrepo.Repository, sessionID string) (sessprofile.Record, []sessprofile.Event, error) {
-	empty := sessprofile.Record{}
+// LoadProfile loads the decoded session surface plus the lease and
+// handoff-checkpoint authority used to select an effective profile source.
+// The Session Record and event chain remain in index order.
+func LoadProfile(repository *sessrepo.Repository, checkpoints *sessckpt.Store, sessionID string) (sessprofile.Derivation, error) {
+	empty := sessprofile.Derivation{}
 	if repository == nil {
-		return empty, nil, errors.New("axpane profile load carries no repository")
+		return empty, errors.New("axpane profile load carries no repository")
 	}
 	recordJSON, err := repository.GetRecord(sessionID)
 	if err != nil {
-		return empty, nil, err
+		return empty, err
 	}
 	record, err := sessprofile.DecodeRecord(recordJSON)
 	if err != nil {
-		return empty, nil, err
+		return empty, err
 	}
 	summaries, err := repository.ListEvents(sessionID)
 	if err != nil {
-		return empty, nil, err
+		return empty, err
 	}
 	events := make([]sessprofile.Event, 0, len(summaries))
 	for _, summary := range summaries {
 		eventJSON, err := repository.GetEvent(sessionID, summary.EventID)
 		if err != nil {
-			return empty, nil, err
+			return empty, err
 		}
 		event, err := sessprofile.DecodeEvent(eventJSON)
 		if err != nil {
-			return empty, nil, err
+			return empty, err
 		}
 		events = append(events, event)
 	}
-	return record, events, nil
+	authority, err := sessprofile.LoadSourceAuthority(repository, checkpoints, sessionID)
+	if err != nil {
+		return empty, err
+	}
+	return sessprofile.Derivation{Record: record, Events: events, Authority: authority}, nil
 }
 
 // LoadMaterialization loads the required materialization journal

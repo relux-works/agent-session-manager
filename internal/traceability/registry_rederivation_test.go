@@ -108,6 +108,48 @@ func decodeRegistryFile(t *testing.T, name string) ownershipRegistry {
 	return registry
 }
 
+func TestSection24LosingLeaseClausePointsAtDerivationAuthority(t *testing.T) {
+	registry := decodeRegistryFile(t, "ownership.v0.7.0.json")
+	group := ownershipGroupByKindAndKeys(t, registry, ownershipSectionBinding, "section:2.4")
+	wantOwner := codeReference{Path: "internal/sessprofile/authority.go", Declaration: "Derive"}
+	if group.Production != wantOwner {
+		t.Fatalf("Section 2.4 owner = %+v, want derivation authority %+v", group.Production, wantOwner)
+	}
+	wantCase := "story-260922-derivation-side-profile-source"
+	if !stringMember(group.AcceptanceCases, wantCase) {
+		t.Fatalf("Section 2.4 acceptance cases omit %q: %q", wantCase, group.AcceptanceCases)
+	}
+	var clause *dischargedClause
+	for index := range group.Clauses {
+		if group.Clauses[index].ID == "2.4#2" {
+			clause = &group.Clauses[index]
+			break
+		}
+	}
+	if clause == nil || !stringMember(clause.AcceptanceCases, wantCase) {
+		t.Fatalf("decoded 2.4#2 edge = %+v, want acceptance case %q", clause, wantCase)
+	}
+	var acceptance *acceptanceCase
+	for index := range registry.AcceptanceCases {
+		if registry.AcceptanceCases[index].ID == wantCase {
+			acceptance = &registry.AcceptanceCases[index]
+			break
+		}
+	}
+	if acceptance == nil || acceptance.Production != wantOwner {
+		t.Fatalf("decoded acceptance case %q = %+v, want production owner %+v", wantCase, acceptance, wantOwner)
+	}
+}
+
+func stringMember(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func sectionBindingsByKey(t *testing.T, registry ownershipRegistry) map[string]ownershipGroup {
 	t.Helper()
 
@@ -636,13 +678,13 @@ var storyNewV070Bindings = map[string]storyBindingUpgrade{
 
 var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
 	"section:2.4": {
-		Production: codeReference{Path: "internal/sessprofile/profile.go", Declaration: "Derive"},
-		Cases:      []string{"sessprofile-derive", "sessprofile-derive-heads", "sessprofile-fork-pair", "provhost-mapping-resolution", "story-260917-losing-lease-profile-source"},
+		Production: codeReference{Path: "internal/sessprofile/authority.go", Declaration: "Derive"},
+		Cases:      []string{"sessprofile-derive", "sessprofile-derive-heads", "sessprofile-fork-pair", "provhost-mapping-resolution", "story-260917-losing-lease-profile-source", "story-260922-derivation-side-profile-source"},
 		Coverage:   coverageFull,
 		Gap:        "",
 		Clauses: []dischargedClause{
 			{ID: "2.4#1", Line: 661, Excerpt: "MUST fail with <code>profile_mapping_unavailable</code> if the adapter cannot map the stored profile for the probed provider version.", AcceptanceCases: []string{"provhost-mapping-resolution"}},
-			{ID: "2.4#2", Line: 666, Excerpt: "Losing-lease or ambiguous events MUST NOT change it.", AcceptanceCases: []string{"sessprofile-derive", "story-260917-losing-lease-profile-source"}},
+			{ID: "2.4#2", Line: 666, Excerpt: "Losing-lease or ambiguous events MUST NOT change it.", AcceptanceCases: []string{"sessprofile-derive", "story-260917-losing-lease-profile-source", "story-260922-derivation-side-profile-source"}},
 			{ID: "2.4#3", Line: 670, Excerpt: "a bundle, resume, or fork MUST NOT fall back to the Session Record creation value when the closure contains a later change.", AcceptanceCases: []string{"sessprofile-derive", "sessprofile-derive-heads"}},
 			{ID: "2.4#4", Line: 678, Excerpt: "MUST NOT be treated as a profile event in the new session's event chain.", AcceptanceCases: []string{"sessprofile-fork-pair"}},
 		},
@@ -787,7 +829,26 @@ var storyNewV070Cases = map[string]acceptanceCase{
 		ID:         "story-260917-losing-lease-profile-source",
 		Production: codeReference{Path: "internal/sessrepo/sessrepo.go", Declaration: "AppendEvent"},
 		Tests: []codeReference{
-			{Path: "internal/axpane/rework_test.go", Declaration: "TestLosingLeaseProfileEventIgnored"},
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestAppendGateRefusesLosingLeaseProfileEvent"},
+		},
+	},
+	"story-260922-derivation-side-profile-source": {
+		ID:         "story-260922-derivation-side-profile-source",
+		Production: codeReference{Path: "internal/sessprofile/authority.go", Declaration: "Derive"},
+		Tests: []codeReference{
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestLoadProfileDoesNotExposeLosingLeaseAsEffectiveSource"},
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestProbe15DisabledAppendGateProjector"},
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestProjectorForHeadsDoesNotExposeLosingLeaseAsEffectiveSource"},
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestSetProfileFromEndDoesNotReplayLosingLeaseChange"},
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestAxpaneDeriveProfileDoesNotUseLosingLeaseSource"},
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestAxpaneDeriveProfileRejectsUnmintedSameEpochLeaseTuple"},
+			{Path: "internal/sessprofile/authority_test.go", Declaration: "TestProjectorRejectsNeverMintedHigherEpochProfileSource"},
+			{Path: "internal/sessprofile/authority_test.go", Declaration: "TestDerivationForHeadsRejectsUnmintedHigherEpochSource"},
+			{Path: "internal/sessprofile/authority_test.go", Declaration: "TestProjectorForHeadsRejectsUnmintedHigherEpochProfileSource"},
+			{Path: "internal/sessprofile/authority_test.go", Declaration: "TestProjectorEmptyLeaseStoreKeepsRecordAuthority"},
+			{Path: "internal/axpane/rework_test.go", Declaration: "TestLoadProfileEmptyLeaseStoreKeepsSessionRecordAuthority"},
+			{Path: "internal/sessprofile/authority_test.go", Declaration: "TestProjectorKeepsPriorLeaseSourceFromWinningHandoffClosure"},
+			{Path: "internal/sessprofile/authority_test.go", Declaration: "TestProjectorMissingWinningHandoffStoreIsNotTreatedAsEmptyClosure"},
 		},
 	},
 	"rpcwire-closed-bodies": {

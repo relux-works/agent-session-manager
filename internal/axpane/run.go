@@ -201,12 +201,11 @@ func Run(stores Stores, request Request) (Outcome, error) {
 		input.CheckpointDoc = doc
 	}
 	if known {
-		record, events, err := LoadProfile(stores.Repo, request.SessionID)
+		profile, err := LoadProfile(stores.Repo, stores.Ckpt, request.SessionID)
 		if err != nil {
 			return empty, err
 		}
-		input.ProfileRecord = record
-		input.ProfileEvents = events
+		input.ProfileData = profile
 		// Resume derives the effective profile from the
 		// checkpoint actually resumed — the required checkpoint
 		// when one is required, else the fold's newest — never

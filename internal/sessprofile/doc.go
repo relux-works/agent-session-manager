@@ -31,16 +31,22 @@
 //     continuity over its input for the same reason sessstate does:
 //     a chain-forbidden reordering refuses instead of silently
 //     deriving a different pair.
-//   - Lease/authority admission stays with sessrepo (chain order) and
-//     internal/sessquery (the winning-lease checkpoint admission,
-//     whose checkCheckpointProfileAuthority is the admission twin of
-//     DeriveForHeads). That twin's closure capability is unexported
-//     and bound to the selector Reader, so no external package can
-//     consume it; this package therefore defines its closure input
-//     explicitly — heads over the sessrepo chain index, transitive
-//     predecessors, the Session Record digest as the genesis
-//     terminal, index membership as authority — with identical
-//     closure semantics.
+//   - Chain order and lease records stay with sessrepo. SourceAuthority
+//     reads its validated lease list and, when the winner names a
+//     checkpoint, gets the re-attested event-head closure from sessckpt.
+//     Derivation.Derive and Derivation.DeriveForHeads apply those facts:
+//     a current-winner event may source the session-head pair, while a
+//     prior lease may source it only inside the winner's captured closure.
+//     Explicit checkpoint heads further scope current-winner sources and
+//     intersect prior-lease sources with the winning handoff closure. An
+//     empty lease store leaves the Session Record as authority; an event
+//     whose exact lease tuple was never minted is inert. The pure Derive
+//     and DeriveForHeads reducers below this owner do not read durable
+//     lease state and are not used by repository-backed production
+//     consumers.
+//   - internal/sessquery retains its separate checkpoint-profile
+//     admission rule. This package does not consume its private selector
+//     closure capability or duplicate its lease selection logic.
 //   - The Section 7.7 mapping table and the exact-version probe gate
 //     stay with internal/provhost (ProfileMapping, CheckResumeTuple,
 //     ResolveMapping). This package never maps a profile to a flag.

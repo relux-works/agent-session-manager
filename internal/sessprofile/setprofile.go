@@ -1,6 +1,7 @@
 package sessprofile
 
 import (
+	"github.com/relux-works/agent-session-manager/internal/sessckpt"
 	"github.com/relux-works/agent-session-manager/internal/sessrepo"
 )
 
@@ -12,6 +13,9 @@ type Transactor struct {
 	// Repo is the session repository the transaction appends to. It
 	// is required.
 	Repo *sessrepo.Repository
+	// Ckpt supplies the winner's captured handoff closure when the
+	// effective source was authored by an earlier lease.
+	Ckpt *sessckpt.Store
 }
 
 // SetProfileRequest is one ax session set-profile operation: the
@@ -67,20 +71,34 @@ func (transactor *Transactor) SetProfile(request SetProfileRequest) (SetProfileR
 	if request.To != ProfileStandard && request.To != ProfileYOLO {
 		return SetProfileResult{}, refuse(ErrInvalidProfile, "set-profile target %q is not standard|yolo", request.To)
 	}
-	record, events, err := transactor.load(request.SessionID)
+	derivation, err := transactor.load(request.SessionID)
 	if err != nil {
 		return SetProfileResult{}, err
 	}
-	current, err := Derive(record, events)
+	winner, err := transactor.Repo.WinningLease(request.SessionID)
 	if err != nil {
 		return SetProfileResult{}, err
 	}
-	sequence, predecessors, err := currentLeaseLink(events, record.RecordID, request.LeaseEpoch, request.LeaseID)
+	if len(derivation.Events) == 0 {
+		// With no chain tail there is no link check to reject an
+		// unminted greater-epoch request. Revalidate through sessrepo
+		// so the empty-chain path still requires the current winner.
+		if err := transactor.Repo.VerifyFencingToken(request.SessionID, sessrepo.FencingToken{
+			Epoch: request.LeaseEpoch, LeaseID: request.LeaseID, HolderHostID: winner.HolderHostID,
+		}); err != nil {
+			return SetProfileResult{}, err
+		}
+	}
+	current, err := derivation.Derive()
+	if err != nil {
+		return SetProfileResult{}, err
+	}
+	sequence, predecessors, err := currentLeaseLink(derivation.Events, derivation.Record.RecordID, request.LeaseEpoch, request.LeaseID)
 	if err != nil {
 		return SetProfileResult{}, err
 	}
 	if current.Profile == request.To {
-		return transactor.replayOrRefuse(request, record, events, current)
+		return transactor.replayOrRefuse(request, derivation.Record, derivation.Events, current)
 	}
 	minted, err := MintChangeEvent(ChangeParams{
 		SessionID:       request.SessionID,
@@ -114,10 +132,10 @@ func (transactor *Transactor) SetProfile(request SetProfileRequest) (SetProfileR
 // load locates the session through the listing (distinguishing a
 // parked session from an unknown one) and decodes the stored record
 // with the authoritative chain in index order.
-func (transactor *Transactor) load(sessionID string) (Record, []Event, error) {
+func (transactor *Transactor) load(sessionID string) (Derivation, error) {
 	summaries, err := transactor.Repo.ListSessions()
 	if err != nil {
-		return Record{}, nil, err
+		return Derivation{}, err
 	}
 	var found *sessrepo.SessionSummary
 	for index := range summaries {
@@ -127,36 +145,40 @@ func (transactor *Transactor) load(sessionID string) (Record, []Event, error) {
 		}
 	}
 	if found == nil {
-		return Record{}, nil, refuse(ErrUnknownSession, "no session %s", sessionID)
+		return Derivation{}, refuse(ErrUnknownSession, "no session %s", sessionID)
 	}
 	if found.Parked {
-		return Record{}, nil, refuse(ErrSessionParked, "session %s: %s (%s)", sessionID, found.BlockingReason, found.RetryHint)
+		return Derivation{}, refuse(ErrSessionParked, "session %s: %s (%s)", sessionID, found.BlockingReason, found.RetryHint)
 	}
 	recordBytes, err := transactor.Repo.GetRecord(sessionID)
 	if err != nil {
-		return Record{}, nil, err
+		return Derivation{}, err
 	}
 	record, err := DecodeRecord(recordBytes)
 	if err != nil {
-		return Record{}, nil, err
+		return Derivation{}, err
 	}
 	indexed, err := transactor.Repo.ListEvents(sessionID)
 	if err != nil {
-		return Record{}, nil, err
+		return Derivation{}, err
 	}
 	events := make([]Event, 0, len(indexed))
 	for _, summary := range indexed {
 		blob, err := transactor.Repo.GetEvent(sessionID, summary.EventID)
 		if err != nil {
-			return Record{}, nil, err
+			return Derivation{}, err
 		}
 		event, err := DecodeEvent(blob)
 		if err != nil {
-			return Record{}, nil, err
+			return Derivation{}, err
 		}
 		events = append(events, event)
 	}
-	return record, events, nil
+	authority, err := LoadSourceAuthority(transactor.Repo, transactor.Ckpt, sessionID)
+	if err != nil {
+		return Derivation{}, err
+	}
+	return Derivation{Record: record, Events: events, Authority: authority}, nil
 }
 
 // currentLeaseLink binds the acting lease to the chain head and

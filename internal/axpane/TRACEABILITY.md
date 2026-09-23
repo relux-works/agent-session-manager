@@ -84,7 +84,7 @@ which invoke these entries at every required boundary.
 | Mode selects entry and capability row | `Decide` → `authorize` + `admitBackend` | `TestDecideRestoreRequiresRestoreCapability`, `TestDecideTable/launch_restore_committed_checkpoint` | Driven: restore mode gates through `AuthorizeRestore` and the `restore` row (a restore-admitting, create-denying backend launches); launch mode gates through `AuthorizeActivation` and `create`. |
 | Materialization validity gates local resume | `Decide` → `checkMaterialization`; `Run` → `LoadMaterialization` + `LoadNewestCheckpoint` | `TestDecideTable/parked_materialization_not_committed`, `TestDecideTable/parked_materialization_absent`, `TestDecideMaterializationStaleParks`, `TestDecideJournalNullFoldParks`, `TestRunRestoreCommitted`, `TestRunRestoreMaterializingParks`, `TestRunEpochOneOwnerAfterCheckpoint`, `TestRunNullFoldRestoreParks`, `TestDecidePostTakeoverDivergedBaseLaunches`, `TestRunPostTakeoverRestoreLaunchesWithNewestClosure`, `TestRunPostTakeoverStaleBaseParks`, `TestDecideSuccessorNullFoldParks`, `TestRunSuccessorNullFoldParks` | Driven: a required journal must be admitted by the `matjournal` owner, committed, and sourced from the fold's newest published checkpoint — the winning lease's handoff base is never compared; staging, absence, a null fold, or a superseded source parks `restore_policy`. The epoch-1 owner (null lease checkpoint) parks on an unnamed-digest journal and launches on a newest-sourced one; the post-takeover owner (successor lease base C0, fold newest C1) launches on a C1-sourced journal and parks on a C0-sourced one. A checkpoint-carrying winner over a null fold parks at the one implication arm. Fresh launch leaves the requirement unset (§13.1 runs before the journal commits). |
 | Checkpoint admission gates resume | `Decide` → `admitCheckpoint` → `sessrepo.AttestCheckpointRecord`; `Run` → `LoadCheckpoint` + `LoadNewestCheckpoint` | `TestDecideTable/parked_checkpoint_inadmissible`, `TestDecideTable/parked_checkpoint_absent`, `TestDecideTable/parked_checkpoint_wrong_identity`, `TestDecideTable/parked_checkpoint_flipped_digest`, `TestDecideCheckpointNotLeaseParks`, `TestDecideForeignCheckpointParks`, `TestDecideCheckpointNullFoldParks`, `TestDecideCheckpointUnpublishedParks`, `TestRunEpochOneOwnerAfterCheckpoint`, `TestRunNullFoldRestoreParks`, `TestDecidePostTakeoverDivergedBaseLaunches`, `TestRunPostTakeoverRestoreLaunchesWithNewestClosure`, `TestRunPostTakeoverStaleBaseParks` | Driven: a required checkpoint must attest through the `sessrepo` owner, match the required digest, equal the fold's newest published checkpoint, and name this session — the winning lease's handoff base is never compared; garbage, absence, identity drift, a null fold, an unpublished checkpoint, a non-newest checkpoint, or a foreign session parks `restore_policy`. The post-takeover owner (successor lease base C0, fold newest C1) launches on C1 and parks on the stale base C0. |
-| Effective profile derived with source | `Decide` → `deriveProfile` → `sessprofile.Derive`/`DeriveForHeads`; `Run` → `LoadProfile` + resumed-checkpoint closure | `TestDecideProfileSourcePinsEvent`, `TestDecideYoloMapping`, `TestDecideResumeProfileUsesClosure`, `TestLosingLeaseProfileEventIgnored`, `TestRunNoCkptStorePublishedNewestFails`, `TestRunPostTakeoverLaunchCarriesNewestClosureStandardToYolo`, `TestRunPostTakeoverLaunchCarriesNewestClosureYoloToStandard`, `TestRunPostTakeoverRestoreLaunchesWithNewestClosure`, `TestRunNewestAbsentFromStoreFails` | Driven: launch carries the session head (newest authoritative `profile.changed` with that event's digest, or the record value with null source) only on the checkpoint-free path; resume carries the checkpoint actually resumed — the required checkpoint when one is required, else the fold's newest — through `DeriveForHeads`, never the winning lease's handoff base, so a head-only or losing-lease change never becomes the launch profile (PROFILE-DIRECT-RESUME direction). Both post-takeover profile directions launch with the newest checkpoint's closure. A published newest with no checkpoint store bound fails the run, as does a newest absent from the store — an absent store is unknown, never "no closure". Corrupt derivation refuses `integrity_failure` (`TestDecideTable/refused_profile_derivation_corrupt`). |
+| Effective profile derived with source | `Run` → `LoadProfile` → `sessprofile.LoadSourceAuthority`; `Decide` → `deriveProfile` → `Derivation.Derive`/`DeriveForHeads` | `TestDecideProfileSourcePinsEvent`, `TestDecideYoloMapping`, `TestDecideResumeProfileUsesClosure`, `TestAppendGateRefusesLosingLeaseProfileEvent`, `TestLoadProfileDoesNotExposeLosingLeaseAsEffectiveSource`, `TestProbe15DisabledAppendGateProjector`, `TestProjectorForHeadsDoesNotExposeLosingLeaseAsEffectiveSource`, `TestSetProfileFromEndDoesNotReplayLosingLeaseChange`, `TestAxpaneDeriveProfileDoesNotUseLosingLeaseSource`, `TestAxpaneDeriveProfileRejectsUnmintedSameEpochLeaseTuple`, `TestRunNoCkptStorePublishedNewestFails`, `TestRunPostTakeoverLaunchCarriesNewestClosureStandardToYolo`, `TestRunPostTakeoverLaunchCarriesNewestClosureYoloToStandard`, `TestRunPostTakeoverRestoreLaunchesWithNewestClosure`, `TestRunNewestAbsentFromStoreFails` | Driven: each assigned AC entry category has a named, non-skipped lower-epoch witness using a profile event admitted under A before B takes over with an earlier handoff checkpoint; `Projector.ProjectForHeads` also has its own witness. The tests are rerun with `sessrepo.checkWinningLease` disabled; M1 kills all five call-path witnesses and the plain full suite. M2's same-epoch wrong-tuple narrowing is killed through `deriveProfile`; such a tuple cannot enter durable loading while the append gate is on. Higher-epoch, empty-store, winning-handoff, and unreadable-closure decisions are pinned by `sessprofile` tests. Post-takeover launch paths retain the resumed checkpoint's closure; missing checkpoint evidence refuses instead of becoming an empty closure. Corrupt derivation refuses `integrity_failure` (`TestDecideTable/refused_profile_derivation_corrupt`). See [`internal/sessprofile/TRACEABILITY.md`](../sessprofile/TRACEABILITY.md) for the gate × entry matrix and evidence. |
 | Profile mapping resolved or refused | `Decide` → `provhost.ResolveMapping` | `TestDecideYoloMapping`, `TestDecideTable/refused_profile_mapping_unavailable` | Driven: the yolo launch carries the exact codex adapter flag; a Pi build off the pinned version refuses `profile_mapping_unavailable` per §2.4. The tuple gate precedes mapping so a tuple refusal keeps its own class. |
 | Resume tuple gate | `Decide` → `checkProviderIdentity` → `provhost.CheckResumeTuple` | `TestDecideTable/refused_provider_tuple_qwen` | Driven: a tuple outside the §8.4 direction refuses `invalid_config` with the landed detail. |
 | Identity bind to exact build | `Decide` → `provhost.VerifyIdentityBuild` + `checkIdentitySession` | `TestDecideTable/refused_provider_identity_other_provider`, `TestDecideIdentityForeignSessionRefuses` | Driven: an identity minted for another provider (`CreateIdentity` fixture) refuses `invalid_config`; the probed version must equal the record version exactly; and an identity minted for another session with the same provider and version refuses `invalid_config` — the wrapper binds the record's own `session_id` to the session under decision (`VerifyIdentityBuild` binds provider and version only). |
@@ -311,16 +311,16 @@ they add no new contract):
   a silent proceed. Deferring the load to launch-class
   decisions is future work, not this leaf.
 
-## Story-final BUG-260917-3lddu0: losing-lease profile source
+## Story-final BUG-260917-3lddu0: append-admission half of losing-lease profile source
 
 The production append gate is owned by `sessrepo`; this package supplies
-the wrapper entries that must not bypass it. `TestLosingLeaseProfileEventIgnored`
-drives `world.repo.AppendEvent` after a successor lease wins while the
-tail still belongs to lease A, asserts the literal `ErrStaleLease`, then
-loads the profile through `LoadProfile`/`sessprofile.Derive` and runs the
-production `Run` path. The effective result stays standard with no
-losing-event source, so the archived probe-15 yolo/
-`--dangerously-bypass-approvals-and-sandbox` outcome cannot be reproduced.
+the wrapper entries that must not bypass it. The independently named
+`TestAppendGateRefusesLosingLeaseProfileEvent` drives `world.repo.AppendEvent`
+after a successor lease wins while the tail still belongs to lease A and
+asserts the literal `ErrStaleLease`. It proves append refusal only; it does not
+reach profile derivation. The new derivation-side owner and instrumented
+entry witnesses are recorded in
+[`internal/sessprofile/TRACEABILITY.md`](../sessprofile/TRACEABILITY.md).
 
 The four wrapper entry cells are independently driven by
 `TestEmitReachesAppendAdmissionGateAfterStaleObservation`,
@@ -342,15 +342,14 @@ the task evidence and keys actual `AppendEvent` outcomes.
 | `TestRunPostWindowSupersedes` | `publishCheckpoint` now precedes successor B. | Old A-owned `session.idle` + `session.stopped` after B → `ErrStaleLease`; now pre-takeover admitted. | §5.2/§5.3 |
 | `TestRunSupersededPairIdenticalRetry` | Same checkpoint-before-successor correction; retry assertions stay unchanged. | Same lower-epoch A-after-B stop-event class → `ErrStaleLease`; now pre-takeover history. | §5.2/§5.3 |
 | `TestRunCreateFromStoppedPostWindow` | Stopped/checkpointed state is made while A owns it, then B follows. | Same lower-epoch A-after-B stop-event class → `ErrStaleLease`; now pre-takeover history. | §5.2/§5.3 |
-| `TestLosingLeaseProfileEventIgnored` | The raw production append is now asserted to refuse before the profile/Run checks. | Losing A-owned `profile.changed` after B: admitted/yolo/bypass before → refused/preserved now. | §2.4 + §5.3 |
+| `TestAppendGateRefusesLosingLeaseProfileEvent` | The raw production append is asserted to refuse at `checkWinningLease`; the test makes no derivation claim. | Losing A-owned `profile.changed` after B: admitted/yolo/bypass before → refused at append now. | §5.3 |
 
 The first three are graceful-takeover fixture corrections; the old ordering
-would hit the new owner gate. The last is the probe-15 regression and names
-the old yolo/`--dangerously-bypass-approvals-and-sandbox` outcome.
-No production axpane implementation was changed for this leaf. This is route
-(b): the append gate closes the profile-source property; independent
-lease-aware derivation-side authority is owned by
-`STORY-260922-cpkajd` / `TASK-260922-31qyyi` and is not implemented here.
+would hit the new owner gate. The last records the earlier probe-15 append
+refusal. `TASK-260922-31qyyi` adds the separate derivation-side gate used by
+`LoadProfile` and `deriveProfile`; its test witnesses reach those entries with
+the append gate disabled, so the old yolo/`--dangerously-bypass-approvals-and-sandbox`
+outcome is blocked at source selection as well.
 The
 `decide.go` doc-comment qualifier that “lapsed grants refuse” remains
 untouched and scoped to the local-owner path. The

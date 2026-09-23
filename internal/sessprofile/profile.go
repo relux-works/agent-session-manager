@@ -123,8 +123,10 @@ type LeaseHead struct {
 // clock, no cache. Chain continuity is re-checked over the input,
 // so a chain-forbidden reordering refuses with
 // invalid_state_transition instead of silently deriving a different
-// pair, and a losing-lease or ambiguous event refuses instead of
-// changing the derivation.
+// pair. This reducer has no lease-store view and does not establish
+// durable source authority; repository-backed consumers use
+// Derivation.Derive, which applies the winning-lease and handoff-closure
+// checks before selecting a profile.changed source.
 func Derive(record Record, events []Event) (Pair, error) {
 	if err := checkRecord(record); err != nil {
 		return Pair{}, err
@@ -145,9 +147,10 @@ func Derive(record Record, events []Event) (Pair, error) {
 // local-only change outside the heads never affects the pair, and
 // the derivation never falls back to the creation value while the
 // closure holds a change. Events past the closure are not even
-// validated. An unknown head or a dangling predecessor contradicts
-// the admitted closure (integrity_failure); empty heads carry no
-// closure to derive over.
+// validated. This pure reducer does not establish durable lease
+// authority; repository-backed consumers use Derivation.DeriveForHeads.
+// An unknown head or a dangling predecessor contradicts the admitted
+// closure (integrity_failure); empty heads carry no closure to derive over.
 func DeriveForHeads(record Record, events []Event, heads []string) (Pair, error) {
 	if err := checkRecord(record); err != nil {
 		return Pair{}, err

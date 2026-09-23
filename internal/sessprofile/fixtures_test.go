@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
+	"github.com/relux-works/agent-session-manager/internal/sessckpt"
 	"github.com/relux-works/agent-session-manager/internal/sessrepo"
 )
 
@@ -66,6 +67,35 @@ func openTestRepository(t *testing.T) *sessrepo.Repository {
 		t.Fatalf("Open(test root) error = %v", err)
 	}
 	return repository
+}
+
+func captureProfileHandoff(t *testing.T, repository *sessrepo.Repository, heads []string) (*sessckpt.Store, string) {
+	t.Helper()
+	store, err := sessckpt.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, _, err := store.Capture(repository, sessckpt.Inputs{
+		OperationID:         "0198f4c8-7d40-7e55-8e6f-1234567890ad",
+		SessionID:           testSessionID,
+		SessionKind:         sessckpt.SessionKindDirect,
+		LeaseEpoch:          1,
+		LeaseID:             testLeaseID,
+		CreatorHostID:       testHostID,
+		WorkspaceManifestID: testCheckpoint,
+		ProviderManifestID:  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Boundary: sessckpt.SafeBoundary{
+			ProviderID: "codex", ProviderVersion: "0.147.0", Evidence: sessckpt.EvidenceAcceptedTest,
+			InputBlocked: true, ForegroundIdle: true, BackgroundIdle: true,
+		},
+		EventHeads: heads,
+		CreatedAt:  testChangedAt,
+		Extensions: map[string]string{},
+	})
+	if err != nil {
+		t.Fatalf("Capture(profile handoff) error = %v", err)
+	}
+	return store, ref.CheckpointID
 }
 
 // buildRecord derives a valid Session Record from the SPEC example
@@ -224,6 +254,19 @@ func checkpointAnnouncedPayload() map[string]any {
 // profile and returns its reference with the record digest.
 func createTestSession(t *testing.T, repository *sessrepo.Repository, sessionID, name, creation string) sessrepo.SessionRef {
 	t.Helper()
+	return createTestSessionWithLease(t, repository, sessionID, name, creation, true)
+}
+
+// createTestSessionWithoutLease creates a session before its owner lease is
+// established. It is reserved for tests that exercise the empty-store or
+// lease-creation transition itself.
+func createTestSessionWithoutLease(t *testing.T, repository *sessrepo.Repository, sessionID, name, creation string) sessrepo.SessionRef {
+	t.Helper()
+	return createTestSessionWithLease(t, repository, sessionID, name, creation, false)
+}
+
+func createTestSessionWithLease(t *testing.T, repository *sessrepo.Repository, sessionID, name, creation string, withLease bool) sessrepo.SessionRef {
+	t.Helper()
 	record := buildRecord(t, func(object map[string]any) {
 		withSession(sessionID, name)(object)
 		withCreation(creation)(object)
@@ -231,6 +274,13 @@ func createTestSession(t *testing.T, repository *sessrepo.Repository, sessionID,
 	reference, err := repository.CreateSession(record)
 	if err != nil {
 		t.Fatalf("CreateSession error = %v", err)
+	}
+	if withLease {
+		if _, err := repository.CreateLease(sessionID, sessrepo.CreateLeaseInput{
+			LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt,
+		}); err != nil {
+			t.Fatalf("CreateLease(test owner) error = %v", err)
+		}
 	}
 	return reference
 }

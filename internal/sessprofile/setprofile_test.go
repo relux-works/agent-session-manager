@@ -88,7 +88,7 @@ func TestSetProfileAppendsUnderChainHead(t *testing.T) {
 func TestSetProfileRefusesSupersededLeaseWhileTailStillMatches(t *testing.T) {
 	t.Run("lower epoch", func(t *testing.T) {
 		repository := openTestRepository(t)
-		reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
+		reference := createTestSessionWithoutLease(t, repository, testSessionID, "payments-api", ProfileStandard)
 		first, err := repository.CreateLease(testSessionID, sessrepo.CreateLeaseInput{
 			LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt,
 		})
@@ -119,7 +119,7 @@ func TestSetProfileRefusesSupersededLeaseWhileTailStillMatches(t *testing.T) {
 	for _, losingLeaseID := range []string{profileAdmissionLosingLease, profileAdmissionLowerLease} {
 		t.Run("same epoch loser "+losingLeaseID, func(t *testing.T) {
 			repository := openTestRepository(t)
-			reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
+			reference := createTestSessionWithoutLease(t, repository, testSessionID, "payments-api", ProfileStandard)
 			tail := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 2, losingLeaseID, 1, "session.created", createdPayload(reference.RecordID))
 			first, err := repository.CreateLease(testSessionID, sessrepo.CreateLeaseInput{
 				LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt,
@@ -219,6 +219,16 @@ func TestSetProfileRefusals(t *testing.T) {
 		repository := openTestRepository(t)
 		reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
 		first := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
+		leases, err := repository.ListLeases(testSessionID)
+		if err != nil || len(leases) != 1 {
+			t.Fatalf("ListLeases() = %v, %v; want epoch-1 lease", leases, err)
+		}
+		if _, err := repository.CompareAndSwapLease(testSessionID, sessrepo.LeaseExpectation{RecordID: leases[0].RecordID}, sessrepo.SuccessorLeaseInput{
+			CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: testLeaseIDB, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt},
+			Reason:           "graceful_takeover", CheckpointID: zeroDigest,
+		}); err != nil {
+			t.Fatalf("CompareAndSwapLease(test successor) error = %v", err)
+		}
 		appendTestEvent(t, repository, testSessionID, []string{first}, 2, testLeaseIDB, 1, "session.idle", map[string]any{"boundary_ref": "turn-2", "foreground_idle": true, "background_idle": true})
 		return &Transactor{Repo: repository}
 	}
@@ -295,6 +305,25 @@ func TestSetProfileRefusesUnknownAndParked(t *testing.T) {
 	var nilTransactor *Transactor
 	if _, err := nilTransactor.SetProfile(validSetProfileRequest()); !errors.Is(err, ErrDerivation) {
 		t.Fatalf("SetProfile(nil) error = %v, want corrupt derivation input", err)
+	}
+}
+
+func TestSetProfileRefusesEmptyLeaseStore(t *testing.T) {
+	repository := openTestRepository(t)
+	createTestSessionWithoutLease(t, repository, testSessionID, "payments-api", ProfileStandard)
+	if _, err := (&Transactor{Repo: repository}).SetProfile(validSetProfileRequest()); !errors.Is(err, sessrepo.ErrUnknownLease) {
+		t.Fatalf("SetProfile(empty lease store) error = %v, want unknown lease refusal", err)
+	}
+}
+
+func TestSetProfileRefusesNeverMintedHigherEpochOnEmptyChain(t *testing.T) {
+	repository := openTestRepository(t)
+	createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
+	request := validSetProfileRequest()
+	request.LeaseEpoch = 2
+	request.LeaseID = testLeaseIDB
+	if _, err := (&Transactor{Repo: repository}).SetProfile(request); !errors.Is(err, sessrepo.ErrUnknownLease) {
+		t.Fatalf("SetProfile(unminted higher epoch) error = %v, want unknown lease refusal", err)
 	}
 }
 
