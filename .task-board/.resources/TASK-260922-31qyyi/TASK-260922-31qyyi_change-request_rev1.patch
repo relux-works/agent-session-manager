@@ -1,0 +1,2346 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 5daac9f..48c4e22 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -3,6 +3,18 @@
+ > Institutional memory. Concise, factual, high-signal.
+ > Newest entries first. One block per insight.
+ 
++## 2026-09-23
++
++### TASK-260922-31qyyi — derivation-side profile source authority (story-final)
++
++- REPRODUCED the half-closed property on base `c9233ce2b7d98b70707cb3aec28f919d53a4c020`: with `sessrepo.checkWinningLease` disabled in the scratch copy, `Projector.Project` returned `{Profile:yolo, HasSource:true}` for probe 15. The source event and raw output are in `.temp/TASK-260922-31qyyi/reproduction/`.
++- IMPLEMENTED a repository-bound derivation in `internal/sessprofile`: the winning lease's exact tuple may source profile changes; a known earlier lease may source one only inside the winner's re-attested handoff closure. Unminted higher-epoch and same-epoch tuples are ignored; an empty lease store leaves the Session Record as authority. A failed closure read remains unknown and cannot promote a prior source. Repository consumers flow through `LoadSourceAuthority`/`Derivation`, `Projector`, `Transactor.SetProfile`, and `axpane.deriveProfile`; append admission was not changed.
++- GATE × ENTRY: all four assigned entry points have independent lower-epoch and same-epoch ambiguous tests, each rerun with append admission disabled. Eight exact-event narrowing runs fail individually at their named entry; the instrumented baseline and harmless-comment control survive. Future-epoch, empty-store, and valid winning-closure cases have named tests.
++- REGISTRY: the decoded Section 2.4 binding and clause 2.4#2 now name `internal/sessprofile/authority.go:Derive` and include `story-260922-derivation-side-profile-source`. Re-derived `reviewedOwnershipCanonicalSHA256=e98b3004ac4abb2e78533fdc925d1e82aa3f7640b994d7639ea287756b5a9256`; `tracecheck` reports 70/574 clauses discharged and its README coverage line matches exactly.
++- IMPORTER OUTCOMES: the complete importer census is `internal/axpane`. With append admission disabled on both base and candidate, 16 keyed outcomes were compared and 14 moved. The moved input classes are post-takeover lower epoch, unminted higher epoch, empty lease store, and unminted same-epoch loser; a winning handoff source and normal current-winner writer are unchanged. Raw keyed outcomes and both tree hashes are in the final `outcome-grid-final/outcome-comparison.json`.
++- VALIDATION: the focused packages, traceability package, full verbose package tests, all 44 packages under race (8 bounded groups, each retaining `-timeout 25m`), and all-package coverage exited 0. All 17 configured 100-run fuzz commands, both platform builds, Linux/Windows vet, catalog check, tracecheck, JSON parse, gofmt gate, and diff check exited 0. `task-board validate` and board attachment reads are recorded in the task results after they run.
++- HANDOFF: 5 of 5 task-specific acceptance rows are demonstrated; the board checklist and task-scoped evidence are updated before handoff. Candidate remains UNCOMMITTED in the managed Story worktree.
++
+ ## 2026-09-22
+ 
+ ### BUG-260917-3lddu0 — superseded leases are refused before append admission
+diff --git a/README.md b/README.md
+index e2da0f1..31766bb 100644
+--- a/README.md
++++ b/README.md
+@@ -3359,7 +3359,7 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7
+ repository gate used by CI. Its reviewed
+ [`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
+ registry independently enumerates implementation owners for all 64 current
+-contract rows, 36 pinned or catalog-referenced normative section keys, 154
++contract rows, 36 pinned or catalog-referenced normative section keys, 155
+ executable acceptance cases, 69 exact section bindings with their declared
+ coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
+ Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
+@@ -3593,16 +3593,16 @@ both registered against the `config-versioned-readers` acceptance case.
+ Section 2.4 is the first multi-clause admission: its four clauses are
+ discharged by the `sessprofile-derive`, `sessprofile-derive-heads`,
+ `sessprofile-fork-pair`, and `provhost-mapping-resolution` acceptance cases.
+-The story-final `story-260917-losing-lease-profile-source` case is referenced
+-by the Section 2.4 binding and clause 2.4#2, adding the production
+-append-admission refusal/source proof without changing the measured 4/4
+-section ratio. This leaf closes that property only through the durable
+-`AppendEvent` gate (route (b)); independent lease-aware derivation-side
+-authority is owned by `STORY-260922-cpkajd` / `TASK-260922-31qyyi`
+-(`lease-aware-profile-source-authority` /
+-`derivation-side-profile-source-gate`). That bound includes the disclosed
+-never-minted higher-epoch and empty-lease-store classes; this leaf does not
+-implement or decide them.
++The story-final `story-260917-losing-lease-profile-source` case remains
++referenced by the Section 2.4 binding and clause 2.4#2 for the append-admission
++refusal. `story-260922-derivation-side-profile-source` now binds the same
++clause to `internal/sessprofile.Derivation.Derive`, which applies the winning
++lease facts and captured handoff closure independently of append admission.
++Its tests pin the post-handoff losing lease, an unminted higher-epoch tuple,
++an unminted same-epoch tuple, and the empty lease store; a source inside the
++winning lease's captured closure stays effective. The measured Section 2.4
++ratio remains 4/4 because this leaf extends the existing clause edge without
++adding a normative clause.
+ Sections 7.8 and 10.2 are the clone-story admissions: the seven clauses are
+ discharged by the `clone-capture-contracts`, `clone-native-capture`,
+ `clone-projection-fidelity`, `session-adapter-call-binding`,
+@@ -3747,6 +3747,8 @@ their generated contents directly; change `Skillfile.json` and rerun Curator.
+ | `fencing` mutation harness | Run isolated fencing-gate narrowing mutants, one token-preserving census mutant, and three controls with real test-exit classification | `python3 internal/fencing/testdata/mutate.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
+ | `ownership properties` mutation harness | Run isolated ownership-invariant narrowing mutants and three controls with real test-exit classification | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessstate/testdata/mutate_properties.py /absolute/path/to/evidence-dir` | `mutants.json` and per-mutant logs under the supplied evidence directory; copied sources are restored and isolated |
+ | `sessrepo` append-admission mutation harness | Run the two winning-lease narrowing mutants through direct `AppendEvent` and the composing `SetProfile`, `Emit`, and `EmitParked` production entries, with explicit control classification | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessrepo/testdata/mutate_append_admission.py /absolute/path/to/evidence-dir` | `mutants.json`, raw per-plant logs, copied mutation sources, and control logs under the supplied evidence directory |
++| `sessprofile` source-authority mutation harness | Disable `sessrepo.checkWinningLease` in an isolated copy, exercise each derivation entry, and kill exact-event lower-epoch and same-epoch narrowing mutants at every entry | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessprofile/testdata/mutate_profile_authority.py /absolute/path/to/evidence-dir` | `mutants.json`, instrumented baseline, eight independent narrowing logs, harmless control, and raw logs under the supplied evidence directory |
++| `sessprofile` importer outcome comparator | Disable the append gate in isolated base and candidate trees, discover every direct Go importer, and compare runtime profile and writer outcomes by `(package, entry, input)` | `PYTHONDONTWRITEBYTECODE=1 python3 internal/sessprofile/testdata/compare_importers.py /absolute/path/to/evidence-dir` | `outcome-comparison.json`, generated probe source, before/after Go-list importer rows, and raw runtime logs under the supplied evidence directory; scratch source copies are removed after the report is written |
+ | `task-board` | Track scope, lifecycle, checklists, evidence, dependency waves, and the critical path through the global `project-management` installation | `task-board q 'plan()'`; `task-board q 'plan(TASK-260830-55kcni, mode=related)'`; `task-board plan --save` | `.task-board/`; `.planning/`; task outcome resources |
+ | Go toolchain | Verify global and assigned-scope specification ownership, validate versioned Configuration readers/current writer, validate owner-local storage, immutable installs, and SQLite rebuild/recovery, validate and fuzz common wire scalars, canonical identities, core records, Session Events, and Observation Events, validate the Structured Error registry, its static containing-contract bindings, and its detail redaction, validate the CLI Result envelopes, command bodies, common flags, rendering boundary, and exit-status mapping, classify one completed `ax --json` invocation from stdout and its exit status through the machine reader and replay the frozen historical envelope corpora, generate and check the typed catalogs, build, test, and measure the Go implementation | `go run ./internal/traceability/cmd/tracecheck`; `go run ./internal/traceability/cmd/tracecheck -section 6.2` (every other assigned section is refused with its measured coverage ratio); `go test ./internal/config -cover -count=1`; `go test ./internal/localstore -cover -count=1`; `go test ./internal/scalar -cover -count=1`; `go test ./internal/scalar -run=^$ -fuzz=^FuzzScalarProductionEntries$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -cover -count=1`; `go test ./internal/axerror -cover -count=1`; `go test ./internal/cliresult -cover -count=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzCanonicalizeRoundTrip$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObjectIdentityRepresentationInvariant$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzClosedIdentityShapeRefusal$ -fuzztime=100x -parallel=1`; `go test ./internal/canonicaljson -run=^$ -fuzz=^FuzzObservationEventRefusal$ -fuzztime=100x -parallel=1`; `go generate ./internal/catalog`; `go run ./internal/catalog/cmd/cataloggen -adopted -output internal/catalog/catalog_gen.go -check` (`-metadata`/`-contracts` select the same inputs explicitly); `go test ./... -v`; `go test ./... -cover`; `go build ./...` | Read-only traceability report; owner-only roots, immutable blob/quarantine data, and `<state>/index.sqlite` plus recovery evidence only when storage entries are called; `internal/catalog/catalog_gen.go`; Go build/fuzz cache; test output captured under `.temp/<TASK-ID>/` when needed |
+ | `github.com/gowebpki/jcs` | RFC 8785 byte transformation after repository-owned strict I-JSON validation | Imported by `internal/canonicaljson.Canonicalize` at pinned module version `v1.0.1` | Canonical UTF-8 JSON bytes in memory; no durable output |
+diff --git a/internal/axpane/TRACEABILITY.md b/internal/axpane/TRACEABILITY.md
+index 122779c..b1e2bda 100644
+--- a/internal/axpane/TRACEABILITY.md
++++ b/internal/axpane/TRACEABILITY.md
+@@ -84,7 +84,7 @@ which invoke these entries at every required boundary.
+ | Mode selects entry and capability row | `Decide` → `authorize` + `admitBackend` | `TestDecideRestoreRequiresRestoreCapability`, `TestDecideTable/launch_restore_committed_checkpoint` | Driven: restore mode gates through `AuthorizeRestore` and the `restore` row (a restore-admitting, create-denying backend launches); launch mode gates through `AuthorizeActivation` and `create`. |
+ | Materialization validity gates local resume | `Decide` → `checkMaterialization`; `Run` → `LoadMaterialization` + `LoadNewestCheckpoint` | `TestDecideTable/parked_materialization_not_committed`, `TestDecideTable/parked_materialization_absent`, `TestDecideMaterializationStaleParks`, `TestDecideJournalNullFoldParks`, `TestRunRestoreCommitted`, `TestRunRestoreMaterializingParks`, `TestRunEpochOneOwnerAfterCheckpoint`, `TestRunNullFoldRestoreParks`, `TestDecidePostTakeoverDivergedBaseLaunches`, `TestRunPostTakeoverRestoreLaunchesWithNewestClosure`, `TestRunPostTakeoverStaleBaseParks`, `TestDecideSuccessorNullFoldParks`, `TestRunSuccessorNullFoldParks` | Driven: a required journal must be admitted by the `matjournal` owner, committed, and sourced from the fold's newest published checkpoint — the winning lease's handoff base is never compared; staging, absence, a null fold, or a superseded source parks `restore_policy`. The epoch-1 owner (null lease checkpoint) parks on an unnamed-digest journal and launches on a newest-sourced one; the post-takeover owner (successor lease base C0, fold newest C1) launches on a C1-sourced journal and parks on a C0-sourced one. A checkpoint-carrying winner over a null fold parks at the one implication arm. Fresh launch leaves the requirement unset (§13.1 runs before the journal commits). |
+ | Checkpoint admission gates resume | `Decide` → `admitCheckpoint` → `sessrepo.AttestCheckpointRecord`; `Run` → `LoadCheckpoint` + `LoadNewestCheckpoint` | `TestDecideTable/parked_checkpoint_inadmissible`, `TestDecideTable/parked_checkpoint_absent`, `TestDecideTable/parked_checkpoint_wrong_identity`, `TestDecideTable/parked_checkpoint_flipped_digest`, `TestDecideCheckpointNotLeaseParks`, `TestDecideForeignCheckpointParks`, `TestDecideCheckpointNullFoldParks`, `TestDecideCheckpointUnpublishedParks`, `TestRunEpochOneOwnerAfterCheckpoint`, `TestRunNullFoldRestoreParks`, `TestDecidePostTakeoverDivergedBaseLaunches`, `TestRunPostTakeoverRestoreLaunchesWithNewestClosure`, `TestRunPostTakeoverStaleBaseParks` | Driven: a required checkpoint must attest through the `sessrepo` owner, match the required digest, equal the fold's newest published checkpoint, and name this session — the winning lease's handoff base is never compared; garbage, absence, identity drift, a null fold, an unpublished checkpoint, a non-newest checkpoint, or a foreign session parks `restore_policy`. The post-takeover owner (successor lease base C0, fold newest C1) launches on C1 and parks on the stale base C0. |
+-| Effective profile derived with source | `Decide` → `deriveProfile` → `sessprofile.Derive`/`DeriveForHeads`; `Run` → `LoadProfile` + resumed-checkpoint closure | `TestDecideProfileSourcePinsEvent`, `TestDecideYoloMapping`, `TestDecideResumeProfileUsesClosure`, `TestLosingLeaseProfileEventIgnored`, `TestRunNoCkptStorePublishedNewestFails`, `TestRunPostTakeoverLaunchCarriesNewestClosureStandardToYolo`, `TestRunPostTakeoverLaunchCarriesNewestClosureYoloToStandard`, `TestRunPostTakeoverRestoreLaunchesWithNewestClosure`, `TestRunNewestAbsentFromStoreFails` | Driven: launch carries the session head (newest authoritative `profile.changed` with that event's digest, or the record value with null source) only on the checkpoint-free path; resume carries the checkpoint actually resumed — the required checkpoint when one is required, else the fold's newest — through `DeriveForHeads`, never the winning lease's handoff base, so a head-only or losing-lease change never becomes the launch profile (PROFILE-DIRECT-RESUME direction). Both post-takeover profile directions launch with the newest checkpoint's closure. A published newest with no checkpoint store bound fails the run, as does a newest absent from the store — an absent store is unknown, never "no closure". Corrupt derivation refuses `integrity_failure` (`TestDecideTable/refused_profile_derivation_corrupt`). |
++| Effective profile derived with source | `Run` → `LoadProfile` → `sessprofile.LoadSourceAuthority`; `Decide` → `deriveProfile` → `Derivation.Derive`/`DeriveForHeads` | `TestDecideProfileSourcePinsEvent`, `TestDecideYoloMapping`, `TestDecideResumeProfileUsesClosure`, `TestAppendGateRefusesLosingLeaseProfileEvent`, `TestLoadProfileDoesNotExposeLosingLeaseAsEffectiveSource`, `TestProbe15DisabledAppendGateProjector`, `TestSetProfileFromEndDoesNotReplayLosingLeaseChange`, `TestAxpaneDeriveProfileDoesNotUseLosingLeaseSource`, `TestLoadProfileRejectsAmbiguousLeaseSource`, `TestProjectorRejectsAmbiguousLeaseSource`, `TestSetProfileFromEndRejectsAmbiguousLeaseSource`, `TestAxpaneDeriveProfileRejectsAmbiguousLeaseSource`, `TestRunNoCkptStorePublishedNewestFails`, `TestRunPostTakeoverLaunchCarriesNewestClosureStandardToYolo`, `TestRunPostTakeoverLaunchCarriesNewestClosureYoloToStandard`, `TestRunPostTakeoverRestoreLaunchesWithNewestClosure`, `TestRunNewestAbsentFromStoreFails` | Driven: durable consumers load validated lease rows and the winning handoff closure before selecting a source; a previous-lease source is retained only inside that closure, and the resume closure narrows sources further. Each required entry has separate lower-epoch and same-epoch ambiguous witnesses, rerun with `sessrepo.checkWinningLease` disabled and individually killed by exact-event narrowing mutants. Higher-epoch and empty-store decisions are pinned by `sessprofile` tests. Both post-takeover profile directions continue to launch with the resumed checkpoint's closure. A published newest with no checkpoint store bound fails the run, as does a newest absent from the store — an absent store is unknown, never "no closure". Corrupt derivation refuses `integrity_failure` (`TestDecideTable/refused_profile_derivation_corrupt`). See [`internal/sessprofile/TRACEABILITY.md`](../sessprofile/TRACEABILITY.md) for the gate × entry matrix and evidence. |
+ | Profile mapping resolved or refused | `Decide` → `provhost.ResolveMapping` | `TestDecideYoloMapping`, `TestDecideTable/refused_profile_mapping_unavailable` | Driven: the yolo launch carries the exact codex adapter flag; a Pi build off the pinned version refuses `profile_mapping_unavailable` per §2.4. The tuple gate precedes mapping so a tuple refusal keeps its own class. |
+ | Resume tuple gate | `Decide` → `checkProviderIdentity` → `provhost.CheckResumeTuple` | `TestDecideTable/refused_provider_tuple_qwen` | Driven: a tuple outside the §8.4 direction refuses `invalid_config` with the landed detail. |
+ | Identity bind to exact build | `Decide` → `provhost.VerifyIdentityBuild` + `checkIdentitySession` | `TestDecideTable/refused_provider_identity_other_provider`, `TestDecideIdentityForeignSessionRefuses` | Driven: an identity minted for another provider (`CreateIdentity` fixture) refuses `invalid_config`; the probed version must equal the record version exactly; and an identity minted for another session with the same provider and version refuses `invalid_config` — the wrapper binds the record's own `session_id` to the session under decision (`VerifyIdentityBuild` binds provider and version only). |
+@@ -311,16 +311,16 @@ they add no new contract):
+   a silent proceed. Deferring the load to launch-class
+   decisions is future work, not this leaf.
+ 
+-## Story-final BUG-260917-3lddu0: losing-lease profile source
++## Story-final BUG-260917-3lddu0: append-admission half of losing-lease profile source
+ 
+ The production append gate is owned by `sessrepo`; this package supplies
+-the wrapper entries that must not bypass it. `TestLosingLeaseProfileEventIgnored`
+-drives `world.repo.AppendEvent` after a successor lease wins while the
+-tail still belongs to lease A, asserts the literal `ErrStaleLease`, then
+-loads the profile through `LoadProfile`/`sessprofile.Derive` and runs the
+-production `Run` path. The effective result stays standard with no
+-losing-event source, so the archived probe-15 yolo/
+-`--dangerously-bypass-approvals-and-sandbox` outcome cannot be reproduced.
++the wrapper entries that must not bypass it. The independently named
++`TestAppendGateRefusesLosingLeaseProfileEvent` drives `world.repo.AppendEvent`
++after a successor lease wins while the tail still belongs to lease A and
++asserts the literal `ErrStaleLease`. It proves append refusal only; it does not
++reach profile derivation. The new derivation-side owner and instrumented
++entry witnesses are recorded in
++[`internal/sessprofile/TRACEABILITY.md`](../sessprofile/TRACEABILITY.md).
+ 
+ The four wrapper entry cells are independently driven by
+ `TestEmitReachesAppendAdmissionGateAfterStaleObservation`,
+@@ -342,15 +342,14 @@ the task evidence and keys actual `AppendEvent` outcomes.
+ | `TestRunPostWindowSupersedes` | `publishCheckpoint` now precedes successor B. | Old A-owned `session.idle` + `session.stopped` after B → `ErrStaleLease`; now pre-takeover admitted. | §5.2/§5.3 |
+ | `TestRunSupersededPairIdenticalRetry` | Same checkpoint-before-successor correction; retry assertions stay unchanged. | Same lower-epoch A-after-B stop-event class → `ErrStaleLease`; now pre-takeover history. | §5.2/§5.3 |
+ | `TestRunCreateFromStoppedPostWindow` | Stopped/checkpointed state is made while A owns it, then B follows. | Same lower-epoch A-after-B stop-event class → `ErrStaleLease`; now pre-takeover history. | §5.2/§5.3 |
+-| `TestLosingLeaseProfileEventIgnored` | The raw production append is now asserted to refuse before the profile/Run checks. | Losing A-owned `profile.changed` after B: admitted/yolo/bypass before → refused/preserved now. | §2.4 + §5.3 |
++| `TestAppendGateRefusesLosingLeaseProfileEvent` | The raw production append is asserted to refuse at `checkWinningLease`; the test makes no derivation claim. | Losing A-owned `profile.changed` after B: admitted/yolo/bypass before → refused at append now. | §5.3 |
+ 
+ The first three are graceful-takeover fixture corrections; the old ordering
+-would hit the new owner gate. The last is the probe-15 regression and names
+-the old yolo/`--dangerously-bypass-approvals-and-sandbox` outcome.
+-No production axpane implementation was changed for this leaf. This is route
+-(b): the append gate closes the profile-source property; independent
+-lease-aware derivation-side authority is owned by
+-`STORY-260922-cpkajd` / `TASK-260922-31qyyi` and is not implemented here.
++would hit the new owner gate. The last records the earlier probe-15 append
++refusal. `TASK-260922-31qyyi` adds the separate derivation-side gate used by
++`LoadProfile` and `deriveProfile`; its test witnesses reach those entries with
++the append gate disabled, so the old yolo/`--dangerously-bypass-approvals-and-sandbox`
++outcome is blocked at source selection as well.
+ The
+ `decide.go` doc-comment qualifier that “lapsed grants refuse” remains
+ untouched and scoped to the local-owner path. The
+diff --git a/internal/axpane/decide.go b/internal/axpane/decide.go
+index 987c566..2adb47e 100644
+--- a/internal/axpane/decide.go
++++ b/internal/axpane/decide.go
+@@ -272,19 +272,13 @@ type Input struct {
+ 	CheckpointDoc      []byte
+ 	CheckpointID       string
+ 
+-	// ProfileRecord and ProfileEvents are the decoded session
+-	// surface the sessprofile reducer derives the effective pair
+-	// from. ProfileHeads, when non-empty, is the validated
+-	// checkpoint's event-head closure: resume derives from the
+-	// closure (DeriveForHeads), never the session head, so a
+-	// head-only or losing-lease change cannot become the launch
+-	// profile. Run loads the heads from the checkpoint actually
+-	// resumed — the required checkpoint when one is required,
+-	// else the fold's newest — never the winning lease's handoff
+-	// base; I/O-free callers supply them by hand.
+-	ProfileRecord sessprofile.Record
+-	ProfileEvents []sessprofile.Event
+-	ProfileHeads  []string
++	// ProfileData carries the decoded session surface together with
++	// the durable winning-lease and handoff-closure facts used by
++	// sessprofile to select an effective source. ProfileHeads, when
++	// non-empty, further narrows derivation to the checkpoint actually
++	// resumed; it never widens the lease-authorized source set.
++	ProfileData  sessprofile.Derivation
++	ProfileHeads []string
+ 
+ 	// Provider carries the probed build, stored identity, and
+ 	// optional discovery proof.
+@@ -782,9 +776,9 @@ func deriveProfile(input Input) (sessprofile.Pair, error) {
+ 		heads = closure
+ 	}
+ 	if len(heads) > 0 {
+-		return sessprofile.DeriveForHeads(input.ProfileRecord, input.ProfileEvents, heads)
++		return input.ProfileData.DeriveForHeads(heads)
+ 	}
+-	return sessprofile.Derive(input.ProfileRecord, input.ProfileEvents)
++	return input.ProfileData.Derive()
+ }
+ 
+ // checkProviderIdentity composes the provhost resume gate: the exact
+diff --git a/internal/axpane/decide_test.go b/internal/axpane/decide_test.go
+index 1f29b7d..c077fa9 100644
+--- a/internal/axpane/decide_test.go
++++ b/internal/axpane/decide_test.go
+@@ -68,7 +68,7 @@ func validInput(t *testing.T, deps *decideDeps) Input {
+ 	if err != nil {
+ 		t.Fatalf("BuildDescriptor() error = %v", err)
+ 	}
+-	record, events, err := LoadProfile(deps.repo, fixtureSession)
++	profile, err := LoadProfile(deps.repo, deps.ckpt, fixtureSession)
+ 	if err != nil {
+ 		t.Fatalf("LoadProfile() error = %v", err)
+ 	}
+@@ -80,8 +80,7 @@ func validInput(t *testing.T, deps *decideDeps) Input {
+ 		Presented:            fixturePresented(),
+ 		Observation:          fixtureObservation(now),
+ 		Backend:              deps.universe.facts(t),
+-		ProfileRecord:        record,
+-		ProfileEvents:        events,
++		ProfileData:          profile,
+ 		Provider: ProviderFacts{
+ 			Build:    fixtureBuild(),
+ 			Identity: fixtureIdentity(t),
+@@ -592,7 +591,7 @@ func TestDecideTable(t *testing.T) {
+ 		{
+ 			name: "refused_profile_derivation_corrupt",
+ 			mutate: func(t *testing.T, deps *decideDeps, input *Input) {
+-				input.ProfileRecord.Creation = "bogus"
++				input.ProfileData.Record.Creation = "bogus"
+ 			},
+ 			want:      ActionRefused,
+ 			wantClass: ClassIntegrityFailure,
+diff --git a/internal/axpane/gates.go b/internal/axpane/gates.go
+index f98a8a8..844fd96 100644
+--- a/internal/axpane/gates.go
++++ b/internal/axpane/gates.go
+@@ -60,39 +60,43 @@ func ObserveOwnership(repository *sessrepo.Repository, sessionID string, input f
+ 	return fencing.Observe(repository, sessionID, input)
+ }
+ 
+-// LoadProfile loads the decoded session surface the sessprofile
+-// reducer derives the effective pair from: the Session Record plus
+-// the authoritative chain in index order.
+-func LoadProfile(repository *sessrepo.Repository, sessionID string) (sessprofile.Record, []sessprofile.Event, error) {
+-	empty := sessprofile.Record{}
++// LoadProfile loads the decoded session surface plus the lease and
++// handoff-checkpoint authority used to select an effective profile source.
++// The Session Record and event chain remain in index order.
++func LoadProfile(repository *sessrepo.Repository, checkpoints *sessckpt.Store, sessionID string) (sessprofile.Derivation, error) {
++	empty := sessprofile.Derivation{}
+ 	if repository == nil {
+-		return empty, nil, errors.New("axpane profile load carries no repository")
++		return empty, errors.New("axpane profile load carries no repository")
+ 	}
+ 	recordJSON, err := repository.GetRecord(sessionID)
+ 	if err != nil {
+-		return empty, nil, err
++		return empty, err
+ 	}
+ 	record, err := sessprofile.DecodeRecord(recordJSON)
+ 	if err != nil {
+-		return empty, nil, err
++		return empty, err
+ 	}
+ 	summaries, err := repository.ListEvents(sessionID)
+ 	if err != nil {
+-		return empty, nil, err
++		return empty, err
+ 	}
+ 	events := make([]sessprofile.Event, 0, len(summaries))
+ 	for _, summary := range summaries {
+ 		eventJSON, err := repository.GetEvent(sessionID, summary.EventID)
+ 		if err != nil {
+-			return empty, nil, err
++			return empty, err
+ 		}
+ 		event, err := sessprofile.DecodeEvent(eventJSON)
+ 		if err != nil {
+-			return empty, nil, err
++			return empty, err
+ 		}
+ 		events = append(events, event)
+ 	}
+-	return record, events, nil
++	authority, err := sessprofile.LoadSourceAuthority(repository, checkpoints, sessionID)
++	if err != nil {
++		return empty, err
++	}
++	return sessprofile.Derivation{Record: record, Events: events, Authority: authority}, nil
+ }
+ 
+ // LoadMaterialization loads the required materialization journal
+diff --git a/internal/axpane/rework_test.go b/internal/axpane/rework_test.go
+index 2b49170..c41cead 100644
+--- a/internal/axpane/rework_test.go
++++ b/internal/axpane/rework_test.go
+@@ -671,11 +671,10 @@ func assertPreservedAdmissionBlob(t *testing.T, root, leaseID string, epoch, seq
+ 	t.Fatalf("preserved %s event blob for lease %s epoch %d sequence %d not found", eventType, leaseID, epoch, sequence)
+ }
+ 
+-// TestLosingLeaseProfileEventIgnored pins P1-1 (probe 15, §2.4): a
+-// profile.changed authored under the superseded lease after a local
+-// successor won never becomes the launch profile. On rev1 this
+-// drove yolo/E2.
+-func TestLosingLeaseProfileEventIgnored(t *testing.T) {
++// TestAppendGateRefusesLosingLeaseProfileEvent pins the independent durable
++// append refusal. Derivation authority is covered by the instrumented tests
++// below, which run with this append gate disabled.
++func TestAppendGateRefusesLosingLeaseProfileEvent(t *testing.T) {
+ 	t.Parallel()
+ 	world := buildRunWorld(t)
+ 	leases, err := world.repo.ListLeases(fixtureSession)
+@@ -699,16 +698,16 @@ func TestLosingLeaseProfileEventIgnored(t *testing.T) {
+ 	if _, err := world.repo.AppendEvent(fixtureSession, changed); !errors.Is(err, sessrepo.ErrStaleLease) {
+ 		t.Fatalf("AppendEvent(losing profile.changed) error = %v, want stale lease refusal", err)
+ 	}
+-	record, events, err := LoadProfile(world.repo, fixtureSession)
++	profile, err := LoadProfile(world.repo, world.ckpt, fixtureSession)
+ 	if err != nil {
+ 		t.Fatalf("LoadProfile() after losing append = %v", err)
+ 	}
+-	profile, err := sessprofile.Derive(record, events)
++	pair, err := profile.Derive()
+ 	if err != nil {
+-		t.Fatalf("Derive() after losing append = %v", err)
++		t.Fatalf("Derivation.Derive() after losing append = %v", err)
+ 	}
+-	if profile.Profile != sessprofile.ProfileStandard || profile.HasSource {
+-		t.Fatalf("effective profile after refused losing append = %+v, want standard with no source", profile)
++	if pair.Profile != sessprofile.ProfileStandard || pair.HasSource {
++		t.Fatalf("effective profile after refused losing append = %+v, want standard with no source", pair)
+ 	}
+ 	var changedRef struct {
+ 		EventID string `json:"event_id"`
+@@ -733,6 +732,254 @@ func TestLosingLeaseProfileEventIgnored(t *testing.T) {
+ 	}
+ }
+ 
++// instrumentedLosingProfileWorld succeeds only in the producer's scratch
++// copy where checkWinningLease is replaced with a no-op. In the ordinary
++// tree the append refusal skips the derivation witness before it can claim
++// coverage; the harness reruns each named witness with that gate disabled.
++func instrumentedLosingProfileWorld(t *testing.T) (*runWorld, string) {
++	t.Helper()
++	world := buildRunWorld(t)
++	leases, err := world.repo.ListLeases(fixtureSession)
++	if err != nil || len(leases) != 1 {
++		t.Fatalf("ListLeases() = %v, %v; want epoch-1 lease", leases, err)
++	}
++	if _, err := world.repo.CompareAndSwapLease(fixtureSession, sessrepo.LeaseExpectation{RecordID: leases[0].RecordID}, sessrepo.SuccessorLeaseInput{
++		CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: fixtureLeaseB, HolderHostID: fixtureLocalHost, IssuedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt},
++		Reason:           "graceful_takeover",
++		CheckpointID:     world.ckptID,
++	}); err != nil {
++		t.Fatalf("CompareAndSwapLease() error = %v", err)
++	}
++	changed := identifyObject(t, map[string]any{
++		"schema": "urn:ax:schema:session-event", "schema_version": "1.0.0", "event_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
++		"subject_id": fixtureSession, "session_id": fixtureSession, "event_type": "profile.changed", "created_by_host_id": fixtureLocalHost,
++		"lease_epoch": 1, "lease_id": fixtureLeaseA, "lease_sequence": 2, "predecessors": []string{world.headID},
++		"created_at": fixtureCreatedAt, "payload": map[string]any{"from": "standard", "to": "yolo", "confirmed": true}, "extensions": map[string]any{},
++	}, "event_id")
++	reference, err := world.repo.AppendEvent(fixtureSession, changed)
++	if errors.Is(err, sessrepo.ErrStaleLease) || errors.Is(err, sessrepo.ErrDivergentBranch) {
++		t.Skip("derivation witness requires checkWinningLease disabled in the scratch instrumented copy")
++	}
++	if err != nil {
++		t.Fatalf("AppendEvent(losing profile.changed) with append gate instrumented off: %v", err)
++	}
++	t.Logf("instrumented losing profile event id=%s", reference.EventID)
++	return world, reference.EventID
++}
++
++// instrumentedAmbiguousProfileWorld succeeds only in the mutation harness,
++// where checkWinningLease is disabled. The profile event uses a lower
++// same-epoch tuple than the persisted winner, but no matching epoch-2 lease
++// record was ever minted.
++func instrumentedAmbiguousProfileWorld(t *testing.T) (*sessrepo.Repository, string) {
++	t.Helper()
++	repository, err := sessrepo.Open(t.TempDir())
++	if err != nil {
++		t.Fatal(err)
++	}
++	var record map[string]any
++	if err := json.Unmarshal([]byte(sessionRecordFixture), &record); err != nil {
++		t.Fatal(err)
++	}
++	reference, err := repository.CreateSession(identifyObject(t, record, "record_id"))
++	if err != nil {
++		t.Fatalf("CreateSession() error = %v", err)
++	}
++	if _, err := repository.CreateLease(fixtureSession, sessrepo.CreateLeaseInput{
++		LeaseID: fixtureLeaseA, HolderHostID: fixtureLocalHost, IssuedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt,
++	}); err != nil {
++		t.Fatalf("CreateLease(epoch 1) error = %v", err)
++	}
++	if _, err := repository.CompareAndSwapLease(fixtureSession, sessrepo.LeaseExpectation{RecordID: mustWinningLeaseRecordID(t, repository)}, sessrepo.SuccessorLeaseInput{
++		CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: fixtureLeaseB, HolderHostID: fixtureLocalHost, IssuedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt},
++		Reason:           "graceful_takeover",
++		CheckpointID:     "sha256:0000000000000000000000000000000000000000000000000000000000000000",
++	}); err != nil {
++		t.Fatalf("CompareAndSwapLease(epoch 2) error = %v", err)
++	}
++	ambiguous := identifyObject(t, map[string]any{
++		"schema": "urn:ax:schema:session-event", "schema_version": "1.0.0", "event_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
++		"subject_id": fixtureSession, "session_id": fixtureSession, "event_type": "profile.changed", "created_by_host_id": fixtureLocalHost,
++		"lease_epoch": 2, "lease_id": fixtureLeaseA, "lease_sequence": 1, "predecessors": []string{reference.RecordID},
++		"created_at": fixtureCreatedAt, "payload": map[string]any{"from": "standard", "to": "yolo", "confirmed": true}, "extensions": map[string]any{},
++	}, "event_id")
++	appended, err := repository.AppendEvent(fixtureSession, ambiguous)
++	if errors.Is(err, sessrepo.ErrDivergentBranch) || errors.Is(err, sessrepo.ErrStaleLease) {
++		t.Skip("ambiguous-source witness requires checkWinningLease disabled in the scratch instrumented copy")
++	}
++	if err != nil {
++		t.Fatalf("AppendEvent(ambiguous profile.changed) with append gate instrumented off: %v", err)
++	}
++	t.Logf("instrumented ambiguous profile event id=%s", appended.EventID)
++	return repository, appended.EventID
++}
++
++func mustWinningLeaseRecordID(t *testing.T, repository *sessrepo.Repository) string {
++	t.Helper()
++	leases, err := repository.ListLeases(fixtureSession)
++	if err != nil || len(leases) != 1 {
++		t.Fatalf("ListLeases() = %v, %v; want the epoch-1 lease", leases, err)
++	}
++	return leases[0].RecordID
++}
++
++func assertRecordProfilePair(t *testing.T, pair sessprofile.Pair, where string) {
++	t.Helper()
++	if pair.Profile != sessprofile.ProfileStandard || pair.HasSource || pair.Source != "" {
++		t.Fatalf("%s = %+v, want standard with no source", where, pair)
++	}
++}
++
++func TestLoadProfileDoesNotExposeLosingLeaseAsEffectiveSource(t *testing.T) {
++	world, losingID := instrumentedLosingProfileWorld(t)
++	loaded, err := LoadProfile(world.repo, world.ckpt, fixtureSession)
++	if err != nil {
++		t.Fatalf("LoadProfile() error = %v", err)
++	}
++	pair, err := loaded.Derive()
++	if err != nil {
++		t.Fatalf("LoadProfile result Derive() error = %v", err)
++	}
++	assertRecordProfilePair(t, pair, "LoadProfile effective pair")
++	if pair.Source == losingID {
++		t.Fatalf("LoadProfile source = losing event %s", losingID)
++	}
++}
++
++func TestProbe15DisabledAppendGateProjector(t *testing.T) {
++	world, losingID := instrumentedLosingProfileWorld(t)
++	pair, err := (&sessprofile.Projector{Repo: world.repo, Ckpt: world.ckpt}).Project(fixtureSession)
++	if err != nil {
++		t.Fatalf("Projector.Project() error = %v", err)
++	}
++	assertRecordProfilePair(t, pair, "Projector.Project effective pair")
++	if pair.Source == losingID {
++		t.Fatalf("Projector.Project source = losing event %s", losingID)
++	}
++	t.Logf("instrumented Projector.Project() = {Profile:%s, HasSource:%t, Source:%s}", pair.Profile, pair.HasSource, pair.Source)
++}
++
++func TestSetProfileFromEndDoesNotReplayLosingLeaseChange(t *testing.T) {
++	world, losingID := instrumentedLosingProfileWorld(t)
++	result, err := (&sessprofile.Transactor{Repo: world.repo, Ckpt: world.ckpt}).SetProfile(sessprofile.SetProfileRequest{
++		SessionID: fixtureSession, To: sessprofile.ProfileYOLO, Confirmed: true,
++		LeaseEpoch: 1, LeaseID: fixtureLeaseA, CreatedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt,
++	})
++	if err != nil {
++		t.Fatalf("SetProfile() with append gate instrumented off = %v", err)
++	}
++	if result.PreviousProfile != sessprofile.ProfileStandard || result.NewProfile != sessprofile.ProfileYOLO || result.EventID == losingID {
++		t.Fatalf("SetProfile() = %+v, want a new standard-to-yolo event after ignoring the losing source", result)
++	}
++}
++
++func TestAxpaneDeriveProfileDoesNotUseLosingLeaseSource(t *testing.T) {
++	world, losingID := instrumentedLosingProfileWorld(t)
++	loaded, err := LoadProfile(world.repo, world.ckpt, fixtureSession)
++	if err != nil {
++		t.Fatalf("LoadProfile() error = %v", err)
++	}
++	pair, err := deriveProfile(Input{ProfileData: loaded})
++	if err != nil {
++		t.Fatalf("deriveProfile() error = %v", err)
++	}
++	assertRecordProfilePair(t, pair, "deriveProfile effective pair")
++	if pair.Source == losingID {
++		t.Fatalf("deriveProfile source = losing event %s", losingID)
++	}
++}
++
++func TestLoadProfileRejectsAmbiguousLeaseSource(t *testing.T) {
++	repository, ambiguousID := instrumentedAmbiguousProfileWorld(t)
++	loaded, err := LoadProfile(repository, nil, fixtureSession)
++	if err != nil {
++		t.Fatalf("LoadProfile() error = %v", err)
++	}
++	pair, err := loaded.Derive()
++	if err != nil {
++		t.Fatalf("LoadProfile result Derive() error = %v", err)
++	}
++	assertRecordProfilePair(t, pair, "LoadProfile ambiguous-source effective pair")
++	if pair.Source == ambiguousID {
++		t.Fatalf("LoadProfile source = ambiguous event %s", ambiguousID)
++	}
++}
++
++func TestProjectorRejectsAmbiguousLeaseSource(t *testing.T) {
++	repository, ambiguousID := instrumentedAmbiguousProfileWorld(t)
++	pair, err := (&sessprofile.Projector{Repo: repository}).Project(fixtureSession)
++	if err != nil {
++		t.Fatalf("Projector.Project() error = %v", err)
++	}
++	assertRecordProfilePair(t, pair, "Projector.Project ambiguous-source effective pair")
++	if pair.Source == ambiguousID {
++		t.Fatalf("Projector.Project source = ambiguous event %s", ambiguousID)
++	}
++}
++
++func TestSetProfileFromEndRejectsAmbiguousLeaseSource(t *testing.T) {
++	repository, ambiguousID := instrumentedAmbiguousProfileWorld(t)
++	result, err := (&sessprofile.Transactor{Repo: repository}).SetProfile(sessprofile.SetProfileRequest{
++		SessionID: fixtureSession, To: sessprofile.ProfileYOLO, Confirmed: true,
++		LeaseEpoch: 2, LeaseID: fixtureLeaseA, CreatedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt,
++	})
++	if err != nil {
++		t.Fatalf("SetProfile() with append gate instrumented off = %v", err)
++	}
++	if result.PreviousProfile != sessprofile.ProfileStandard || result.NewProfile != sessprofile.ProfileYOLO || result.EventID == ambiguousID {
++		t.Fatalf("SetProfile() = %+v, want a new standard-to-yolo event after ignoring the ambiguous source", result)
++	}
++}
++
++func TestAxpaneDeriveProfileRejectsAmbiguousLeaseSource(t *testing.T) {
++	repository, ambiguousID := instrumentedAmbiguousProfileWorld(t)
++	loaded, err := LoadProfile(repository, nil, fixtureSession)
++	if err != nil {
++		t.Fatalf("LoadProfile() error = %v", err)
++	}
++	derived, err := deriveProfile(Input{ProfileData: loaded})
++	if err != nil {
++		t.Fatalf("deriveProfile() error = %v", err)
++	}
++	assertRecordProfilePair(t, derived, "deriveProfile ambiguous-source effective pair")
++	if derived.Source == ambiguousID {
++		t.Fatalf("deriveProfile source = ambiguous event %s", ambiguousID)
++	}
++}
++
++func TestLoadProfileEmptyLeaseStoreKeepsSessionRecordAuthority(t *testing.T) {
++	repository, err := sessrepo.Open(t.TempDir())
++	if err != nil {
++		t.Fatal(err)
++	}
++	var record map[string]any
++	if err := json.Unmarshal([]byte(sessionRecordFixture), &record); err != nil {
++		t.Fatal(err)
++	}
++	reference, err := repository.CreateSession(identifyObject(t, record, "record_id"))
++	if err != nil {
++		t.Fatalf("CreateSession() error = %v", err)
++	}
++	changed := identifyObject(t, map[string]any{
++		"schema": "urn:ax:schema:session-event", "schema_version": "1.0.0", "event_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
++		"subject_id": fixtureSession, "session_id": fixtureSession, "event_type": "profile.changed", "created_by_host_id": fixtureLocalHost,
++		"lease_epoch": 1, "lease_id": fixtureLeaseA, "lease_sequence": 1, "predecessors": []string{reference.RecordID},
++		"created_at": fixtureCreatedAt, "payload": map[string]any{"from": "standard", "to": "yolo", "confirmed": true}, "extensions": map[string]any{},
++	}, "event_id")
++	if _, err := repository.AppendEvent(fixtureSession, changed); err != nil {
++		t.Fatalf("AppendEvent(empty lease store) error = %v", err)
++	}
++	loaded, err := LoadProfile(repository, nil, fixtureSession)
++	if err != nil {
++		t.Fatalf("LoadProfile(empty lease store) error = %v", err)
++	}
++	pair, err := loaded.Derive()
++	if err != nil {
++		t.Fatalf("Derivation.Derive(empty lease store) error = %v", err)
++	}
++	assertRecordProfilePair(t, pair, "LoadProfile(empty lease store)")
++}
++
+ // TestDecideRealmBindingMismatchRefuses pins P1-2: realm evidence
+ // bound to another host binding or provider build refuses
+ // capability_unavailable, never launches.
+diff --git a/internal/axpane/run.go b/internal/axpane/run.go
+index 24a3d22..a2172ee 100644
+--- a/internal/axpane/run.go
++++ b/internal/axpane/run.go
+@@ -201,12 +201,11 @@ func Run(stores Stores, request Request) (Outcome, error) {
+ 		input.CheckpointDoc = doc
+ 	}
+ 	if known {
+-		record, events, err := LoadProfile(stores.Repo, request.SessionID)
++		profile, err := LoadProfile(stores.Repo, stores.Ckpt, request.SessionID)
+ 		if err != nil {
+ 			return empty, err
+ 		}
+-		input.ProfileRecord = record
+-		input.ProfileEvents = events
++		input.ProfileData = profile
+ 		// Resume derives the effective profile from the
+ 		// checkpoint actually resumed — the required checkpoint
+ 		// when one is required, else the fold's newest — never
+diff --git a/internal/sessckpt/TRACEABILITY.md b/internal/sessckpt/TRACEABILITY.md
+index f4081d9..5acdf56 100644
+--- a/internal/sessckpt/TRACEABILITY.md
++++ b/internal/sessckpt/TRACEABILITY.md
+@@ -9,11 +9,11 @@ behavior is preserved: the closed Checkpoint Record 1.0.0 member
+ set is unchanged between the two revisions.
+ 
+ Production entry points: `Store.Capture`, `Store.Admit`,
+-`Store.Get` (`internal/sessckpt/capture.go`); durable install
+-(`internal/sessckpt/store.go`). No CLI surface is offered; the
+-`sessckpt` package is a library only.
++`Store.Get`, and `Store.EventHeads` (`internal/sessckpt/capture.go`);
++durable install (`internal/sessckpt/store.go`). No CLI surface is
++offered; the `sessckpt` package is a library only.
+ 
+-## AC coverage (8 of 8 rows driven through the production entries)
++## AC coverage (9 of 9 rows driven through the production entries)
+ 
+ | # | AC row | Production call site | Named tests |
+ | --- | --- | --- | --- |
+@@ -25,6 +25,7 @@ Production entry points: `Store.Capture`, `Store.Admit`,
+ | 6 | Exact contract fixtures and negative/refusal cases | `Capture`, `Admit`, `Get` + `sessrepo.AttestCheckpointRecord` | `TestSpecExampleAttestsThroughConsumerOwner`, `TestCaptureDirectInstallsAttestedRecord` (closed member set equals the normative example), CP-N1 (`cp_n1_background_idle_false`), CP-N2 (`cp_n2_direct_null_provider`), CP-N3 (`cp_n3_both_present`), CP-N4 (`TestAdmitRefusesUnknownSafeBoundaryMember` with benign re-identified control), `TestAdmitRefusesMalformedFrames`, `TestGetRefusesUnknownAndTorn` |
+ | 7 | Crash/idempotency evidence for durable capture | `Store.install` (blob-first, receipt-second, no-replace) + `BeforeWrite`/`AfterBlob`/`AfterCommit` hooks | `TestCrashBeforeDurableWriteIsSafeRetry`, `TestCrashBetweenBlobAndReceiptResumes`, `TestCrashAfterReceiptReplaysRecordedResult`, `TestCaptureCrashChildSelfTerminates` (real SIGKILL), `TestCaptureWithMovedInputsRefuses`, `TestCaptureRefusesDisagreeingDigestPath`, `TestCaptureReplayIsIdempotent`, `TestCaptureIdenticalClosuresShareIdentity` |
+ | 8 | No unsupported capability advertised | no `cmd/` surface, no provider/task-board I/O in the package | Stated bound (see below); `gofmt`/`go vet`/`go build` clean, README/doctor untouched by this change |
++| 9 | Re-attest the event heads used by profile derivation | `Store.EventHeads` → `Get` + `extractAdmitted` + `checkRawHeadBinding` against `sessrepo.Repository` | `TestEventHeadsReattestsCheckpointClosureForSession` |
+ 
+ ## Pinned-clause map
+ 
+diff --git a/internal/sessckpt/capture.go b/internal/sessckpt/capture.go
+index e9622a9..baf8e0d 100644
+--- a/internal/sessckpt/capture.go
++++ b/internal/sessckpt/capture.go
+@@ -205,6 +205,32 @@ func (store *Store) Get(checkpointID string) ([]byte, error) {
+ 	return raw, nil
+ }
+ 
++// EventHeads returns the checkpoint's attested event-head closure for the
++// named session. It reuses the same strict shape extraction and source-chain
++// binding as Capture and Admit; callers never need to decode checkpoint bytes
++// or treat a readable blob as an admitted closure.
++func (store *Store) EventHeads(chain *sessrepo.Repository, checkpointID, sessionID string) ([]string, error) {
++	raw, err := store.Get(checkpointID)
++	if err != nil {
++		return nil, err
++	}
++	members, fault := environ.DecodeStrictObject(raw)
++	if fault != nil {
++		return nil, invalid("decode stored checkpoint closure: %v", fault)
++	}
++	admitted, err := extractAdmitted(members)
++	if err != nil {
++		return nil, err
++	}
++	if admitted.sessionID != sessionID {
++		return nil, invalid("checkpoint session %s does not match requested session %s", admitted.sessionID, sessionID)
++	}
++	if err := checkRawHeadBinding(chain, admitted); err != nil {
++		return nil, err
++	}
++	return append([]string(nil), admitted.heads...), nil
++}
++
+ // admittedMembers carries the closure legs extracted from attested
+ // raw bytes for the variant and head gates.
+ type admittedMembers struct {
+diff --git a/internal/sessckpt/capture_test.go b/internal/sessckpt/capture_test.go
+index 073c643..3c63611 100644
+--- a/internal/sessckpt/capture_test.go
++++ b/internal/sessckpt/capture_test.go
+@@ -294,6 +294,23 @@ func TestCaptureDirectInstallsAttestedRecord(t *testing.T) {
+ 	}
+ }
+ 
++func TestEventHeadsReattestsCheckpointClosureForSession(t *testing.T) {
++	chain, created := chainFixture(t)
++	store := openTestStore(t)
++	ref, _ := mustCapture(t, store, chain, testInputs([]string{created}, testOpA))
++
++	heads, err := store.EventHeads(chain, ref.CheckpointID, testSessionID)
++	if err != nil {
++		t.Fatalf("EventHeads(valid checkpoint) error = %v", err)
++	}
++	if len(heads) != 1 || heads[0] != created {
++		t.Fatalf("EventHeads() = %v, want [%s]", heads, created)
++	}
++	if _, err := store.EventHeads(chain, ref.CheckpointID, testHostA); err == nil {
++		t.Fatal("EventHeads(foreign session) error = nil, want session binding refusal")
++	}
++}
++
+ func TestCaptureTaskBoardVariantInstalls(t *testing.T) {
+ 	chain, created := chainFixture(t)
+ 	store := openTestStore(t)
+diff --git a/internal/sessprofile/TRACEABILITY.md b/internal/sessprofile/TRACEABILITY.md
+new file mode 100644
+index 0000000..7718cdd
+--- /dev/null
++++ b/internal/sessprofile/TRACEABILITY.md
+@@ -0,0 +1,86 @@
++# TASK-260922-31qyyi: derivation-side profile source authority
++
++Authority: `internal/specdoc/SPEC.v0.7.0.md` §2.4, especially the rule that
++losing-lease or ambiguous events must not change the effective profile. The
++Section 2.4 ownership edge and its clause acceptance-case edge are decoded and
++checked by `TestSection24LosingLeaseClausePointsAtDerivationAuthority`; the
++reviewed ownership digest is re-derived by the traceability test gate.
++
++`Derivation.Derive` owns the repository-bound source rule. It consumes lease
++rows from `sessrepo.Repository.ListLeases`, which validates the complete store
++and returns the winning row from the same snapshot, and asks `sessckpt.Store`
++to re-attest the winning handoff closure when present. A known previous-lease
++source is effective only inside that captured closure. Current-winner events
++must match its exact epoch and lease ID. An unminted higher epoch, an unminted
++same-epoch tuple, and any profile event when the lease store is empty are
++ignored; with no lease row the Session Record creation profile remains the
++source. If a winning checkpoint closure cannot be read, a previous-lease
++source is refused closed rather than treating the failed read as an empty
++closure.
++
++## Task acceptance rows
++
++5 of 5 task-specific acceptance rows are driven by named candidate tests and
++the captured outcome artifacts. This ratio counts the five task acceptance
++rows in the assignment; the separate board checklist is reported in the
++handoff results.
++
++| Acceptance row | Production call site | Named test or evidence | Result |
++| --- | --- | --- | --- |
++| Probe 15 is no longer yolo with the append gate disabled | `Projector.Project` | `TestProbe15DisabledAppendGateProjector`; instrumented trunk baseline in `reproduction/probe-15-instrumented-baseline.log` | Baseline was `{Profile:yolo, HasSource:true}`; candidate returns `standard` with no source. |
++| Independent derivation rule covers each required entry and has its own narrowing evidence | `LoadProfile`, `Projector.Project`, `Transactor.SetProfile` from-end, `axpane.deriveProfile` | The gate × entry matrix below; `mutate_profile_authority.py` re-derives all eight witnesses with `checkWinningLease` disabled and kills each exact-event narrowing at its entry | Four lower-epoch and four same-epoch tests run independently; all eight narrowing witnesses fail as required. |
++| Higher-epoch and empty-store behavior is decided and pinned | `Projector.Project`, `Projector.ProjectForHeads`, `Derivation.DeriveForHeads`, `LoadProfile` | `TestProjectorRejectsNeverMintedHigherEpochProfileSource`, `TestProjectorForHeadsRejectsUnmintedHigherEpochProfileSource`, `TestDerivationForHeadsRejectsUnmintedHigherEpochSource`, `TestProjectorEmptyLeaseStoreKeepsRecordAuthority`, `TestLoadProfileEmptyLeaseStoreKeepsSessionRecordAuthority` | Unminted higher epochs and all profile events with an empty lease store are not sources; the creation profile remains effective. A source in the winning handoff closure remains effective in `TestProjectorKeepsPriorLeaseSourceFromWinningHandoffClosure`. |
++| Section 2.4 clause 2 is rebound to the derivation owner and acceptance edge | `sessprofile.Derivation.Derive` | `TestSection24LosingLeaseClausePointsAtDerivationAuthority`, registry re-derivation tests, `tracecheck` | The decoded registry assigns `internal/sessprofile/authority.go:Derive`; `story-260922-derivation-side-profile-source` occurs in both the section and clause acceptance lists. |
++| The importer census and writer composition are compared by runtime outcome | Complete `internal/sessprofile` importer set | `testdata/compare_importers.py` and its `outcome-comparison.json` | Every keyed input class is named; valid handoff derivation and the current-winner `SetProfile` write remain unchanged. |
++
++## Gate × entry matrix
++
++Each witness below is rerun in a scratch copy with only
++`sessrepo.checkWinningLease` replaced by a no-op. Each corresponding
++`N-profile-source-*` narrowing inserts a return for the exact fixture event
++while leaving the normal authority gate intact for every other event. The
++harness invokes each mutant killer alone and records its raw log and exit
++code. The harmless comment control survives.
++
++| Rejected event class | Derivation entry | Production path exercised | Named test | Narrowing row |
++| --- | --- | --- | --- | --- |
++| Known lower-epoch event outside the winning handoff closure | `LoadProfile` | `LoadProfile` → `Derivation.Derive` | `TestLoadProfileDoesNotExposeLosingLeaseAsEffectiveSource` | `N-profile-source-old-lease-LoadProfile` |
++| Known lower-epoch event outside the winning handoff closure | `Projector.Project` | `Projector.Project` → `Derivation.Derive` | `TestProbe15DisabledAppendGateProjector` | `N-profile-source-old-lease-Projector-Project` |
++| Known lower-epoch event outside the winning handoff closure | `SetProfile` from-end | `Transactor.SetProfile` → `Derivation.Derive` | `TestSetProfileFromEndDoesNotReplayLosingLeaseChange` | `N-profile-source-old-lease-SetProfile-from_end` |
++| Known lower-epoch event outside the winning handoff closure | `axpane.deriveProfile` | `LoadProfile` → `deriveProfile` → `Derivation.Derive` | `TestAxpaneDeriveProfileDoesNotUseLosingLeaseSource` | `N-profile-source-old-lease-axpane-deriveProfile` |
++| Unminted same-epoch competitor tuple | `LoadProfile` | `LoadProfile` → `Derivation.Derive` | `TestLoadProfileRejectsAmbiguousLeaseSource` | `N-profile-source-same-epoch-LoadProfile` |
++| Unminted same-epoch competitor tuple | `Projector.Project` | `Projector.Project` → `Derivation.Derive` | `TestProjectorRejectsAmbiguousLeaseSource` | `N-profile-source-same-epoch-Projector-Project` |
++| Unminted same-epoch competitor tuple | `SetProfile` from-end | `Transactor.SetProfile` → `Derivation.Derive` | `TestSetProfileFromEndRejectsAmbiguousLeaseSource` | `N-profile-source-same-epoch-SetProfile-from_end` |
++| Unminted same-epoch competitor tuple | `axpane.deriveProfile` | `LoadProfile` → `deriveProfile` → `Derivation.Derive` | `TestAxpaneDeriveProfileRejectsAmbiguousLeaseSource` | `N-profile-source-same-epoch-axpane-deriveProfile` |
++
++`Projector.ProjectForHeads` and `Derivation.DeriveForHeads` are separately
++covered by `TestProjectorForHeadsRejectsUnmintedHigherEpochProfileSource` and
++`TestDerivationForHeadsRejectsUnmintedHigherEpochSource`. The checkpoint reader
++re-attests the closure at `sessckpt.Store.EventHeads`; its named witness is
++`TestEventHeadsReattestsCheckpointClosureForSession` in `internal/sessckpt`.
++An empty lease store has no winning lease to supply a handoff closure; its
++record-authority behavior is pinned by the empty-store tests in both
++`sessprofile` and `axpane`.
++
++## Importer outcome comparison
++
++The complete direct Go importer census contains only
++`github.com/relux-works/agent-session-manager/internal/axpane` (including its
++test build variant). With the append gate disabled in both isolated trees, the
++outcome comparison contains 16 keys on the base and candidate trees.
++`LoadProfile`, `Projector.Project`, and `axpane.deriveProfile` each move for
++the lower-epoch, unminted higher-epoch, empty lease-store, and unminted
++same-epoch inputs. `SetProfile` from-end also moves for the lower-epoch and
++same-epoch inputs because its previous profile is now derived from the
++authorized source. A source inside the winning captured handoff closure and a
++normal current-winner `SetProfile` write do not move.
++Raw inputs, exact outcomes, importer rows, tree hashes, and exit codes are in
++the attached task outcome artifact.
++
++## Boundaries
++
++The pure reducers `sessprofile.Derive` and `DeriveForHeads` remain authority-
++agnostic helpers for already supplied data. Repository consumers must pass
++through `Derivation` or `Projector`; `Projector.ProjectForHeads` and
++`Derivation.DeriveForHeads` retain the same lease-source checks. This task does
++not change `sessrepo.checkWinningLease` or append admission.
+diff --git a/internal/sessprofile/authority.go b/internal/sessprofile/authority.go
+new file mode 100644
+index 0000000..6643b18
+--- /dev/null
++++ b/internal/sessprofile/authority.go
+@@ -0,0 +1,163 @@
++package sessprofile
++
++import (
++	"errors"
++
++	"github.com/relux-works/agent-session-manager/internal/sessckpt"
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++)
++
++// SourceAuthority carries the durable lease facts used when selecting a
++// profile.changed source. A previous lease contributes only through the
++// winning lease's captured handoff closure; the current winner contributes
++// through its own events. Lease summaries and checkpoint heads come from
++// their canonical owners.
++type SourceAuthority struct {
++	Winner            sessrepo.LeaseSummary
++	HasWinner         bool
++	Leases            []sessrepo.LeaseSummary
++	HandoffHeads      []string
++	HasHandoffClosure bool
++	HandoffErr        error
++}
++
++// Derivation bundles the stored profile surface with the durable facts that
++// authorize profile.changed sources. Use Derive or DeriveForHeads instead of
++// the pure reducer when the input came from a repository.
++type Derivation struct {
++	Record    Record
++	Events    []Event
++	Authority SourceAuthority
++}
++
++// Derive projects the session-head pair using the captured lease authority.
++func (derivation Derivation) Derive() (Pair, error) {
++	return deriveWithAuthority(derivation.Record, derivation.Events, derivation.Authority, nil)
++}
++
++// DeriveForHeads projects only the transitive closure named by a checkpoint.
++// The closure still has to contain a lease record known to the current
++// authority chain before a profile.changed event can become its source.
++func (derivation Derivation) DeriveForHeads(heads []string) (Pair, error) {
++	if len(heads) == 0 {
++		return Pair{}, refuse(ErrDerivation, "checkpoint closure names no event head")
++	}
++	return deriveWithAuthority(derivation.Record, derivation.Events, derivation.Authority, heads)
++}
++
++// LoadSourceAuthority reads the lease store and, when the winner names a
++// handoff checkpoint, asks sessckpt to re-attest its closure against the
++// session chain. An empty lease store is represented explicitly: the record
++// remains the profile authority until a winning lease exists.
++func LoadSourceAuthority(repository *sessrepo.Repository, checkpoints *sessckpt.Store, sessionID string) (SourceAuthority, error) {
++	if repository == nil {
++		return SourceAuthority{}, refuse(ErrDerivation, "source authority carries no repository")
++	}
++	leases, err := repository.ListLeases(sessionID)
++	if err != nil {
++		return SourceAuthority{}, err
++	}
++	if len(leases) == 0 {
++		return SourceAuthority{}, nil
++	}
++	// ListLeases returns the validated store in the tuple order owned by
++	// sessrepo; the final row is the winner from the same snapshot as Leases.
++	winner := leases[len(leases)-1]
++	authority := SourceAuthority{Winner: winner, HasWinner: true, Leases: leases}
++	if winner.HasCheckpoint {
++		if checkpoints == nil {
++			authority.HandoffErr = errors.New("checkpoint store is not bound")
++		} else {
++			heads, err := checkpoints.EventHeads(repository, winner.Checkpoint, sessionID)
++			if err != nil {
++				authority.HandoffErr = err
++			} else {
++				authority.HandoffHeads = heads
++				authority.HasHandoffClosure = true
++			}
++		}
++	}
++	return authority, nil
++}
++
++// deriveWithAuthority keeps chain validation with the existing reducer, then
++// folds only changes supported by the durable winning lease and its handoff
++// closure. A checkpoint closure supplied by a resume caller narrows that set
++// further. An unreadable handoff closure never promotes an ancestor event.
++func deriveWithAuthority(record Record, events []Event, authority SourceAuthority, heads []string) (Pair, error) {
++	if err := checkRecord(record); err != nil {
++		return Pair{}, err
++	}
++	limit := len(events)
++	var closure map[string]bool
++	if len(heads) > 0 {
++		var err error
++		closure, limit, err = closurePrefix(record.RecordID, events, heads)
++		if err != nil {
++			return Pair{}, err
++		}
++	} else if authority.HasWinner && authority.Winner.HasCheckpoint && authority.HasHandoffClosure {
++		var err error
++		closure, _, err = closurePrefix(record.RecordID, events, authority.HandoffHeads)
++		if err != nil {
++			return Pair{}, err
++		}
++	} else if authority.HasWinner && authority.Winner.HasCheckpoint {
++		for _, event := range events {
++			if event.Type == "profile.changed" && knownLease(authority, event) && !isWinningLease(authority, event) {
++				return Pair{}, refuse(ErrDerivation, "cannot establish authority for prior profile.changed event %s without the winning handoff closure: %v", event.ID, authority.HandoffErr)
++			}
++		}
++	}
++	ordered, err := checkChain(record, events, limit)
++	if err != nil {
++		return Pair{}, err
++	}
++	pair := Pair{Profile: record.Creation}
++	for _, event := range ordered {
++		if event.Type != "profile.changed" {
++			continue
++		}
++		if len(heads) > 0 && !closure[event.ID] {
++			continue
++		}
++		if !authorizedSource(authority, event, closure, len(heads) > 0) {
++			continue
++		}
++		target, err := changeTarget(event)
++		if err != nil {
++			return Pair{}, err
++		}
++		pair = Pair{Profile: target, Source: event.ID, HasSource: true}
++	}
++	return pair, nil
++}
++
++// authorizedSource accepts an event under the winning lease, or an event in
++// the captured closure whose exact lease pair exists in the lease store. The
++// closure is the boundary that keeps a later old-lease tail out of the source.
++func authorizedSource(authority SourceAuthority, event Event, handoff map[string]bool, explicitClosure bool) bool {
++	if !authority.HasWinner || !knownLease(authority, event) {
++		return false
++	}
++	if explicitClosure {
++		return handoff[event.ID]
++	}
++	if isWinningLease(authority, event) {
++		return true
++	}
++	return handoff[event.ID]
++}
++
++func knownLease(authority SourceAuthority, event Event) bool {
++	for _, lease := range authority.Leases {
++		if event.LeaseEpoch == lease.Epoch && event.LeaseID == lease.LeaseID {
++			return true
++		}
++	}
++	return false
++}
++
++func isWinningLease(authority SourceAuthority, event Event) bool {
++	return authority.HasWinner && event.LeaseEpoch == authority.Winner.Epoch && event.LeaseID == authority.Winner.LeaseID
++}
+diff --git a/internal/sessprofile/authority_test.go b/internal/sessprofile/authority_test.go
+new file mode 100644
+index 0000000..3ab66e2
+--- /dev/null
++++ b/internal/sessprofile/authority_test.go
+@@ -0,0 +1,112 @@
++package sessprofile
++
++import (
++	"errors"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++)
++
++func TestProjectorRejectsNeverMintedHigherEpochProfileSource(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
++	change := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 2, testLeaseIDB, 1, "profile.changed", changedPayload(ProfileStandard, ProfileYOLO, true))
++
++	pair, err := (&Projector{Repo: repository}).Project(testSessionID)
++	if err != nil {
++		t.Fatalf("Projector.Project() error = %v", err)
++	}
++	if pair.Profile != ProfileStandard || pair.HasSource || pair.Source == change {
++		t.Fatalf("Projector.Project() for unminted higher-epoch source = %+v, want standard with no source", pair)
++	}
++}
++
++func TestProjectorEmptyLeaseStoreKeepsRecordAuthority(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSessionWithoutLease(t, repository, testSessionID, "payments-api", ProfileStandard)
++	change := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "profile.changed", changedPayload(ProfileStandard, ProfileYOLO, true))
++
++	pair, err := (&Projector{Repo: repository}).Project(testSessionID)
++	if err != nil {
++		t.Fatalf("Projector.Project(empty lease store) error = %v", err)
++	}
++	if pair.Profile != ProfileStandard || pair.HasSource || pair.Source == change {
++		t.Fatalf("Projector.Project(empty lease store) = %+v, want standard with no source", pair)
++	}
++}
++
++func TestDerivationForHeadsRejectsUnmintedHigherEpochSource(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
++	change := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 2, testLeaseIDB, 1, "profile.changed", changedPayload(ProfileStandard, ProfileYOLO, true))
++	record, events := decodeTestChain(t, repository, testSessionID)
++	authority, err := LoadSourceAuthority(repository, nil, testSessionID)
++	if err != nil {
++		t.Fatalf("LoadSourceAuthority() error = %v", err)
++	}
++	pair, err := (Derivation{Record: record, Events: events, Authority: authority}).DeriveForHeads([]string{change})
++	if err != nil {
++		t.Fatalf("Derivation.DeriveForHeads() error = %v", err)
++	}
++	if pair.Profile != ProfileStandard || pair.HasSource || pair.Source == change {
++		t.Fatalf("Derivation.DeriveForHeads(unminted epoch) = %+v, want standard with no source", pair)
++	}
++}
++
++func TestProjectorForHeadsRejectsUnmintedHigherEpochProfileSource(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
++	change := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 2, testLeaseIDB, 1, "profile.changed", changedPayload(ProfileStandard, ProfileYOLO, true))
++
++	pair, err := (&Projector{Repo: repository}).ProjectForHeads(testSessionID, []string{change})
++	if err != nil {
++		t.Fatalf("Projector.ProjectForHeads() error = %v", err)
++	}
++	if pair.Profile != ProfileStandard || pair.HasSource || pair.Source == change {
++		t.Fatalf("Projector.ProjectForHeads(unminted epoch) = %+v, want standard with no source", pair)
++	}
++}
++
++func TestProjectorKeepsPriorLeaseSourceFromWinningHandoffClosure(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
++	created := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	change := appendTestEvent(t, repository, testSessionID, []string{created}, 1, testLeaseID, 2, "profile.changed", changedPayload(ProfileStandard, ProfileYOLO, true))
++	checkpoints, checkpointID := captureProfileHandoff(t, repository, []string{change})
++	leases, err := repository.ListLeases(testSessionID)
++	if err != nil || len(leases) != 1 {
++		t.Fatalf("ListLeases() = %v, %v; want one epoch-1 lease", leases, err)
++	}
++	if _, err := repository.CompareAndSwapLease(testSessionID, sessrepo.LeaseExpectation{RecordID: leases[0].RecordID}, sessrepo.SuccessorLeaseInput{
++		CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: testLeaseIDB, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt},
++		Reason:           "graceful_takeover", CheckpointID: checkpointID,
++	}); err != nil {
++		t.Fatalf("CompareAndSwapLease(successor) error = %v", err)
++	}
++
++	pair, err := (&Projector{Repo: repository, Ckpt: checkpoints}).Project(testSessionID)
++	if err != nil {
++		t.Fatalf("Projector.Project(after takeover) error = %v", err)
++	}
++	mustPairEqual(t, pair, Pair{Profile: ProfileYOLO, Source: change, HasSource: true}, "Projector(Projector winner handoff)")
++}
++
++func TestProjectorMissingWinningHandoffStoreIsNotTreatedAsEmptyClosure(t *testing.T) {
++	repository := openTestRepository(t)
++	reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
++	created := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++	appendTestEvent(t, repository, testSessionID, []string{created}, 1, testLeaseID, 2, "profile.changed", changedPayload(ProfileStandard, ProfileYOLO, true))
++	leases, err := repository.ListLeases(testSessionID)
++	if err != nil || len(leases) != 1 {
++		t.Fatalf("ListLeases() = %v, %v; want one epoch-1 lease", leases, err)
++	}
++	if _, err := repository.CompareAndSwapLease(testSessionID, sessrepo.LeaseExpectation{RecordID: leases[0].RecordID}, sessrepo.SuccessorLeaseInput{
++		CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: testLeaseIDB, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt},
++		Reason:           "graceful_takeover", CheckpointID: zeroDigest,
++	}); err != nil {
++		t.Fatalf("CompareAndSwapLease(successor) error = %v", err)
++	}
++	if _, err := (&Projector{Repo: repository}).Project(testSessionID); !errors.Is(err, ErrDerivation) {
++		t.Fatalf("Projector.Project(missing handoff store) error = %v, want corrupt derivation input", err)
++	}
++}
+diff --git a/internal/sessprofile/doc.go b/internal/sessprofile/doc.go
+index de48307..92d412a 100644
+--- a/internal/sessprofile/doc.go
++++ b/internal/sessprofile/doc.go
+@@ -31,16 +31,21 @@
+ //     continuity over its input for the same reason sessstate does:
+ //     a chain-forbidden reordering refuses instead of silently
+ //     deriving a different pair.
+-//   - Lease/authority admission stays with sessrepo (chain order) and
+-//     internal/sessquery (the winning-lease checkpoint admission,
+-//     whose checkCheckpointProfileAuthority is the admission twin of
+-//     DeriveForHeads). That twin's closure capability is unexported
+-//     and bound to the selector Reader, so no external package can
+-//     consume it; this package therefore defines its closure input
+-//     explicitly — heads over the sessrepo chain index, transitive
+-//     predecessors, the Session Record digest as the genesis
+-//     terminal, index membership as authority — with identical
+-//     closure semantics.
++//   - Chain order and lease records stay with sessrepo. SourceAuthority
++//     reads its validated lease list and, when the winner names a
++//     checkpoint, gets the re-attested event-head closure from sessckpt.
++//     Derivation.Derive and Derivation.DeriveForHeads apply those facts:
++//     a current-winner event may source the session-head pair, while a
++//     prior lease may source it only inside the winner's captured closure.
++//     Explicit checkpoint heads narrow either class to that closure. An
++//     empty lease store leaves the Session Record as authority; an event
++//     whose exact lease tuple was never minted is inert. The pure Derive
++//     and DeriveForHeads reducers below this owner do not read durable
++//     lease state and are not used by repository-backed production
++//     consumers.
++//   - internal/sessquery retains its separate checkpoint-profile
++//     admission rule. This package does not consume its private selector
++//     closure capability or duplicate its lease selection logic.
+ //   - The Section 7.7 mapping table and the exact-version probe gate
+ //     stay with internal/provhost (ProfileMapping, CheckResumeTuple,
+ //     ResolveMapping). This package never maps a profile to a flag.
+diff --git a/internal/sessprofile/fixtures_test.go b/internal/sessprofile/fixtures_test.go
+index ca735c3..a6ef47b 100644
+--- a/internal/sessprofile/fixtures_test.go
++++ b/internal/sessprofile/fixtures_test.go
+@@ -5,6 +5,7 @@ import (
+ 	"testing"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/sessckpt"
+ 	"github.com/relux-works/agent-session-manager/internal/sessrepo"
+ )
+ 
+@@ -68,6 +69,35 @@ func openTestRepository(t *testing.T) *sessrepo.Repository {
+ 	return repository
+ }
+ 
++func captureProfileHandoff(t *testing.T, repository *sessrepo.Repository, heads []string) (*sessckpt.Store, string) {
++	t.Helper()
++	store, err := sessckpt.Open(t.TempDir())
++	if err != nil {
++		t.Fatal(err)
++	}
++	ref, _, err := store.Capture(repository, sessckpt.Inputs{
++		OperationID:         "0198f4c8-7d40-7e55-8e6f-1234567890ad",
++		SessionID:           testSessionID,
++		SessionKind:         sessckpt.SessionKindDirect,
++		LeaseEpoch:          1,
++		LeaseID:             testLeaseID,
++		CreatorHostID:       testHostID,
++		WorkspaceManifestID: testCheckpoint,
++		ProviderManifestID:  "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
++		Boundary: sessckpt.SafeBoundary{
++			ProviderID: "codex", ProviderVersion: "0.147.0", Evidence: sessckpt.EvidenceAcceptedTest,
++			InputBlocked: true, ForegroundIdle: true, BackgroundIdle: true,
++		},
++		EventHeads: heads,
++		CreatedAt:  testChangedAt,
++		Extensions: map[string]string{},
++	})
++	if err != nil {
++		t.Fatalf("Capture(profile handoff) error = %v", err)
++	}
++	return store, ref.CheckpointID
++}
++
+ // buildRecord derives a valid Session Record from the SPEC example
+ // with the caller's mutations, recomputing the canonical digest
+ // through the production identity entry.
+@@ -223,6 +253,19 @@ func checkpointAnnouncedPayload() map[string]any {
+ // createTestSession persists a record with the chosen creation
+ // profile and returns its reference with the record digest.
+ func createTestSession(t *testing.T, repository *sessrepo.Repository, sessionID, name, creation string) sessrepo.SessionRef {
++	t.Helper()
++	return createTestSessionWithLease(t, repository, sessionID, name, creation, true)
++}
++
++// createTestSessionWithoutLease creates a session before its owner lease is
++// established. It is reserved for tests that exercise the empty-store or
++// lease-creation transition itself.
++func createTestSessionWithoutLease(t *testing.T, repository *sessrepo.Repository, sessionID, name, creation string) sessrepo.SessionRef {
++	t.Helper()
++	return createTestSessionWithLease(t, repository, sessionID, name, creation, false)
++}
++
++func createTestSessionWithLease(t *testing.T, repository *sessrepo.Repository, sessionID, name, creation string, withLease bool) sessrepo.SessionRef {
+ 	t.Helper()
+ 	record := buildRecord(t, func(object map[string]any) {
+ 		withSession(sessionID, name)(object)
+@@ -232,6 +275,13 @@ func createTestSession(t *testing.T, repository *sessrepo.Repository, sessionID,
+ 	if err != nil {
+ 		t.Fatalf("CreateSession error = %v", err)
+ 	}
++	if withLease {
++		if _, err := repository.CreateLease(sessionID, sessrepo.CreateLeaseInput{
++			LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt,
++		}); err != nil {
++			t.Fatalf("CreateLease(test owner) error = %v", err)
++		}
++	}
+ 	return reference
+ }
+ 
+diff --git a/internal/sessprofile/profile.go b/internal/sessprofile/profile.go
+index c750ae9..e6b52b8 100644
+--- a/internal/sessprofile/profile.go
++++ b/internal/sessprofile/profile.go
+@@ -123,8 +123,10 @@ type LeaseHead struct {
+ // clock, no cache. Chain continuity is re-checked over the input,
+ // so a chain-forbidden reordering refuses with
+ // invalid_state_transition instead of silently deriving a different
+-// pair, and a losing-lease or ambiguous event refuses instead of
+-// changing the derivation.
++// pair. This reducer has no lease-store view and does not establish
++// durable source authority; repository-backed consumers use
++// Derivation.Derive, which applies the winning-lease and handoff-closure
++// checks before selecting a profile.changed source.
+ func Derive(record Record, events []Event) (Pair, error) {
+ 	if err := checkRecord(record); err != nil {
+ 		return Pair{}, err
+@@ -145,9 +147,10 @@ func Derive(record Record, events []Event) (Pair, error) {
+ // local-only change outside the heads never affects the pair, and
+ // the derivation never falls back to the creation value while the
+ // closure holds a change. Events past the closure are not even
+-// validated. An unknown head or a dangling predecessor contradicts
+-// the admitted closure (integrity_failure); empty heads carry no
+-// closure to derive over.
++// validated. This pure reducer does not establish durable lease
++// authority; repository-backed consumers use Derivation.DeriveForHeads.
++// An unknown head or a dangling predecessor contradicts the admitted
++// closure (integrity_failure); empty heads carry no closure to derive over.
+ func DeriveForHeads(record Record, events []Event, heads []string) (Pair, error) {
+ 	if err := checkRecord(record); err != nil {
+ 		return Pair{}, err
+diff --git a/internal/sessprofile/project.go b/internal/sessprofile/project.go
+index 7661b43..3082a58 100644
+--- a/internal/sessprofile/project.go
++++ b/internal/sessprofile/project.go
+@@ -1,6 +1,7 @@
+ package sessprofile
+ 
+ import (
++	"github.com/relux-works/agent-session-manager/internal/sessckpt"
+ 	"github.com/relux-works/agent-session-manager/internal/sessrepo"
+ )
+ 
+@@ -14,6 +15,10 @@ import (
+ type Projector struct {
+ 	// Repo is the session repository to project from. It is required.
+ 	Repo *sessrepo.Repository
++	// Ckpt supplies the winning lease's captured handoff closure when the
++	// winner has one. Without it, prior-lease profile sources cannot be
++	// established and derivation refuses those sources closed.
++	Ckpt *sessckpt.Store
+ }
+ 
+ // Project derives the session-head effective pair for one session
+@@ -21,11 +26,11 @@ type Projector struct {
+ // never with an unknown; an ID with no listing entry refuses
+ // unknown.
+ func (projector *Projector) Project(sessionID string) (Pair, error) {
+-	record, events, err := projector.load(sessionID)
++	derivation, err := projector.load(sessionID)
+ 	if err != nil {
+ 		return Pair{}, err
+ 	}
+-	return Derive(record, events)
++	return derivation.Derive()
+ }
+ 
+ // ProjectForHeads derives the effective pair over the transitive
+@@ -33,24 +38,24 @@ func (projector *Projector) Project(sessionID string) (Pair, error) {
+ // of one checkpoint. Unknown heads and dangling predecessors
+ // refuse integrity_failure; empty heads carry no closure.
+ func (projector *Projector) ProjectForHeads(sessionID string, heads []string) (Pair, error) {
+-	record, events, err := projector.load(sessionID)
++	derivation, err := projector.load(sessionID)
+ 	if err != nil {
+ 		return Pair{}, err
+ 	}
+-	return DeriveForHeads(record, events, heads)
++	return derivation.DeriveForHeads(heads)
+ }
+ 
+ // load locates the session through the listing (distinguishing a
+ // parked session from an unknown one with no sessrepo interface
+ // change) and decodes the stored record with the authoritative
+ // chain in index order.
+-func (projector *Projector) load(sessionID string) (Record, []Event, error) {
++func (projector *Projector) load(sessionID string) (Derivation, error) {
+ 	if projector == nil || projector.Repo == nil {
+-		return Record{}, nil, refuse(ErrDerivation, "projector carries no repository")
++		return Derivation{}, refuse(ErrDerivation, "projector carries no repository")
+ 	}
+ 	summaries, err := projector.Repo.ListSessions()
+ 	if err != nil {
+-		return Record{}, nil, err
++		return Derivation{}, err
+ 	}
+ 	var found *sessrepo.SessionSummary
+ 	for index := range summaries {
+@@ -60,34 +65,38 @@ func (projector *Projector) load(sessionID string) (Record, []Event, error) {
+ 		}
+ 	}
+ 	if found == nil {
+-		return Record{}, nil, refuse(ErrUnknownSession, "no session %s", sessionID)
++		return Derivation{}, refuse(ErrUnknownSession, "no session %s", sessionID)
+ 	}
+ 	if found.Parked {
+-		return Record{}, nil, refuse(ErrSessionParked, "session %s: %s (%s)", sessionID, found.BlockingReason, found.RetryHint)
++		return Derivation{}, refuse(ErrSessionParked, "session %s: %s (%s)", sessionID, found.BlockingReason, found.RetryHint)
+ 	}
+ 	recordBytes, err := projector.Repo.GetRecord(sessionID)
+ 	if err != nil {
+-		return Record{}, nil, err
++		return Derivation{}, err
+ 	}
+ 	record, err := DecodeRecord(recordBytes)
+ 	if err != nil {
+-		return Record{}, nil, err
++		return Derivation{}, err
+ 	}
+ 	indexed, err := projector.Repo.ListEvents(sessionID)
+ 	if err != nil {
+-		return Record{}, nil, err
++		return Derivation{}, err
+ 	}
+ 	events := make([]Event, 0, len(indexed))
+ 	for _, summary := range indexed {
+ 		blob, err := projector.Repo.GetEvent(sessionID, summary.EventID)
+ 		if err != nil {
+-			return Record{}, nil, err
++			return Derivation{}, err
+ 		}
+ 		event, err := DecodeEvent(blob)
+ 		if err != nil {
+-			return Record{}, nil, err
++			return Derivation{}, err
+ 		}
+ 		events = append(events, event)
+ 	}
+-	return record, events, nil
++	authority, err := LoadSourceAuthority(projector.Repo, projector.Ckpt, sessionID)
++	if err != nil {
++		return Derivation{}, err
++	}
++	return Derivation{Record: record, Events: events, Authority: authority}, nil
+ }
+diff --git a/internal/sessprofile/setprofile.go b/internal/sessprofile/setprofile.go
+index 5f71612..38b00d6 100644
+--- a/internal/sessprofile/setprofile.go
++++ b/internal/sessprofile/setprofile.go
+@@ -1,6 +1,7 @@
+ package sessprofile
+ 
+ import (
++	"github.com/relux-works/agent-session-manager/internal/sessckpt"
+ 	"github.com/relux-works/agent-session-manager/internal/sessrepo"
+ )
+ 
+@@ -12,6 +13,9 @@ type Transactor struct {
+ 	// Repo is the session repository the transaction appends to. It
+ 	// is required.
+ 	Repo *sessrepo.Repository
++	// Ckpt supplies the winner's captured handoff closure when the
++	// effective source was authored by an earlier lease.
++	Ckpt *sessckpt.Store
+ }
+ 
+ // SetProfileRequest is one ax session set-profile operation: the
+@@ -67,20 +71,34 @@ func (transactor *Transactor) SetProfile(request SetProfileRequest) (SetProfileR
+ 	if request.To != ProfileStandard && request.To != ProfileYOLO {
+ 		return SetProfileResult{}, refuse(ErrInvalidProfile, "set-profile target %q is not standard|yolo", request.To)
+ 	}
+-	record, events, err := transactor.load(request.SessionID)
++	derivation, err := transactor.load(request.SessionID)
+ 	if err != nil {
+ 		return SetProfileResult{}, err
+ 	}
+-	current, err := Derive(record, events)
++	winner, err := transactor.Repo.WinningLease(request.SessionID)
+ 	if err != nil {
+ 		return SetProfileResult{}, err
+ 	}
+-	sequence, predecessors, err := currentLeaseLink(events, record.RecordID, request.LeaseEpoch, request.LeaseID)
++	if len(derivation.Events) == 0 {
++		// With no chain tail there is no link check to reject an
++		// unminted greater-epoch request. Revalidate through sessrepo
++		// so the empty-chain path still requires the current winner.
++		if err := transactor.Repo.VerifyFencingToken(request.SessionID, sessrepo.FencingToken{
++			Epoch: request.LeaseEpoch, LeaseID: request.LeaseID, HolderHostID: winner.HolderHostID,
++		}); err != nil {
++			return SetProfileResult{}, err
++		}
++	}
++	current, err := derivation.Derive()
++	if err != nil {
++		return SetProfileResult{}, err
++	}
++	sequence, predecessors, err := currentLeaseLink(derivation.Events, derivation.Record.RecordID, request.LeaseEpoch, request.LeaseID)
+ 	if err != nil {
+ 		return SetProfileResult{}, err
+ 	}
+ 	if current.Profile == request.To {
+-		return transactor.replayOrRefuse(request, record, events, current)
++		return transactor.replayOrRefuse(request, derivation.Record, derivation.Events, current)
+ 	}
+ 	minted, err := MintChangeEvent(ChangeParams{
+ 		SessionID:       request.SessionID,
+@@ -114,10 +132,10 @@ func (transactor *Transactor) SetProfile(request SetProfileRequest) (SetProfileR
+ // load locates the session through the listing (distinguishing a
+ // parked session from an unknown one) and decodes the stored record
+ // with the authoritative chain in index order.
+-func (transactor *Transactor) load(sessionID string) (Record, []Event, error) {
++func (transactor *Transactor) load(sessionID string) (Derivation, error) {
+ 	summaries, err := transactor.Repo.ListSessions()
+ 	if err != nil {
+-		return Record{}, nil, err
++		return Derivation{}, err
+ 	}
+ 	var found *sessrepo.SessionSummary
+ 	for index := range summaries {
+@@ -127,36 +145,40 @@ func (transactor *Transactor) load(sessionID string) (Record, []Event, error) {
+ 		}
+ 	}
+ 	if found == nil {
+-		return Record{}, nil, refuse(ErrUnknownSession, "no session %s", sessionID)
++		return Derivation{}, refuse(ErrUnknownSession, "no session %s", sessionID)
+ 	}
+ 	if found.Parked {
+-		return Record{}, nil, refuse(ErrSessionParked, "session %s: %s (%s)", sessionID, found.BlockingReason, found.RetryHint)
++		return Derivation{}, refuse(ErrSessionParked, "session %s: %s (%s)", sessionID, found.BlockingReason, found.RetryHint)
+ 	}
+ 	recordBytes, err := transactor.Repo.GetRecord(sessionID)
+ 	if err != nil {
+-		return Record{}, nil, err
++		return Derivation{}, err
+ 	}
+ 	record, err := DecodeRecord(recordBytes)
+ 	if err != nil {
+-		return Record{}, nil, err
++		return Derivation{}, err
+ 	}
+ 	indexed, err := transactor.Repo.ListEvents(sessionID)
+ 	if err != nil {
+-		return Record{}, nil, err
++		return Derivation{}, err
+ 	}
+ 	events := make([]Event, 0, len(indexed))
+ 	for _, summary := range indexed {
+ 		blob, err := transactor.Repo.GetEvent(sessionID, summary.EventID)
+ 		if err != nil {
+-			return Record{}, nil, err
++			return Derivation{}, err
+ 		}
+ 		event, err := DecodeEvent(blob)
+ 		if err != nil {
+-			return Record{}, nil, err
++			return Derivation{}, err
+ 		}
+ 		events = append(events, event)
+ 	}
+-	return record, events, nil
++	authority, err := LoadSourceAuthority(transactor.Repo, transactor.Ckpt, sessionID)
++	if err != nil {
++		return Derivation{}, err
++	}
++	return Derivation{Record: record, Events: events, Authority: authority}, nil
+ }
+ 
+ // currentLeaseLink binds the acting lease to the chain head and
+diff --git a/internal/sessprofile/setprofile_test.go b/internal/sessprofile/setprofile_test.go
+index 3472207..de99f56 100644
+--- a/internal/sessprofile/setprofile_test.go
++++ b/internal/sessprofile/setprofile_test.go
+@@ -88,7 +88,7 @@ func TestSetProfileAppendsUnderChainHead(t *testing.T) {
+ func TestSetProfileRefusesSupersededLeaseWhileTailStillMatches(t *testing.T) {
+ 	t.Run("lower epoch", func(t *testing.T) {
+ 		repository := openTestRepository(t)
+-		reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
++		reference := createTestSessionWithoutLease(t, repository, testSessionID, "payments-api", ProfileStandard)
+ 		first, err := repository.CreateLease(testSessionID, sessrepo.CreateLeaseInput{
+ 			LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt,
+ 		})
+@@ -119,7 +119,7 @@ func TestSetProfileRefusesSupersededLeaseWhileTailStillMatches(t *testing.T) {
+ 	for _, losingLeaseID := range []string{profileAdmissionLosingLease, profileAdmissionLowerLease} {
+ 		t.Run("same epoch loser "+losingLeaseID, func(t *testing.T) {
+ 			repository := openTestRepository(t)
+-			reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
++			reference := createTestSessionWithoutLease(t, repository, testSessionID, "payments-api", ProfileStandard)
+ 			tail := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 2, losingLeaseID, 1, "session.created", createdPayload(reference.RecordID))
+ 			first, err := repository.CreateLease(testSessionID, sessrepo.CreateLeaseInput{
+ 				LeaseID: testLeaseID, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt,
+@@ -219,6 +219,16 @@ func TestSetProfileRefusals(t *testing.T) {
+ 		repository := openTestRepository(t)
+ 		reference := createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
+ 		first := appendTestEvent(t, repository, testSessionID, []string{reference.RecordID}, 1, testLeaseID, 1, "session.created", createdPayload(reference.RecordID))
++		leases, err := repository.ListLeases(testSessionID)
++		if err != nil || len(leases) != 1 {
++			t.Fatalf("ListLeases() = %v, %v; want epoch-1 lease", leases, err)
++		}
++		if _, err := repository.CompareAndSwapLease(testSessionID, sessrepo.LeaseExpectation{RecordID: leases[0].RecordID}, sessrepo.SuccessorLeaseInput{
++			CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: testLeaseIDB, HolderHostID: testHostID, IssuedByHostID: testHostID, CreatedAt: testCreatedAt},
++			Reason:           "graceful_takeover", CheckpointID: zeroDigest,
++		}); err != nil {
++			t.Fatalf("CompareAndSwapLease(test successor) error = %v", err)
++		}
+ 		appendTestEvent(t, repository, testSessionID, []string{first}, 2, testLeaseIDB, 1, "session.idle", map[string]any{"boundary_ref": "turn-2", "foreground_idle": true, "background_idle": true})
+ 		return &Transactor{Repo: repository}
+ 	}
+@@ -298,6 +308,25 @@ func TestSetProfileRefusesUnknownAndParked(t *testing.T) {
+ 	}
+ }
+ 
++func TestSetProfileRefusesEmptyLeaseStore(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSessionWithoutLease(t, repository, testSessionID, "payments-api", ProfileStandard)
++	if _, err := (&Transactor{Repo: repository}).SetProfile(validSetProfileRequest()); !errors.Is(err, sessrepo.ErrUnknownLease) {
++		t.Fatalf("SetProfile(empty lease store) error = %v, want unknown lease refusal", err)
++	}
++}
++
++func TestSetProfileRefusesNeverMintedHigherEpochOnEmptyChain(t *testing.T) {
++	repository := openTestRepository(t)
++	createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
++	request := validSetProfileRequest()
++	request.LeaseEpoch = 2
++	request.LeaseID = testLeaseIDB
++	if _, err := (&Transactor{Repo: repository}).SetProfile(request); !errors.Is(err, sessrepo.ErrUnknownLease) {
++		t.Fatalf("SetProfile(unminted higher epoch) error = %v, want unknown lease refusal", err)
++	}
++}
++
+ func TestSetProfileRefusesBadMintParams(t *testing.T) {
+ 	repository := openTestRepository(t)
+ 	createTestSession(t, repository, testSessionID, "payments-api", ProfileStandard)
+diff --git a/internal/sessprofile/testdata/compare_importers.py b/internal/sessprofile/testdata/compare_importers.py
+new file mode 100755
+index 0000000..54a0b6e
+--- /dev/null
++++ b/internal/sessprofile/testdata/compare_importers.py
+@@ -0,0 +1,412 @@
++#!/usr/bin/env python3
++"""Compare profile-source outcomes over sessprofile's complete importer set.
++
++The comparator builds the exact HEAD tree and an isolated copy of the current
++candidate, disables only sessrepo.checkWinningLease in both copies, adds the
++same runtime outcome probe, and records outcomes keyed by (package, entry,
++input). The generated test drives production entries; it is preserved with the
++raw logs and JSON report under the requested evidence directory.
++
++Usage:
++  PYTHONDONTWRITEBYTECODE=1 python3 internal/sessprofile/testdata/compare_importers.py /absolute/evidence/directory
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++from pathlib import Path
++import re
++import shutil
++import subprocess
++import sys
++import tarfile
++
++
++ROOT = Path(__file__).resolve().parents[3]
++OUTPUT = Path(sys.argv[1]).resolve()
++MODULE = "github.com/relux-works/agent-session-manager/internal/sessprofile"
++PROBE_PACKAGE = "internal/axpane"
++APPEND_FUNCTION = re.compile(r"(?ms)^func checkWinningLease\(.*?^}")
++
++
++def run(command: list[str], cwd: Path, log: Path, timeout: int = 600) -> int:
++    with log.open("w") as stream:
++        result = subprocess.run(command, cwd=cwd, stdout=stream, stderr=subprocess.STDOUT, timeout=timeout)
++    return result.returncode
++
++
++def git_archive(destination: Path) -> str:
++    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, capture_output=True, text=True)
++    base_commit = result.stdout.strip()
++    destination.mkdir(parents=True)
++    archive = subprocess.Popen(["git", "archive", "--format=tar", "HEAD"], cwd=ROOT, stdout=subprocess.PIPE)
++    if archive.stdout is None:
++        raise RuntimeError("git archive did not provide a stream")
++    with tarfile.open(fileobj=archive.stdout, mode="r|") as tar:
++        # The checked-in board export can contain large historical evidence
++        # blobs; it is not part of any Go package or production source.
++        for member in tar:
++            if member.name == ".task-board" or member.name.startswith(".task-board/"):
++                continue
++            tar.extract(member, destination, filter="data")
++    if archive.wait() != 0:
++        raise RuntimeError("git archive failed while streaming baseline")
++    return base_commit
++
++
++def copy_candidate(destination: Path) -> None:
++    ignored = shutil.ignore_patterns(".git", ".temp", ".task-board", ".planning", "DerivedData", "node_modules", ".DS_Store")
++    shutil.copytree(ROOT, destination, ignore=ignored)
++
++
++def tree_digest(root: Path) -> str:
++    digest = hashlib.sha256()
++    for path in sorted(p for p in root.rglob("*") if p.is_file() and "outcome_probe_test.go" not in p.name):
++        relative = path.relative_to(root).as_posix().encode()
++        digest.update(len(relative).to_bytes(8, "big"))
++        digest.update(relative)
++        raw = path.read_bytes()
++        digest.update(len(raw).to_bytes(8, "big"))
++        digest.update(raw)
++    return digest.hexdigest()
++
++
++def importer_rows(root: Path, output: Path) -> tuple[list[str], list[dict[str, str]], int]:
++    command = ["go", "list", "-test", "-f", '{{.ImportPath}}|{{join .Imports ","}}', "./..."]
++    log = output / (root.name + "-importers.log")
++    with log.open("w") as stream:
++        result = subprocess.run(command, cwd=root, stdout=stream, stderr=subprocess.STDOUT, timeout=600)
++    if result.returncode != 0:
++        raise RuntimeError(f"go list importer census failed in {root.name}: exit={result.returncode}; see {log}")
++    rows: list[dict[str, str]] = []
++    packages: set[str] = set()
++    for line in log.read_text().splitlines():
++        package, separator, imports = line.partition("|")
++        if separator and MODULE in imports.split(","):
++            rows.append({"go_list_package": package, "imports_sessprofile": "true"})
++            packages.add(package.split(" [", 1)[0])
++    return sorted(packages), rows, result.returncode
++
++
++PROBE_TEMPLATE = r'''package axpane
++
++import (
++    "encoding/json"
++    "testing"
++
++    "github.com/relux-works/agent-session-manager/internal/sessprofile"
++    "github.com/relux-works/agent-session-manager/internal/sessckpt"
++    "github.com/relux-works/agent-session-manager/internal/sessrepo"
++)
++
++func emitProfileSourceOutcome(t *testing.T, entry, input string, pair sessprofile.Pair, err error) {
++    t.Helper()
++    message := ""
++    if err != nil { message = err.Error() }
++    raw, marshalErr := json.Marshal(map[string]any{
++        "package": "internal/axpane", "entry": entry, "input": input,
++        "outcome": map[string]any{"profile": pair.Profile, "source": pair.Source, "has_source": pair.HasSource, "error": message},
++    })
++    if marshalErr != nil { t.Fatal(marshalErr) }
++    t.Log("profile-source-outcome " + string(raw))
++}
++
++func emitSetProfileOutcome(t *testing.T, input string, result sessprofile.SetProfileResult, err error) {
++    t.Helper()
++    message := ""
++    if err != nil { message = err.Error() }
++    raw, marshalErr := json.Marshal(map[string]any{
++        "package": "internal/axpane", "entry": "Transactor.SetProfile.from_end", "input": input,
++        "outcome": map[string]any{"previous_profile": result.PreviousProfile, "new_profile": result.NewProfile, "event_id": result.EventID, "error": message},
++    })
++    if marshalErr != nil { t.Fatal(marshalErr) }
++    t.Log("profile-source-outcome " + string(raw))
++}
++
++func sourceProbeLoadPair(world *runWorld) (sessprofile.Pair, error) {
++    __LOAD_PAIR__
++}
++
++func sourceProbeProjectorPair(world *runWorld) (sessprofile.Pair, error) {
++    __PROJECTOR_PAIR__
++}
++
++func sourceProbeDeriveProfilePair(world *runWorld) (sessprofile.Pair, error) {
++    __DERIVE_PROFILE_PAIR__
++}
++
++func measureProfileSourcePair(t *testing.T, entry, input string, makeWorld func(*testing.T) *runWorld, derive func(*runWorld) (sessprofile.Pair, error)) {
++    t.Helper()
++    world := makeWorld(t)
++    pair, err := derive(world)
++    emitProfileSourceOutcome(t, entry, input, pair, err)
++}
++
++func sourceProbeLosingWorld(t *testing.T) *runWorld {
++    t.Helper()
++    world := buildRunWorld(t)
++    leases, err := world.repo.ListLeases(fixtureSession)
++    if err != nil || len(leases) != 1 { t.Fatalf("ListLeases() = %v, %v; want epoch-1 lease", leases, err) }
++    if _, err := world.repo.CompareAndSwapLease(fixtureSession, sessrepo.LeaseExpectation{RecordID: leases[0].RecordID}, sessrepo.SuccessorLeaseInput{
++        CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: "cccccccc-dddd-4eee-8fff-000000000002", HolderHostID: fixtureLocalHost, IssuedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt},
++        Reason: "graceful_takeover", CheckpointID: world.ckptID,
++    }); err != nil { t.Fatalf("CompareAndSwapLease() error = %v", err) }
++    appendChainEvent(t, world.repo, "profile.changed", 1, fixtureLeaseA, 2, world.headID, map[string]any{"from": "standard", "to": "yolo", "confirmed": true})
++    return world
++}
++
++func sourceProbeHigherEpochWorld(t *testing.T) *runWorld {
++    t.Helper()
++    world := buildRunWorld(t)
++    appendChainEvent(t, world.repo, "profile.changed", 2, fixtureLeaseB, 1, world.headID, map[string]any{"from": "standard", "to": "yolo", "confirmed": true})
++    return world
++}
++
++func sourceProbeEmptyLeaseWorld(t *testing.T) *runWorld {
++    t.Helper()
++    repository, err := sessrepo.Open(t.TempDir())
++    if err != nil { t.Fatal(err) }
++    var record map[string]any
++    if err := json.Unmarshal([]byte(sessionRecordFixture), &record); err != nil { t.Fatal(err) }
++    reference, err := repository.CreateSession(identifyObject(t, record, "record_id"))
++    if err != nil { t.Fatalf("CreateSession() error = %v", err) }
++    appendChainEvent(t, repository, "profile.changed", 1, fixtureLeaseA, 1, reference.RecordID, map[string]any{"from": "standard", "to": "yolo", "confirmed": true})
++    return &runWorld{repo: repository}
++}
++
++func sourceProbeAmbiguousTupleWorld(t *testing.T) *runWorld {
++    t.Helper()
++    repository, err := sessrepo.Open(t.TempDir())
++    if err != nil { t.Fatal(err) }
++    var record map[string]any
++    if err := json.Unmarshal([]byte(sessionRecordFixture), &record); err != nil { t.Fatal(err) }
++    reference, err := repository.CreateSession(identifyObject(t, record, "record_id"))
++    if err != nil { t.Fatalf("CreateSession() error = %v", err) }
++    if _, err := repository.CreateLease(fixtureSession, sessrepo.CreateLeaseInput{LeaseID: fixtureLeaseA, HolderHostID: fixtureLocalHost, IssuedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt}); err != nil { t.Fatalf("CreateLease() error = %v", err) }
++    leases, err := repository.ListLeases(fixtureSession)
++    if err != nil || len(leases) != 1 { t.Fatalf("ListLeases() = %v, %v; want epoch-1 lease", leases, err) }
++    if _, err := repository.CompareAndSwapLease(fixtureSession, sessrepo.LeaseExpectation{RecordID: leases[0].RecordID}, sessrepo.SuccessorLeaseInput{
++        CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: fixtureLeaseB, HolderHostID: fixtureLocalHost, IssuedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt},
++        Reason: "graceful_takeover", CheckpointID: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
++    }); err != nil { t.Fatalf("CompareAndSwapLease() error = %v", err) }
++    appendChainEvent(t, repository, "profile.changed", 2, fixtureLeaseA, 1, reference.RecordID, map[string]any{"from": "standard", "to": "yolo", "confirmed": true})
++    return &runWorld{repo: repository}
++}
++
++func sourceProbeWinningHandoffWorld(t *testing.T) *runWorld {
++    t.Helper()
++    world := buildRunWorld(t)
++    changed := appendChainEvent(t, world.repo, "profile.changed", 1, fixtureLeaseA, 2, world.headID, map[string]any{"from": "standard", "to": "yolo", "confirmed": true})
++    checkpoint, _, err := world.ckpt.Capture(world.repo, sessckpt.Inputs{
++        OperationID: fixtureOtherOp, SessionID: fixtureSession, SessionKind: sessckpt.SessionKindDirect,
++        LeaseEpoch: 1, LeaseID: fixtureLeaseA, CreatorHostID: fixtureLocalHost,
++        WorkspaceManifestID: seedDigest(0xE1), ProviderManifestID: seedDigest(0xE2),
++        Boundary: sessckpt.SafeBoundary{ProviderID: "codex", ProviderVersion: "0.147.0", Evidence: sessckpt.EvidenceAcceptedTest,
++            InputBlocked: true, ForegroundIdle: true, BackgroundIdle: true, OpenProcesses: 0, OpenDatabaseHandles: 0},
++        EventHeads: []string{changed}, CreatedAt: fixtureCreatedAt, Extensions: map[string]string{},
++    })
++    if err != nil { t.Fatalf("Capture(winning handoff) error = %v", err) }
++    checkpointID := checkpoint.CheckpointID
++    leases, err := world.repo.ListLeases(fixtureSession)
++    if err != nil || len(leases) != 1 { t.Fatalf("ListLeases() = %v, %v; want epoch-1 lease", leases, err) }
++    if _, err := world.repo.CompareAndSwapLease(fixtureSession, sessrepo.LeaseExpectation{RecordID: leases[0].RecordID}, sessrepo.SuccessorLeaseInput{
++        CreateLeaseInput: sessrepo.CreateLeaseInput{LeaseID: "cccccccc-dddd-4eee-8fff-000000000002", HolderHostID: fixtureLocalHost, IssuedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt},
++        Reason: "graceful_takeover", CheckpointID: checkpointID,
++    }); err != nil { t.Fatalf("CompareAndSwapLease() error = %v", err) }
++    return world
++}
++
++func measureSetProfileOutcome(t *testing.T, input string, world *runWorld, request sessprofile.SetProfileRequest) {
++    t.Helper()
++    result, err := (&sessprofile.Transactor{__TRANSACTOR_FIELDS__}).SetProfile(request)
++    emitSetProfileOutcome(t, input, result, err)
++}
++
++func TestProfileSourceOutcomeGrid(t *testing.T) {
++    measureProfileSourcePair(t, "LoadProfile", "post_takeover_lower_epoch", sourceProbeLosingWorld, sourceProbeLoadPair)
++    measureProfileSourcePair(t, "Projector.Project", "post_takeover_lower_epoch", sourceProbeLosingWorld, sourceProbeProjectorPair)
++    measureProfileSourcePair(t, "axpane.deriveProfile", "post_takeover_lower_epoch", sourceProbeLosingWorld, sourceProbeDeriveProfilePair)
++    measureProfileSourcePair(t, "LoadProfile", "unminted_higher_epoch", sourceProbeHigherEpochWorld, sourceProbeLoadPair)
++    measureProfileSourcePair(t, "Projector.Project", "unminted_higher_epoch", sourceProbeHigherEpochWorld, sourceProbeProjectorPair)
++    measureProfileSourcePair(t, "axpane.deriveProfile", "unminted_higher_epoch", sourceProbeHigherEpochWorld, sourceProbeDeriveProfilePair)
++    measureProfileSourcePair(t, "LoadProfile", "empty_lease_store", sourceProbeEmptyLeaseWorld, sourceProbeLoadPair)
++    measureProfileSourcePair(t, "Projector.Project", "empty_lease_store", sourceProbeEmptyLeaseWorld, sourceProbeProjectorPair)
++    measureProfileSourcePair(t, "axpane.deriveProfile", "empty_lease_store", sourceProbeEmptyLeaseWorld, sourceProbeDeriveProfilePair)
++    measureProfileSourcePair(t, "LoadProfile", "unminted_same_epoch_loser", sourceProbeAmbiguousTupleWorld, sourceProbeLoadPair)
++    measureProfileSourcePair(t, "Projector.Project", "unminted_same_epoch_loser", sourceProbeAmbiguousTupleWorld, sourceProbeProjectorPair)
++    measureProfileSourcePair(t, "axpane.deriveProfile", "unminted_same_epoch_loser", sourceProbeAmbiguousTupleWorld, sourceProbeDeriveProfilePair)
++    measureProfileSourcePair(t, "Projector.Project", "winning_handoff_contains_prior_source", sourceProbeWinningHandoffWorld, sourceProbeProjectorPair)
++
++    losing := sourceProbeLosingWorld(t)
++    measureSetProfileOutcome(t, "post_takeover_lower_epoch", losing, sessprofile.SetProfileRequest{
++        SessionID: fixtureSession, To: sessprofile.ProfileYOLO, Confirmed: true, LeaseEpoch: 1, LeaseID: fixtureLeaseA,
++        CreatedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt,
++    })
++    ambiguous := sourceProbeAmbiguousTupleWorld(t)
++    measureSetProfileOutcome(t, "unminted_same_epoch_loser", ambiguous, sessprofile.SetProfileRequest{
++        SessionID: fixtureSession, To: sessprofile.ProfileYOLO, Confirmed: true, LeaseEpoch: 2, LeaseID: fixtureLeaseA,
++        CreatedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt,
++    })
++    current := buildRunWorld(t)
++    measureSetProfileOutcome(t, "winning_lease_standard_to_yolo", current, sessprofile.SetProfileRequest{
++        SessionID: fixtureSession, To: sessprofile.ProfileYOLO, Confirmed: true, LeaseEpoch: 1, LeaseID: fixtureLeaseA,
++        CreatedByHostID: fixtureLocalHost, CreatedAt: fixtureCreatedAt,
++    })
++}
++'''
++
++
++def probe_source(candidate: bool) -> str:
++    if candidate:
++        replacements = {
++            "__LOAD_PAIR__": "derivation, err := LoadProfile(world.repo, world.ckpt, fixtureSession)\n    if err != nil { return sessprofile.Pair{}, err }\n    return derivation.Derive()",
++            "__PROJECTOR_PAIR__": "return (&sessprofile.Projector{Repo: world.repo, Ckpt: world.ckpt}).Project(fixtureSession)",
++            "__DERIVE_PROFILE_PAIR__": "derivation, err := LoadProfile(world.repo, world.ckpt, fixtureSession)\n    if err != nil { return sessprofile.Pair{}, err }\n    return deriveProfile(Input{ProfileData: derivation})",
++            "__TRANSACTOR_FIELDS__": "Repo: world.repo, Ckpt: world.ckpt",
++        }
++    else:
++        replacements = {
++            "__LOAD_PAIR__": "record, events, err := LoadProfile(world.repo, fixtureSession)\n    if err != nil { return sessprofile.Pair{}, err }\n    return sessprofile.Derive(record, events)",
++            "__PROJECTOR_PAIR__": "return (&sessprofile.Projector{Repo: world.repo}).Project(fixtureSession)",
++            "__DERIVE_PROFILE_PAIR__": "record, events, err := LoadProfile(world.repo, fixtureSession)\n    if err != nil { return sessprofile.Pair{}, err }\n    return deriveProfile(Input{ProfileRecord: record, ProfileEvents: events})",
++            "__TRANSACTOR_FIELDS__": "Repo: world.repo",
++        }
++    source = PROBE_TEMPLATE
++    for placeholder, replacement in replacements.items():
++        if source.count(placeholder) != 1:
++            raise RuntimeError(f"probe template placeholder {placeholder} is not unique")
++        source = source.replace(placeholder, replacement)
++    if "__" in source:
++        raise RuntimeError("unexpanded probe template placeholder")
++    return source
++
++
++def instrument_append_gate(root: Path) -> None:
++    source_path = root / "internal/sessrepo/chain.go"
++    source = source_path.read_text()
++    matches = list(APPEND_FUNCTION.finditer(source))
++    if len(matches) != 1:
++        raise RuntimeError(f"expected one checkWinningLease in {source_path}, found {len(matches)}")
++    original = matches[0].group(0)
++    signature = original.split("\n", 1)[0]
++    source_path.write_text(source[:matches[0].start()] + signature + "\n\treturn nil\n}" + source[matches[0].end():])
++
++
++def parse_outcomes(log: Path) -> list[dict[str, object]]:
++    rows: list[dict[str, object]] = []
++    for line in log.read_text().splitlines():
++        match = re.search(r"profile-source-outcome (\{.*\})$", line)
++        if match:
++            rows.append(json.loads(match.group(1)))
++    keys = [(row["package"], row["entry"], row["input"]) for row in rows]
++    if len(keys) != len(set(keys)):
++        raise RuntimeError(f"duplicate runtime outcome key in {log}")
++    return sorted(rows, key=lambda row: (str(row["package"]), str(row["entry"]), str(row["input"])))
++
++
++def main() -> int:
++    if len(sys.argv) != 2:
++        raise SystemExit("usage: compare_importers.py /absolute/evidence/directory")
++    if OUTPUT.exists():
++        raise SystemExit(f"refusing to overwrite existing outcome evidence: {OUTPUT}")
++    OUTPUT.mkdir(parents=True)
++    copies = OUTPUT / "copies"
++    baseline = copies / "baseline"
++    candidate = copies / "candidate"
++    copies.mkdir()
++    base_commit = git_archive(baseline)
++    copy_candidate(candidate)
++
++    before_importers, before_rows, before_list_exit = importer_rows(baseline, OUTPUT)
++    after_importers, after_rows, after_list_exit = importer_rows(candidate, OUTPUT)
++    if before_importers != after_importers:
++        raise RuntimeError(f"sessprofile importer set changed: before={before_importers}, after={after_importers}")
++    if not before_importers:
++        raise RuntimeError("no direct Go importer of internal/sessprofile was found")
++
++    probe = probe_source(candidate=False)
++    (OUTPUT / "outcome_probe_test.go").write_text(probe)
++    (baseline / "internal/axpane/outcome_probe_test.go").write_text(probe)
++    (candidate / "internal/axpane/outcome_probe_test.go").write_text(probe_source(candidate=True))
++    for root in (baseline, candidate):
++        instrument_append_gate(root)
++
++    command = ["go", "test", "./internal/axpane", "-run", "^TestProfileSourceOutcomeGrid$", "-count=1", "-v"]
++    before_exit = run(command, baseline, OUTPUT / "outcomes-before.log")
++    after_exit = run(command, candidate, OUTPUT / "outcomes-after.log")
++    if before_exit != 0 or after_exit != 0:
++        raise RuntimeError(f"outcome probe failed: before={before_exit}, after={after_exit}; see raw logs")
++    before = parse_outcomes(OUTPUT / "outcomes-before.log")
++    after = parse_outcomes(OUTPUT / "outcomes-after.log")
++    before_map = {(row["package"], row["entry"], row["input"]): row["outcome"] for row in before}
++    after_map = {(row["package"], row["entry"], row["input"]): row["outcome"] for row in after}
++    if before_map.keys() != after_map.keys():
++        raise RuntimeError(f"outcome keys changed: before={sorted(before_map)}, after={sorted(after_map)}")
++    moved = [
++        {"package": key[0], "entry": key[1], "input": key[2], "before": before_map[key], "after": after_map[key]}
++        for key in sorted(before_map)
++        if before_map[key] != after_map[key]
++    ]
++    expected_classes = {"post_takeover_lower_epoch", "unminted_higher_epoch", "empty_lease_store", "unminted_same_epoch_loser"}
++    moved_classes = {str(row["input"]) for row in moved}
++    if not expected_classes.issubset(moved_classes):
++        raise RuntimeError(f"expected profile-source moves are absent: expected={sorted(expected_classes)}, moved={sorted(moved_classes)}")
++    expected_keys = {
++        (PROBE_PACKAGE, entry, input_name)
++        for input_name in ("post_takeover_lower_epoch", "unminted_higher_epoch", "empty_lease_store", "unminted_same_epoch_loser")
++        for entry in ("LoadProfile", "Projector.Project", "axpane.deriveProfile")
++    }
++    expected_keys.update({
++        (PROBE_PACKAGE, "Projector.Project", "winning_handoff_contains_prior_source"),
++        (PROBE_PACKAGE, "Transactor.SetProfile.from_end", "post_takeover_lower_epoch"),
++        (PROBE_PACKAGE, "Transactor.SetProfile.from_end", "unminted_same_epoch_loser"),
++        (PROBE_PACKAGE, "Transactor.SetProfile.from_end", "winning_lease_standard_to_yolo"),
++    })
++    if set(before_map) != expected_keys:
++        raise RuntimeError(f"runtime probe does not cover the exact entry/input census: got={sorted(before_map)}, want={sorted(expected_keys)}")
++    expected_moved = {
++        key for key in expected_keys
++        if key[2] in expected_classes or key == (PROBE_PACKAGE, "Transactor.SetProfile.from_end", "post_takeover_lower_epoch")
++    }
++    if {tuple(row[field] for field in ("package", "entry", "input")) for row in moved} != expected_moved:
++        raise RuntimeError("runtime outcomes moved outside or short of the exact expected derivation and SetProfile keys")
++    after_by_key = {(row["package"], row["entry"], row["input"]): row["outcome"] for row in after}
++    for key in (
++        (PROBE_PACKAGE, "Transactor.SetProfile.from_end", "post_takeover_lower_epoch"),
++        (PROBE_PACKAGE, "Transactor.SetProfile.from_end", "unminted_same_epoch_loser"),
++        (PROBE_PACKAGE, "Transactor.SetProfile.from_end", "winning_lease_standard_to_yolo"),
++    ):
++        outcome = after_by_key[key]
++        if outcome.get("error") or outcome.get("previous_profile") != "standard" or outcome.get("new_profile") != "yolo":
++            raise RuntimeError(f"composing SetProfile writer did not complete from the expected effective source at {key}: {outcome}")
++
++    report = {
++        "base_commit": base_commit,
++        "base_tree_sha256": tree_digest(baseline),
++        "candidate_tree_sha256": tree_digest(candidate),
++        "importer_set_command": ["go", "list", "-test", "-f", '{{.ImportPath}}|{{join .Imports ","}}', "./..."],
++        "importer_package_set": before_importers,
++        "importer_go_list_rows_before": before_rows,
++        "importer_go_list_rows_after": after_rows,
++        "go_list_exit_codes": {"before": before_list_exit, "after": after_list_exit},
++        "append_gate_instrument": "internal/sessrepo/chain.go: checkWinningLease returns nil in both isolated copies",
++        "runtime_command": command,
++        "runtime_exit_codes": {"before": before_exit, "after": after_exit},
++        "outcome_key_count_before": len(before),
++        "outcome_key_count_after": len(after),
++        "moved_outcome_key_count": len(moved),
++        "moved_input_classes": sorted(moved_classes),
++        "outcomes_before": before,
++        "outcomes_after": after,
++        "moved_outcomes": moved,
++    }
++    (OUTPUT / "outcome-comparison.json").write_text(json.dumps(report, indent=2) + "\n")
++    shutil.rmtree(copies)
++    print(f"importer packages: {', '.join(before_importers)}")
++    print(f"outcome keys: {len(before)} before / {len(after)} after; moved={len(moved)}")
++    print(f"moved classes: {', '.join(sorted(moved_classes))}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/internal/sessprofile/testdata/mutate_profile_authority.py b/internal/sessprofile/testdata/mutate_profile_authority.py
+new file mode 100755
+index 0000000..20e2806
+--- /dev/null
++++ b/internal/sessprofile/testdata/mutate_profile_authority.py
+@@ -0,0 +1,141 @@
++#!/usr/bin/env python3
++"""Instrument append admission off and measure the independent source gate.
++
++Usage: PYTHONDONTWRITEBYTECODE=1 python3 internal/sessprofile/testdata/mutate_profile_authority.py /absolute/evidence/directory
++
++The scratch copy first runs every derivation entry with sessrepo's
++checkWinningLease replaced by a no-op. It then applies separate lower-epoch
++and unminted-same-epoch narrowing mutants and runs each entry killer alone.
++A behavior-preserving SURVIVED control follows. Raw subprocess logs and exact
++exit codes are written beneath the supplied task evidence path.
++"""
++from pathlib import Path
++import hashlib
++import json
++import re
++import shutil
++import subprocess
++import sys
++
++
++ROOT = Path(__file__).resolve().parents[3]
++OUTPUT = Path(sys.argv[1]).resolve()
++COPY = OUTPUT / "mutation-source"
++OUTPUT.mkdir(parents=True, exist_ok=True)
++if COPY.exists():
++    raise SystemExit(f"refusing to overwrite existing mutation source: {COPY}")
++COPY.mkdir()
++shutil.copytree(ROOT / "internal", COPY / "internal")
++for name in ("go.mod", "go.sum"):
++    shutil.copy2(ROOT / name, COPY / name)
++
++APPEND_SOURCE = COPY / "internal/sessrepo/chain.go"
++AUTHORITY_SOURCE = COPY / "internal/sessprofile/authority.go"
++append_base = APPEND_SOURCE.read_text()
++authority_base = AUTHORITY_SOURCE.read_text()
++
++append_function = '''func checkWinningLease(winner LeaseSummary, event eventView) error {
++	if event.leaseEpoch < winner.Epoch {
++		return refuse(ErrStaleLease, "event lease epoch %d precedes winning lease epoch %d", event.leaseEpoch, winner.Epoch)
++	}
++	if event.leaseEpoch == winner.Epoch && event.leaseID != winner.LeaseID {
++		return refuse(ErrDivergentBranch, "event lease %s loses to winning lease %s at epoch %d", event.leaseID, winner.LeaseID, winner.Epoch)
++	}
++	return nil
++}'''
++if append_base.count(append_function) != 1:
++    raise SystemExit("append gate instrument was not unique")
++instrumented_append = append_base.replace(append_function, "func checkWinningLease(winner LeaseSummary, event eventView) error {\n\treturn nil\n}")
++APPEND_SOURCE.write_text(instrumented_append)
++
++LOWER_EPOCH_TESTS = {
++    "LoadProfile": "TestLoadProfileDoesNotExposeLosingLeaseAsEffectiveSource",
++    "Projector.Project": "TestProbe15DisabledAppendGateProjector",
++    "SetProfile.from_end": "TestSetProfileFromEndDoesNotReplayLosingLeaseChange",
++    "axpane.deriveProfile": "TestAxpaneDeriveProfileDoesNotUseLosingLeaseSource",
++}
++AMBIGUOUS_TESTS = {
++    "LoadProfile": "TestLoadProfileRejectsAmbiguousLeaseSource",
++    "Projector.Project": "TestProjectorRejectsAmbiguousLeaseSource",
++    "SetProfile.from_end": "TestSetProfileFromEndRejectsAmbiguousLeaseSource",
++    "axpane.deriveProfile": "TestAxpaneDeriveProfileRejectsAmbiguousLeaseSource",
++}
++ENTRY_TESTS = tuple(LOWER_EPOCH_TESTS.values()) + tuple(AMBIGUOUS_TESTS.values())
++ENTRY_RUN = "^(" + "|".join(ENTRY_TESTS) + ")$"
++baseline_command = ["go", "test", "./internal/axpane", "-run", ENTRY_RUN, "-count=1", "-v"]
++with (OUTPUT / "instrumented-derivation-baseline.log").open("w") as log:
++    baseline = subprocess.run(baseline_command, cwd=COPY, stdout=log, stderr=subprocess.STDOUT, timeout=600)
++baseline_text = (OUTPUT / "instrumented-derivation-baseline.log").read_text()
++ran = re.findall(r"^=== RUN   (Test[^/\s]+)", baseline_text, re.M)
++skipped = re.findall(r"^--- SKIP: (Test[^/\s]+)", baseline_text, re.M)
++failed = re.findall(r"^--- FAIL: (Test[^/\s]+)", baseline_text, re.M)
++required = set(ENTRY_TESTS)
++if baseline.returncode != 0 or set(ran) != required or skipped or failed:
++    raise SystemExit(f"instrumented entry suite failed: exit={baseline.returncode}, ran={ran}, skipped={skipped}, failed={failed}")
++
++def unique_logged_event_id(label: str) -> str:
++    matches = set(re.findall(rf"instrumented {label} profile event id=(sha256:[0-9a-f]{{64}})", baseline_text))
++    if len(matches) != 1:
++        raise SystemExit(f"instrumented {label} fixture did not emit one stable event id: {sorted(matches)}")
++    return next(iter(matches))
++
++authority_marker = "func authorizedSource(authority SourceAuthority, event Event, handoff map[string]bool, explicitClosure bool) bool {\n"
++if authority_base.count(authority_marker) != 1:
++    raise SystemExit("source-authority narrowing plant was not unique")
++
++def admit_exact_event(event_id: str) -> str:
++    return authority_marker + f'\tif event.ID == "{event_id}" {{\n\t\treturn true\n\t}}\n'
++
++losing_event_id = unique_logged_event_id("losing")
++mutant_source = authority_base.replace(authority_marker, admit_exact_event(losing_event_id))
++AUTHORITY_SOURCE.write_text(mutant_source)
++rows = [
++    {"mutant": "instrumented-derivation-baseline", "classification": "CONTROL", "exit": baseline.returncode, "command": baseline_command, "tests": ran},
++]
++for entry, test_name in LOWER_EPOCH_TESTS.items():
++    log_path = OUTPUT / f"N-profile-source-old-lease-{entry.replace('.', '-')}.log"
++    command = ["go", "test", "./internal/axpane", "-run", f"^{test_name}$", "-count=1", "-v"]
++    with log_path.open("w") as log:
++        result = subprocess.run(command, cwd=COPY, stdout=log, stderr=subprocess.STDOUT, timeout=600)
++    failures = re.findall(r"^--- FAIL: (Test[^/\s]+)", log_path.read_text(), re.M)
++    if result.returncode == 0 or failures != [test_name]:
++        raise SystemExit(f"lower-epoch narrowing mutant was not killed at {entry}: exit={result.returncode}, failed={failures}")
++    rows.append({"mutant": "N-profile-source-old-lease", "classification": "KILLED", "entry": entry, "test": test_name, "exit": result.returncode, "command": command, "failed_tests": failures, "event_id": losing_event_id, "bound": "Admits exactly the post-handoff fixture event under the previously winning lower-epoch lease, outside the captured closure."})
++
++AUTHORITY_SOURCE.write_text(authority_base)
++ambiguous_event_id = unique_logged_event_id("ambiguous")
++AUTHORITY_SOURCE.write_text(authority_base.replace(authority_marker, admit_exact_event(ambiguous_event_id)))
++for entry, test_name in AMBIGUOUS_TESTS.items():
++    log_path = OUTPUT / f"N-profile-source-same-epoch-{entry.replace('.', '-')}.log"
++    command = ["go", "test", "./internal/axpane", "-run", f"^{test_name}$", "-count=1", "-v"]
++    with log_path.open("w") as log:
++        result = subprocess.run(command, cwd=COPY, stdout=log, stderr=subprocess.STDOUT, timeout=600)
++    failures = re.findall(r"^--- FAIL: (Test[^/\s]+)", log_path.read_text(), re.M)
++    if result.returncode == 0 or failures != [test_name]:
++        raise SystemExit(f"same-epoch narrowing mutant was not killed at {entry}: exit={result.returncode}, failed={failures}")
++    rows.append({"mutant": "N-profile-source-same-epoch", "classification": "KILLED", "entry": entry, "test": test_name, "exit": result.returncode, "command": command, "failed_tests": failures, "event_id": ambiguous_event_id, "bound": "Admits exactly the unminted same-epoch competitor fixture event while retaining the normal winning-lease and handoff checks for every other event."})
++
++AUTHORITY_SOURCE.write_text(authority_base)
++control_old = "// SourceAuthority carries the durable lease facts used when selecting a"
++control_new = "// SourceAuthority carries the durable lease facts used when selecting a\n// Applied harmless control: no behavior changes."
++if authority_base.count(control_old) != 1:
++    raise SystemExit("harmless control plant was not unique")
++AUTHORITY_SOURCE.write_text(authority_base.replace(control_old, control_new))
++control_command = ["go", "test", "./internal/axpane", "-run", ENTRY_RUN, "-count=1", "-v"]
++with (OUTPUT / "C-harmless-comment.log").open("w") as log:
++    control = subprocess.run(control_command, cwd=COPY, stdout=log, stderr=subprocess.STDOUT, timeout=600)
++control_text = (OUTPUT / "C-harmless-comment.log").read_text()
++control_failures = re.findall(r"^--- FAIL: (Test[^/\s]+)", control_text, re.M)
++if control.returncode != 0 or control_failures:
++    raise SystemExit(f"harmless control did not survive: exit={control.returncode}, failed={control_failures}")
++
++rows.append({"mutant": "C-harmless-comment", "classification": "SURVIVED", "exit": control.returncode, "command": control_command})
++(OUTPUT / "mutants.json").write_text(json.dumps(rows, indent=2) + "\n")
++AUTHORITY_SOURCE.write_text(authority_base)
++APPEND_SOURCE.write_text(append_base)
++assert hashlib.sha256(AUTHORITY_SOURCE.read_bytes()).digest() == hashlib.sha256(authority_base.encode()).digest()
++assert hashlib.sha256(APPEND_SOURCE.read_bytes()).digest() == hashlib.sha256(append_base.encode()).digest()
++print("instrumented-derivation-baseline CONTROL", baseline.returncode)
++print("N-profile-source-old-lease KILLED", sum(row["mutant"] == "N-profile-source-old-lease" for row in rows), "independent entry witnesses")
++print("N-profile-source-same-epoch KILLED", sum(row["mutant"] == "N-profile-source-same-epoch" for row in rows), "independent entry witnesses")
++print("C-harmless-comment SURVIVED", control.returncode)
+diff --git a/internal/sessrepo/TRACEABILITY.md b/internal/sessrepo/TRACEABILITY.md
+index 016ab06..3436dcc 100644
+--- a/internal/sessrepo/TRACEABILITY.md
++++ b/internal/sessrepo/TRACEABILITY.md
+@@ -170,15 +170,14 @@ syntax control is `COMPILE_OR_HARNESS_FAILURE`; controls are not kills.
+ No source-text-inspecting gate exists, so a token-preserving source-text
+ mutant is not applicable.
+ 
+-Bounds: an empty lease store skips the winner gate and can admit valid
+-`(epoch 7, lease B)` sequence 1; owner
+-`internal/sessrepo/sessrepo.go:AppendEvent` / `checkWinningLease` plus
+-the lease lifecycle caller/store. An unknown higher epoch remains admitted
+-by `checkWinningLease` and may become a profile source; owner
+-`internal/sessrepo/chain.go:checkWinningLease` composed by
+-`AppendEvent`. That is not independent Section 2.4 ambiguity closure.
+-The sibling profile test `TestLosingLeaseProfileEventIgnored` drives the
+-same append gate and then checks `sessprofile.Derive` and `Run`:
+-the losing event is refused, `standard` with no source remains effective,
+-and the yolo/bypass mapping cannot launch. No public `ax` CLI entry
+-exists in this repository.
++Append-boundary bounds: an empty lease store skips the winner gate and can
++admit a valid `(epoch 7, lease B)` sequence 1; an unknown higher epoch also
++passes `checkWinningLease`, because it is not lower than or tied with the
++winner. These remain `sessrepo.AppendEvent` admission facts. They no longer
++imply profile-source authority: `internal/sessprofile.Derivation.Derive`
++requires an exact tuple from the validated lease list, and a previous lease
++must also lie in the winner's captured handoff closure. The separately named
++`TestAppendGateRefusesLosingLeaseProfileEvent` proves only the append refusal;
++the independent disabled-gate derivation evidence and moved source classes
++are recorded in `internal/sessprofile/TRACEABILITY.md`. No public `ax` CLI
++entry exists in this repository.
+diff --git a/internal/traceability/cmd/tracecheck/main_test.go b/internal/traceability/cmd/tracecheck/main_test.go
+index 787adfe..f8f813f 100644
+--- a/internal/traceability/cmd/tracecheck/main_test.go
++++ b/internal/traceability/cmd/tracecheck/main_test.go
+@@ -22,7 +22,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
+ 		t.Fatalf("run() error = %v", err)
+ 	}
+-	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=154 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
++	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=155 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
+ 		"section coverage: bindings=69 full=4 partial=9 sliver=9 unevidenced=43 unmeasured=4 unowned=7 clauses_discharged=70/574\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run() output = %q, want %q", output.String(), want)
+@@ -55,7 +55,7 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatalf("run(assigned sections) error = %v", err)
+ 	}
+-	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=154 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
++	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=155 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
+ 		"section coverage: bindings=69 full=4 partial=9 sliver=9 unevidenced=43 unmeasured=4 unowned=7 clauses_discharged=70/574\n"
+ 	if output.String() != want {
+ 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
+diff --git a/internal/traceability/ownership.v0.7.0.json b/internal/traceability/ownership.v0.7.0.json
+index ae7c992..142878a 100644
+--- a/internal/traceability/ownership.v0.7.0.json
++++ b/internal/traceability/ownership.v0.7.0.json
+@@ -2885,7 +2885,64 @@
+       "tests": [
+         {
+           "path": "internal/axpane/rework_test.go",
+-          "declaration": "TestLosingLeaseProfileEventIgnored"
++          "declaration": "TestAppendGateRefusesLosingLeaseProfileEvent"
++        }
++      ]
++    },
++    {
++      "id": "story-260922-derivation-side-profile-source",
++      "production": {
++        "path": "internal/sessprofile/authority.go",
++        "declaration": "Derive"
++      },
++      "tests": [
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestLoadProfileDoesNotExposeLosingLeaseAsEffectiveSource"
++        },
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestProbe15DisabledAppendGateProjector"
++        },
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestSetProfileFromEndDoesNotReplayLosingLeaseChange"
++        },
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestAxpaneDeriveProfileDoesNotUseLosingLeaseSource"
++        },
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestLoadProfileRejectsAmbiguousLeaseSource"
++        },
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestProjectorRejectsAmbiguousLeaseSource"
++        },
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestSetProfileFromEndRejectsAmbiguousLeaseSource"
++        },
++        {
++          "path": "internal/axpane/rework_test.go",
++          "declaration": "TestAxpaneDeriveProfileRejectsAmbiguousLeaseSource"
++        },
++        {
++          "path": "internal/sessprofile/authority_test.go",
++          "declaration": "TestProjectorRejectsNeverMintedHigherEpochProfileSource"
++        },
++        {
++          "path": "internal/sessprofile/authority_test.go",
++          "declaration": "TestProjectorForHeadsRejectsUnmintedHigherEpochProfileSource"
++        },
++        {
++          "path": "internal/sessprofile/authority_test.go",
++          "declaration": "TestProjectorEmptyLeaseStoreKeepsRecordAuthority"
++        },
++        {
++          "path": "internal/sessprofile/authority_test.go",
++          "declaration": "TestProjectorKeepsPriorLeaseSourceFromWinningHandoffClosure"
+         }
+       ]
+     },
+@@ -4441,7 +4498,7 @@
+         "section:2.4"
+       ],
+       "production": {
+-        "path": "internal/sessprofile/profile.go",
++        "path": "internal/sessprofile/authority.go",
+         "declaration": "Derive"
+       },
+       "acceptance_cases": [
+@@ -4449,7 +4506,8 @@
+         "sessprofile-derive-heads",
+         "sessprofile-fork-pair",
+         "provhost-mapping-resolution",
+-        "story-260917-losing-lease-profile-source"
++        "story-260917-losing-lease-profile-source",
++        "story-260922-derivation-side-profile-source"
+       ],
+       "coverage": "full",
+       "clauses": [
+@@ -4467,7 +4525,8 @@
+           "excerpt": "Losing-lease or ambiguous events MUST NOT change it.",
+           "acceptance_cases": [
+             "sessprofile-derive",
+-            "story-260917-losing-lease-profile-source"
++            "story-260917-losing-lease-profile-source",
++            "story-260922-derivation-side-profile-source"
+           ]
+         },
+         {
+diff --git a/internal/traceability/registry_rederivation_test.go b/internal/traceability/registry_rederivation_test.go
+index a0382b7..672d3f5 100644
+--- a/internal/traceability/registry_rederivation_test.go
++++ b/internal/traceability/registry_rederivation_test.go
+@@ -108,6 +108,48 @@ func decodeRegistryFile(t *testing.T, name string) ownershipRegistry {
+ 	return registry
+ }
+ 
++func TestSection24LosingLeaseClausePointsAtDerivationAuthority(t *testing.T) {
++	registry := decodeRegistryFile(t, "ownership.v0.7.0.json")
++	group := ownershipGroupByKindAndKeys(t, registry, ownershipSectionBinding, "section:2.4")
++	wantOwner := codeReference{Path: "internal/sessprofile/authority.go", Declaration: "Derive"}
++	if group.Production != wantOwner {
++		t.Fatalf("Section 2.4 owner = %+v, want derivation authority %+v", group.Production, wantOwner)
++	}
++	wantCase := "story-260922-derivation-side-profile-source"
++	if !stringMember(group.AcceptanceCases, wantCase) {
++		t.Fatalf("Section 2.4 acceptance cases omit %q: %q", wantCase, group.AcceptanceCases)
++	}
++	var clause *dischargedClause
++	for index := range group.Clauses {
++		if group.Clauses[index].ID == "2.4#2" {
++			clause = &group.Clauses[index]
++			break
++		}
++	}
++	if clause == nil || !stringMember(clause.AcceptanceCases, wantCase) {
++		t.Fatalf("decoded 2.4#2 edge = %+v, want acceptance case %q", clause, wantCase)
++	}
++	var acceptance *acceptanceCase
++	for index := range registry.AcceptanceCases {
++		if registry.AcceptanceCases[index].ID == wantCase {
++			acceptance = &registry.AcceptanceCases[index]
++			break
++		}
++	}
++	if acceptance == nil || acceptance.Production != wantOwner {
++		t.Fatalf("decoded acceptance case %q = %+v, want production owner %+v", wantCase, acceptance, wantOwner)
++	}
++}
++
++func stringMember(values []string, want string) bool {
++	for _, value := range values {
++		if value == want {
++			return true
++		}
++	}
++	return false
++}
++
+ func sectionBindingsByKey(t *testing.T, registry ownershipRegistry) map[string]ownershipGroup {
+ 	t.Helper()
+ 
+@@ -636,13 +678,13 @@ var storyNewV070Bindings = map[string]storyBindingUpgrade{
+ 
+ var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
+ 	"section:2.4": {
+-		Production: codeReference{Path: "internal/sessprofile/profile.go", Declaration: "Derive"},
+-		Cases:      []string{"sessprofile-derive", "sessprofile-derive-heads", "sessprofile-fork-pair", "provhost-mapping-resolution", "story-260917-losing-lease-profile-source"},
++		Production: codeReference{Path: "internal/sessprofile/authority.go", Declaration: "Derive"},
++		Cases:      []string{"sessprofile-derive", "sessprofile-derive-heads", "sessprofile-fork-pair", "provhost-mapping-resolution", "story-260917-losing-lease-profile-source", "story-260922-derivation-side-profile-source"},
+ 		Coverage:   coverageFull,
+ 		Gap:        "",
+ 		Clauses: []dischargedClause{
+ 			{ID: "2.4#1", Line: 661, Excerpt: "MUST fail with <code>profile_mapping_unavailable</code> if the adapter cannot map the stored profile for the probed provider version.", AcceptanceCases: []string{"provhost-mapping-resolution"}},
+-			{ID: "2.4#2", Line: 666, Excerpt: "Losing-lease or ambiguous events MUST NOT change it.", AcceptanceCases: []string{"sessprofile-derive", "story-260917-losing-lease-profile-source"}},
++			{ID: "2.4#2", Line: 666, Excerpt: "Losing-lease or ambiguous events MUST NOT change it.", AcceptanceCases: []string{"sessprofile-derive", "story-260917-losing-lease-profile-source", "story-260922-derivation-side-profile-source"}},
+ 			{ID: "2.4#3", Line: 670, Excerpt: "a bundle, resume, or fork MUST NOT fall back to the Session Record creation value when the closure contains a later change.", AcceptanceCases: []string{"sessprofile-derive", "sessprofile-derive-heads"}},
+ 			{ID: "2.4#4", Line: 678, Excerpt: "MUST NOT be treated as a profile event in the new session's event chain.", AcceptanceCases: []string{"sessprofile-fork-pair"}},
+ 		},
+@@ -787,7 +829,25 @@ var storyNewV070Cases = map[string]acceptanceCase{
+ 		ID:         "story-260917-losing-lease-profile-source",
+ 		Production: codeReference{Path: "internal/sessrepo/sessrepo.go", Declaration: "AppendEvent"},
+ 		Tests: []codeReference{
+-			{Path: "internal/axpane/rework_test.go", Declaration: "TestLosingLeaseProfileEventIgnored"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestAppendGateRefusesLosingLeaseProfileEvent"},
++		},
++	},
++	"story-260922-derivation-side-profile-source": {
++		ID:         "story-260922-derivation-side-profile-source",
++		Production: codeReference{Path: "internal/sessprofile/authority.go", Declaration: "Derive"},
++		Tests: []codeReference{
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestLoadProfileDoesNotExposeLosingLeaseAsEffectiveSource"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestProbe15DisabledAppendGateProjector"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestSetProfileFromEndDoesNotReplayLosingLeaseChange"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestAxpaneDeriveProfileDoesNotUseLosingLeaseSource"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestLoadProfileRejectsAmbiguousLeaseSource"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestProjectorRejectsAmbiguousLeaseSource"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestSetProfileFromEndRejectsAmbiguousLeaseSource"},
++			{Path: "internal/axpane/rework_test.go", Declaration: "TestAxpaneDeriveProfileRejectsAmbiguousLeaseSource"},
++			{Path: "internal/sessprofile/authority_test.go", Declaration: "TestProjectorRejectsNeverMintedHigherEpochProfileSource"},
++			{Path: "internal/sessprofile/authority_test.go", Declaration: "TestProjectorForHeadsRejectsUnmintedHigherEpochProfileSource"},
++			{Path: "internal/sessprofile/authority_test.go", Declaration: "TestProjectorEmptyLeaseStoreKeepsRecordAuthority"},
++			{Path: "internal/sessprofile/authority_test.go", Declaration: "TestProjectorKeepsPriorLeaseSourceFromWinningHandoffClosure"},
+ 		},
+ 	},
+ 	"rpcwire-closed-bodies": {
+diff --git a/internal/traceability/traceability.go b/internal/traceability/traceability.go
+index 77a3dcc..7b99b0a 100644
+--- a/internal/traceability/traceability.go
++++ b/internal/traceability/traceability.go
+@@ -40,7 +40,7 @@ const (
+ 	// reviewedOwnershipCanonicalSHA256 pins the semantic JSON projection. JSON
+ 	// formatting may change, but ownership claims cannot be self-minted without
+ 	// an explicit review of this binding.
+-	reviewedOwnershipCanonicalSHA256 = "174728a8a01e8429004e4f9c4687f8fa1f17406b641012236c3427a758baf31e"
++	reviewedOwnershipCanonicalSHA256 = "e98b3004ac4abb2e78533fdc925d1e82aa3f7640b994d7639ea287756b5a9256"
+ )
+ 
+ var ErrTraceability = errors.New("spec-to-code traceability check failed")
+diff --git a/internal/traceability/traceability_test.go b/internal/traceability/traceability_test.go
+index 3578c8d..202c896 100644
+--- a/internal/traceability/traceability_test.go
++++ b/internal/traceability/traceability_test.go
+@@ -29,7 +29,7 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
+ 	want := Report{
+ 		Contracts:              64,
+ 		NormativeSections:      36,
+-		AcceptanceCases:        154,
++		AcceptanceCases:        155,
+ 		Fixtures:               33,
+ 		CompatibilityContracts: 55,
+ 		SectionBindings:        69,
