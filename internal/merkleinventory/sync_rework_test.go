@@ -317,11 +317,35 @@ func TestPythonBytecodeHygieneRejectsPlantedArtifacts(t *testing.T) {
 	}
 }
 
+func TestPythonBytecodeHygieneIgnoresGitignoredScratch(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{filepath.Join(root, ".temp", "__pycache__"), filepath.Join(root, ".git", "__pycache__")} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "scratch.cpython-314.pyc"), []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	violations, err := pythonBytecodeArtifacts(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(violations) != 0 {
+		t.Fatalf("scratch under .temp/.git reported as tracked-tree bytecode: %v", violations)
+	}
+}
+
 func pythonBytecodeArtifacts(root string) ([]string, error) {
 	violations := make([]string, 0)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		// .git and the repository's gitignored .temp scratch are not part of
+		// the tracked tree; orchestrators and producers run Python there.
+		if entry.IsDir() && path != root && (entry.Name() == ".git" || entry.Name() == ".temp") {
+			return filepath.SkipDir
 		}
 		if entry.IsDir() && entry.Name() == "__pycache__" {
 			violations = append(violations, path)
