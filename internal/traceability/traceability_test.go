@@ -29,18 +29,18 @@ func TestVerifyRepositoryAcceptsExactOwnership(t *testing.T) {
 	want := Report{
 		Contracts:              64,
 		NormativeSections:      36,
-		AcceptanceCases:        155,
+		AcceptanceCases:        160,
 		Fixtures:               33,
 		CompatibilityContracts: 55,
-		SectionBindings:        69,
+		SectionBindings:        70,
 		FullCoverage:           4,
-		PartialCoverage:        9,
-		SliverCoverage:         9,
-		UnevidencedCoverage:    43,
+		PartialCoverage:        10,
+		SliverCoverage:         11,
+		UnevidencedCoverage:    41,
 		UnmeasuredCoverage:     4,
 		UnownedSections:        7,
-		NormativeClauses:       574,
-		DischargedClauses:      70,
+		NormativeClauses:       585,
+		DischargedClauses:      81,
 	}
 	if !reflect.DeepEqual(report, want) {
 		t.Fatalf("VerifyRepository() report = %#v, want %#v", report, want)
@@ -747,8 +747,8 @@ func snapshotDigest(repository fstest.MapFS) [32]byte {
 // arm of the coverage gate at the production entry point. Every section listed
 // here used to be admitted by VerifyAssignedSections because its binding named
 // a real Go declaration and an executable acceptance case. None of them
-// discharges its section, so a Story assigned one of them could legitimately do
-// nothing and still leave the gate green. The refusal now names the measured
+// discharges its section in full, so a Story assigned one of them could
+// legitimately do nothing and still leave the gate green. The refusal names the measured
 // ratio, so this table is a disclosure of the shipped state and not prose: a
 // section that later becomes fully covered has to be removed from it
 // deliberately.
@@ -769,8 +769,10 @@ func TestVerifyAssignedSectionsRefusesEveryBindingThatOnlySlivers(t *testing.T) 
 		{"2.1", `binding "section:2.1" discharges 0/1 normative clauses, which is unevidenced coverage`},
 		{"2.2", `binding "section:2.2" discharges 4/22 normative clauses, which is sliver coverage`},
 		{"2.3", `binding "section:2.3" discharges 0/7 normative clauses, which is unevidenced coverage`},
-		{"3.2", `binding "section:3.2" discharges 0/13 normative clauses, which is unevidenced coverage`},
+		{"3.2", `binding "section:3.2" discharges 1/13 normative clauses, which is sliver coverage`},
 		{"3.3", `binding "section:3.3" discharges 0/4 normative clauses, which is unevidenced coverage`},
+		{"4.2", `binding "section:4.2" discharges 5/11 normative clauses, which is sliver coverage`},
+		{"4.C", `binding "section:4.C" discharges 5/7 normative clauses, which is partial coverage`},
 		{"5.1", `binding "section:5.1" discharges 0/11 normative clauses, which is unevidenced coverage`},
 		{"6.1", `binding "section:6.1" discharges 0/2 normative clauses, which is unevidenced coverage`},
 		{"6.3", `binding "section:6.3" discharges 0/11 normative clauses, which is unevidenced coverage`},

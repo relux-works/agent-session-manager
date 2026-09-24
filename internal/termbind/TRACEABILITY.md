@@ -10,7 +10,7 @@ ax-pane-and-terminal-instance-binding (final leaf).
 
 Rule: every row names its production entry point. A row is driven only
 when the named committed test executes that entry. Prose in place of
-the ratio is not evidence. 65 of 66 AC rows driven; row 57 is a stated
+the ratio is not evidence. 67 of 68 AC rows driven; row 57 is a stated
 bound (payload census — no v1-v3-only reader exists on trunk to drive).
 
 ## Identity and the Binding object (Section 4.B, Section 7.A)
@@ -36,6 +36,14 @@ bound (payload census — no v1-v3-only reader exists on trunk to drive).
 | 13 | Non-string identity members delegate to the landed shape authority | AdmitMutationContext, AdmitStatusBody (identity.go) | TestAdmitSurfacesDelegateShapeFaults (2 subtests) |
 | 14 | Eight forbidden forms in the bootstrap binding refuse and persist nothing | Store.Bind, adopted (axpane/binding.go) | TestBootstrapBindingRefusesForbiddenIdentity (8 subtests) |
 | 15 | CLI Result 4.0.0 identity surface is a stated bound pinned by a tripwire | VersionForCommand, cited (cliresult) | TestCLIResult4IdentityIsUnimplementedBound |
+
+## Binding succession (Section 4.B identity, Section 4.C restore)
+
+| # | Clause | Call site | Test |
+|---|--------|-----------|------|
+| 67 | MintSuccessorBinding mints the reboot-successor binding over a parsed prior: malformed and same-generation mints refuse, the successor names the new generation, links the prior binding id via supersedes_binding_id, recomputes the omit-self identity, re-admits its own image before return, and mints deterministically so a crash between the restore effects and the successor persist converges on retry | MintSuccessorBinding (successor.go) | TestMintSuccessorBindingSuccessesAcrossGenerations, TestMintSuccessorBindingIsDeterministic, TestMintSuccessorBindingRefusesSameGeneration, TestMintSuccessorBindingRefusesMalformedGeneration, TestMintSuccessorBindingIdentityBinds |
+| 68 | Peers replays the stored peer census for one terminal instance except the requesting client: every recorded receipt except the caller's own, sorted by client ID. A valid receipt proves an admitted client claim, not current process liveness; absent positive evidence, liveness is UNKNOWN and the caller treats it as a possible peer. An unrecorded instance has no peers; staging entries and non-receipt names are skipped; a read, decode, or binding failure errors instead of reading as an empty census, as does a directory at a receipt-shaped name. | Peers (overlap.go) | TestAttachStorePeers, TestAttachStorePeersEmpty, TestAttachStorePeersFailsClosed, TestAttachStorePeersRejectsForeignReceipt, TestAttachStorePeersDirectoryFailsClosed |
+| 69 | AcquireAdmission serializes attach admission for one terminal instance across independent stores and processes; the persistent lock file is not removed, release and process death relinquish the OS lock, and caller cancellation bounds acquisition. | AcquireAdmission (admission.go) | TestAttachAdmissionLockSharedAcrossStores, TestAttachAdmissionLockReleasedAfterProcessExit |
 
 ## Evidence resolution (Section 4.D, Section 5.2)
 
@@ -114,7 +122,7 @@ bound (payload census — no v1-v3-only reader exists on trunk to drive).
 | 59 | SIGKILL between effect and result recovers the ONE child | RecoverCreate (recover.go) | TestRecoverCreateAfterKillRecoversChild (unix) |
 | 60 | Before-write abort leaves no event; after-commit keeps and replays | EmitTerminalCreated (emit.go) | TestEmitAppendHookSeams (2 subtests) |
 
-## Mutant table (36 rows: 34 narrowing + 1 supplementary arm-delete + 1 control)
+## Mutant table (43 rows: 41 narrowing + 1 supplementary arm-delete + 1 control)
 
 Harness: `PYTHONDONTWRITEBYTECODE=1 python3
 internal/termbind/mutant_harness.py`. Verdict rule (M/R/V): R fails
@@ -159,6 +167,13 @@ mutants/pass2.
 | N-attach-transport | narrowing | Enum admits smoke_signal | TestAttachTransportVocabulary/unknown_transport |
 | N-attach-auth-replay | narrowing | Replay skips authorization | TestAttachRequiresLiveAuth/replay_with_expired_auth |
 | N-attach-key | narrowing | Idempotency key drops the client axis | TestAttachSecondClientRecordsAlongside |
+| N-successor-same-generation | narrowing | Successor mint admits the fixture same generation | TestMintSuccessorBindingRefusesSameGeneration, TestMintSuccessorBindingSuccessesAcrossGenerations |
+| N-successor-supersedes | narrowing | Successor omits its prior link | TestMintSuccessorBindingSuccessesAcrossGenerations |
+| N-successor-identity-field | narrowing | Successor identity omits the wrong field | TestMintSuccessorBindingSuccessesAcrossGenerations, TestMintSuccessorBindingIdentityBinds |
+| N-successor-generation-inherit | narrowing | Successor names the prior generation | TestMintSuccessorBindingSuccessesAcrossGenerations, TestMintSuccessorBindingRefusesSameGeneration |
+| N-attach-peers-decode | narrowing | Peer scan skips the undecodable receipt | TestAttachStorePeersFailsClosed |
+| N-attach-peers-dir | narrowing | Peer scan skips the receipt-shaped directory | TestAttachStorePeersDirectoryFailsClosed |
+| N-attach-peers-filename | narrowing | Peer scan skips the key-binding-failed receipt | TestAttachStorePeersRejectsFilenameMismatch |
 | C-control | control | Comment-only doc edit | TestCheckInstanceIdentityAdmitsUUIDv7 (SURVIVED) |
 
 Not rows, by construction: attach cannot emit an event because Attach

@@ -22,8 +22,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=155 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
-		"section coverage: bindings=69 full=4 partial=9 sliver=9 unevidenced=43 unmeasured=4 unowned=7 clauses_discharged=70/574\n"
+	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=160 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
+		"section coverage: bindings=70 full=4 partial=10 sliver=11 unevidenced=41 unmeasured=4 unowned=7 clauses_discharged=81/585\n"
 	if output.String() != want {
 		t.Fatalf("run() output = %q, want %q", output.String(), want)
 	}
@@ -55,8 +55,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run(assigned sections) error = %v", err)
 	}
-	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=155 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
-		"section coverage: bindings=69 full=4 partial=9 sliver=9 unevidenced=43 unmeasured=4 unowned=7 clauses_discharged=70/574\n"
+	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=160 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
+		"section coverage: bindings=70 full=4 partial=10 sliver=11 unevidenced=41 unmeasured=4 unowned=7 clauses_discharged=81/585\n"
 	if output.String() != want {
 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
 	}
@@ -125,8 +125,10 @@ func TestRunRefusesEveryAssignedSectionThatOnlySlivers(t *testing.T) {
 		{"2.1", "discharges 0/1 normative clauses, which is unevidenced coverage"},
 		{"2.2", `binding "section:2.2" discharges 4/22 normative clauses, which is sliver coverage`},
 		{"2.3", "discharges 0/7 normative clauses, which is unevidenced coverage"},
-		{"3.2", "discharges 0/13 normative clauses, which is unevidenced coverage"},
+		{"3.2", "discharges 1/13 normative clauses, which is sliver coverage"},
 		{"3.3", "discharges 0/4 normative clauses, which is unevidenced coverage"},
+		{"4.2", "discharges 5/11 normative clauses, which is sliver coverage"},
+		{"4.C", "discharges 5/7 normative clauses, which is partial coverage"},
 		{"5.1", "discharges 0/11 normative clauses, which is unevidenced coverage"},
 		{"6.1", "discharges 0/2 normative clauses, which is unevidenced coverage"},
 		{"6.3", "discharges 0/11 normative clauses, which is unevidenced coverage"},
@@ -179,7 +181,7 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
 		{"2.1", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
 		{"2.3", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordCommon", "func validateSessionRecordCommon(", "func renamedValidateSessionRecordCommon("},
 		{"2.4", "internal/sessprofile/profile.go", "Derive", "func Derive(", "func renamedDerive("},
-		{"3.2", "internal/localstore/paths.go", "ResolvePaths", "func ResolvePaths(", "func RenamedResolvePaths("},
+		{"3.2", "internal/tmuxserver/bind.go", "CheckSocketCustody", "func CheckSocketCustody(", "func RenamedCheckSocketCustody("},
 		{"3.3", "internal/localstore/projection.go", "OpenProjection", "func OpenProjection(", "func RenamedOpenProjection("},
 		{"5.1", "internal/canonicaljson/closed_shapes.go", "validateSessionRecordWithDerivation", "func validateSessionRecordWithDerivation(", "func renamedValidateSessionRecordWithDerivation("},
 		{"10.1", "internal/canonicaljson/closed_shapes.go", "validateImmutableObjectShape", "func validateImmutableObjectShape(", "func renamedValidateImmutableObjectShape("},
@@ -196,6 +198,9 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
 
 			output, err := runTracecheck(t, fixtureRoot, "-section", test.section)
 			want := `section binding "section:` + test.section + `" production owner: declaration "` + test.declaration + `" is absent`
+			if test.declaration == "CheckSocketCustody" {
+				want = `acceptance case "tmux-socket-custody-v070" production owner: declaration "CheckSocketCustody" is absent from "internal/tmuxserver/bind.go"`
+			}
 			if test.declaration == "OpenProjection" {
 				want = `acceptance case "localstore-sqlite-projection" production owner: declaration "OpenProjection" is absent`
 			}

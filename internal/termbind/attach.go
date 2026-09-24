@@ -62,6 +62,10 @@ var attachMembers = []string{
 type AttachHooks struct {
 	AfterStage   func(path string) error
 	AfterInstall func(path string) error
+	// BeforeAdmissionLock runs after the shared lock file is opened
+	// and before the first lock attempt. It is a deterministic test
+	// interleaving hook; production leaves it nil.
+	BeforeAdmissionLock func(instanceID string)
 }
 
 // AttachStore is the durable attach-client receipt store rooted at one

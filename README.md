@@ -2346,7 +2346,7 @@ go test ./internal/termbind -count=1
 go test ./internal/termbind -cover -count=1
 ```
 
-Run the narrowing battery (34 narrowing mutants, one supplementary
+Run the narrowing battery (41 narrowing mutants, one supplementary
 arm-delete row, plus one harmless control) with:
 
 ```bash
@@ -2361,6 +2361,141 @@ mutation artifacts are attached to `TASK-260830-2056mm`. The package
 adds no `ax` command, no `doctor` result, and no runtime capability
 claim; the clause-to-test matrix with its stated bounds lives in
 [the task evidence map](internal/termbind/TRACEABILITY.md).
+
+## Private tmux server management (`tmuxserver` leaf)
+
+[`internal/tmuxserver`](internal/tmuxserver) creates owner-only runtime
+directories and manages dedicated `tmux -S` servers with no ambient or
+default-server discovery or reuse (pinned Sections 3.2, 4.2, 4.C-4.E).
+The dedicated socket is `<runtime>/tmux/ax.sock` under the Runtime IPC
+root (per-user temporary directory on macOS, `$XDG_RUNTIME_DIR/ax` on
+Linux/WSL2), resolved by the landed `localstore` layout and supplied by
+the caller; the socket is runtime IPC, never durable identity.
+`EnsureRuntimeDir` commits the runtime leaf relative to a pinned root
+handle (`mkdirat`, never a path-string `MkdirAll`) and enforces three
+independent custody gates — containment, exact `0700` mode, effective-UID
+ownership — each of which refuses alone; an existing directory is
+verified, never silently repaired. `ResolveSocket` derives the one
+server socket from the runtime directory and refuses any explicit
+override on all five ambient members (`TMUX` and `TMUX_TMPDIR`
+environment values, inherited socket, default path, conventional
+`default` name). `Acquire` reaches the server through the
+caller-appropriate path: foreground ensures the directory, then attaches
+to the running attested server or spawns the dedicated `-S` server whose
+stable pane entrypoint is `ax pane SESSION_ID`, while background
+verifies the existing directory without creating it, contacts only the
+already-running authenticated same-user broker and its attested server,
+and a miss — including an absent runtime directory, the ordinary
+post-reboot cold state — returns the typed `capability_unavailable`
+refusal with realm/readiness details, while an existing-but-unsafe
+directory keeps its custody refusal — there is no fallback to direct
+creation, and every background-path `Acquire` test (24/24 by
+mechanical census) arms both a spy spawner and a spy server probe
+that fail the run if either is ever invoked. Attestation is the landed `terminalbackend`
+Reconcile/ResolveEvidence admission consumed as an `Admitted` set
+composed only with generation equality: a missing realm row or a
+stale-generation admission refuses, so a cached observation replayed as
+live authorizes nothing. Every broker, server, and spawner interaction
+runs through injected dependencies, so the suite passes with no tmux
+process anywhere; native Windows refuses every request. Lifecycle
+operations — create, attach, status, quiesce, safe-boundary, stop,
+stale termination, restore — run through structured argv builders over
+the dedicated socket: `Execute` admits exactly the eight operations
+and refuses unknown ones, the exec adapter reconstructs the exact
+`tmux -S <socket> <subcommand>` vector per operation and refuses
+forged binaries, flag injection, and ambient socket discovery, and
+the probed socket generation is bound (B18-B20) before any execution.
+Bodies are pure argv builders whose stable pane entrypoint stays
+`ax pane SESSION_ID`; effects run through the landed terminstance
+engine with strict per-operation deadlines, per-effect generation
+and authorization rechecks, and AX-side state memory for
+reconciliation, while attach, terminate, and restore mirror the
+landed backend, fencing, and axpane gates. Destructive commands
+that follow a wait revalidate first: the stop escalation
+re-proves deadline, authorization, and generation after its poll
+before the kill issues (a graceful timeout escalates; any other
+stale fact refuses), and the quiesce detach revalidates between
+the commands; every barrier and admission wait honors the
+operation deadline and cancellation with no late commit, and
+every read-only probe honors its bound in-flight — the stop
+pre-poll the graceful wait, the post-escalation re-confirmation
+the operation deadline, the terminate confirm and the status
+probes their deadlines — concluding unknown rather than a
+verdict when it fires. Attach
+additionally fails closed on overlap: a second client that may
+overlap a recorded peer needs multi_attach, and new input over a
+recorded input peer needs multiple_input_clients, with
+receipt-validated same-client retries exempt (a conflicting retry
+still refuses idempotency_mismatch) and corrupt census entries
+(a directory at a receipt-shaped name, a receipt misfiled under
+another client's key, a malformed receipt name) refusing rather
+than reading as no peers; client liveness is bound B44 in the
+traceability map. The receipt census proves an admitted client claim,
+not a currently connected tmux client: the caller executes the
+returned vector and the current protocol has no positive client
+identity or detach signal. A valid receipt whose liveness is unknown
+therefore remains a possible peer until an authoritative retirement
+contract exists. This can conservatively block a later attach after
+the prior client detached. Admission uses a persistent per-instance
+OS file lock across Lifecycle instances and processes, held from the
+peer census through the durable receipt commit; Unix uses `flock` and
+Windows uses `LockFileEx`. Concurrent input requires both
+`multiple_input_clients` and the parsed AX input authorization, in
+addition to `multi_attach`; no writable vector or second receipt is
+returned if AX authorization refuses. Quiesce
+cuts operator input by locking then detaching every attached client
+and refusing new input-authorized attaches at the entry once its
+closure report commits (read-only observation stays); a lost report
+after committed closure is bound B43 in the traceability map. The
+boundary waits blocking for the wrapper
+signal with the proof kind bound into its evidence; probes prove
+absence only from marked tmux stderr and read every other failure as
+unknown. The `Lifecycle.Execute(attach)` lost-response test replays the
+recorded vector, receipt, effect evidence, and original timestamp without a
+second stage/install or receipt write; a read-only receipt retried with input
+authorization refuses with literal `idempotency_mismatch` and returns no
+vector. Attach neither reads the current lease nor invokes lease refresh, and
+the test snapshots the session event chain and durable lease before and after.
+Socket custody rejects owner, mode, symlink, and inode changes detected during
+its identity recheck before `ServerProber` calls `Dial`; a pathname swap after
+the final lstat and before the OS connect remains bound B46 because Unix has no
+portable path-relative connect identity pin. The suite composes the real
+`Production` probe through foreground `Acquire` and then `Lifecycle.Execute`
+using a private mode-0700 live socket; it starts no tmux process.
+
+The custody oracle runs on the current-depth fixture and a second fixture with eight extra nested directories. Across the two paths it sweeps 22 component positions through the filesystem root at Probe, Spawn, and Execute: 270,336 of 270,336 mode-position-entry classifications, 330 of 330 kind-position-entry cases, and 54 of 54 owner-position-entry cases. A generated depth test adds 144 named refusal cases over 1–16 extra levels and places mode 0777 at the nearest, middle, and deepest non-root ancestor. An AST test and isolated cap mutants prove the walk has no depth limit. Ancestor ownership remains the explicit N2 bound.
+
+Run the focused tests and coverage with:
+
+```bash
+go test ./internal/tmuxserver -run 'TestCustody(ModeOracle|PathKindOwnerOracle|AncestorWalkGeneratedDepth|AncestorWalkHasNoLengthDependentControlFlow|PathComponentByteLengths|PathComponentNameContent|SymlinkChainLength)' -count=1
+go test ./internal/tmuxserver -cover -count=1
+go test ./internal/termbind ./internal/tmuxserver -count=1
+```
+
+Run the narrowing battery (348 narrowing mutants, six supplementary
+rows — five killed additive/wiring plants and one shadowed entry-deadline
+narrowing that survives by reroute to the wait bound — plus one harmless
+control) with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py
+```
+
+The harness mutates one production file in place, runs the named killer
+through the production entry point, restores the file from backup, and
+reports per-row verdicts with subprocess exits; `AX_MUTANT_VERBOSE=1`
+additionally prints the raw per-plant logs, and `--log-dir` captures one
+raw log per plant. `--slice START:END` runs a zero-based half-open row range
+for bounded batches. Task validation logs and mutation artifacts are
+attached to their task-scoped `TASK-260830-*` and
+`TASK-260922-vcx6yo` outcome resources. Run-local logs and closure
+comparisons are stored under `.temp/<TASK-ID>/`; handoff summaries and
+evidence archives are attached to the owning task board item. The
+package adds no `ax` command, no
+`doctor` result, and no runtime capability claim; the clause-to-test
+matrix with its stated bounds lives in
+[the task evidence map](internal/tmuxserver/TRACEABILITY.md).
 
 ## Ownership reducer properties
 
@@ -3359,8 +3494,8 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7
 repository gate used by CI. Its reviewed
 [`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
 registry independently enumerates implementation owners for all 64 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 155
-executable acceptance cases, 69 exact section bindings with their declared
+contract rows, 36 pinned or catalog-referenced normative section keys, 160
+executable acceptance cases, 70 exact section bindings with their declared
 coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
 and the superseded v0.6.0 and v0.5.0 registries are checked as owned legacy projections.
@@ -3461,10 +3596,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=69 full=4 partial=9 sliver=9 unevidenced=43 unmeasured=4 unowned=7 clauses_discharged=70/574
+section coverage: bindings=70 full=4 partial=10 sliver=11 unevidenced=41 unmeasured=4 unowned=7 clauses_discharged=81/585
 ```
 
-Sixty-nine section bindings discharge 70 of the 574 normative clauses their
+Seventy section bindings discharge 81 of the 585 normative clauses their
 sections carry. Four bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
@@ -3483,7 +3618,7 @@ manifest-metadata, fsync-verify-install, digest-only-log,
 chunk-agreement, and oversize-refusal clauses are discharged by the
 capture contracts, native capture, and projection fidelity cases, with
 the fsync-verify-install clause additionally discharged by the landed
-localstore immutable-blob-install case), nine are
+localstore immutable-blob-install case), ten are
 `partial` (Section 13.13 at 9/11, bound to
 [`internal/matjournal`](internal/matjournal) with the
 [`internal/crashgate`](internal/crashgate) conformance harness, whose
@@ -3532,8 +3667,11 @@ extensions, and v1 materialization upgrade, none of which a major-only
 negotiator implements; and Section 7.A at 1/2, bound to
 [`internal/terminalbackend`](internal/terminalbackend), whose discharged
 descriptor-rejection clause is enforced by `AdmitProviderDescriptor` while
-the LeaseToken v2 fencing rule stays with the provhost v2 machinery),
-nine are
+the LeaseToken v2 fencing rule stays with the provhost v2 machinery; Section
+4.C at 5/7, bound to [`internal/tmuxserver`](internal/tmuxserver) through
+`Lifecycle.Execute`, discharges the repeated-identity, wrapper-entrypoint,
+descriptor, attach-authorization, and refused-error clauses #3-#7; clauses
+#1-#2 remain undischarged), eleven are
 `sliver` (Section 10.3, whose chunk offset invariant is
 enforced by `validateBlobDescriptor` while its two receiver clauses have no
 implementation; Section 5.5 at 1/3, whose discharged negative-battery clause
@@ -3563,9 +3701,14 @@ Section 5.2 at 3/18, bound to
 [`internal/termbind`](internal/termbind), whose discharged evidence
 resolution and inert-history clauses are enforced by `ResolveEvidence`
 and the v4 emission path while the envelope, ordering, and epoch
-clauses stay with the landed shape and store authorities), four are `unmeasured` (Sections 7.3, 13.12, 13.14.5 and 15.2, each of
+clauses stay with the landed shape and store authorities; Section 3.2 at 1/13
+binds the socket-custody refusal through `CheckSocketCustody`, while the
+remaining path and custody clauses are outside this edge; and Section 4.2 at
+5/11 binds dedicated-server, no-fallback, and lifecycle adapter clauses #4-#7
+and #9 through the tmux production entries), four are `unmeasured` (Sections
+7.3, 13.12, 13.14.5 and 15.2, each of
 which carries a gap saying why the scanner measures zero and what is missing),
-and forty-three are `unevidenced`. Seven sections are recorded unowned.
+and forty-one are `unevidenced`. Seven sections are recorded unowned.
 All 13 sections added by v0.6.0 name pending task owners in the reviewed
 registry gaps; these assignments grant no runtime admission. The
 [adoption ownership map](internal/traceability/adoption-v0.6.0.md) separates
@@ -3584,7 +3727,7 @@ other assignment is refused with its ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-Four admitted bindings out of sixty-nine cover twelve clauses, and that is
+Four admitted bindings out of seventy cover twelve clauses, and that is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and

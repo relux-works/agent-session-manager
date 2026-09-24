@@ -94,6 +94,69 @@ func TestV070RegistryRederivesFromTrunkV060Registry(t *testing.T) {
 	assertUnownedSectionsCarried(t, previous, current)
 }
 
+// TestStoryV070AcceptanceCasesHaveClauseEdges prevents a declaration-only
+// addition from being mistaken for measured coverage. Each Story leaf case
+// added by the tmux backend Story must be listed on an executed clause edge.
+func TestStoryV070AcceptanceCasesHaveClauseEdges(t *testing.T) {
+	t.Parallel()
+
+	current := decodeRegistryFile(t, "ownership.v0.7.0.json")
+	bindings := sectionBindingsByKey(t, current)
+	wantEdges := map[string]map[string]string{
+		"tmux-private-server-management-v070": {
+			"section:4.2": "4.2#4,4.2#5,4.2#6,4.2#7",
+		},
+		"tmux-lifecycle-operations-v070": {
+			"section:4.2": "4.2#9",
+			"section:4.C": "4.C#3,4.C#4,4.C#7",
+		},
+		"tmux-attach-overlap-v070": {
+			"section:4.C": "4.C#6",
+		},
+		"tmux-attach-semantics-v070": {
+			"section:4.C": "4.C#3,4.C#5,4.C#6,4.C#7",
+		},
+		"tmux-socket-custody-v070": {
+			"section:3.2": "3.2#8",
+		},
+	}
+
+	for acceptanceID, sections := range wantEdges {
+		for bindingKey, clauseIDs := range sections {
+			binding, ok := bindings[bindingKey]
+			if !ok {
+				t.Fatalf("acceptance case %q requires absent binding %s", acceptanceID, bindingKey)
+			}
+			groupHasCase := false
+			for _, id := range binding.AcceptanceCases {
+				if id == acceptanceID {
+					groupHasCase = true
+					break
+				}
+			}
+			if !groupHasCase {
+				t.Fatalf("acceptance case %q is absent from binding %s", acceptanceID, bindingKey)
+			}
+			for _, clause := range binding.Clauses {
+				if !strings.Contains(","+clauseIDs+",", ","+clause.ID+",") {
+					continue
+				}
+				for _, id := range clause.AcceptanceCases {
+					if id == acceptanceID {
+						clauseIDs = strings.ReplaceAll(clauseIDs, clause.ID, "")
+						break
+					}
+				}
+			}
+			for _, clauseID := range strings.Split(clauseIDs, ",") {
+				if clauseID != "" {
+					t.Errorf("acceptance case %q has no decoded clause edge at %s %s", acceptanceID, bindingKey, clauseID)
+				}
+			}
+		}
+	}
+}
+
 func decodeRegistryFile(t *testing.T, name string) ownershipRegistry {
 	t.Helper()
 
@@ -661,10 +724,22 @@ type storyBindingUpgrade struct {
 
 // storyNewV070Bindings is the exact set of new-with-proof section bindings a
 // post-adoption story may introduce for a section the trunk baseline never
-// bound. STORY-260830-ptxkqe (ax-pane-and-terminal-instance-binding, final
-// leaf TASK-260830-2056mm) introduces section 4.1 with the lost-create
-// recovery clause it proves.
+// bound. STORY-260830-ptxkqe introduces section 4.1 with lost-create recovery;
+// STORY-260830-2t4g7i introduces section 4.2 with its executed tmux clauses.
 var storyNewV070Bindings = map[string]storyBindingUpgrade{
+	"section:4.2": {
+		Production: codeReference{Path: "internal/tmuxserver/acquire.go", Declaration: "Acquire"},
+		Cases:      []string{"tmux-lifecycle-operations-v070", "tmux-private-server-management-v070"},
+		Coverage:   coverageSliver,
+		Gap:        "Acquire discharges Section 4.2 clauses 4.2#4 through 4.2#7 for the dedicated -S server, background no-create policy, broker contact, typed capability_unavailable refusal, and no direct-creation fallback; ExecuteWrapperRestore discharges 4.2#9 for the bounded lease refresh and local-resume/remote-offer/park decision. The remaining clauses stay unenumerated: this repository builds no ax pane command or tmux-resurrect migration, and it does not perform a real GUI/Aqua sentinel plus provider-auth smoke or re-establish that realm after logout/reboot.",
+		Clauses: []dischargedClause{
+			{ID: "4.2#4", Line: 1417, Excerpt: "AX MUST use its dedicated <code>-S</code> server and MUST NOT discover or reuse", AcceptanceCases: []string{"tmux-private-server-management-v070"}},
+			{ID: "4.2#5", Line: 1419, Excerpt: "creation is credential-sensitive. A Background caller MUST NOT create a", AcceptanceCases: []string{"tmux-private-server-management-v070"}},
+			{ID: "4.2#6", Line: 1422, Excerpt: "its attested AX tmux server; if neither exists it MUST return", AcceptanceCases: []string{"tmux-private-server-management-v070"}},
+			{ID: "4.2#7", Line: 1423, Excerpt: "<code>capability_unavailable</code> with typed realm/readiness details and MUST", AcceptanceCases: []string{"tmux-private-server-management-v070"}},
+			{ID: "4.2#9", Line: 1434, Excerpt: "After restore, the wrapper MUST:", AcceptanceCases: []string{"tmux-lifecycle-operations-v070"}},
+		},
+	},
 	"section:4.1": {
 		Production: codeReference{Path: "internal/termbind/recover.go", Declaration: "RecoverCreate"},
 		Cases:      []string{"terminal-create-recovery-exact"},
@@ -677,6 +752,15 @@ var storyNewV070Bindings = map[string]storyBindingUpgrade{
 }
 
 var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
+	"section:3.2": {
+		Production: codeReference{Path: "internal/tmuxserver/bind.go", Declaration: "CheckSocketCustody"},
+		Cases:      []string{"AC-PATH-001", "localstore-path-registry", "localstore-layout-owner-only", "localstore-digest-path-v1", "localstore-immutable-blob-install", "localstore-sqlite-projection", "tmux-socket-custody-v070"},
+		Coverage:   coverageSliver,
+		Gap:        "CheckSocketCustody discharges Section 3.2 clause 3.2#8 for the socket's kind, owner, private mode, and identity recheck before Probe connects, Lifecycle dispatches, or Spawner unlinks. ResolvePaths and the listed localstore cases remain the path/layout owners; the other Section 3.2 clauses stay unenumerated here.",
+		Clauses: []dischargedClause{
+			{ID: "3.2#8", Line: 810, Excerpt: "symlink. Before bind, connect, rename, or unlink, AX MUST reject a socket path,", AcceptanceCases: []string{"tmux-socket-custody-v070"}},
+		},
+	},
 	"section:2.4": {
 		Production: codeReference{Path: "internal/sessprofile/authority.go", Declaration: "Derive"},
 		Cases:      []string{"sessprofile-derive", "sessprofile-derive-heads", "sessprofile-fork-pair", "provhost-mapping-resolution", "story-260917-losing-lease-profile-source", "story-260922-derivation-side-profile-source"},
@@ -720,6 +804,19 @@ var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
 		Gap:        "ResolveEvidence discharges Section 4.D clause 4.D#2 by admitting every resolved Manifest, Probe, and Capability Evidence object through the landed Registry.AdmitProbe, which verifies the attestation signature before the object is treated as evidence; forged signatures refuse. The other Section 4.D clauses (registry-row equality 4.D#1 and the no-silent-fallback backend selection rule 4.D#3) are landed Reconcile behavior and explicit-selection behavior respectively and stay unenumerated here.",
 		Clauses: []dischargedClause{
 			{ID: "4.D#2", Line: 1296, Excerpt: "key registry and MUST verify the signature before treating the object as", AcceptanceCases: []string{"terminal-evidence-resolution-exact"}},
+		},
+	},
+	"section:4.C": {
+		Production: codeReference{Path: "internal/tmuxserver/lifecycle.go", Declaration: "Execute"},
+		Cases:      []string{"tmux-attach-overlap-v070", "tmux-attach-semantics-v070", "tmux-lifecycle-operations-v070"},
+		Coverage:   coveragePartial,
+		Gap:        "Lifecycle.Execute discharges Section 4.C clauses 4.C#3, 4.C#4, 4.C#5, 4.C#6, and 4.C#7 for repeated identity, literal ax pane argv, host-only attach descriptors, AttachAuthorization equality, and listed refusal behavior. The creating uncertainty/status-first rule and per-side-effect winning-lease comparison remain outside this attach/lifecycle leaf's measured clauses.",
+		Clauses: []dischargedClause{
+			{ID: "4.C#3", Line: 1155, Excerpt: "Every repeated identity MUST equal the request context.", AcceptanceCases: []string{"tmux-attach-semantics-v070", "tmux-lifecycle-operations-v070"}},
+			{ID: "4.C#4", Line: 1159, Excerpt: "<code>{argv:string[3]}</code>, and its three values MUST be literal", AcceptanceCases: []string{"tmux-lifecycle-operations-v070"}},
+			{ID: "4.C#5", Line: 1162, Excerpt: "<code>string[1..4096]</code> usable only on the responding host and MUST NOT be", AcceptanceCases: []string{"tmux-attach-semantics-v070"}},
+			{ID: "4.C#6", Line: 1189, Excerpt: "capability. In <code>attach</code>, the result input boolean MUST equal both the", AcceptanceCases: []string{"tmux-attach-overlap-v070", "tmux-attach-semantics-v070"}},
+			{ID: "4.C#7", Line: 1195, Excerpt: "An error not listed for an operation MUST NOT be emitted by the backend for a", AcceptanceCases: []string{"tmux-attach-semantics-v070", "tmux-lifecycle-operations-v070"}},
 		},
 	},
 	"section:5.2": {
@@ -798,7 +895,7 @@ var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
 	},
 }
 
-// storyBindingExtensions are the three already-measured bindings that this
+// storyBindingExtensions are the two already-measured bindings that this
 // Story extends with executed admission/source cases. Unlike the historical
 // post-adoption upgrades above, these do not promote an unevidenced stub; the
 // extension is limited to adding the new Story's acceptance owners to clauses
@@ -812,6 +909,83 @@ var storyBindingExtensions = map[string]struct{}{
 // story final leaves add to the adopted registry. Each is pinned literally;
 // any further addition still fails as an unreviewed claim.
 var storyNewV070Cases = map[string]acceptanceCase{
+	"tmux-attach-overlap-v070": {
+		ID:         "tmux-attach-overlap-v070",
+		Production: codeReference{Path: "internal/tmuxserver/lifecycle.go", Declaration: "Execute"},
+		Tests: []codeReference{
+			{Path: "internal/tmuxserver/lifecycle_active_clients_unix_test.go", Declaration: "TestAttachOverlapAdmissionAtomicAcrossLifecycleInstances"},
+			{Path: "internal/tmuxserver/lifecycle_active_clients_unix_test.go", Declaration: "TestAttachOverlapInputGateChecksEveryPeer"},
+			{Path: "internal/tmuxserver/lifecycle_active_clients_unix_test.go", Declaration: "TestAttachConcurrentInputRequiresAXPolicy"},
+			{Path: "internal/tmuxserver/lifecycle_active_clients_unix_test.go", Declaration: "TestAttachReceiptWithoutPositiveLivenessRemainsPossiblePeer"},
+			{Path: "internal/tmuxserver/lifecycle_rev8_unix_test.go", Declaration: "TestAttachOverlapRequiresMultiAttach"},
+			{Path: "internal/tmuxserver/lifecycle_rev8_unix_test.go", Declaration: "TestAttachOverlapInputRequiresMultipleInputClients"},
+			{Path: "internal/tmuxserver/lifecycle_rev8_unix_test.go", Declaration: "TestAttachSameClientRetryIgnoresOverlap"},
+			{Path: "internal/tmuxserver/lifecycle_rev9_unix_test.go", Declaration: "TestAttachSameClientRetryWithPeerPresent"},
+		},
+	},
+	"tmux-attach-semantics-v070": {
+		ID:         "tmux-attach-semantics-v070",
+		Production: codeReference{Path: "internal/tmuxserver/lifecycle.go", Declaration: "Execute"},
+		Tests: []codeReference{
+			{Path: "internal/tmuxserver/lifecycle_attach_properties_unix_test.go", Declaration: "TestExecuteAttachLostResponseReplaysRecordedOutcome"},
+			{Path: "internal/tmuxserver/lifecycle_attach_properties_unix_test.go", Declaration: "TestExecuteAttachReadOnlyReceiptCannotEscalateToWritable"},
+			{Path: "internal/tmuxserver/lifecycle_attach_properties_unix_test.go", Declaration: "TestExecuteAttachDoesNotReadOrChangeSessionLease"},
+			{Path: "internal/tmuxserver/lifecycle_attach_properties_unix_test.go", Declaration: "TestForegroundAcquireComposesProductionProbeWithAttach"},
+			{Path: "internal/tmuxserver/lifecycle_attach_properties_unix_test.go", Declaration: "TestExecuteEveryOperationRefusesSocketSubstitutionBeforeDispatch"},
+			{Path: "internal/tmuxserver/lifecycle_extra_unix_test.go", Declaration: "TestAttachDescriptorNeverPersisted"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteAttachIdempotent"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteAttachRefusals"},
+		},
+	},
+	"tmux-lifecycle-operations-v070": {
+		ID:         "tmux-lifecycle-operations-v070",
+		Production: codeReference{Path: "internal/tmuxserver/lifecycle.go", Declaration: "Execute"},
+		Tests: []codeReference{
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteCreateInteractive"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteCreateHeadless"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteCreateRefusals"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteAttach"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteAttachIdempotent"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteStatusPresent"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteQuiesce"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteBoundary"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteStop"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteTerminate"},
+			{Path: "internal/tmuxserver/lifecycle_ops_unix_test.go", Declaration: "TestExecuteRestore"},
+			{Path: "internal/tmuxserver/wrapper_unix_test.go", Declaration: "TestWrapperRestoreLocalWinResumes"},
+			{Path: "internal/tmuxserver/wrapper_unix_test.go", Declaration: "TestWrapperRestoreLapsedGrantRemoteOffer"},
+			{Path: "internal/tmuxserver/wrapper_unix_test.go", Declaration: "TestWrapperRestoreParksWithoutEffects"},
+			{Path: "internal/tmuxserver/wrapper_unix_test.go", Declaration: "TestWrapperRestoreExpiredRefreshParksUnverified"},
+		},
+	},
+	"tmux-private-server-management-v070": {
+		ID:         "tmux-private-server-management-v070",
+		Production: codeReference{Path: "internal/tmuxserver/acquire.go", Declaration: "Acquire"},
+		Tests: []codeReference{
+			{Path: "internal/tmuxserver/acquire_test.go", Declaration: "TestAcquireForegroundSpawnsDedicatedServer"},
+			{Path: "internal/tmuxserver/acquire_test.go", Declaration: "TestAcquireForegroundAttachesToRunningAttested"},
+			{Path: "internal/tmuxserver/acquire_test.go", Declaration: "TestAcquireForegroundRefusesWrongGenerationAdmission"},
+			{Path: "internal/tmuxserver/p3a_test.go", Declaration: "TestAcquireForegroundRefusesEveryCatalogDecoyRunning"},
+			{Path: "internal/tmuxserver/acquire_test.go", Declaration: "TestAcquireBackgroundContactsBroker"},
+			{Path: "internal/tmuxserver/acquire_test.go", Declaration: "TestAcquireBackgroundMissReturnsTypedUnavailable"},
+			{Path: "internal/tmuxserver/acquire_test.go", Declaration: "TestAcquireBackgroundVerifiesWithoutCreating"},
+			{Path: "internal/tmuxserver/acquire_test.go", Declaration: "TestAcquireBackgroundRefusesEveryCatalogDecoy"},
+		},
+	},
+	"tmux-socket-custody-v070": {
+		ID:         "tmux-socket-custody-v070",
+		Production: codeReference{Path: "internal/tmuxserver/bind.go", Declaration: "CheckSocketCustody"},
+		Tests: []codeReference{
+			{Path: "internal/tmuxserver/lifecycle_attach_properties_unix_test.go", Declaration: "TestExecuteEveryOperationRefusesSocketSubstitutionBeforeDispatch"},
+			{Path: "internal/tmuxserver/lifecycle_attach_properties_unix_test.go", Declaration: "TestExecuteEveryOperationRefusesForeignOrPermissiveSocket"},
+			{Path: "internal/tmuxserver/probe_unix_test.go", Declaration: "TestServerProberRefusesSocketSubstitutionBeforeConnect"},
+			{Path: "internal/tmuxserver/probe_unix_test.go", Declaration: "TestServerProberRefusesSocketSymlinkBeforeConnect"},
+			{Path: "internal/tmuxserver/probe_unix_test.go", Declaration: "TestServerProberRefusesForeignSocketBeforeConnect"},
+			{Path: "internal/tmuxserver/probe_unix_test.go", Declaration: "TestServerProberRefusesPermissiveSocketBeforeConnect"},
+			{Path: "internal/tmuxserver/probe_unix_test.go", Declaration: "TestServerSpawnerRefusesSocketSubstitutionBeforeUnlinkOrSpawn"},
+			{Path: "internal/tmuxserver/probe_unix_test.go", Declaration: "TestServerSpawnerRefusesForeignOrPermissiveSocketBeforeMutation"},
+		},
+	},
 	"story-260917-append-winning-lease-admission": {
 		ID:         "story-260917-append-winning-lease-admission",
 		Production: codeReference{Path: "internal/sessrepo/sessrepo.go", Declaration: "AppendEvent"},
