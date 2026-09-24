@@ -1,0 +1,2440 @@
+diff --git a/README.md b/README.md
+index 500723b..799cfdb 100644
+--- a/README.md
++++ b/README.md
+@@ -3890,23 +3890,36 @@ executable positive/negative fixture families. There is no `ax`
+ command, SSH process launch, or provider plugin; launch selection is a
+ computed Configuration-4 argv only.
+ 
+-[`internal/merkleinventory`](internal/merkleinventory) is a separate in-memory
+-Mesh RPC 2 component for deterministic namespace roots/children, validated
+-membership, and bounded JSON object retrieval. It carries separate proofs for
+-the exact synthetic-ID inventory fixture and a real-byte in-process union;
+-the identity-only proof does not claim object validation. Four mapped schemas
+-remain fail-closed pending their owning validators. The package is not wired
+-into the authenticated Host Channel handler, does not persist inventories or
+-transfer chunks, and advertises no anti-entropy capability. RPC 3/4 inventory
+-serving is outside this component's scope (SPEC §§11.8–11.9); RPC 5 authority
+-rules also remain unsupported. Validation boundaries and commands are in the
+-package README, [conformance matrix](internal/merkleinventory/CONFORMANCE-MATRIX.md),
++[`internal/merkleinventory`](internal/merkleinventory) provides deterministic
++Mesh RPC 2 namespace roots/children, validated membership, bounded JSON object
++retrieval, and a `DurableIndex` library for validated immutable JSON unions.
++`SyncFrom` discovers missing IDs through the namespace trie, fetches objects by
++digest, audits bytes for common IDs, and quarantines/aborts same-digest byte
++conflicts. `RebuildProjection` verifies the union contains the repository's
++authoritative record and event bytes, derives every validated lease head after
++union, and sends that complete set to the existing `sessstate.Projector`.
++Losing-lease event objects remain in the immutable union; only the
++`sessrepo`-owned authoritative chain reaches the state reducer. The pinned
++contract says: “No last-writer-wins rule exists. Timestamps MUST NOT select a
++winner.”
++
++This remains a library API. It is not wired into an `ax sync` command, the
++authenticated Host Channel handler, or a doctor/capability surface, and makes
++no network transport claim. Raw blob/chunk staging and destination
++materialization stay with SPEC §§11.5–11.6. Four mapped schemas remain
++fail-closed pending their owning validators; RPC 3/4 inventory serving and RPC
++5 authority rules are not supported here. Validation boundaries and commands
++are in the package README, [conformance matrix](internal/merkleinventory/CONFORMANCE-MATRIX.md),
+ and [traceability](internal/merkleinventory/TRACEABILITY.md).
+ 
+ | Inventory check | Command | Output |
+ | --- | --- | --- |
+-| In-process inventory behavior | `go test ./internal/merkleinventory -count=1 -v` | stdout; task-scoped logs under `.temp/TASK-260830-nxqqaw/` |
+-| Inventory narrowing probes | `python3 internal/merkleinventory/mutations.py --output .temp/TASK-260830-nxqqaw/mutations` | Per-probe overlays and raw test logs, plus `results.json` and `table.md` |
++| Inventory, durable union and projection behavior | `go test ./internal/merkleinventory ./internal/sessquery -count=1` | Package logs under `.temp/TASK-260830-147hsj/`; `t.TempDir()` crash fixtures |
++| Direct importer set | `go test ./internal/sessckpt ./internal/termbind -count=1` | Importer test log under `.temp/TASK-260830-147hsj/` |
++| Windows cross-platform vet | `GOOS=windows GOARCH=amd64 go vet ./...` | Vet output under `.temp/TASK-260830-147hsj/` |
++| Candidate-delta lint | `golangci-lint run --new ./...` | Changed and untracked Go code only; `.temp/TASK-260830-147hsj/golangci-lint-new-final.log`. The unconfigured full-tree default scan still reports existing repository findings. |
++| Full configured Go suite | `go test ./... -v` | Verbose test log under `.temp/TASK-260830-147hsj/` |
++| Inventory and union narrowing probes | `python3 internal/merkleinventory/mutations.py --output .temp/TASK-260830-147hsj/mutations` | Per-probe overlays and raw test logs, plus `results.json` and `table.md`; source snapshot recorded in task results |
+ 
+ The hostile-network conformance suite (`internal/hostchannel/hostile_test.go`,
+ `internal/hostchannel/hostile_carrier_test.go`, acceptance case `AC-HOST-001`)
+diff --git a/internal/merkleinventory/CONFORMANCE-MATRIX.md b/internal/merkleinventory/CONFORMANCE-MATRIX.md
+index f343766..2f8ba2f 100644
+--- a/internal/merkleinventory/CONFORMANCE-MATRIX.md
++++ b/internal/merkleinventory/CONFORMANCE-MATRIX.md
+@@ -1,4 +1,9 @@
+-# TASK-260830-nxqqaw conformance matrix
++# Mesh RPC 2 inventory conformance matrix
++
++The rows below preserve the first-leaf inventory census. The
++`TASK-260830-147hsj` delta section at the end is the current Story binding for
++durable object union, lease heads, and projection rebuild; it supersedes the
++earlier rule 5–6 and crash/restart scope bounds below.
+ 
+ Authority: `internal/specdoc/SPEC.v0.7.0.md` §10, §11.3, §11.4, and §11.5.
+ The task record's v0.5.0 reference is stale; the producer instruction pins the
+@@ -32,7 +37,7 @@ network, wall clock, or durable storage.
+ | `objects.get` request shape and pagination | `Index.ObjectsGet` → `decodeObjectsGetRequest`; `FetchObjects` | ID count `[0,1,2,4096,4097]`; ID order `[ascending,descending]`; duplicate `[absent,present]`; encoding count `[0,1,2]`; encoding `[JSON,CBOR,duplicate,unsorted]`; exact field-type/missing/duplicate matrix above | `TestObjectsGetRefusesUnsortedDuplicateAndUnavailableEncodingRequests`, `TestObjectsGetRefusesRequestIDCountOutsideBound`, and `TestDispatchRequestShapeStrictTypes`; `objects-get-request-count`, `objects-get-duplicate-id`, and `objects-get-cbor-only` are killed. 4096 sorted IDs pass shape and return literal `not_found` on an empty index. RPC 2 supports JSON only. |
+ | Negotiated response bytes and bounded batches | `Index.ObjectsGet`; `FetchObjects` | Response line `[at limit,one byte over]`; batch width `[1,2]`; line limit `[128,measured singleton response]` | `TestObjectsGetValidatesRequestedNamespaceAndNegotiatedLineLimit`, `TestFetchObjectsUsesBoundedSingletonBatches`; `objects-get-line-limit` and `objects-get-unbounded-batch` are killed. |
+ | Identity-level MIXED-NS-EXCHANGE | `Index.Dispatch` → `inventory.roots` / `inventory.children`; `MissingNamespaceIDs` → `walkMissing` | Namespace `[blob,event,manifest,record,tombstone,tombstone_ack]`; B missing `[Z(3),T(2),sha256:555…555]`; changed roots `[record,manifest,blob]`; post-add root set `[all six MIXED-NS-1 roots]` | `TestMixedNSExchangeIdentityLevelSyntheticIDs` seeds only the normative identity sets, uses the production RPC roots and child serving entries plus the production recursive walk, and proves the exact missing set. `identity-walk-blob-narrowing` and `objects-get-blob-transfer-boundary` are isolated and killed. This row explicitly claims no object validation. |
+-| Validated real-byte exchange and immutable Tombstone/Acknowledgement union | `MissingObjectIDs` → `walkMissing`; `FetchObjects` → `ObjectSource.ObjectsGet`; `Index.AddJSON` / `Index.AddBlob` | Changed roots `[record,manifest,blob]`; retrieved IDs `[exact Checkpoint,exact Descriptor]`; stored/requested membership `[record/record,manifest/record]`; link sets `[same Tombstone/Ack,two Tombstones/two Acks]`; timestamps `[different,not winner-selected]`; blob admission `[before,after record-root equality]` | `TestInProcessExchangeWalksChangedNamespacesAndFetchesExactObjects` pins six roots from real identities and checks validated object responses; `exchange-objects-get-schema-membership` is killed by that test alone. `TestInProcessTombstoneUnionRetainsBothTimesAndAcknowledgements` asserts both differently timestamped immutable Tombstones and both Acknowledgements remain; `tombstone-timestamp-winner` narrows that union to the later timestamp and is killed by that test alone. `TestAddJSONQuarantinesSameIDDifferentStoredBytes` and `same-id-quarantine` cover rule 3; `TestClassifyRefusesIdentityDigestMismatch` covers rule 1. Blob bytes are admitted only after record-root equality in the in-process caller. No aggregate sync coordinator exists here; §11.5 chunk transfer/materialization and §11.4 rules 5–6 remain owner-bounded below. |
++| Validated real-byte exchange and immutable Tombstone/Acknowledgement union | `MissingObjectIDs` → `walkMissing`; `FetchObjects` → `ObjectSource.ObjectsGet`; `Index.AddJSON` / `Index.AddBlob` | Changed roots `[record,manifest,blob]`; retrieved IDs `[exact Checkpoint,exact Descriptor]`; stored/requested membership `[record/record,manifest/record]`; link sets `[same Tombstone/Ack,two Tombstones/two Acks]`; timestamps `[different,not winner-selected]`; blob admission `[before,after record-root equality]` | `TestInProcessExchangeWalksChangedNamespacesAndFetchesExactObjects` pins six roots from real identities and checks validated object responses; `exchange-objects-get-schema-membership` is killed by that test alone. `TestInProcessTombstoneUnionRetainsBothTimesAndAcknowledgements` asserts both differently timestamped immutable Tombstones and both Acknowledgements remain; `tombstone-timestamp-winner` narrows that union to the later timestamp and is killed by that test alone. `TestAddJSONQuarantinesSameIDDifferentStoredBytes` and `same-id-quarantine` cover rule 3; `TestClassifyRefusesIdentityDigestMismatch` covers rule 1. Blob bytes are admitted only after record-root equality in the in-process caller. `TASK-260830-147hsj` adds durable sync and projection as detailed in the task delta section. |
+ | Source ownership of identity attestation | `internal/provhost.TestNoProductionPathAttestsProviderIdentityBinding` | Production `VerifyObjectIdentity` sites `[5 sessrepo,1 merkleinventory]`; sibling/foreign path `[absent]`; searched token `[present,bypassed]` | Exact owner path census and synthetic foreign path test; `identity-inventory-owner-prefix` is killed by the source test, and `identity-token-preserving-refusal-bypass` preserves the searched token while the behavioral suite rejects forged membership. This is a source test, not a production capability. |
+ 
+ ## Wire decoder census (rev3)
+@@ -144,8 +149,8 @@ leaf owns its update.
+ | Complete validators and admission for both Materialization Plan versions | Same decision clause: keep the canonicaljson refusal; do not add a shallow validator. | `STORY-260830-2r137i — workspace-materialization-and-groups`; mapped to `manifest`, each version refused and tested here. |
+ | Complete validator and admission for Task-board Bundle | Same decision clause: keep the canonicaljson refusal; do not add a shallow validator. | `STORY-260830-27pqyi — task-board-bridge-and-bundle`; mapped to `manifest`, refused and tested here. |
+ | Chunk staging/retry, transfer recovery and destination materialization | Task AC requires bounded inventory exchange; decision rev1 Item 7 says transfer/materialization owned by another leaf must be modeled at its boundary. Pinned SPEC §§11.5–11.6. | `STORY-260830-14qxuc — resumable-blob-and-manifest-transfer` owns chunk transfer; `STORY-260830-2r137i — workspace-materialization-and-groups` owns workspace materialization. This package only validates/adopts complete raw bytes with `Index.AddBlob`. |
+-| Lease-head derivation and losing-lease-event preservation (union rules 5–6) | Pinned SPEC §11.4 rules 5–6; they require lease/branch state beyond namespace identity exchange. | Sibling `TASK-260830-147hsj — implement-object-discovery-and-union`, found under this Story. No lease winner or event branch is calculated by this package. |
+-| Crash/restart evidence for durable exchange | Task AC: “crash/idempotency evidence is included when the operation mutates durable state.” | This `Index` is process-local and does not write durable state; the conditional trigger does not apply. No crash-recovery capability is claimed. |
++| Lease-head derivation and losing-lease-event preservation (union rules 5–6) | Pinned SPEC §11.4 rules 5–6 and §5.3; implemented by `Index.RebuildProjection` → `Reader.LeaseHeadsForSession` → `sessstate.Projector.Project` | `TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation` and `TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority`; see `TASK-260830-147hsj` delta section for all axes and killed mutants. |
++| Crash/restart evidence for durable exchange | Task AC: “crash/idempotency evidence is included when the operation mutates durable state.” | `DurableIndex.AddJSON` persists validated objects and quarantine records. `TestDurableJSONAddIsIdempotentAcrossCrashRestartByNamespace` covers all five JSON namespaces; `TestDurableConflictCrashRestoresQuarantineAndAbortsSync` covers conflict recovery. Process-crash checks do not claim physical power-loss simulation. |
+ | Mesh RPC 3/4 namespace serving | Pinned SPEC §11.8 adds `directory_record`; §11.9 adds `terminal_backend_evidence`; §11.3 RPC 2 shapes remain six namespaces. | This leaf's `Index.New` accepts RPC 2.0.0 only and composes `rpcwire.Namespaces(version)`; RPC 3/4 inventory serving is not claimed here. |
+ | Public `ax` doctor/capability or Host Channel integration | Task AC is the internal inventory implementation deliverable. | This package has no Host Channel handler or doctor surface and advertises no anti-entropy capability. |
+ 
+@@ -159,3 +164,53 @@ admitted 0 of 4 by the explicit decision and each refuses through
+ `Index.AddJSON` with a targeted narrowing test. This ratio does not include
+ chunk transport/materialization, lease/event branch union, durable restart, or
+ RPC 3/4 serving; each is listed above with its clause and owner/bound.
++
++## TASK-260830-147hsj durable union and projection delta
++
++Authority is the pinned `internal/specdoc/SPEC.v0.7.0.md`, not the task
++record's stale v0.5.0. The relevant §11.4 text (rules 1–7, lines 7925–7933)
++states:
++
++> No last-writer-wins rule exists. Timestamps MUST NOT select a winner.
++
++Section 5.3 (lines 1987–2061, including line 2047) selects the greatest
++`(epoch, lease_id)` tuple using bytewise UUID order; `created_at` is diagnostic
++only. A losing lease's events remain in a divergent branch and do not affect
++authoritative state.
++
++| Acceptance row | Production call site | Varied axes and evidence | Narrowing killed by named test alone |
++| --- | --- | --- | --- |
++| Discover absent JSON objects and fetch by digest | `DurableIndex.SyncFrom` → `MissingObjectIDs` / `walkMissing` → `FetchObjects` → `Index.ObjectsGet` | Namespace `[event,manifest,record,tombstone,tombstone_ack]`; one missing valid object per namespace; after sync every exact byte sequence and namespace root matches peer. | `sync-missing-record-fetch` → `TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords` |
++| Admit validated durable objects, idempotently across crash/restart | `DurableIndex.AddJSON` → `ClassifyJSON` → `durableInstallNoReplace`; reopen via `OpenDurable` → `load` | Validated JSON classes `[5 namespaces]`; malformed/unknown inputs `[invalid JSON, unsupported schema]`; install crash `[after atomic object install]`; identical retry `[before and after reopen]`; count remains 1; corrupt active bytes refuse reopen. | `durable-event-replay` → `TestDurableJSONAddIsIdempotentAcrossCrashRestartByNamespace`; `durable-unknown-schema-admit` → `TestDurableAddRejectsBeforePersistingInvalidObjects`; `durable-load-skips-forged-object` → `TestDurableStoreRejectsCorruptActiveBytesOnOpen` |
++| Quarantine same-digest/different-byte conflict and abort sync | `DurableIndex.SyncFrom` common-ID audit → `addJSONLocked` → persistent quarantine/removal | Byte variants `[canonical same identity, exact whitespace-distinct bytes]`; precondition `[equal roots]`; conflict path `[common IDs]`; crash points `[after first candidate, after both candidates, after active removal]`; reopen has no active ID and retry still refuses literal `integrity_failure`. | `durable-same-id-different-bytes`, `sync-common-record-audit` → `TestDurableSyncAuditsCommonIDsAndQuarantinesDifferentBytes`; `quarantine-crash-recovery` → `TestDurableConflictCrashRestoresQuarantineAndAbortsSync` |
++| Union Tombstones and Acknowledgements as records, not actions | `DurableIndex.SyncFrom` → `addJSONLocked`; closure via `validateTombstoneAckClosureLocked`; projection via `Index.RebuildProjection` | Arrival `[Ack before Tombstone at the peer]`; classes `[Tombstone,Acknowledgement]`; sync retains both exact bytes and roots; a preexisting `sessrepo` session remains after sync. Ack-only union remains stored, refuses closure, then recovers after Tombstone arrival. A wrong `subject_id` refuses and both objects remain. | `union-ack-arrival-order`, `sync-skip-tombstone-union` → `TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords`; `sync-unclosed-tombstone-ack` → `TestDurableSyncRefusesUnclosedAcknowledgementThenRecovers`; `durable-ack-subject-link` → `TestDurableSyncRefusesAcknowledgementWithMismatchedTombstoneSubject`; `projection-skip-unclosed-ack` → `TestProjectionRebuildRefusesUnclosedAcknowledgement` |
++| Derive all lease heads after union and preserve a losing branch | `Index.RebuildProjection` → `Reader.LeaseHeadsForSession` → `sessstate.Projector.Project` | Lease tuple set `[two same-epoch competing UUIDv4 IDs]`; generated cardinalities `[0..32]`; event objects `[authoritative session.created, divergent session.idle]`; repository chain `[only session.created]`; stored union `[both exact event bytes]`; timestamps reversed in both directions; duplicate lease ID with different bytes refuses. | `union-lease-tuple-omission` → `TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation`; `union-lease-generated-cardinality-omission` → `TestLeaseHeadsForSessionCoversGeneratedCardinalityRange/size_17`; `union-lease-conflicting-same-id` → `TestLeaseHeadsForSessionRefusesConflictingBytesForOneLeaseID`; `projection-drops-union-head` → `TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority` |
++| Rebuild projection only from closed union and exact authority bytes | `Index.RebuildProjection` / `DurableIndex.RebuildProjection` → `validateTombstoneAckClosure` and `sessrepo` record/event reads | Inputs `[record missing, event missing, Ack missing Tombstone]`; event/record bytes must match union byte-for-byte before reduce. | `projection-missing-union-record`, `projection-missing-union-event` → `TestProjectionRebuildRefusesAuthorityBytesMissingFromUnion`; `projection-skip-unclosed-ack` → `TestProjectionRebuildRefusesUnclosedAcknowledgement` |
++| Rebuild projection independent of union arrival and timestamp | `Index.RebuildProjection` and durable wrapper `DurableIndex.RebuildProjection` | Six permuted union objects (`6! = 720` orders) × two opposing timestamp assignments = 1,440 in-memory production rebuilds; fixed repository authority snapshot; oracle pins literal state, `(epoch, lease_id)` winner, conflicts, all namespace IDs/bytes/counts and roots. Durable wrapper is also driven once for each timestamp assignment. | `union-lease-created-at-winner`, `projection-drops-union-head` → `TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority` |
++
++The reducer receives only validated lease tuples after a sorted identity
++snapshot. `LeaseHeadsForSession` drops `created_at`; `Index.RebuildProjection`
++has no clock input or `time.Now` call. Event input comes from the validated
++`sessrepo` authoritative chain after exact byte-presence checks against the
++union. Thus the projection is deterministic for the same immutable union and
++fixed `sessrepo` authority snapshot. This leaf preserves divergent event bytes
++but does not build a new arbitrary event-DAG index or mutate the authoritative
++chain.
++
++## TASK-260830-147hsj explicit bounds
++
++| Out-of-contract row | Acceptance clause / pinned clause | Owner or measured bound |
++| --- | --- | --- |
++| Raw blob/chunk transfer, retained staging, destination materialization and atomic commit | Pinned §11.4 rule 7: referenced blob transfer and destination materialization begin only after record union; task instructions explicitly say model §§11.5–11.6 at the boundary, do not implement them. | `STORY-260830-14qxuc` owns transfer/staging; `STORY-260830-2r137i` owns destination materialization. Durable storage only persists the five JSON namespaces. |
++| Network transport, public `ax sync`, Host Channel wiring and doctor/capability advertisement | Acceptance asks for the scoped production behavior and says no unsupported capability is advertised; it does not define a transport or public command. | This is an in-process package API. No `ax sync`/Host Channel/doctor surface is wired or claimed. |
++| Reconstructing a separate authoritative chain from arbitrary union events | Task implementation instructions bind event authority to the existing `sessrepo` chain and send only that chain to the existing pure reducer. | This leaf retains union event bytes and derives lease conflicts; it does not alter `sessrepo` or build a second DAG interpreter. |
++| Power loss, physical disk faults, and native Windows crash execution | Acceptance requires crash/idempotency evidence for durable mutations. | Tests terminate a child process at install/quarantine boundaries and reopen. Windows cross-vet is required; native Windows runtime and physical power-loss fault injection are not run. |
++| Exhaustive enumeration of SHA-256 and UUID domains | Acceptance requires every arrival permutation for a small event/object set; schema/digest grammar already has landed owners. | The event/object permutation domain is fully enumerated at N=6; full digest/UUID domains delegate to `canonicaljson` and `scalar`. |
++
++The brief has no formal surface table. The task handoff therefore reports this
++as a brief gap and includes a six-row derived coverage map in
++`coverage-map.md`; it is not treated as a waiver.
++
++**Measured TASK-260830-147hsj coverage: 6 of 6 derived acceptance rows driven
++through named production call sites.** The exact call sites, test names, axes,
++and killed mutants are in the table above and `coverage-map.md`.
+diff --git a/internal/merkleinventory/IMPORTER-OUTCOMES.md b/internal/merkleinventory/IMPORTER-OUTCOMES.md
+index 0a65144..7fe6452 100644
+--- a/internal/merkleinventory/IMPORTER-OUTCOMES.md
++++ b/internal/merkleinventory/IMPORTER-OUTCOMES.md
+@@ -343,3 +343,64 @@ Each row is keyed by package, imported entry, and input class. `prod`, `test`, a
+ - `internal/rpcwire` production code and validators are unchanged. Existing `hostchannel`, `meshneg`, and package external tests retain their baseline edges and are labeled unchanged above.
+ - `internal/provhost` production behavior is unchanged. Its identity ownership test recognizes exactly `internal/merkleinventory/index.go` as another identity verifier call site; broadening that prefix is killed by `TestAttestationAllowlistAnchorsOwningPath`.
+ - Package-entry usage is source-enumerated from `go list` production/test file inventories. The grid reports changed behavior at the canonicaljson identity entry and the new importer boundary; it does not claim end-to-end session or durable-state semantics.
++
++## TASK-260830-147hsj current Story-checkpoint importer grid
++
++This section supersedes the earlier direct-importer summary for the current
++Story checkpoint and candidate. Baseline is a fresh `git archive` of
++`b81258e3c5bc0f6321ae8f6bea81ec24cc298d70`; candidate is the uncommitted Story
++worktree. Both graphs were generated with Go 1.25.5 on darwin/arm64 using
++`go list -json ./...`: 45 package paths in each graph. The baseline and
++candidate snapshots, scanner output, and exact test logs are in
++`.temp/TASK-260830-147hsj/`.
++
++### Direct importer edges
++
++| Changed package | Base incoming importers | Candidate incoming importers | Edge delta |
++| --- | --- | --- | --- |
++| `internal/merkleinventory` | none | none | No other package imports this library package. |
++| `internal/sessquery` | `sessckpt` tests; `termbind` tests | `sessckpt` tests; `termbind` tests; `merkleinventory` production | Added production edge `merkleinventory → sessquery`. |
++
++`merkleinventory`'s direct internal imports are base `[canonicaljson,rpcwire,scalar]`
++and candidate `[canonicaljson,rpcwire,scalar,sessquery,sessrepo,sessstate]`.
++The new production dependency surface is limited to validated lease-head
++derivation (`sessquery`), exact authoritative record/event reads (`sessrepo`),
++and the existing projection reducer (`sessstate`). The other candidate-only
++imports in `go list` are standard-library filesystem/persistence support.
++
++### `(imported package, importer, entry, input)` outcome grid
++
++| Imported package | Importer package/channel | Entry | Input class | Base → candidate outcome | Validation |
++| --- | --- | --- | --- | --- | --- |
++| `internal/merkleinventory` | package itself / `prod` | `DurableIndex.AddJSON`, `SyncFrom`, `RebuildProjection` | schema-valid immutable JSON, common/missing IDs, byte-conflict variant, competing lease/event union | process-local inventory only → durable JSON union, quarantine/abort, repository-bound projection rebuild | Base and candidate package-test commands exit 0; exact logs below. |
++| `internal/sessquery` | `internal/merkleinventory` / `prod` | `Reader.LeaseHeadsForSession` | every validated Lease Record; competing IDs under reversed `created_at` values; generated set sizes 0–32; duplicate lease UUID with conflicting bytes | no caller → complete sorted tuple set without winner selection; conflict refuses literal `integrity_failure` | `TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation`, `TestLeaseHeadsForSessionCoversGeneratedCardinalityRange`, `TestLeaseHeadsForSessionRefusesConflictingBytesForOneLeaseID`; tuple omission, timestamp-winner, generated-size-17 omission, and same-ID conflict narrowings are each killed by their named test alone. |
++| `internal/sessrepo` | `internal/merkleinventory` / `prod` | `GetRecord`, `ListEvents`, `GetEvent` | fixed authoritative record and chained event bytes, including exact byte comparison with union copies | no caller → authoritative bytes are required in the union before projection | `TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority`, `TestProjectionRebuildRefusesAuthorityBytesMissingFromUnion`; independent record and event omission narrowings are killed alone. |
++| `internal/sessstate` | `internal/merkleinventory` / `prod` | `Projector.Project` | fixed repository chain plus complete post-union lease tuple set | no caller → same literal projection for all 1,440 permutation/timestamp cases; losing event bytes stay outside reducer input | `TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority`; `projection-drops-union-head` killed by the named test alone. |
++| `internal/sessquery` | `internal/sessckpt` / `test` | existing imported selector/session query entries | checkpoint capture fixtures and ordinary selected session state | unchanged | Base/candidate `go test ./internal/sessckpt ./internal/termbind -count=1` both exit 0; no `sessckpt` source/test row moved. |
++| `internal/sessquery` | `internal/termbind` / `test` | existing imported selector/session query entries | terminal binding and session-resolve fixtures | unchanged | Same baseline/candidate importer test command exits 0; no `termbind` source/test row moved. |
++
++The changed code files are `merkleinventory/{index.go,durable.go}` and
++`sessquery/lease.go`; tests add crash/restart, union-order, and carry-over
++coverage. Moved classes are: process-local JSON identities gain durable
++replay/reopen; same-ID different-byte inputs enter persistent quarantine and
++abort sync; Tombstone/Acknowledgement links close after union while both remain
++records; lease records gain a complete tuple-set handoff; losing event objects
++remain stored but are not applied to the repository-owned chain. No
++schema-identity class moves, and no existing `sessckpt`/`termbind` behavior
++moves.
++
++### Source identity and run results
++
++| Side | Source | Importer package test command | Exit | Result |
++| --- | --- | --- | ---: | --- |
++| Base | `b81258e3c5bc0f6321ae8f6bea81ec24cc298d70` archive | `go test -p=1 -parallel=1 ./internal/merkleinventory ./internal/sessquery -count=1` | 0 | both package tests green |
++| Base | same archive | `go test ./internal/sessckpt ./internal/termbind -count=1` | 0 | both direct test importers green |
++| Candidate | uncommitted Story worktree after final code/tests | `go test ./internal/merkleinventory ./internal/sessquery -count=1` | 0 | final changed-package run; `.temp/TASK-260830-147hsj/package-tests-final.log` |
++| Candidate | same final source identity | `go test ./internal/sessckpt ./internal/termbind -count=1` | 0 | both direct test importers green; `.temp/TASK-260830-147hsj/importer-tests-candidate-final.log` |
++
++The checkpoint importer packages remain unchanged; their base run is
++`.temp/TASK-260830-147hsj/importer-tests-base-01.log`. The final candidate
++package run includes all quarantine crash points, the unclosed and mismatched
++Tombstone/Acknowledgement refusals, corrupt-active reopen, projection authority
++guards, and the generated lease cardinality test. The full configured suite
++will establish the repository-wide candidate identity before handoff.
+diff --git a/internal/merkleinventory/README.md b/internal/merkleinventory/README.md
+index 074cecf..fbb818b 100644
+--- a/internal/merkleinventory/README.md
++++ b/internal/merkleinventory/README.md
+@@ -58,24 +58,44 @@ objects, exercises the production membership/refusal paths, and pins six roots
+ computed from the real fixture identities. The two proofs do not claim a
+ single synthetic-ID/real-byte execution.
+ 
+-`Index` is process-local. It does not persist inventory state, open a network
+-connection, transfer chunks, materialize content, mutate sessions, execute a
+-Tombstone, or advertise an anti-entropy/Host Channel capability. The real-byte
+-exchange test validates Checkpoint and Descriptor admission, bounded recursive
+-retrieval, record-before-blob ordering, and six literal roots derived from its
+-real identities. Separate production-entry tests cover identical replay,
+-same-digest quarantine/refusal, Tombstone/Acknowledgement union, and timestamps
+-without winner selection. `MissingNamespaceIDs` returns blob identities for
+-inventory comparison only; `MissingObjectIDs` and `objects.get` keep raw blob
+-bytes at the §11.5 transfer boundary.
++`Index` is the in-memory trie and validated-object engine. `DurableIndex`
++(`OpenDurable`) persists schema-valid immutable JSON bytes by namespace and
++digest, rebuilds the trie after restart, and retains conflicting byte variants
++in quarantine. `DurableIndex.SyncFrom` compares common IDs as well as Merkle
++differences, uses `MissingObjectIDs` to discover absent objects, and retrieves
++them through `FetchObjects`/`objects.get`. It closes Tombstone/Acknowledgement
++references after the complete received union exists. Both record classes stay
++immutable data; sync does not execute Tombstones or call a session deletion
++path.
+ 
+-Durable sync/abort coordination, lease-head derivation, losing-lease-event
+-preservation, network transport, and Section 11.5 chunk staging/recovery remain
+-outside this package's entry points. Board owners: sibling
+-`TASK-260830-147hsj` for §11.4 rules 5–6, `STORY-260830-14qxuc` for chunk
+-transfer, and `STORY-260830-2r137i` for workspace materialization. Since this
+-`Index` is process-local and does not mutate durable state, the task's
+-conditional crash/restart requirement is not triggered.
++`Index.RebuildProjection` verifies exact presence of the `sessrepo` record and
++authoritative event bytes in the union, derives every validated lease tuple
++from the complete union through `sessquery.Reader.LeaseHeadsForSession`, and
++passes them to the existing pure `sessstate.Projector`. Divergent event bytes
++remain stored in the union; only the repository-owned authoritative event
++chain reaches the reducer. The projection is invariant across all 720 orders
++of six union objects under each of two opposing timestamp assignments (1,440
++production `Index.RebuildProjection` cases). Its reference uses literal expected state, lease
++tuple, and conflict classes. Structurally, the rebuild reads sorted identity
++snapshots and validated records; neither `created_at`, wall-clock time, nor
++map insertion order selects a lease. More precisely, the projection is a
++function of the immutable union plus the fixed `sessrepo` authority snapshot;
++this leaf does not reconstruct a new event-chain index from arbitrary union
++objects.
++
++The pinned specification states: “No last-writer-wins rule exists. Timestamps
++MUST NOT select a winner.” Section 5.3 selects the greatest
++`(epoch, lease_id)` tuple using bytewise UUID order and defines `created_at` as
++diagnostic only. Crash/restart tests use child-process exit at object install
++and quarantine persistence boundaries, then reopen and retry. These are
++process-crash checks, not power-loss or physical-storage fault simulation.
++
++This is a package library, not a public `ax sync` command or advertised doctor,
++Host Channel, or network anti-entropy capability. Raw blob/chunk staging and
++destination materialization stay at the §11.5–§11.6 boundary. RPC 3/4 inventory
++serving remains outside `Index.New`'s RPC 2 contract. Board owners for those
++boundaries are `STORY-260830-14qxuc` (chunk transfer) and
++`STORY-260830-2r137i` (workspace materialization).
+ 
+ `New` accepts Mesh RPC 2.0.0 only. The pinned spec's §11.8 adds the RPC 3
+ `directory_record` namespace and §11.9 adds RPC 4
+@@ -90,9 +110,9 @@ From the repository root:
+ 
+ | Purpose | Command | Output |
+ | --- | --- | --- |
+-| Package behavior | `go test ./internal/merkleinventory -count=1 -v` | Test output; task logs under `.temp/TASK-260830-nxqqaw/` |
+-| Canonical identity and inventory behavior | `go test ./internal/canonicaljson ./internal/merkleinventory -count=1 -v` | Test output; task logs under `.temp/TASK-260830-nxqqaw/` |
+-| Narrowing evidence | `python3 internal/merkleinventory/mutations.py --output .temp/TASK-260830-nxqqaw/mutations` | One overlay and raw test log per mutant, plus `results.json` and `table.md` |
++| Inventory, durable union and projection behavior | `go test ./internal/merkleinventory ./internal/sessquery -count=1` | Test output; task logs under `.temp/TASK-260830-147hsj/` |
++| Windows cross-platform vet | `GOOS=windows GOARCH=amd64 go vet ./...` | Vet diagnostics; task log under `.temp/TASK-260830-147hsj/` |
++| Narrowing evidence | `python3 internal/merkleinventory/mutations.py --output .temp/TASK-260830-147hsj/mutations` | One overlay and raw test log per mutant, plus `results.json` and `table.md` |
+ 
+ See [CONFORMANCE-MATRIX.md](CONFORMANCE-MATRIX.md) for the gate/entry axis
+ census and [TRACEABILITY.md](TRACEABILITY.md) for clause-to-test bindings and
+diff --git a/internal/merkleinventory/TRACEABILITY.md b/internal/merkleinventory/TRACEABILITY.md
+index 2eb2c65..24361ae 100644
+--- a/internal/merkleinventory/TRACEABILITY.md
++++ b/internal/merkleinventory/TRACEABILITY.md
+@@ -7,6 +7,12 @@ record's v0.5.0 reference is stale; the producer pins the v0.7.0 repository
+ copy. `CONFORMANCE-MATRIX.md` and `IMPORTER-OUTCOMES.md` carry the complete
+ axis and direct-importer censuses.
+ 
++The first Story leaf established the RPC 2 inventory and in-process real-byte
++exchange. The `TASK-260830-147hsj` supplement below extends its §11.4 union
++binding with durable JSON persistence, common/missing-ID exchange, lease-head
++derivation, and projection rebuild. It does not change the traceability
++registry; the Story's final leaf owns that registry.
++
+ ## Clause-to-test bindings
+ 
+ | Specification clause | Production call site | Named evidence | Narrowing evidence or stated bound |
+@@ -27,8 +33,8 @@ axis and direct-importer censuses.
+ | §11.3 `objects.get` schema, ordering, encoding and bound | `Index.ObjectsGet` → `decodeObjectsGetRequest` / `decodeOneWireObject` → `ClassifyJSON`; `FetchObjects` | `TestObjectsGetRefusesUnsortedDuplicateAndUnavailableEncodingRequests`, `TestObjectsGetRefusesRequestIDCountOutsideBound`, `TestObjectsGetValidatesRequestedNamespaceAndNegotiatedLineLimit`, `TestFetchObjectsUsesBoundedSingletonBatches`, `TestObjectsGetRefusesEveryForeignNamespacePair`, `TestFetchObjectsRefusesEveryHostileForeignNamespacePair` | ID count `[0,1,2,4096,4097]`, order `[ascending,descending]`, duplicate `[absent,present]`, encoding count `[0,1,2]`, JSON/CBOR, and negotiated line `[limit,one byte over]`; server namespace matrix `[6×5]` with all 25 off-diagonal refusals and client JSON namespace matrix `[5×5]` with all 20 off-diagonal refusals. Every cross-namespace refusal asserts literal `integrity_failure`; `crossns` and `fetchns` narrow and kill one manifest/record cell apiece. Blob is bounded to the §11.5 transfer path; RPC 3/4 namespaces are not negotiated here. |
+ | §11.5 Descriptor/complete raw bytes boundary | `Index.AddBlob` → `verifyDescriptorBytes`; `Index.AddJSON` | `TestBlobDescriptorOwnsManifestMembershipAndCompleteRawBlob`, `TestBlobDescriptorByteReferencesAreVerifiedBeforeAdmission` | Descriptor identity stays in manifest; complete bytes enter blob only after whole digest, size, range and chunk digest validation. Chunk staging/retry is owned by `STORY-260830-14qxuc — resumable-blob-and-manifest-transfer`; workspace finalization by `STORY-260830-2r137i — workspace-materialization-and-groups`. |
+ | §11.4 MIXED-NS-EXCHANGE validated real-byte proof | `MissingObjectIDs` → `walkMissing`; `FetchObjects` → `ObjectSource.ObjectsGet`; `Index.AddJSON` / `AddBlob` | `TestInProcessExchangeWalksChangedNamespacesAndFetchesExactObjects` checks exact missing Checkpoint/Descriptor IDs, schema/digest validation, changed roots, record-before-blob order, and six literal roots derived from its real bytes | This is a separate proof from synthetic identity-level roots. `exchange-objects-get-schema-membership` kills the named test alone. The `objects.get` conflict refusal is at the production `Index.ObjectsGet` entry; `TestAddJSONQuarantinesSameIDDifferentStoredBytes` verifies quarantine and error propagation. |
+-| §11.4 union rules 1–4 and 7 | `Index.AddJSON` → `ClassifyJSON` / `preflightLocked`; Tombstone Acknowledgement gate → `validateTombstoneAckLinkLocked`; `Index.AddBlob` | `TestClassifyRefusesIdentityDigestMismatch`, `TestClassifyAndAddJSONUsesValidatedSchemaMembership`, `TestAddJSONQuarantinesSameIDDifferentStoredBytes`, `TestInProcessTombstoneUnionRetainsBothTimesAndAcknowledgements`, `TestAddTombstoneAcknowledgementRequiresAStoredMatchingTombstone`, and the record-before-blob exchange test | Narrowings cover digest bypass, same-ID quarantine, missing Tombstone, subject mismatch, Tombstone/Ack field couplings, and `tombstone-timestamp-winner`; the last is killed by the named two-Tombstone union test alone. Tombstones/Acks are stored as objects and no session-deletion API is called. There is no coordinator here to report aggregate sync abort. |
+-| §11.4 union rules 5–6; §5.3 lease/event semantics | No lease-head or branch-union production entry in this inventory package | Not reached by `Index` or the in-process fetch API | Bound to sibling `TASK-260830-147hsj — implement-object-discovery-and-union`, found under this Story. No timestamp winner, lease head or event branch is computed here. |
++| §11.4 union rules 1–4 and 7 | `DurableIndex.AddJSON` → `ClassifyJSON` → atomic semantic-ID install; `DurableIndex.SyncFrom` → common-ID `FetchObjects` audit and `MissingObjectIDs` fetch; deferred closure via `ValidateUnionClosure` | `TestDurableAddRejectsBeforePersistingInvalidObjects`, `TestDurableJSONAddIsIdempotentAcrossCrashRestartByNamespace`, `TestDurableSyncAuditsCommonIDsAndQuarantinesDifferentBytes`, `TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords`, plus the existing in-memory identity and Tombstone/Acknowledgement tests | `durable-event-replay`, `durable-same-id-different-bytes`, `sync-common-record-audit`, `sync-missing-record-fetch`, `sync-skip-tombstone-union`, and `union-ack-arrival-order` are killed by the named tests alone. The sync test confirms retained Tombstone/Ack bytes and an unchanged `sessrepo` session row. Blob/chunk staging remains §11.5-owned under rule 7. |
++| §11.4 union rules 5–6; §5.3 lease/event semantics | `Index.RebuildProjection` → `sessquery.Reader.LeaseHeadsForSession` → `sessstate.Projector.Project`; durable wrapper `DurableIndex.RebuildProjection` | `TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation`; `TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority` drives every order of six union objects under two opposing timestamp assignments; `TestDurableConflictCrashRestoresQuarantineAndAbortsSync` also exercises persisted refusal | `union-lease-tuple-omission`, `union-lease-created-at-winner`, and `projection-drops-union-head` are isolated narrowings. Losing event bytes remain in the union; the fixed `sessrepo` authoritative chain alone supplies event inputs to the reducer. Projection is deterministic for that authority snapshot plus the union set; this leaf does not rebuild an arbitrary DAG/branch index from union event objects. |
+ | §11.4 compatibility with later Mesh RPC namespaces | `Index.New` → `rpcwire.Namespaces` | `TestNewRefusesHigherRPCNamespaceSets` | This leaf implements the six RPC 2 namespaces of §11.3. Pinned §11.8 adds RPC 3 `directory_record`; §11.9 adds RPC 4 `terminal_backend_evidence`. `Index.New` refuses those versions and this package makes no RPC 3/4 serving claim. |
+ 
+ ## Mirrored gate × entry × axis census
+@@ -49,7 +55,7 @@ production test and isolated narrowing above or states the owner/bound.
+ | Request IDs and response bytes: `Index.ObjectsGet` / `FetchObjects` | ID count `[0,1,2,4096,4097]`; sorted/descending/duplicate; encoding count `[0,1,2]`; JSON/CBOR; exact/over line limit; batch `[1,2]`; stored/asked namespace match | Production tests and `objects-get-*` narrowings in the clause table. |
+ | Requested/object namespace pair: `Index.ObjectsGet` / `FetchObjects` | Server requested namespace × true JSON namespace `[6×5]`; client requested namespace × true JSON namespace `[5×5]`; match/mismatch `[diagonal/off-diagonal]`; client source `[hostile foreign object]` | `TestObjectsGetRefusesEveryForeignNamespacePair` and `TestFetchObjectsRefusesEveryHostileForeignNamespacePair`; all 25 server and 20 client mismatches assert literal `integrity_failure`. `crossns` and `fetchns` run the `requested_manifest_object_record` cells alone and are killed. Raw blob requests and RPC 3/4 vocabulary are explicit bounds below. |
+ | Blob and chunk classes: `Index.AddBlob` / `Index.AddJSON` | complete byte array vs Chunk; digest, size, offset/range, chunk digest; Descriptor namespace | Descriptor positive and malformed-reference negatives; chunk transfer/recovery bound to §11.5. |
+-| Validated real-byte exchange: `MissingObjectIDs` / `FetchObjects` / `Index.AddJSON` / `Index.AddBlob` | roots changed `[record,manifest,blob]`; fetched IDs `[exact Checkpoint,exact Descriptor]`; namespace `[record/manifest]`; Tombstone/Ack `[both retained]`; timestamp `[no winner]`; blob admission `[after record-root equality]` | `TestInProcessExchangeWalksChangedNamespacesAndFetchesExactObjects` pins six roots derived from real identities; `exchange-objects-get-schema-membership` is killed by that test alone. Rule 2 replay and rule 3 quarantine are separately driven by `TestAddJSONQuarantinesSameIDDifferentStoredBytes`; Tombstone/Ack union by `TestInProcessTombstoneUnionRetainsBothTimesAndAcknowledgements`. §11.5 chunk transfer belongs to `STORY-260830-14qxuc`; §11.4 rules 5–6 belong to sibling `TASK-260830-147hsj`. |
++| Validated real-byte exchange: `MissingObjectIDs` / `FetchObjects` / `Index.AddJSON` / `Index.AddBlob` | roots changed `[record,manifest,blob]`; fetched IDs `[exact Checkpoint,exact Descriptor]`; namespace `[record/manifest]`; Tombstone/Ack `[both retained]`; timestamp `[no winner]`; blob admission `[after record-root equality]` | `TestInProcessExchangeWalksChangedNamespacesAndFetchesExactObjects` pins six roots derived from real identities; `exchange-objects-get-schema-membership` is killed by that test alone. Rule 2 replay and rule 3 quarantine are separately driven by `TestAddJSONQuarantinesSameIDDifferentStoredBytes`; Tombstone/Ack union by `TestInProcessTombstoneUnionRetainsBothTimesAndAcknowledgements`. `TASK-260830-147hsj` adds durable missing/common-ID sync and branch projection. §11.5 chunk transfer belongs to `STORY-260830-14qxuc`. |
+ 
+ ## Direct importers and moved classes
+ 
+@@ -80,3 +86,47 @@ exchange. The four incomplete schema rows are admitted 0 of 4 by decision and
+ each has a refusal test, a typed literal code, unchanged roots/counts, no
+ quarantine, and a targeted narrowing. `CONFORMANCE-MATRIX.md` lists every
+ out-of-contract row with its acceptance clause and owner/bound.
++
++## TASK-260830-147hsj union and projection bindings
++
++Authority: pinned `internal/specdoc/SPEC.v0.7.0.md`, §11.4 rules 1–7
++(lines 7925–7933) and §5.3 (lines 1987–2061, including line 2047). The
++normative sentence is: “No last-writer-wins rule exists. Timestamps MUST NOT
++select a winner.” The task record's v0.5.0 reference is stale. The selector
++uses the greatest `(epoch, lease_id)` tuple in bytewise UUID order; `created_at`
++is diagnostic only.
++
++| Acceptance row | Production call site | Named evidence | Narrowing |
++| --- | --- | --- | --- |
++| Missing-object discovery and digest fetch | `DurableIndex.SyncFrom` → `MissingObjectIDs` / `walkMissing` → `FetchObjects` → `Index.ObjectsGet` | `TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords` verifies exact bytes and roots for each of `[event,manifest,record,tombstone,tombstone_ack]` | `sync-missing-record-fetch` |
++| Durable validated add and restart idempotency | `DurableIndex.AddJSON` → `ClassifyJSON` → `durableInstallNoReplace`; `OpenDurable` → `load` | `TestDurableJSONAddIsIdempotentAcrossCrashRestartByNamespace` covers all five namespaces; `TestDurableAddRejectsBeforePersistingInvalidObjects`; `TestDurableStoreRejectsCorruptActiveBytesOnOpen` | `durable-event-replay`, `durable-unknown-schema-admit`, `durable-load-skips-forged-object` |
++| Same-digest/different-byte quarantine and sync abort | `SyncFrom` common-ID audit → `addJSONLocked` → persistent quarantine/removal | `TestDurableSyncAuditsCommonIDsAndQuarantinesDifferentBytes`; `TestDurableConflictCrashRestoresQuarantineAndAbortsSync` covers crashes after first candidate, both candidates, and active removal | `durable-same-id-different-bytes`, `sync-common-record-audit`, `quarantine-crash-recovery` |
++| Tombstone/Acknowledgement union and closure | `SyncFrom` → `addJSONLocked` → `validateTombstoneAckClosureLocked`; `Index.RebuildProjection` → `validateTombstoneAckClosure` | `TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords`; `TestDurableSyncRefusesUnclosedAcknowledgementThenRecovers`; `TestDurableSyncRefusesAcknowledgementWithMismatchedTombstoneSubject`; `TestProjectionRebuildRefusesUnclosedAcknowledgement` | `sync-skip-tombstone-union`, `union-ack-arrival-order`, `sync-unclosed-tombstone-ack`, `durable-ack-subject-link`, `projection-skip-unclosed-ack` |
++| Complete lease tuple union; preserve a losing branch | `Index.RebuildProjection` → `Reader.LeaseHeadsForSession` → `sessstate.Projector.Project` | `TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation`; `TestLeaseHeadsForSessionRefusesConflictingBytesForOneLeaseID`; `TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority` | `union-lease-tuple-omission`, `union-lease-created-at-winner`, `union-lease-conflicting-same-id`, `projection-drops-union-head` |
++| Rebuild only from a closed union with exact repository authority bytes | `Index.RebuildProjection` / `DurableIndex.RebuildProjection` → `sessrepo.GetRecord`, `ListEvents`, `GetEvent` → `sessstate.Projector.Project` | `TestProjectionRebuildRefusesAuthorityBytesMissingFromUnion` and `TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority` | `projection-missing-union-record`, `projection-missing-union-event` |
++| Arrival-order and timestamp invariance | Same rebuild entries | Every permutation of six union additions (`6! = 720`) under two opposing timestamp assignments yields 1,440 production rebuilds; the oracle asserts literal projection state, lease tuple and conflict kinds plus expected union IDs/bytes/counts/roots. The durable wrapper is called once per timestamp assignment. | `union-lease-created-at-winner`, `projection-drops-union-head` |
++
++The six-object permutation set contains two competing same-epoch Lease
++Records, an authoritative `session.created` and divergent `session.idle` event,
++a Tombstone, and its Acknowledgement. The Session Record is the fixed authority
++precondition; it is present in every union. In the two timestamp profiles each
++`created_at` field is moved in opposite directions. The reducer receives the
++fixed repository-owned chain only after each record/event byte sequence is
++found exactly in the union. `LeaseHeadsForSession` consumes sorted identity
++order and drops `created_at`; the rebuild path has no wall-clock input. Thus the
++measured pure-function bound is a fixed `sessrepo` authority snapshot plus an
++immutable union set. This leaf does not reconstruct a second event DAG from
++arbitrary divergent event objects.
++
++**Measured acceptance ratio: 6 of 6 derived acceptance rows** are driven
++through named production call sites. The producer brief has no formal surface
++table; `coverage-map.md` calls this out and separately includes the four rev3
++carry-over arms and the additional closure/loader gates.
++
++Out-of-contract rows and their acceptance clauses are listed in
++`CONFORMANCE-MATRIX.md`: §§11.5–11.6 staging/materialization/commit are modeled
++at the boundary only; public network/Host Channel/doctor integration is not
++defined by this library task; arbitrary DAG reconstruction is excluded by the
++existing `sessrepo` ownership instruction; physical power loss and native
++Windows crash simulation are beyond process-crash tests; and full digest/UUID
++spaces remain owned by `canonicaljson`/`scalar`.
+diff --git a/internal/merkleinventory/coverage-map.md b/internal/merkleinventory/coverage-map.md
+index f214e88..7a9686f 100644
+--- a/internal/merkleinventory/coverage-map.md
++++ b/internal/merkleinventory/coverage-map.md
+@@ -1,4 +1,4 @@
+-# TASK-260830-nxqqaw coverage map
++# Mesh RPC 2 inventory coverage map
+ 
+ The producer and rework briefs do not include a formal surface table. This map
+ records the explicit acceptance clause and the rework's finite test surfaces;
+@@ -32,3 +32,30 @@ context; the production serving entry is `Index.ObjectsGet`. Raw blob bytes
+ remain on the §11.5 transfer path, and RPC 3/4 namespace axes are not admitted
+ by this RPC 2 constructor. These are explicit bounds in the conformance
+ matrix, not untested claims of this map.
++
++## TASK-260830-147hsj derived coverage map
++
++The producer brief did not include a formal surface table. These six rows are
++the measured decomposition of its one-sentence acceptance criterion; that
++brief gap is also recorded in the handoff note and conformance matrix.
++
++| Surface / AC row | Production call site | Named test | Narrowing killed by that test alone |
++| --- | --- | --- | --- |
++| Discover missing JSON objects and fetch by digest | `DurableIndex.SyncFrom` → `MissingObjectIDs` / `walkMissing` → `FetchObjects` → `Index.ObjectsGet` | `TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords` | `sync-missing-record-fetch` |
++| Persist only validated objects; identical add stays idempotent across restart | `DurableIndex.AddJSON` → `ClassifyJSON` → `durableInstallNoReplace`; reopen via `OpenDurable` → `load` | `TestDurableJSONAddIsIdempotentAcrossCrashRestartByNamespace`, `TestDurableAddRejectsBeforePersistingInvalidObjects`, `TestDurableStoreRejectsCorruptActiveBytesOnOpen` | `durable-unknown-schema-admit`, `durable-event-replay`, `durable-load-skips-forged-object` |
++| Quarantine same-digest/different-byte data and abort sync | `DurableIndex.SyncFrom` common-ID audit → `addJSONLocked` → quarantine | `TestDurableSyncAuditsCommonIDsAndQuarantinesDifferentBytes`, `TestDurableConflictCrashRestoresQuarantineAndAbortsSync` | `durable-same-id-different-bytes`, `sync-common-record-audit`, `quarantine-crash-recovery` |
++| Union Tombstones/Acks as records and do not execute them | `DurableIndex.SyncFrom` → `addJSONLocked` / `validateTombstoneAckClosureLocked` | `TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords`, `TestDurableSyncRefusesUnclosedAcknowledgementThenRecovers`, `TestDurableSyncRefusesAcknowledgementWithMismatchedTombstoneSubject` | `union-ack-arrival-order`, `sync-skip-tombstone-union`, `sync-unclosed-tombstone-ack`, `durable-ack-subject-link` |
++| Preserve concurrent lease branches, derive all heads after union | `Index.RebuildProjection` → `Reader.LeaseHeadsForSession` → `sessstate.Projector.Project` | `TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation`, `TestLeaseHeadsForSessionCoversGeneratedCardinalityRange`, `TestLeaseHeadsForSessionRefusesConflictingBytesForOneLeaseID`, `TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority` | `union-lease-tuple-omission`, `union-lease-generated-cardinality-omission`, `union-lease-created-at-winner`, `union-lease-conflicting-same-id`, `projection-drops-union-head` |
++| Projection consumes only a closed union containing exact authority bytes | `Index.RebuildProjection` / `DurableIndex.RebuildProjection` → `validateTombstoneAckClosure` → `sessrepo` record/event reads | `TestProjectionRebuildRefusesAuthorityBytesMissingFromUnion`, `TestProjectionRebuildRefusesUnclosedAcknowledgement` | `projection-missing-union-record`, `projection-missing-union-event`, `projection-skip-unclosed-ack` |
++| Projection independent of arrival order and timestamp | Same projection call sites as above | `TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority` (720 permutations × 2 timestamp assignments) | `union-lease-created-at-winner`, `projection-drops-union-head` |
++| Carry-over: FetchObjects duplicate-ID refusal | `FetchObjects` | `TestFetchObjectsRefusesDuplicateIDs` | `fetch-dup-ids` |
++| Carry-over: base64url exact round-trip rejects embedded newlines | `FetchObjects` → `decodeOneWireObject` | `TestFetchObjectsRefusesNewlineBearingBase64urlData` | `b64-roundtrip` |
++| Carry-over: recursive walk refuses local quarantined identity | `MissingObjectIDs` → `walkMissing` | `TestMissingObjectIDsRefusesLocalQuarantinedIdentity` | `walk-quarantine` |
++| Carry-over: recursive walk refuses stored cross-namespace identity | `MissingObjectIDs` → `walkMissing` | `TestMissingObjectIDsRefusesCrossNamespaceIdentity` | `walk-crossns` |
++
++The cross-namespace walker test deliberately seeds malformed internal state;
++`ClassifyJSON` and `AddJSON` cannot create that state without a SHA-256
++collision. This is a defensive reachable helper arm, not a valid public-ingest
++case. All listed mutant runs use their named test alone and have raw logs in
++the attached evidence archive. The mutation harness also has an applied
++neutral comment control that survives.
+diff --git a/internal/merkleinventory/durable.go b/internal/merkleinventory/durable.go
+new file mode 100644
+index 0000000..a26f59f
+--- /dev/null
++++ b/internal/merkleinventory/durable.go
+@@ -0,0 +1,754 @@
++package merkleinventory
++
++import (
++	"bytes"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/hex"
++	"errors"
++	"fmt"
++	"io/fs"
++	"os"
++	"path/filepath"
++	"runtime"
++	"slices"
++	"strings"
++	"sync"
++
++	"github.com/relux-works/agent-session-manager/internal/rpcwire"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/sessquery"
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++	"github.com/relux-works/agent-session-manager/internal/sessstate"
++)
++
++var (
++	ErrDurableStore   = errors.New("durable inventory operation failed")
++	ErrDurableCorrupt = errors.New("durable inventory contains invalid state")
++)
++
++var durableJSONNamespaces = []string{"event", "manifest", "record", "tombstone", "tombstone_ack"}
++
++// DurableIndex persists validated JSON objects under their semantic identity.
++// Its Merkle Index is rebuilt from those objects on every open.
++type DurableIndex struct {
++	root  string
++	index *Index
++	mu    sync.Mutex
++	ops   durableOperations
++}
++
++type durableOperations struct {
++	afterObjectInstall       func(string)
++	afterQuarantineCandidate func(string)
++	afterActiveRemoval       func(string)
++}
++
++// OpenDurable creates or loads an owner-local immutable JSON union. RPC 2 raw
++// blobs and chunks remain owned by the Section 11.5 transfer and staging path.
++func OpenDurable(root string) (*DurableIndex, error) {
++	if root == "" {
++		return nil, fmt.Errorf("%w: empty storage root", ErrDurableStore)
++	}
++	abs, err := filepath.Abs(root)
++	if err != nil {
++		return nil, fmt.Errorf("%w: resolve storage root: %v", ErrDurableStore, err)
++	}
++	for _, path := range []string{abs, filepath.Join(abs, "objects"), filepath.Join(abs, "quarantine")} {
++		if err := ensureDurableDirectory(path); err != nil {
++			return nil, err
++		}
++	}
++	index, err := New(RPC2Version)
++	if err != nil {
++		return nil, err
++	}
++	store := &DurableIndex{root: abs, index: index}
++	if err := store.load(); err != nil {
++		return nil, err
++	}
++	return store, nil
++}
++
++// AddJSON validates schema and canonical identity before its atomic durable
++// install. Replaying identical bytes is idempotent. A byte conflict is
++// persisted in quarantine, removed from the active inventory, and refused.
++// Tombstone/Acknowledgement links are checked after the complete union arrives
++// so either immutable record may arrive first.
++func (store *DurableIndex) AddJSON(data []byte) error {
++	if store == nil || store.index == nil {
++		return fmt.Errorf("%w: store is not open", ErrDurableStore)
++	}
++	store.mu.Lock()
++	defer store.mu.Unlock()
++	return store.addJSONLocked(data)
++}
++
++func (store *DurableIndex) addJSONLocked(data []byte) error {
++	membership, err := ClassifyJSON(data)
++	if err != nil {
++		return err
++	}
++	if membership.Excluded {
++		return ErrExcluded
++	}
++	if !slices.Contains(durableJSONNamespaces, membership.Namespace) {
++		return ErrInvalidRequest
++	}
++	id := membership.ID.String()
++	store.index.mu.RLock()
++	priorNamespace, exists := store.index.locations[id]
++	prior, hasPrior := store.index.objects[priorNamespace][id]
++	_, quarantined := store.index.quarantine[id]
++	store.index.mu.RUnlock()
++	if quarantined {
++		if err := store.persistQuarantineCandidate(membership.Namespace, id, data); err != nil {
++			return err
++		}
++		return store.index.AddUnionJSON(data)
++	}
++	if exists {
++		if priorNamespace == membership.Namespace && hasPrior && bytes.Equal(prior.data, data) {
++			return nil
++		}
++		if hasPrior {
++			if err := store.persistQuarantineCandidate(membership.Namespace, id, data); err != nil {
++				return err
++			}
++			if err := store.persistQuarantineCandidate(priorNamespace, id, prior.data); err != nil {
++				return err
++			}
++		}
++		if err := store.removeActive(priorNamespace, id); err != nil {
++			return err
++		}
++		return store.index.AddUnionJSON(data)
++	}
++
++	path, err := store.objectPath(membership.Namespace, id)
++	if err != nil {
++		return err
++	}
++	if err := ensureDurableDirectory(filepath.Dir(path)); err != nil {
++		return err
++	}
++	installed, existing, err := durableInstallNoReplace(path, data)
++	if err != nil {
++		return err
++	}
++	if existing != nil && !bytes.Equal(existing, data) {
++		other, classifyErr := ClassifyJSON(existing)
++		if classifyErr != nil || other.ID.String() != id || other.Namespace != membership.Namespace {
++			return fmt.Errorf("%w: occupied semantic identity path %s does not validate", ErrDurableCorrupt, path)
++		}
++		if err := store.persistQuarantineCandidate(membership.Namespace, id, data); err != nil {
++			return err
++		}
++		if err := store.persistQuarantineCandidate(membership.Namespace, id, existing); err != nil {
++			return err
++		}
++		if err := store.removeActive(membership.Namespace, id); err != nil {
++			return err
++		}
++		store.index.mu.Lock()
++		store.index.quarantine[id] = append(store.index.quarantine[id], bytes.Clone(existing))
++		store.index.mu.Unlock()
++		return store.index.AddUnionJSON(data)
++	}
++	if installed && store.ops.afterObjectInstall != nil {
++		store.ops.afterObjectInstall(id)
++	}
++	if err := store.index.AddUnionJSON(data); err != nil {
++		return fmt.Errorf("%w: inventory refused an installed validated object: %v", ErrDurableStore, err)
++	}
++	return nil
++}
++
++// SyncFrom audits common identity bytes and transfers missing JSON objects by
++// digest. Merkle roots contain identities only, so common IDs must also be
++// fetched to detect same-digest/different-byte conflicts.
++func (store *DurableIndex) SyncFrom(peer *DurableIndex, nextRequestID RequestIDFactory) error {
++	if store == nil || peer == nil || nextRequestID == nil {
++		return ErrInvalidRequest
++	}
++	if store == peer {
++		return nil
++	}
++	store.mu.Lock()
++	defer store.mu.Unlock()
++	for _, namespace := range durableJSONNamespaces {
++		peerIDs := peer.index.objectIDs(namespace)
++		localIDs := store.index.objectIDs(namespace)
++		localSet := make(map[string]struct{}, len(localIDs))
++		for _, id := range localIDs {
++			localSet[id] = struct{}{}
++		}
++		common := make([]string, 0)
++		for _, id := range peerIDs {
++			if _, exists := localSet[id]; exists {
++				common = append(common, id)
++			}
++		}
++		if err := store.fetchAndAdd(peer, namespace, common, nextRequestID); err != nil {
++			return err
++		}
++		missing, err := MissingObjectIDs(store.index, peer.index, namespace)
++		if err != nil {
++			return err
++		}
++		if err := store.fetchAndAdd(peer, namespace, missing, nextRequestID); err != nil {
++			return err
++		}
++	}
++	return store.validateTombstoneAckClosureLocked()
++}
++
++func (store *DurableIndex) fetchAndAdd(peer *DurableIndex, namespace string, ids []string, nextRequestID RequestIDFactory) error {
++	for start := 0; start < len(ids); start += 4096 {
++		end := min(start+4096, len(ids))
++		objects, err := FetchObjects(peer, namespace, ids[start:end], rpcwire.MaxLineBytes, nextRequestID)
++		if err != nil {
++			return err
++		}
++		for _, object := range objects {
++			data, err := base64.RawURLEncoding.Strict().DecodeString(object.Data)
++			if err != nil || base64.RawURLEncoding.EncodeToString(data) != object.Data {
++				return ErrInvalidObject
++			}
++			if err := store.addJSONLocked(data); err != nil {
++				return err
++			}
++		}
++	}
++	return nil
++}
++
++// Root returns a Merkle root over the current validated union.
++func (store *DurableIndex) Root(namespace string) (Root, error) {
++	if store == nil || store.index == nil {
++		return Root{}, ErrInvalidRequest
++	}
++	return store.index.Root(namespace)
++}
++
++// Object returns exact validated bytes addressed by namespace and digest.
++func (store *DurableIndex) Object(namespace, id string) ([]byte, error) {
++	if store == nil || store.index == nil || !slices.Contains(durableJSONNamespaces, namespace) {
++		return nil, ErrInvalidRequest
++	}
++	digest, err := scalar.ParseDigest(id)
++	if err != nil {
++		return nil, ErrInvalidRequest
++	}
++	store.index.mu.RLock()
++	defer store.index.mu.RUnlock()
++	if _, quarantined := store.index.quarantine[digest.String()]; quarantined {
++		return nil, refusal("integrity_failure", ErrIntegrity)
++	}
++	if current, ok := store.index.objects[namespace][digest.String()]; ok {
++		return bytes.Clone(current.data), nil
++	}
++	return nil, ErrNotFound
++}
++
++// ObjectsGet implements the read-only object-source boundary for FetchObjects.
++func (store *DurableIndex) ObjectsGet(line []byte, namespace string, maxLineBytes uint64) ([]byte, error) {
++	if store == nil || store.index == nil {
++		return nil, ErrInvalidRequest
++	}
++	return store.index.ObjectsGet(line, namespace, maxLineBytes)
++}
++
++// ValidateUnionClosure verifies cross-object Tombstone/Acknowledgement links
++// after exchange. Union itself retains records and performs no action.
++func (store *DurableIndex) ValidateUnionClosure() error {
++	if store == nil || store.index == nil {
++		return ErrInvalidRequest
++	}
++	store.mu.Lock()
++	defer store.mu.Unlock()
++	return store.validateTombstoneAckClosureLocked()
++}
++
++// RebuildProjection verifies that the authoritative repository record and
++// chained events are present byte-for-byte in this union, derives all
++// validated lease heads only after that check, and delegates the pure fold to
++// sessstate.Projector. Divergent event objects remain stored in the union but
++// do not enter the repository's authoritative chain or the reducer input.
++func (store *DurableIndex) RebuildProjection(repo *sessrepo.Repository, sessionID string) (sessstate.Projection, error) {
++	if store == nil || store.index == nil || repo == nil {
++		return sessstate.Projection{}, ErrInvalidRequest
++	}
++	store.mu.Lock()
++	defer store.mu.Unlock()
++	return store.index.RebuildProjection(repo, sessionID)
++}
++
++func (store *DurableIndex) validateTombstoneAckClosureLocked() error {
++	return store.index.validateTombstoneAckClosure()
++}
++
++func (index *Index) validateTombstoneAckClosure() error {
++	index.mu.RLock()
++	defer index.mu.RUnlock()
++	for _, acknowledgement := range index.objects["tombstone_ack"] {
++		members, err := strictObject(acknowledgement.data)
++		if err != nil {
++			return refusal("integrity_failure", err)
++		}
++		subjectID, subjectOK := requiredJSONString(members, "subject_id")
++		tombstoneID, tombstoneOK := requiredJSONString(members, "tombstone_id")
++		if !subjectOK || !tombstoneOK {
++			return refusal("integrity_failure", ErrInvalidObject)
++		}
++		tombstone, exists := index.objects["tombstone"][tombstoneID]
++		if !exists {
++			return refusal("integrity_failure", fmt.Errorf("%w: Tombstone Acknowledgement references no unioned Tombstone", ErrInvalidObject))
++		}
++		tombstoneMembers, err := strictObject(tombstone.data)
++		if err != nil {
++			return refusal("integrity_failure", err)
++		}
++		referencedSubject, ok := requiredJSONString(tombstoneMembers, "subject_id")
++		if !ok || referencedSubject != subjectID {
++			return refusal("integrity_failure", fmt.Errorf("%w: Tombstone Acknowledgement subject does not match its Tombstone", ErrInvalidObject))
++		}
++	}
++	return nil
++}
++
++func (index *Index) objectIDs(namespace string) []string {
++	index.mu.RLock()
++	defer index.mu.RUnlock()
++	return index.objectIDsLocked(namespace)
++}
++
++// RebuildProjection validates the persisted-authority bytes represented in an
++// inventory snapshot, derives every validated lease head from the full record
++// union, then delegates state derivation to the pure sessstate projector.
++func (index *Index) RebuildProjection(repo *sessrepo.Repository, sessionID string) (sessstate.Projection, error) {
++	if index == nil || repo == nil {
++		return sessstate.Projection{}, ErrInvalidRequest
++	}
++	if err := index.validateTombstoneAckClosure(); err != nil {
++		return sessstate.Projection{}, err
++	}
++	recordBytes, err := repo.GetRecord(sessionID)
++	if err != nil {
++		return sessstate.Projection{}, err
++	}
++	recordMembership, err := ClassifyJSON(recordBytes)
++	if err != nil || recordMembership.Namespace != "record" {
++		return sessstate.Projection{}, refusal("integrity_failure", fmt.Errorf("%w: repository record failed inventory validation", ErrIntegrity))
++	}
++	index.mu.RLock()
++	storedRecord, recordPresent := index.objects["record"][recordMembership.ID.String()]
++	index.mu.RUnlock()
++	if !recordPresent || !bytes.Equal(storedRecord.data, recordBytes) {
++		return sessstate.Projection{}, refusal("integrity_failure", fmt.Errorf("%w: authoritative repository record is absent from the union", ErrIntegrity))
++	}
++	events, err := repo.ListEvents(sessionID)
++	if err != nil {
++		return sessstate.Projection{}, err
++	}
++	for _, event := range events {
++		eventBytes, err := repo.GetEvent(sessionID, event.EventID)
++		if err != nil {
++			return sessstate.Projection{}, err
++		}
++		membership, err := ClassifyJSON(eventBytes)
++		if err != nil || membership.Namespace != "event" || membership.ID.String() != event.EventID {
++			return sessstate.Projection{}, refusal("integrity_failure", fmt.Errorf("%w: authoritative event failed inventory validation", ErrIntegrity))
++		}
++		index.mu.RLock()
++		stored, present := index.objects["event"][event.EventID]
++		index.mu.RUnlock()
++		if !present || !bytes.Equal(stored.data, eventBytes) {
++			return sessstate.Projection{}, refusal("integrity_failure", fmt.Errorf("%w: authoritative event %s is absent from the union", ErrIntegrity, event.EventID))
++		}
++	}
++	index.mu.RLock()
++	leaseRecords := make([][]byte, 0)
++	for _, id := range index.objectIDsLocked("record") {
++		object := index.objects["record"][id]
++		membership, err := ClassifyJSON(object.data)
++		if err == nil && membership.Schema == "urn:ax:schema:lease" {
++			leaseRecords = append(leaseRecords, bytes.Clone(object.data))
++		}
++	}
++	index.mu.RUnlock()
++	reader := &sessquery.Reader{LeaseRecords: leaseRecords}
++	leaseHeads, err := reader.LeaseHeadsForSession(sessionID)
++	if err != nil {
++		return sessstate.Projection{}, err
++	}
++	return (&sessstate.Projector{Repo: repo, Union: leaseHeads}).Project(sessionID)
++}
++
++func (index *Index) objectIDsLocked(namespace string) []string {
++	ids := make([]string, 0, len(index.objects[namespace]))
++	for id := range index.objects[namespace] {
++		ids = append(ids, id)
++	}
++	slices.Sort(ids)
++	return ids
++}
++
++func (store *DurableIndex) load() error {
++	quarantined, err := store.loadQuarantine()
++	if err != nil {
++		return err
++	}
++	active, err := store.loadActive()
++	if err != nil {
++		return err
++	}
++	for _, object := range active {
++		membership, err := ClassifyJSON(object.data)
++		if err != nil || membership.Excluded || membership.Namespace != object.namespace || membership.ID.Hex()+".json" != object.name {
++			return fmt.Errorf("%w: active object %s/%s failed schema, digest, or path validation", ErrDurableCorrupt, object.namespace, object.name)
++		}
++		if candidates := quarantined[membership.ID.String()]; len(candidates) > 0 {
++			if err := store.persistQuarantineCandidate(object.namespace, membership.ID.String(), object.data); err != nil {
++				return err
++			}
++			if err := store.removeActive(object.namespace, membership.ID.String()); err != nil {
++				return err
++			}
++			quarantined[membership.ID.String()] = append(candidates, bytes.Clone(object.data))
++			continue
++		}
++		if err := store.index.AddUnionJSON(object.data); err != nil {
++			return fmt.Errorf("%w: rebuild inventory from %s/%s: %v", ErrDurableCorrupt, object.namespace, object.name, err)
++		}
++	}
++	store.index.mu.Lock()
++	for id, candidates := range quarantined {
++		store.index.quarantine[id] = cloneByteSlices(candidates)
++	}
++	store.index.mu.Unlock()
++	return nil
++}
++
++type durableObjectFile struct {
++	namespace string
++	name      string
++	data      []byte
++}
++
++func (store *DurableIndex) loadActive() ([]durableObjectFile, error) {
++	root := filepath.Join(store.root, "objects")
++	entries, err := os.ReadDir(root)
++	if err != nil {
++		return nil, fmt.Errorf("%w: read object root: %v", ErrDurableStore, err)
++	}
++	var objects []durableObjectFile
++	for _, namespaceEntry := range entries {
++		if !namespaceEntry.IsDir() || !slices.Contains(durableJSONNamespaces, namespaceEntry.Name()) {
++			return nil, fmt.Errorf("%w: unexpected object namespace entry %q", ErrDurableCorrupt, namespaceEntry.Name())
++		}
++		directory := filepath.Join(root, namespaceEntry.Name())
++		if err := rejectSymlinkDirectory(directory); err != nil {
++			return nil, err
++		}
++		if err := cleanAbandonedStages(directory); err != nil {
++			return nil, err
++		}
++		files, err := os.ReadDir(directory)
++		if err != nil {
++			return nil, fmt.Errorf("%w: read object namespace %s: %v", ErrDurableStore, namespaceEntry.Name(), err)
++		}
++		for _, entry := range files {
++			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
++				return nil, fmt.Errorf("%w: unexpected active object entry %s/%s", ErrDurableCorrupt, namespaceEntry.Name(), entry.Name())
++			}
++			data, err := readRegularFile(filepath.Join(directory, entry.Name()))
++			if err != nil {
++				return nil, err
++			}
++			objects = append(objects, durableObjectFile{namespace: namespaceEntry.Name(), name: entry.Name(), data: data})
++		}
++	}
++	slices.SortFunc(objects, func(a, b durableObjectFile) int {
++		if a.namespace != b.namespace {
++			return strings.Compare(a.namespace, b.namespace)
++		}
++		return strings.Compare(a.name, b.name)
++	})
++	return objects, nil
++}
++
++func (store *DurableIndex) loadQuarantine() (map[string][][]byte, error) {
++	root := filepath.Join(store.root, "quarantine")
++	namespaces, err := os.ReadDir(root)
++	if err != nil {
++		return nil, fmt.Errorf("%w: read quarantine root: %v", ErrDurableStore, err)
++	}
++	quarantined := map[string][][]byte{}
++	for _, namespaceEntry := range namespaces {
++		if !namespaceEntry.IsDir() || !slices.Contains(durableJSONNamespaces, namespaceEntry.Name()) {
++			return nil, fmt.Errorf("%w: unexpected quarantine namespace entry %q", ErrDurableCorrupt, namespaceEntry.Name())
++		}
++		namespaceDir := filepath.Join(root, namespaceEntry.Name())
++		if err := rejectSymlinkDirectory(namespaceDir); err != nil {
++			return nil, err
++		}
++		ids, err := os.ReadDir(namespaceDir)
++		if err != nil {
++			return nil, fmt.Errorf("%w: read quarantine namespace %s: %v", ErrDurableStore, namespaceEntry.Name(), err)
++		}
++		for _, idEntry := range ids {
++			if !idEntry.IsDir() || len(idEntry.Name()) != 64 {
++				return nil, fmt.Errorf("%w: unexpected quarantined ID entry %s/%s", ErrDurableCorrupt, namespaceEntry.Name(), idEntry.Name())
++			}
++			id, err := scalar.ParseDigest("sha256:" + idEntry.Name())
++			if err != nil || id.Hex() != idEntry.Name() {
++				return nil, fmt.Errorf("%w: malformed quarantined digest directory %q", ErrDurableCorrupt, idEntry.Name())
++			}
++			idDir := filepath.Join(namespaceDir, idEntry.Name())
++			if err := rejectSymlinkDirectory(idDir); err != nil {
++				return nil, err
++			}
++			if err := cleanAbandonedStages(idDir); err != nil {
++				return nil, err
++			}
++			candidates, err := os.ReadDir(idDir)
++			if err != nil {
++				return nil, fmt.Errorf("%w: read quarantined identity %s: %v", ErrDurableStore, id.String(), err)
++			}
++			for _, candidate := range candidates {
++				if candidate.IsDir() || len(candidate.Name()) != 64 {
++					return nil, fmt.Errorf("%w: unexpected quarantine candidate %s", ErrDurableCorrupt, candidate.Name())
++				}
++				data, err := readRegularFile(filepath.Join(idDir, candidate.Name()))
++				if err != nil {
++					return nil, err
++				}
++				sum := sha256.Sum256(data)
++				membership, classifyErr := ClassifyJSON(data)
++				if hex.EncodeToString(sum[:]) != candidate.Name() || classifyErr != nil || membership.ID.String() != id.String() || membership.Namespace != namespaceEntry.Name() {
++					return nil, fmt.Errorf("%w: quarantined bytes do not match identity %s", ErrDurableCorrupt, id.String())
++				}
++				quarantined[id.String()] = append(quarantined[id.String()], bytes.Clone(data))
++			}
++		}
++	}
++	return quarantined, nil
++}
++
++func (store *DurableIndex) objectPath(namespace, id string) (string, error) {
++	digest, err := scalar.ParseDigest(id)
++	if err != nil || !slices.Contains(durableJSONNamespaces, namespace) {
++		return "", ErrInvalidRequest
++	}
++	return filepath.Join(store.root, "objects", namespace, digest.Hex()+".json"), nil
++}
++
++func (store *DurableIndex) quarantinePath(namespace, id string, data []byte) (string, error) {
++	digest, err := scalar.ParseDigest(id)
++	if err != nil || !slices.Contains(durableJSONNamespaces, namespace) {
++		return "", ErrInvalidRequest
++	}
++	sum := sha256.Sum256(data)
++	return filepath.Join(store.root, "quarantine", namespace, digest.Hex(), hex.EncodeToString(sum[:])), nil
++}
++
++func (store *DurableIndex) persistQuarantineCandidate(namespace, id string, data []byte) error {
++	path, err := store.quarantinePath(namespace, id, data)
++	if err != nil {
++		return err
++	}
++	if err := ensureDurableDirectory(filepath.Dir(path)); err != nil {
++		return err
++	}
++	installed, existing, err := durableInstallNoReplace(path, data)
++	if err != nil {
++		return err
++	}
++	if existing != nil && !bytes.Equal(existing, data) {
++		return fmt.Errorf("%w: quarantine content hash path contains different bytes", ErrDurableCorrupt)
++	}
++	if installed && store.ops.afterQuarantineCandidate != nil {
++		store.ops.afterQuarantineCandidate(id)
++	}
++	return nil
++}
++
++func (store *DurableIndex) removeActive(namespace, id string) error {
++	path, err := store.objectPath(namespace, id)
++	if err != nil {
++		return err
++	}
++	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
++		return fmt.Errorf("%w: remove quarantined active object: %v", ErrDurableStore, err)
++	}
++	if err := syncDurableDirectory(filepath.Dir(path)); err != nil {
++		return err
++	}
++	if store.ops.afterActiveRemoval != nil {
++		store.ops.afterActiveRemoval(id)
++	}
++	return nil
++}
++
++func durableInstallNoReplace(path string, data []byte) (installed bool, prior []byte, resultErr error) {
++	directory := filepath.Dir(path)
++	temporary, err := os.CreateTemp(directory, ".ax-union-stage-")
++	if err != nil {
++		return false, nil, fmt.Errorf("%w: create staged object: %v", ErrDurableStore, err)
++	}
++	temporaryPath := temporary.Name()
++	defer func() {
++		if cleanupErr := os.Remove(temporaryPath); cleanupErr != nil && !errors.Is(cleanupErr, fs.ErrNotExist) {
++			resultErr = errors.Join(resultErr, fmt.Errorf("%w: remove staged object: %v", ErrDurableStore, cleanupErr))
++		}
++	}()
++	if err := temporary.Chmod(0o600); err != nil {
++		_ = temporary.Close()
++		return false, nil, fmt.Errorf("%w: set staged object mode: %v", ErrDurableStore, err)
++	}
++	if _, err := temporary.Write(data); err != nil {
++		_ = temporary.Close()
++		return false, nil, fmt.Errorf("%w: write staged object: %v", ErrDurableStore, err)
++	}
++	if err := temporary.Sync(); err != nil {
++		_ = temporary.Close()
++		return false, nil, fmt.Errorf("%w: sync staged object: %v", ErrDurableStore, err)
++	}
++	if err := temporary.Close(); err != nil {
++		return false, nil, fmt.Errorf("%w: close staged object: %v", ErrDurableStore, err)
++	}
++	if err := os.Link(temporaryPath, path); err != nil {
++		if !errors.Is(err, fs.ErrExist) {
++			return false, nil, fmt.Errorf("%w: atomically install object: %v", ErrDurableStore, err)
++		}
++		prior, readErr := readRegularFile(path)
++		if readErr != nil {
++			return false, nil, readErr
++		}
++		return false, prior, nil
++	}
++	if err := os.Remove(temporaryPath); err != nil {
++		return true, nil, fmt.Errorf("%w: remove installed staging name: %v", ErrDurableStore, err)
++	}
++	if err := syncDurableDirectory(directory); err != nil {
++		return true, nil, err
++	}
++	return true, nil, nil
++}
++
++func ensureDurableDirectory(path string) error {
++	var missing []string
++	for current := path; ; current = filepath.Dir(current) {
++		info, err := os.Lstat(current)
++		if err == nil {
++			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
++				return fmt.Errorf("%w: path is not a plain directory", ErrDurableCorrupt)
++			}
++			break
++		}
++		if !errors.Is(err, fs.ErrNotExist) {
++			return fmt.Errorf("%w: inspect directory path: %v", ErrDurableStore, err)
++		}
++		missing = append(missing, current)
++		parent := filepath.Dir(current)
++		if parent == current {
++			return fmt.Errorf("%w: no existing ancestor for directory", ErrDurableStore)
++		}
++	}
++	if err := os.MkdirAll(path, 0o700); err != nil {
++		return fmt.Errorf("%w: create directory: %v", ErrDurableStore, err)
++	}
++	for index := len(missing) - 1; index >= 0; index-- {
++		created := missing[index]
++		if err := rejectSymlinkDirectory(created); err != nil {
++			return err
++		}
++		if err := syncDurableDirectory(filepath.Dir(created)); err != nil {
++			return err
++		}
++	}
++	return rejectSymlinkDirectory(path)
++}
++
++func cleanAbandonedStages(directory string) error {
++	entries, err := os.ReadDir(directory)
++	if err != nil {
++		return fmt.Errorf("%w: read staging directory: %v", ErrDurableStore, err)
++	}
++	removed := false
++	for _, entry := range entries {
++		if !strings.HasPrefix(entry.Name(), ".ax-union-stage-") {
++			continue
++		}
++		path := filepath.Join(directory, entry.Name())
++		info, err := os.Lstat(path)
++		if err != nil {
++			return fmt.Errorf("%w: inspect abandoned stage: %v", ErrDurableStore, err)
++		}
++		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
++			return fmt.Errorf("%w: abandoned staging path is not a regular file", ErrDurableCorrupt)
++		}
++		if err := os.Remove(path); err != nil {
++			return fmt.Errorf("%w: remove abandoned stage: %v", ErrDurableStore, err)
++		}
++		removed = true
++	}
++	if removed {
++		return syncDurableDirectory(directory)
++	}
++	return nil
++}
++
++func rejectSymlinkDirectory(path string) error {
++	info, err := os.Lstat(path)
++	if err != nil {
++		return fmt.Errorf("%w: inspect directory: %v", ErrDurableStore, err)
++	}
++	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
++		return fmt.Errorf("%w: path is not a plain directory", ErrDurableCorrupt)
++	}
++	return nil
++}
++
++func readRegularFile(path string) ([]byte, error) {
++	info, err := os.Lstat(path)
++	if err != nil {
++		return nil, fmt.Errorf("%w: inspect object file: %v", ErrDurableStore, err)
++	}
++	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
++		return nil, fmt.Errorf("%w: object path is not a regular file", ErrDurableCorrupt)
++	}
++	data, err := os.ReadFile(path)
++	if err != nil {
++		return nil, fmt.Errorf("%w: read object file: %v", ErrDurableStore, err)
++	}
++	return data, nil
++}
++
++func syncDurableDirectory(path string) error {
++	if runtime.GOOS == "windows" {
++		return nil
++	}
++	directory, err := os.Open(path)
++	if err != nil {
++		return fmt.Errorf("%w: open directory for sync: %v", ErrDurableStore, err)
++	}
++	syncErr := directory.Sync()
++	closeErr := directory.Close()
++	if syncErr != nil {
++		return fmt.Errorf("%w: sync directory: %v", ErrDurableStore, syncErr)
++	}
++	if closeErr != nil {
++		return fmt.Errorf("%w: close synced directory: %v", ErrDurableStore, closeErr)
++	}
++	return nil
++}
++
++func cloneByteSlices(values [][]byte) [][]byte {
++	cloned := make([][]byte, len(values))
++	for index := range values {
++		cloned[index] = bytes.Clone(values[index])
++	}
++	return cloned
++}
+diff --git a/internal/merkleinventory/durable_test.go b/internal/merkleinventory/durable_test.go
+new file mode 100644
+index 0000000..e5c3788
+--- /dev/null
++++ b/internal/merkleinventory/durable_test.go
+@@ -0,0 +1,697 @@
++package merkleinventory
++
++import (
++	"bytes"
++	"encoding/base64"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"reflect"
++	"slices"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/sessrepo"
++	"github.com/relux-works/agent-session-manager/internal/sessstate"
++)
++
++func TestDurableJSONAddIsIdempotentAcrossCrashRestartByNamespace(t *testing.T) {
++	_, fixtures := inventoryObjectsByNamespace(t)
++	for _, namespace := range durableJSONNamespaces {
++		t.Run(namespace, func(t *testing.T) {
++			root := filepath.Join(t.TempDir(), "union")
++			data := fixtures[namespace]
++			if code := crashDurableAdd(t, root, data, "object-install"); code != 73 {
++				t.Fatalf("crash child exit = %d, want simulated process exit 73", code)
++			}
++			store, err := OpenDurable(root)
++			if err != nil {
++				t.Fatalf("OpenDurable after object-install crash: %v", err)
++			}
++			membership, err := ClassifyJSON(data)
++			if err != nil {
++				t.Fatal(err)
++			}
++			got, err := store.Object(namespace, membership.ID.String())
++			if err != nil || !bytes.Equal(got, data) {
++				t.Fatalf("Object after crash = %q, %v; want exact admitted bytes", got, err)
++			}
++			if err := store.AddJSON(data); err != nil {
++				t.Fatalf("identical retry after restart = %v", err)
++			}
++			reopened, err := OpenDurable(root)
++			if err != nil {
++				t.Fatalf("OpenDurable after idempotent retry: %v", err)
++			}
++			rootAfter, err := reopened.Root(namespace)
++			if err != nil || rootAfter.Count.Uint64() != 1 {
++				t.Fatalf("root after identical crash/restart retry = %#v, %v; want count 1", rootAfter, err)
++			}
++		})
++	}
++}
++
++func TestDurableConflictCrashRestoresQuarantineAndAbortsSync(t *testing.T) {
++	original := validSessionRecordJSON(t)
++	membership, err := ClassifyJSON(original)
++	if err != nil {
++		t.Fatal(err)
++	}
++	variant := append([]byte("\n"), original...)
++	for _, mode := range []string{"quarantine-candidate", "quarantine-pair", "quarantine-active-removed"} {
++		t.Run(mode, func(t *testing.T) {
++			localRoot := filepath.Join(t.TempDir(), "local")
++			local, err := OpenDurable(localRoot)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if err := local.AddJSON(original); err != nil {
++				t.Fatal(err)
++			}
++			if code := crashDurableAdd(t, localRoot, variant, mode); code != 73 {
++				t.Fatalf("quarantine crash child exit = %d, want simulated process exit 73", code)
++			}
++			reopened, err := OpenDurable(localRoot)
++			if err != nil {
++				t.Fatalf("OpenDurable after %s crash: %v", mode, err)
++			}
++			if !slices.Contains(reopened.index.QuarantinedIDs(), membership.ID.String()) {
++				t.Fatalf("QuarantinedIDs after crash = %q, want %s", reopened.index.QuarantinedIDs(), membership.ID.String())
++			}
++			if _, err := reopened.Object("record", membership.ID.String()); !hasCode(err, "integrity_failure") {
++				t.Fatalf("Object(quarantined identity) = %v, want literal integrity_failure", err)
++			}
++			activeRoot, err := reopened.Root("record")
++			if err != nil || activeRoot.Count.Uint64() != 0 {
++				t.Fatalf("record root after quarantine recovery = %#v, %v; want zero active records", activeRoot, err)
++			}
++
++			peer, err := OpenDurable(filepath.Join(t.TempDir(), "peer"))
++			if err != nil {
++				t.Fatal(err)
++			}
++			if err := peer.AddJSON(original); err != nil {
++				t.Fatal(err)
++			}
++			if err := reopened.SyncFrom(peer, testRequestIDs()); !hasCode(err, "integrity_failure") || !strings.Contains(err.Error(), "integrity_failure") {
++				t.Fatalf("SyncFrom(peer with quarantined local identity) = %v, want literal integrity_failure", err)
++			}
++		})
++	}
++}
++
++func TestDurableSyncAuditsCommonIDsAndQuarantinesDifferentBytes(t *testing.T) {
++	original := validSessionRecordJSON(t)
++	variant := append([]byte("\n"), original...)
++	local, err := OpenDurable(filepath.Join(t.TempDir(), "local"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	peer, err := OpenDurable(filepath.Join(t.TempDir(), "peer"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := local.AddJSON(original); err != nil {
++		t.Fatal(err)
++	}
++	if err := peer.AddJSON(variant); err != nil {
++		t.Fatal(err)
++	}
++	localRoot, err := local.Root("record")
++	peerRoot, peerErr := peer.Root("record")
++	if err != nil || peerErr != nil || localRoot != peerRoot {
++		t.Fatalf("precondition: semantic roots should match for same ID bytes variants; local=%#v/%v peer=%#v/%v", localRoot, err, peerRoot, peerErr)
++	}
++	err = local.SyncFrom(peer, testRequestIDs())
++	if !hasCode(err, "integrity_failure") || !strings.Contains(err.Error(), "integrity_failure") {
++		t.Fatalf("SyncFrom(common same-digest/different-byte identity) = %v, want literal integrity_failure", err)
++	}
++	membership, err := ClassifyJSON(original)
++	if err != nil {
++		t.Fatal(err)
++	}
++	reopened, err := OpenDurable(local.root)
++	if err != nil {
++		t.Fatalf("OpenDurable after sync conflict: %v", err)
++	}
++	if !slices.Contains(reopened.index.QuarantinedIDs(), membership.ID.String()) {
++		t.Fatalf("quarantine after common-ID audit = %q, want %s", reopened.index.QuarantinedIDs(), membership.ID.String())
++	}
++}
++
++func TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords(t *testing.T) {
++	_, fixtures := inventoryObjectsByNamespace(t)
++	peer, err := OpenDurable(filepath.Join(t.TempDir(), "peer"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	// Acknowledgement arrives first. The union persists both immutable
++	// records, then validates their reference after the full object set arrives.
++	for _, namespace := range []string{"tombstone_ack", "event", "record", "manifest", "tombstone"} {
++		if err := peer.AddJSON(fixtures[namespace]); err != nil {
++			t.Fatalf("peer AddJSON(%s): %v", namespace, err)
++		}
++	}
++	local, err := OpenDurable(filepath.Join(t.TempDir(), "local"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := local.SyncFrom(peer, testRequestIDs()); err != nil {
++		t.Fatalf("SyncFrom(missing objects) = %v", err)
++	}
++	for _, namespace := range durableJSONNamespaces {
++		want, err := peer.Root(namespace)
++		got, gotErr := local.Root(namespace)
++		if err != nil || gotErr != nil || got != want {
++			t.Errorf("post-sync %s root = %#v/%v, want peer %#v/%v", namespace, got, gotErr, want, err)
++		}
++		id := objectID(t, fixtures[namespace])
++		if gotBytes, readErr := local.Object(namespace, id); readErr != nil || !bytes.Equal(gotBytes, fixtures[namespace]) {
++			t.Errorf("post-sync %s object = %q, %v", namespace, gotBytes, readErr)
++		}
++	}
++
++	repo, err := sessrepo.Open(t.TempDir())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := repo.CreateSession(fixtures["record"]); err != nil {
++		t.Fatal(err)
++	}
++	rowsBefore, err := repo.ListSessions()
++	if err != nil || len(rowsBefore) != 1 {
++		t.Fatalf("ListSessions before Tombstone union = %d/%v, want one", len(rowsBefore), err)
++	}
++	if err := local.ValidateUnionClosure(); err != nil {
++		t.Fatalf("ValidateUnionClosure = %v", err)
++	}
++	rowsAfter, err := repo.ListSessions()
++	if err != nil || len(rowsAfter) != 1 || rowsAfter[0].SessionID != testSessionID {
++		t.Fatalf("ListSessions after Tombstone/Acknowledgement union = %#v/%v, want retained session %s", rowsAfter, err, testSessionID)
++	}
++}
++
++func TestDurableSyncRefusesUnclosedAcknowledgementThenRecovers(t *testing.T) {
++	_, fixtures := inventoryObjectsByNamespace(t)
++	peer, err := OpenDurable(filepath.Join(t.TempDir(), "peer"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := peer.AddJSON(fixtures["tombstone_ack"]); err != nil {
++		t.Fatal(err)
++	}
++	local, err := OpenDurable(filepath.Join(t.TempDir(), "local"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	err = local.SyncFrom(peer, testRequestIDs())
++	if err == nil || !strings.Contains(err.Error(), "integrity_failure") {
++		t.Fatalf("SyncFrom(unclosed acknowledgement) = %v, want literal integrity_failure", err)
++	}
++	if root, rootErr := local.Root("tombstone_ack"); rootErr != nil || root.Count.Uint64() != 1 {
++		t.Fatalf("acknowledgement after closure refusal = %#v/%v, want retained record for later recovery", root, rootErr)
++	}
++	if root, rootErr := local.Root("tombstone"); rootErr != nil || root.Count.Uint64() != 0 {
++		t.Fatalf("Tombstone root before recovery = %#v/%v, want empty", root, rootErr)
++	}
++	if err := local.AddJSON(fixtures["tombstone"]); err != nil {
++		t.Fatalf("AddJSON(Tombstone recovery) = %v", err)
++	}
++	if err := local.ValidateUnionClosure(); err != nil {
++		t.Fatalf("ValidateUnionClosure after the matching Tombstone arrives = %v", err)
++	}
++}
++
++func TestDurableSyncRefusesAcknowledgementWithMismatchedTombstoneSubject(t *testing.T) {
++	_, fixtures := inventoryObjectsByNamespace(t)
++	var acknowledgement map[string]any
++	if err := json.Unmarshal(fixtures["tombstone_ack"], &acknowledgement); err != nil {
++		t.Fatal(err)
++	}
++	acknowledgement["subject_id"] = "0198f4c8-3e70-7a11-8a2b-1234567890ac"
++	invalidAcknowledgement := identityJSON(t, acknowledgement)
++	peer, err := OpenDurable(filepath.Join(t.TempDir(), "peer"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, object := range [][]byte{fixtures["tombstone"], invalidAcknowledgement} {
++		if err := peer.AddJSON(object); err != nil {
++			t.Fatalf("peer AddJSON(validated object with mismatched link): %v", err)
++		}
++	}
++	local, err := OpenDurable(filepath.Join(t.TempDir(), "local"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := local.SyncFrom(peer, testRequestIDs()); err == nil || !strings.Contains(err.Error(), "integrity_failure") {
++		t.Fatalf("SyncFrom(Tombstone/Acknowledgement subject mismatch) = %v, want literal integrity_failure", err)
++	}
++	for namespace, object := range map[string][]byte{"tombstone": fixtures["tombstone"], "tombstone_ack": invalidAcknowledgement} {
++		id := objectID(t, object)
++		if got, err := local.Object(namespace, id); err != nil || !bytes.Equal(got, object) {
++			t.Errorf("Object(%s, %s) after closure refusal = %q/%v, want retained immutable bytes", namespace, id, got, err)
++		}
++	}
++}
++
++func TestProjectionRebuildRefusesUnclosedAcknowledgement(t *testing.T) {
++	_, fixtures := inventoryObjectsByNamespace(t)
++	repo, err := sessrepo.Open(t.TempDir())
++	if err != nil {
++		t.Fatal(err)
++	}
++	record := validSessionRecordJSON(t)
++	recordMembership, err := ClassifyJSON(record)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := repo.CreateSession(record); err != nil {
++		t.Fatal(err)
++	}
++	event := unionEventJSON(t, recordMembership.ID.String(), "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "session.created", "2026-08-19T04:08:00.000Z", map[string]any{
++		"session_record_id": recordMembership.ID.String(), "bootstrap_operation_id": testRequestID,
++		"first_checkpoint_operation_id": "0198f4c8-6c30-7d44-8d5e-1234567890ac",
++	})
++	store, err := OpenDurable(filepath.Join(t.TempDir(), "union"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, object := range [][]byte{record, event, unionLeaseJSON(t, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", testHostID, "2026-08-19T04:09:00.000Z"), fixtures["tombstone_ack"]} {
++		if err := store.AddJSON(object); err != nil {
++			t.Fatalf("DurableIndex.AddJSON: %v", err)
++		}
++	}
++	if _, err := repo.AppendEvent(testSessionID, event); err != nil {
++		t.Fatalf("Repository.AppendEvent: %v", err)
++	}
++	if _, err := store.RebuildProjection(repo, testSessionID); err == nil || !strings.Contains(err.Error(), "integrity_failure") {
++		t.Fatalf("RebuildProjection(unclosed acknowledgement) = %v, want literal integrity_failure", err)
++	}
++}
++
++func TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority(t *testing.T) {
++	timestamps := []struct {
++		leaseA, leaseB, eventA, eventB, tombstone, acknowledgement string
++	}{
++		{"1900-01-01T00:00:00.000Z", "2099-12-31T23:59:59.999Z", "1901-01-01T00:00:00.000Z", "2098-01-01T00:00:00.000Z", "1902-01-01T00:00:00.000Z", "2097-01-01T00:00:00.000Z"},
++		{"2099-12-31T23:59:59.999Z", "1900-01-01T00:00:00.000Z", "2098-01-01T00:00:00.000Z", "1901-01-01T00:00:00.000Z", "2097-01-01T00:00:00.000Z", "1902-01-01T00:00:00.000Z"},
++	}
++	for profileIndex, profile := range timestamps {
++		record := validSessionRecordJSON(t)
++		recordMembership, err := ClassifyJSON(record)
++		if err != nil {
++			t.Fatal(err)
++		}
++		repo, err := sessrepo.Open(t.TempDir())
++		if err != nil {
++			t.Fatal(err)
++		}
++		if _, err := repo.CreateSession(record); err != nil {
++			t.Fatal(err)
++		}
++		leaseA := unionLeaseJSON(t, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", testHostID, profile.leaseA)
++		leaseBBytes := unionLeaseJSON(t, "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff", "0198f4c8-4a10-7b22-8b3c-2234567890ab", profile.leaseB)
++		eventA := unionEventJSON(t, recordMembership.ID.String(), "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "session.created", profile.eventA, map[string]any{
++			"session_record_id": recordMembership.ID.String(), "bootstrap_operation_id": testRequestID,
++			"first_checkpoint_operation_id": "0198f4c8-6c30-7d44-8d5e-1234567890ac",
++		})
++		if _, err := repo.AppendEvent(testSessionID, eventA); err != nil {
++			t.Fatalf("AppendEvent(authoritative branch): %v", err)
++		}
++		eventB := unionEventJSON(t, recordMembership.ID.String(), "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "session.idle", profile.eventB, map[string]any{
++			"boundary_ref": "losing-branch", "foreground_idle": true, "background_idle": true,
++		})
++		tombstone := tombstoneJSON(t, profile.tombstone)
++		tombstoneMembership, err := ClassifyJSON(tombstone)
++		if err != nil {
++			t.Fatal(err)
++		}
++		acknowledgement := tombstoneAckJSON(t, tombstoneMembership.ID.String(), "applied", "", profile.acknowledgement)
++		variableSet := [][]byte{leaseA, leaseBBytes, eventA, eventB, tombstone, acknowledgement}
++		// Exercise the durable public entry once for each opposite timestamp
++		// profile. The exhaustive permutations below use the same production
++		// union Index/RebuildProjection path without repeating filesystem fsync;
++		// per-namespace crash/restart durability is covered above.
++		durable, err := OpenDurable(filepath.Join(t.TempDir(), "durable-union"))
++		if err != nil {
++			t.Fatal(err)
++		}
++		if err := durable.AddJSON(record); err != nil {
++			t.Fatal(err)
++		}
++		for _, object := range variableSet {
++			if err := durable.AddJSON(object); err != nil {
++				t.Fatalf("durable AddJSON: %v", err)
++			}
++		}
++		durableProjection, err := durable.RebuildProjection(repo, testSessionID)
++		if err != nil {
++			t.Fatalf("durable RebuildProjection(profile %d) = %v", profileIndex, err)
++		}
++		assertIndependentUnionProjectionOracle(t, durableProjection)
++
++		oracleObjects := make(map[string]map[string][]byte)
++		for _, object := range append([][]byte{record}, variableSet...) {
++			membership, err := ClassifyJSON(object)
++			if err != nil || membership.Excluded {
++				t.Fatalf("oracle fixture ClassifyJSON = %#v, %v", membership, err)
++			}
++			if oracleObjects[membership.Namespace] == nil {
++				oracleObjects[membership.Namespace] = map[string][]byte{}
++			}
++			if _, exists := oracleObjects[membership.Namespace][membership.ID.String()]; exists {
++				t.Fatalf("fixture set repeats identity %s", membership.ID)
++			}
++			oracleObjects[membership.Namespace][membership.ID.String()] = bytes.Clone(object)
++		}
++		orders := allPermutations(len(variableSet))
++		var referenceProjection sessstate.Projection
++		var referenceRootIDs map[string]string
++		for orderIndex, order := range orders {
++			index, err := New(RPC2Version)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if err := index.AddUnionJSON(record); err != nil {
++				t.Fatal(err)
++			}
++			for _, position := range order {
++				if err := index.AddUnionJSON(variableSet[position]); err != nil {
++					t.Fatalf("profile %d permutation %d AddJSON(%d) = %v", profileIndex, orderIndex, position, err)
++				}
++			}
++			projection, err := index.RebuildProjection(repo, testSessionID)
++			if err != nil {
++				t.Fatalf("profile %d permutation %d RebuildProjection = %v", profileIndex, orderIndex, err)
++			}
++			assertIndependentUnionProjectionOracle(t, projection)
++			if orderIndex == 0 {
++				referenceProjection = projection
++			} else if !reflect.DeepEqual(projection, referenceProjection) {
++				t.Fatalf("profile %d permutation %d changed projection:\n got %#v\nwant %#v", profileIndex, orderIndex, projection, referenceProjection)
++			}
++
++			for namespace, expected := range oracleObjects {
++				ids := index.objectIDs(namespace)
++				wantIDs := make([]string, 0, len(expected))
++				for id := range expected {
++					wantIDs = append(wantIDs, id)
++				}
++				slices.Sort(wantIDs)
++				if !slices.Equal(ids, wantIDs) {
++					t.Fatalf("profile %d permutation %d union IDs for %s = %q, want oracle set %q", profileIndex, orderIndex, namespace, ids, wantIDs)
++				}
++				for id, wantBytes := range expected {
++					index.mu.RLock()
++					stored, exists := index.objects[namespace][id]
++					var gotBytes []byte
++					if exists {
++						gotBytes = bytes.Clone(stored.data)
++					}
++					index.mu.RUnlock()
++					if !exists || !bytes.Equal(gotBytes, wantBytes) {
++						t.Fatalf("profile %d permutation %d union object %s/%s = %q, want oracle bytes", profileIndex, orderIndex, namespace, id, gotBytes)
++					}
++				}
++			}
++			rootIDs := map[string]string{}
++			for _, namespace := range durableJSONNamespaces {
++				root, err := index.Root(namespace)
++				if err != nil || root.Count.Uint64() != uint64(len(oracleObjects[namespace])) {
++					t.Fatalf("profile %d permutation %d root %s = %#v/%v; oracle count %d", profileIndex, orderIndex, namespace, root, err, len(oracleObjects[namespace]))
++				}
++				rootIDs[namespace] = root.RootID.String()
++			}
++			if orderIndex == 0 {
++				referenceRootIDs = rootIDs
++			} else if !reflect.DeepEqual(rootIDs, referenceRootIDs) {
++				t.Fatalf("profile %d permutation %d changed Merkle roots: got %v want %v", profileIndex, orderIndex, rootIDs, referenceRootIDs)
++			}
++		}
++		authoritativeEvent, err := ClassifyJSON(eventA)
++		if err != nil {
++			t.Fatal(err)
++		}
++		losingEvent, err := ClassifyJSON(eventB)
++		if err != nil {
++			t.Fatal(err)
++		}
++		authoritativeChain, err := repo.ListEvents(testSessionID)
++		if err != nil || len(authoritativeChain) != 1 || authoritativeChain[0].EventID != authoritativeEvent.ID.String() || authoritativeChain[0].EventID == losingEvent.ID.String() {
++			t.Fatalf("authoritative chain after union permutations = %#v/%v, want only winner-prefix event %s", authoritativeChain, err, authoritativeEvent.ID)
++		}
++	}
++}
++
++func TestProjectionRebuildRefusesAuthorityBytesMissingFromUnion(t *testing.T) {
++	t.Run("record", func(t *testing.T) {
++		repo, err := sessrepo.Open(t.TempDir())
++		if err != nil {
++			t.Fatal(err)
++		}
++		record := validSessionRecordJSON(t)
++		if _, err := repo.CreateSession(record); err != nil {
++			t.Fatal(err)
++		}
++		index, err := New(RPC2Version)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if _, err := index.RebuildProjection(repo, testSessionID); err == nil || !strings.Contains(err.Error(), "integrity_failure") {
++			t.Fatalf("RebuildProjection(missing union record) = %v, want literal integrity_failure", err)
++		}
++	})
++	t.Run("event", func(t *testing.T) {
++		repo, err := sessrepo.Open(t.TempDir())
++		if err != nil {
++			t.Fatal(err)
++		}
++		record := validSessionRecordJSON(t)
++		recordMembership, err := ClassifyJSON(record)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if _, err := repo.CreateSession(record); err != nil {
++			t.Fatal(err)
++		}
++		event := unionEventJSON(t, recordMembership.ID.String(), "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "session.created", "2026-08-19T04:09:00.000Z", map[string]any{
++			"session_record_id": recordMembership.ID.String(), "bootstrap_operation_id": testRequestID,
++			"first_checkpoint_operation_id": "0198f4c8-6c30-7d44-8d5e-1234567890ac",
++		})
++		if _, err := repo.AppendEvent(testSessionID, event); err != nil {
++			t.Fatal(err)
++		}
++		index, err := New(RPC2Version)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if err := index.AddUnionJSON(record); err != nil {
++			t.Fatal(err)
++		}
++		if _, err := index.RebuildProjection(repo, testSessionID); err == nil || !strings.Contains(err.Error(), "integrity_failure") {
++			t.Fatalf("RebuildProjection(missing union event) = %v, want literal integrity_failure", err)
++		}
++	})
++}
++
++func assertIndependentUnionProjectionOracle(t *testing.T, projection sessstate.Projection) {
++	t.Helper()
++	if projection.SessionID != "0198f4c8-3e70-7a11-8a2b-1234567890ab" || projection.State != sessstate.State("creating") {
++		t.Fatalf("projection session/state = %s/%s, want literal session and creating", projection.SessionID, projection.State)
++	}
++	if projection.Winner.Epoch != 1 || projection.Winner.LeaseID != "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff" {
++		t.Fatalf("projection winner = %+v, want tuple (1, bbbbbbbb-cccc-4ddd-8eee-ffffffffffff) by §5.3 UUID byte order", projection.Winner)
++	}
++	wantKinds := []string{"losing_branch_preserved", "same_epoch_tie", "union_supersedes_chain"}
++	gotKinds := make([]string, 0, len(projection.Conflicts))
++	for _, conflict := range projection.Conflicts {
++		gotKinds = append(gotKinds, conflict.Kind)
++	}
++	if !slices.Equal(gotKinds, wantKinds) {
++		t.Fatalf("projection conflict kinds = %q, want literal oracle %q", gotKinds, wantKinds)
++	}
++}
++
++func unionLeaseJSON(t *testing.T, leaseID, holder, createdAt string) []byte {
++	t.Helper()
++	return identityJSON(t, map[string]any{
++		"schema": "urn:ax:schema:lease", "schema_version": "1.0.0", "record_id": zeroDigest,
++		"subject_id": testSessionID, "session_id": testSessionID, "lease_id": leaseID, "epoch": json.Number("1"),
++		"holder_host_id": holder, "predecessor_lease_id": nil, "reason": "create", "checkpoint_id": nil,
++		"issued_by_host_id": holder, "created_by_host_id": holder, "created_at": createdAt, "extensions": map[string]any{},
++	})
++}
++
++func unionEventJSON(t *testing.T, recordID, leaseID, eventType, createdAt string, payload map[string]any) []byte {
++	t.Helper()
++	return identityJSON(t, map[string]any{
++		"schema": "urn:ax:schema:session-event", "schema_version": "1.0.0", "event_id": zeroDigest,
++		"subject_id": testSessionID, "session_id": testSessionID, "event_type": eventType,
++		"created_by_host_id": testHostID, "lease_epoch": json.Number("1"), "lease_id": leaseID,
++		"lease_sequence": json.Number("1"), "predecessors": []string{recordID}, "created_at": createdAt,
++		"payload": payload, "extensions": map[string]any{},
++	})
++}
++
++func allPermutations(size int) [][]int {
++	values := make([]int, size)
++	for index := range values {
++		values[index] = index
++	}
++	var output [][]int
++	var visit func(int)
++	visit = func(position int) {
++		if position == len(values) {
++			output = append(output, append([]int(nil), values...))
++			return
++		}
++		for index := position; index < len(values); index++ {
++			values[position], values[index] = values[index], values[position]
++			visit(position + 1)
++			values[position], values[index] = values[index], values[position]
++		}
++	}
++	visit(0)
++	return output
++}
++
++func objectID(t *testing.T, data []byte) string {
++	t.Helper()
++	membership, err := ClassifyJSON(data)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return membership.ID.String()
++}
++
++func testRequestIDs() RequestIDFactory {
++	var next uint64
++	return func() (string, error) {
++		next++
++		return fmt.Sprintf("0198f4c8-7a10-7b22-8b3c-%012x", next), nil
++	}
++}
++
++func crashDurableAdd(t *testing.T, root string, data []byte, mode string) int {
++	t.Helper()
++	command := exec.Command(os.Args[0], "-test.run=^TestDurableCrashHelperProcess$")
++	command.Env = append(os.Environ(),
++		"AX_DURABLE_CRASH_ROOT="+root,
++		"AX_DURABLE_CRASH_DATA="+base64.StdEncoding.EncodeToString(data),
++		"AX_DURABLE_CRASH_MODE="+mode,
++	)
++	output, err := command.CombinedOutput()
++	var exitError *exec.ExitError
++	if !errors.As(err, &exitError) {
++		t.Fatalf("crash child err = %v, output %s; want explicit process exit", err, output)
++	}
++	return exitError.ExitCode()
++}
++
++func TestDurableCrashHelperProcess(t *testing.T) {
++	root := os.Getenv("AX_DURABLE_CRASH_ROOT")
++	if root == "" {
++		return
++	}
++	data, err := base64.StdEncoding.DecodeString(os.Getenv("AX_DURABLE_CRASH_DATA"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	store, err := OpenDurable(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	switch os.Getenv("AX_DURABLE_CRASH_MODE") {
++	case "object-install":
++		store.ops.afterObjectInstall = func(string) { os.Exit(73) }
++	case "quarantine-candidate":
++		store.ops.afterQuarantineCandidate = func(string) { os.Exit(73) }
++	case "quarantine-pair":
++		writes := 0
++		store.ops.afterQuarantineCandidate = func(string) {
++			writes++
++			if writes == 2 {
++				os.Exit(73)
++			}
++		}
++	case "quarantine-active-removed":
++		store.ops.afterActiveRemoval = func(string) { os.Exit(73) }
++	default:
++		t.Fatalf("unknown crash mode %q", os.Getenv("AX_DURABLE_CRASH_MODE"))
++	}
++	if err := store.AddJSON(data); err != nil {
++		t.Fatal(err)
++	}
++	os.Exit(74)
++}
++
++func TestDurableAddRejectsBeforePersistingInvalidObjects(t *testing.T) {
++	store, err := OpenDurable(filepath.Join(t.TempDir(), "union"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	invalid := [][]byte{[]byte(`{"schema":"urn:ax:schema:unknown","schema_version":"1.0.0"}`), []byte(`not-json`)}
++	for _, data := range invalid {
++		if err := store.AddJSON(data); err == nil {
++			t.Fatalf("AddJSON(%q) = nil, want validation refusal", data)
++		}
++	}
++	reopened, err := OpenDurable(store.root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, namespace := range durableJSONNamespaces {
++		root, err := reopened.Root(namespace)
++		if err != nil || root.Count.Uint64() != 0 {
++			t.Errorf("%s root after invalid add = %#v/%v, want empty", namespace, root, err)
++		}
++	}
++}
++
++func TestDurableStoreRejectsCorruptActiveBytesOnOpen(t *testing.T) {
++	root := filepath.Join(t.TempDir(), "union")
++	store, err := OpenDurable(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	data := validSessionRecordJSON(t)
++	if err := store.AddJSON(data); err != nil {
++		t.Fatal(err)
++	}
++	membership, err := ClassifyJSON(data)
++	if err != nil {
++		t.Fatal(err)
++	}
++	path, err := store.objectPath("record", membership.ID.String())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(path, []byte(`{"forged":true}`), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := OpenDurable(root); !errors.Is(err, ErrDurableCorrupt) {
++		t.Fatalf("OpenDurable(corrupt object) = %v, want ErrDurableCorrupt", err)
++	}
++}
++
++func TestDurableIndexRejectsBlobNamespacePersistence(t *testing.T) {
++	store, err := OpenDurable(filepath.Join(t.TempDir(), "union"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := store.Root("blob"); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := store.Object("blob", scalar.SHA256Digest([]byte("raw")).String()); !errors.Is(err, ErrInvalidRequest) {
++		t.Fatalf("Object(blob) = %v, want §11.5 transfer-boundary refusal", err)
++	}
++}
++
++func ExampleDurableIndex() {
++	fmt.Println("immutable JSON union; no blob staging or materialization")
++	// Output: immutable JSON union; no blob staging or materialization
++}
+diff --git a/internal/merkleinventory/index.go b/internal/merkleinventory/index.go
+index 721d87a..e0338aa 100644
+--- a/internal/merkleinventory/index.go
++++ b/internal/merkleinventory/index.go
+@@ -40,8 +40,9 @@ type storedObject struct {
+ 	json bool
+ }
+ 
+-// Index is one immutable-object inventory snapshot for Mesh RPC 2. Calls are
+-// concurrency-safe. Durable persistence and cross-peer union are external.
++// Index is one in-memory immutable-object inventory snapshot for Mesh RPC 2.
++// Calls are concurrency-safe. DurableIndex supplies persistence and in-process
++// object union while this type remains the shared trie/admission engine.
+ type Index struct {
+ 	version    string
+ 	mu         sync.RWMutex
+@@ -115,6 +116,30 @@ func ClassifyJSON(data []byte) (Membership, error) {
+ // bytes is idempotent. A same-ID byte conflict removes the ID from inventory,
+ // retains both byte strings in quarantine, and returns integrity_failure.
+ func (index *Index) AddJSON(data []byte) error {
++	return index.addJSON(data, true)
++}
++
++// AddUnionJSON admits one validated object into an exchange set. Unlike
++// AddJSON, it defers Tombstone/Acknowledgement link closure until the complete
++// union is present; callers close that set with ValidateUnionClosure.
++func (index *Index) AddUnionJSON(data []byte) error {
++	return index.addJSON(data, false)
++}
++
++// ValidateUnionClosure verifies deferred Tombstone/Acknowledgement links for
++// a process-local union before projection or handoff.
++func (index *Index) ValidateUnionClosure() error {
++	if index == nil {
++		return ErrInvalidRequest
++	}
++	return index.validateTombstoneAckClosure()
++}
++
++// addJSON admits schema- and digest-valid JSON into an inventory snapshot.
++// The durable union defers Tombstone/Acknowledgement cross-object closure
++// until its complete received set is available; ordinary local ingestion
++// keeps the historical immediate-reference requirement.
++func (index *Index) addJSON(data []byte, requireTombstone bool) error {
+ 	membership, err := ClassifyJSON(data)
+ 	if err != nil {
+ 		return err
+@@ -124,8 +149,10 @@ func (index *Index) AddJSON(data []byte) error {
+ 	}
+ 	index.mu.Lock()
+ 	defer index.mu.Unlock()
+-	if err := index.validateTombstoneAckLinkLocked(membership, data); err != nil {
+-		return err
++	if requireTombstone {
++		if err := index.validateTombstoneAckLinkLocked(membership, data); err != nil {
++			return err
++		}
+ 	}
+ 	return index.insertLocked(membership.Namespace, membership.ID.String(), data, true)
+ }
+diff --git a/internal/merkleinventory/mutations.py b/internal/merkleinventory/mutations.py
+index 1292f4a..e967edb 100644
+--- a/internal/merkleinventory/mutations.py
++++ b/internal/merkleinventory/mutations.py
+@@ -313,6 +313,173 @@ probe("tombstone-ack-subject-link", I,
+       "^TestAddTombstoneAcknowledgementRequiresAStoredMatchingTombstone$",
+       "Admits a mismatched acknowledgement subject for one pinned negative fixture.")
+ 
++# Rev3 carry-over probes: these arms were reachable or directly seeded by the
++# preceding review. Each named behavior test runs alone against its overlay.
++probe("fetch-dup-ids", S,
++      "ids[index-1] >= id", "ids[index-1] > id",
++      "TestFetchObjectsRefusesDuplicateIDs", "^TestFetchObjectsRefusesDuplicateIDs$",
++      "Admits one duplicate digest in the client request ordering gate.")
++probe("b64-roundtrip", S,
++      "if err != nil || base64URL(dataBytes) != encodedData {",
++      "if err != nil {",
++      "TestFetchObjectsRefusesNewlineBearingBase64urlData",
++      "^TestFetchObjectsRefusesNewlineBearingBase64urlData$",
++      "Admits CRLF-bearing base64url data because Go's Strict decoder ignores embedded CR/LF.")
++probe("walk-quarantine", S,
++      "if quarantined {", 'if quarantined && namespace != "record" {',
++      "TestMissingObjectIDsRefusesLocalQuarantinedIdentity",
++      "^TestMissingObjectIDsRefusesLocalQuarantinedIdentity$",
++      "Treats a quarantined local record identity as an ordinary missing object.")
++probe("walk-crossns", S,
++      "if exists && namespaceOfID != namespace {",
++      'if exists && namespaceOfID != namespace && namespace != "record" {',
++      "TestMissingObjectIDsRefusesCrossNamespaceIdentity",
++      "^TestMissingObjectIDsRefusesCrossNamespaceIdentity$",
++      "Admits a locally stored manifest identity through the record recursive-walk arm.")
++
++# Durable-union gates are attacked through the public sync/rebuild behavior.
++probe("durable-unknown-schema-admit", "internal/merkleinventory/durable.go",
++      '''membership, err := ClassifyJSON(data)
++	if err != nil {
++		return err
++	}''',
++      '''membership, err := ClassifyJSON(data)
++	if err != nil {
++		if bytes.Contains(data, []byte("urn:ax:schema:unknown")) {
++			membership = Membership{Namespace: "record", ID: scalar.SHA256Digest(data)}
++		} else {
++			return err
++		}
++	}''',
++      "TestDurableAddRejectsBeforePersistingInvalidObjects",
++      "^TestDurableAddRejectsBeforePersistingInvalidObjects$",
++      "Admits the exact unsupported schema fixture as a durable record after ClassifyJSON refuses its class.")
++probe("durable-event-replay", "internal/merkleinventory/durable.go",
++      "if priorNamespace == membership.Namespace && hasPrior && bytes.Equal(prior.data, data) {",
++      'if priorNamespace == membership.Namespace && hasPrior && bytes.Equal(prior.data, data) && membership.Namespace != "event" {',
++      "TestDurableJSONAddIsIdempotentAcrossCrashRestartByNamespace",
++      "^TestDurableJSONAddIsIdempotentAcrossCrashRestartByNamespace$/^event$",
++      "Treats an identical replay of one event as a byte conflict after a crash/restart.")
++probe("durable-same-id-different-bytes", "internal/merkleinventory/durable.go",
++      "if priorNamespace == membership.Namespace && hasPrior && bytes.Equal(prior.data, data) {",
++      "if priorNamespace == membership.Namespace && hasPrior {",
++      "TestDurableSyncAuditsCommonIDsAndQuarantinesDifferentBytes",
++      "^TestDurableSyncAuditsCommonIDsAndQuarantinesDifferentBytes$",
++      "Admits a same-digest record with different bytes as an identical object instead of quarantining and aborting.")
++probe("sync-common-record-audit", "internal/merkleinventory/durable.go",
++      "if _, exists := localSet[id]; exists {",
++      'if _, exists := localSet[id]; exists && namespace != "record" {',
++      "TestDurableSyncAuditsCommonIDsAndQuarantinesDifferentBytes",
++      "^TestDurableSyncAuditsCommonIDsAndQuarantinesDifferentBytes$",
++      "Skips byte auditing for common record IDs, allowing equal Merkle roots to hide a same-digest byte conflict.")
++probe("sync-missing-record-fetch", "internal/merkleinventory/durable.go",
++      '''if err := store.fetchAndAdd(peer, namespace, missing, nextRequestID); err != nil {
++			return err
++		}''',
++      '''if namespace != "record" {
++			if err := store.fetchAndAdd(peer, namespace, missing, nextRequestID); err != nil {
++				return err
++			}
++		}''',
++      "TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords",
++      "^TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords$",
++      "Leaves missing record objects undiscovered and unfetched during a sync.")
++probe("sync-skip-tombstone-union", "internal/merkleinventory/durable.go",
++      "for _, namespace := range durableJSONNamespaces {",
++      'for _, namespace := range durableJSONNamespaces {\n\t\tif namespace == "tombstone" { continue }',
++      "TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords",
++      "^TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords$",
++      "Drops Tombstone records from the durable union instead of retaining them as immutable data.")
++probe("union-ack-arrival-order", I,
++      "return index.addJSON(data, false)", "return index.addJSON(data, true)",
++      "TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords",
++      "^TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords$",
++      "Requires a Tombstone before accepting an acknowledgement, refusing the valid acknowledgement-first union order.")
++probe("quarantine-crash-recovery", "internal/merkleinventory/durable.go",
++      "if candidates := quarantined[membership.ID.String()]; len(candidates) > 0 {",
++      "if candidates := quarantined[membership.ID.String()]; len(candidates) > 1 {",
++      "TestDurableConflictCrashRestoresQuarantineAndAbortsSync",
++      "^TestDurableConflictCrashRestoresQuarantineAndAbortsSync$",
++      "Fails to quarantine an active object after a crash leaves exactly one persisted conflicting candidate.")
++probe("union-lease-tuple-omission", "internal/sessquery/lease.go",
++      "heads = append(heads, sessstate.LeaseHead{Epoch: candidate.Epoch, LeaseID: candidate.LeaseID})",
++      'if candidate.LeaseID != "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff" { heads = append(heads, sessstate.LeaseHead{Epoch: candidate.Epoch, LeaseID: candidate.LeaseID}) }',
++      "TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation",
++      "^TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation$",
++      "Drops one competing validated lease tuple instead of deriving the complete post-union head set.",
++      package="./internal/sessquery")
++probe("union-lease-created-at-winner", "internal/sessquery/lease.go",
++      "heads = append(heads, sessstate.LeaseHead{Epoch: candidate.Epoch, LeaseID: candidate.LeaseID})",
++      '''head := sessstate.LeaseHead{Epoch: candidate.Epoch, LeaseID: candidate.LeaseID}
++		candidateMembers, _ := environ.DecodeStrictObject(candidate.Raw)
++		candidateTime, _ := leaseStringMember(candidateMembers, "created_at")
++		for _, other := range candidates {
++			otherMembers, _ := environ.DecodeStrictObject(other.Raw)
++			otherTime, _ := leaseStringMember(otherMembers, "created_at")
++			if candidateTime > otherTime { head.Epoch++ }
++		}
++		heads = append(heads, head)''',
++      "TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation",
++      "^TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation$",
++      "Uses the later diagnostic created_at value to promote that lease above its competing tuple.",
++      package="./internal/sessquery")
++probe("union-lease-conflicting-same-id", "internal/sessquery/lease.go",
++      "if prior.Digest != candidate.Digest || string(prior.Raw) != string(candidate.Raw) {",
++      'if (prior.Digest != candidate.Digest || string(prior.Raw) != string(candidate.Raw)) && candidate.LeaseID != "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" {',
++      "TestLeaseHeadsForSessionRefusesConflictingBytesForOneLeaseID",
++      "^TestLeaseHeadsForSessionRefusesConflictingBytesForOneLeaseID$",
++      "Silently deduplicates conflicting bytes for one pinned lease UUID instead of refusing integrity_failure.",
++      package="./internal/sessquery")
++probe("union-lease-generated-cardinality-omission", "internal/sessquery/lease.go",
++      "heads = append(heads, sessstate.LeaseHead{Epoch: candidate.Epoch, LeaseID: candidate.LeaseID})",
++      'if candidate.LeaseID != "00000000-0000-4000-8000-000000000011" { heads = append(heads, sessstate.LeaseHead{Epoch: candidate.Epoch, LeaseID: candidate.LeaseID}) }',
++      "TestLeaseHeadsForSessionCoversGeneratedCardinalityRange",
++      "^TestLeaseHeadsForSessionCoversGeneratedCardinalityRange$/^size_17$",
++      "Drops one generated lease tuple inside the tested cardinality range instead of returning every validated tuple.",
++      package="./internal/sessquery")
++probe("sync-unclosed-tombstone-ack", "internal/merkleinventory/durable.go",
++      "if !exists {\n\t\t\treturn refusal(\"integrity_failure\", fmt.Errorf(\"%w: Tombstone Acknowledgement references no unioned Tombstone\", ErrInvalidObject))\n\t\t}",
++      "if !exists && subjectID != \"0198f4c8-3e70-7a11-8a2b-1234567890ab\" {\n\t\t\treturn refusal(\"integrity_failure\", fmt.Errorf(\"%w: Tombstone Acknowledgement references no unioned Tombstone\", ErrInvalidObject))\n\t\t}\n\t\tif !exists {\n\t\t\tcontinue\n\t\t}",
++      "TestDurableSyncRefusesUnclosedAcknowledgementThenRecovers",
++      "^TestDurableSyncRefusesUnclosedAcknowledgementThenRecovers$",
++      "Admits one missing Tombstone link for the pinned union subject at the post-union closure gate.")
++probe("projection-missing-union-record", "internal/merkleinventory/durable.go",
++      "if !recordPresent || !bytes.Equal(storedRecord.data, recordBytes) {",
++      'if (!recordPresent || !bytes.Equal(storedRecord.data, recordBytes)) && sessionID != "0198f4c8-3e70-7a11-8a2b-1234567890ab" {',
++      "TestProjectionRebuildRefusesAuthorityBytesMissingFromUnion",
++      "^TestProjectionRebuildRefusesAuthorityBytesMissingFromUnion$/^record$",
++      "Projects one session whose authoritative record bytes are absent from the immutable union.")
++probe("projection-missing-union-event", "internal/merkleinventory/durable.go",
++      "if !present || !bytes.Equal(stored.data, eventBytes) {",
++      "if (!present || !bytes.Equal(stored.data, eventBytes)) && len(events) != 1 {",
++      "TestProjectionRebuildRefusesAuthorityBytesMissingFromUnion",
++      "^TestProjectionRebuildRefusesAuthorityBytesMissingFromUnion$/^event$",
++      "Projects a one-event authoritative chain even though that event's exact bytes are absent from the union.")
++probe("durable-ack-subject-link", "internal/merkleinventory/durable.go",
++      "if !ok || referencedSubject != subjectID {",
++      "if !ok || (referencedSubject != subjectID && subjectID != \"0198f4c8-3e70-7a11-8a2b-1234567890ac\") {",
++      "TestDurableSyncRefusesAcknowledgementWithMismatchedTombstoneSubject",
++      "^TestDurableSyncRefusesAcknowledgementWithMismatchedTombstoneSubject$",
++      "Admits one validated Acknowledgement whose subject_id differs from its unioned Tombstone.")
++probe("projection-skip-unclosed-ack", "internal/merkleinventory/durable.go",
++      "if err := index.validateTombstoneAckClosure(); err != nil {\n\t\treturn sessstate.Projection{}, err\n\t}",
++      "if err := index.validateTombstoneAckClosure(); err != nil && !strings.Contains(err.Error(), \"references no unioned Tombstone\") {\n\t\treturn sessstate.Projection{}, err\n\t}",
++      "TestProjectionRebuildRefusesUnclosedAcknowledgement",
++      "^TestProjectionRebuildRefusesUnclosedAcknowledgement$",
++      "Admits one projection rebuild when an Acknowledgement has no unioned Tombstone.")
++probe("durable-load-skips-forged-object", "internal/merkleinventory/durable.go",
++      "if err != nil || membership.Excluded || membership.Namespace != object.namespace || membership.ID.Hex()+\".json\" != object.name {\n\t\t\treturn fmt.Errorf(\"%w: active object %s/%s failed schema, digest, or path validation\", ErrDurableCorrupt, object.namespace, object.name)\n\t\t}",
++      "if err != nil || membership.Excluded || membership.Namespace != object.namespace || membership.ID.Hex()+\".json\" != object.name {\n\t\t\tif bytes.Equal(object.data, []byte(\"{\\\"forged\\\":true}\")) { continue }\n\t\t\treturn fmt.Errorf(\"%w: active object %s/%s failed schema, digest, or path validation\", ErrDurableCorrupt, object.namespace, object.name)\n\t\t}",
++      "TestDurableStoreRejectsCorruptActiveBytesOnOpen",
++      "^TestDurableStoreRejectsCorruptActiveBytesOnOpen$",
++      "Silently skips one corrupt active payload instead of refusing to reopen the durable union.")
++probe("projection-drops-union-head", "internal/merkleinventory/durable.go",
++      "return (&sessstate.Projector{Repo: repo, Union: leaseHeads}).Project(sessionID)",
++      "if len(leaseHeads) > 1 { leaseHeads = leaseHeads[:len(leaseHeads)-1] }; return (&sessstate.Projector{Repo: repo, Union: leaseHeads}).Project(sessionID)",
++      "TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority",
++      "^TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority$",
++      "Omits the greatest derived lease head at the production projection rebuild boundary.")
++
+ 
+ def run_probe(output, item):
+     source = ROOT / item["path"]
+diff --git a/internal/merkleinventory/rev3_carryover_test.go b/internal/merkleinventory/rev3_carryover_test.go
+new file mode 100644
+index 0000000..6b639db
+--- /dev/null
++++ b/internal/merkleinventory/rev3_carryover_test.go
+@@ -0,0 +1,128 @@
++package merkleinventory
++
++import (
++	"encoding/base64"
++	"errors"
++	"strings"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/rpcwire"
++)
++
++func TestFetchObjectsRefusesDuplicateIDs(t *testing.T) {
++	peer, err := New(RPC2Version)
++	if err != nil {
++		t.Fatal(err)
++	}
++	data := validSessionRecordJSON(t)
++	if err := peer.AddJSON(data); err != nil {
++		t.Fatal(err)
++	}
++	membership, err := ClassifyJSON(data)
++	if err != nil {
++		t.Fatal(err)
++	}
++	source := &countingObjectSource{source: peer}
++	objects, err := FetchObjects(source, "record", []string{membership.ID.String(), membership.ID.String()}, rpcwire.MaxLineBytes, func() (string, error) {
++		return testRequestID, nil
++	})
++	if len(objects) != 0 || !errors.Is(err, ErrInvalidRequest) || err.Error() != ErrInvalidRequest.Error() {
++		t.Fatalf("FetchObjects(duplicate IDs) = (%d objects, %v), want literal %q", len(objects), err, ErrInvalidRequest.Error())
++	}
++	if source.calls != 0 {
++		t.Fatalf("duplicate IDs reached ObjectsGet %d times; client must refuse before the request", source.calls)
++	}
++}
++
++func TestFetchObjectsRefusesNewlineBearingBase64urlData(t *testing.T) {
++	data := validSessionRecordJSON(t)
++	membership, err := ClassifyJSON(data)
++	if err != nil {
++		t.Fatal(err)
++	}
++	encoded := base64.RawURLEncoding.EncodeToString(data)
++	cut := len(encoded) / 2
++	encoded = encoded[:cut] + "\r\n" + encoded[cut:]
++	source := &hostileObjectSource{object: WireObject{
++		ObjectID: membership.ID.String(), MediaType: "application/json", Encoding: "json", Data: encoded,
++	}}
++	objects, err := FetchObjects(source, "record", []string{membership.ID.String()}, rpcwire.MaxLineBytes, func() (string, error) {
++		return testRequestID, nil
++	})
++	if len(objects) != 0 || !errors.Is(err, ErrInvalidObject) || err.Error() != ErrInvalidObject.Error() {
++		t.Fatalf("FetchObjects(newline-bearing base64url) = (%d objects, %v), want literal %q", len(objects), err, ErrInvalidObject.Error())
++	}
++}
++
++func TestMissingObjectIDsRefusesLocalQuarantinedIdentity(t *testing.T) {
++	data := validSessionRecordJSON(t)
++	membership, err := ClassifyJSON(data)
++	if err != nil {
++		t.Fatal(err)
++	}
++	local, err := New(RPC2Version)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := local.AddJSON(data); err != nil {
++		t.Fatal(err)
++	}
++	// Whitespace is outside the canonical identity, so it produces a distinct
++	// byte representation with the same validated immutable ID.
++	variant := []byte("\n" + string(data))
++	if err := local.AddJSON(variant); !hasCode(err, "integrity_failure") {
++		t.Fatalf("AddJSON(same identity, different bytes) = %v, want literal integrity_failure", err)
++	}
++	peer, err := New(RPC2Version)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := peer.AddJSON(data); err != nil {
++		t.Fatal(err)
++	}
++	missing, err := MissingObjectIDs(local, peer, "record")
++	if len(missing) != 0 || !hasCode(err, "integrity_failure") || !strings.Contains(err.Error(), "integrity_failure") {
++		t.Fatalf("MissingObjectIDs(quarantined local identity %s) = (%v, %v), want literal integrity_failure", membership.ID, missing, err)
++	}
++}
++
++func TestMissingObjectIDsRefusesCrossNamespaceIdentity(t *testing.T) {
++	data := validSessionRecordJSON(t)
++	membership, err := ClassifyJSON(data)
++	if err != nil {
++		t.Fatal(err)
++	}
++	local, err := New(RPC2Version)
++	if err != nil {
++		t.Fatal(err)
++	}
++	peer, err := New(RPC2Version)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := peer.AddJSON(data); err != nil {
++		t.Fatal(err)
++	}
++	// This state cannot be produced by AddJSON: ClassifyJSON assigns this
++	// record only to `record`, and locations is global to all namespaces.
++	// Seed the malformed internal state to pin the recursive walker defense.
++	local.mu.Lock()
++	local.objects["manifest"][membership.ID.String()] = storedObject{data: append([]byte(nil), data...), json: true}
++	local.locations[membership.ID.String()] = "manifest"
++	local.mu.Unlock()
++
++	missing, err := MissingObjectIDs(local, peer, "record")
++	if len(missing) != 0 || !hasCode(err, "integrity_failure") || !strings.Contains(err.Error(), "integrity_failure") {
++		t.Fatalf("MissingObjectIDs(cross-namespace %s) = (%v, %v), want literal integrity_failure", membership.ID, missing, err)
++	}
++}
++
++type countingObjectSource struct {
++	source ObjectSource
++	calls  int
++}
++
++func (source *countingObjectSource) ObjectsGet(line []byte, namespace string, maxLineBytes uint64) ([]byte, error) {
++	source.calls++
++	return source.source.ObjectsGet(line, namespace, maxLineBytes)
++}
+diff --git a/internal/sessquery/TRACEABILITY.md b/internal/sessquery/TRACEABILITY.md
+index 27e6e81..64cde0c 100644
+--- a/internal/sessquery/TRACEABILITY.md
++++ b/internal/sessquery/TRACEABILITY.md
+@@ -270,3 +270,26 @@ while the not-applied and compile-failure controls remain classified as
+ restored after the run and the candidate contains no Python cache artifact.
+ The raw run, source manifest, and per-mutant logs are attached to the owning
+ task resource.
++
++## TASK-260830-147hsj lease-union derivation supplement
++
++Authority: pinned `internal/specdoc/SPEC.v0.7.0.md`, §11.4 rules 5–6 and §5.3
++(lines 1987–2061, including line 2047). `Reader.LeaseHeadsForSession` is the
++post-union projection entry consumed by
++`internal/merkleinventory.Index.RebuildProjection`.
++
++| Rule | Production call site | Evidence | Narrowing |
++| --- | --- | --- | --- |
++| Derive every validated lease tuple; do not choose before union | `Reader.LeaseHeadsForSession` → `validatedLeasesBySession` / `parseLeaseRecord` | `TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation` asserts both literal sorted tuples for both opposing `created_at` assignments and reversed `LeaseRecords` input order. | `union-lease-tuple-omission` drops one competing UUIDv4 tuple; the named test alone fails. |
++| Timestamps have no winner authority | Same entry; returned `sessstate.LeaseHead` contains only epoch and lease UUID | The same test moves each Lease Record's `created_at` to opposite extremes; the tuple result is byte-for-byte equal. Projection permutation coverage is in `internal/merkleinventory/durable_test.go`. | `union-lease-created-at-winner` promotes the later diagnostic timestamp into an epoch; the named test alone fails. |
++| Generated tuple cardinality and order | `Reader.LeaseHeadsForSession` → `validatedLeasesBySession` / `parseLeaseRecord` | `TestLeaseHeadsForSessionCoversGeneratedCardinalityRange` generates 0–32 distinct UUIDv4 tuples, independently sorts the expected list, and compares both input order/timestamp assignments. | `union-lease-generated-cardinality-omission` omits a generated tuple at size 17; that subtest alone fails. The loop/map/sort structure has no size-specific branch beyond this generated range. |
++| One lease UUID cannot carry two conflicting object identities | Same entry, keyed by `validatedLease.LeaseID` | `TestLeaseHeadsForSessionRefusesConflictingBytesForOneLeaseID` uses two individually validated records with one UUID and distinct canonical bytes and asserts literal `integrity_failure`. | `union-lease-conflicting-same-id` admits the exact test UUID's conflicting bytes; that test alone fails. |
++
++The helper parses every record through the existing `parseLeaseRecord` owner,
++rejects conflicting bytes for one lease UUID with literal integrity refusal,
++deduplicates identical lease records, and sorts output by the existing
++`sessstate.Compare` tuple ordering. It does not select a winner; the existing
++pure reducer resolves the full supplied tuple set after union. Its existing
++`sessckpt` and `termbind` test importers are unchanged; the new production
++importer is `merkleinventory`, listed in
++`internal/merkleinventory/IMPORTER-OUTCOMES.md`.
+diff --git a/internal/sessquery/lease.go b/internal/sessquery/lease.go
+index 7dd467b..e48caf1 100644
+--- a/internal/sessquery/lease.go
++++ b/internal/sessquery/lease.go
+@@ -15,6 +15,7 @@ package sessquery
+ import (
+ 	"encoding/json"
+ 	"fmt"
++	"sort"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
+ 	"github.com/relux-works/agent-session-manager/internal/environ"
+@@ -345,6 +346,35 @@ func (reader *Reader) validatedLeasesBySession() (map[string][]validatedLease, e
+ 	return out, nil
+ }
+ 
++// LeaseHeadsForSession returns every distinct validated (epoch, lease_id)
++// observed for one session. It deliberately does not select a winner; the
++// pure sessstate reducer compares the complete post-union set by §5.3.
++func (reader *Reader) LeaseHeadsForSession(sessionID string) ([]sessstate.LeaseHead, error) {
++	parsed, err := scalar.ParseUUIDv7(sessionID)
++	if err != nil {
++		return nil, fmt.Errorf("%w: union session ID: %v", ErrInvalidConfig, err)
++	}
++	bySession, err := reader.validatedLeasesBySession()
++	if err != nil {
++		return nil, err
++	}
++	candidates := bySession[parsed.String()]
++	byLeaseID := make(map[string]validatedLease, len(candidates))
++	heads := make([]sessstate.LeaseHead, 0, len(candidates))
++	for _, candidate := range candidates {
++		if prior, exists := byLeaseID[candidate.LeaseID]; exists {
++			if prior.Digest != candidate.Digest || string(prior.Raw) != string(candidate.Raw) {
++				return nil, fmt.Errorf("%w: session %s carries conflicting bytes for lease %s", sessstate.ErrIntegrity, parsed.String(), candidate.LeaseID)
++			}
++			continue
++		}
++		byLeaseID[candidate.LeaseID] = candidate
++		heads = append(heads, sessstate.LeaseHead{Epoch: candidate.Epoch, LeaseID: candidate.LeaseID})
++	}
++	sort.Slice(heads, func(i, j int) bool { return sessstate.Compare(heads[i], heads[j]) < 0 })
++	return heads, nil
++}
++
+ // winningLeaseFor selects the greatest (epoch, lease_id) validated Lease
+ // Record for one session and validates its succession: the
+ // predecessor ancestry must chain by epoch plus one down to an
+diff --git a/internal/sessquery/union_test.go b/internal/sessquery/union_test.go
+index 956f424..1150225 100644
+--- a/internal/sessquery/union_test.go
++++ b/internal/sessquery/union_test.go
+@@ -5,15 +5,104 @@
+ package sessquery
+ 
+ import (
++	"encoding/json"
+ 	"errors"
++	"fmt"
+ 	"os"
+ 	"path/filepath"
++	"reflect"
++	"sort"
++	"strings"
+ 	"testing"
+ 
+ 	"github.com/relux-works/agent-session-manager/internal/sessrepo"
+ 	"github.com/relux-works/agent-session-manager/internal/sessstate"
+ )
+ 
++func TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation(t *testing.T) {
++	leaseA := leaseRecordWithCreatedAt(t, lease, hostA, "2026-08-19T04:09:00.000Z")
++	leaseBBytes := leaseRecordWithCreatedAt(t, leaseB, hostB, "2026-08-20T04:09:00.000Z")
++	reader := &Reader{LeaseRecords: [][]byte{leaseBBytes, leaseA}}
++	got, err := reader.LeaseHeadsForSession(idA)
++	if err != nil {
++		t.Fatalf("LeaseHeadsForSession(first timestamp assignment) = %v", err)
++	}
++	want := []sessstate.LeaseHead{
++		{Epoch: 1, LeaseID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"},
++		{Epoch: 1, LeaseID: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"},
++	}
++	if !reflect.DeepEqual(got, want) {
++		t.Fatalf("LeaseHeadsForSession() = %#v, want both literal §5.3 tuples %#v", got, want)
++	}
++
++	// Reverse the timestamps and input order. The same complete tuple set must
++	// reach Reduce; created_at is diagnostic only under pinned §5.3.
++	leaseA = leaseRecordWithCreatedAt(t, lease, hostA, "2099-12-31T23:59:59.999Z")
++	leaseBBytes = leaseRecordWithCreatedAt(t, leaseB, hostB, "1900-01-01T00:00:00.000Z")
++	reader = &Reader{LeaseRecords: [][]byte{leaseA, leaseBBytes}}
++	got, err = reader.LeaseHeadsForSession(idA)
++	if err != nil {
++		t.Fatalf("LeaseHeadsForSession(perturbed timestamps) = %v", err)
++	}
++	if !reflect.DeepEqual(got, want) {
++		t.Fatalf("LeaseHeadsForSession(perturbed timestamps) = %#v, want unchanged tuples %#v", got, want)
++	}
++}
++
++func TestLeaseHeadsForSessionRefusesConflictingBytesForOneLeaseID(t *testing.T) {
++	first := leaseRecordWithCreatedAt(t, lease, hostA, "2026-08-19T04:09:00.000Z")
++	second := leaseRecordWithCreatedAt(t, lease, hostA, "2026-08-20T04:09:00.000Z")
++	reader := &Reader{LeaseRecords: [][]byte{first, second}}
++	got, err := reader.LeaseHeadsForSession(idA)
++	if len(got) != 0 || !errors.Is(err, sessstate.ErrIntegrity) || !strings.Contains(err.Error(), "integrity_failure") {
++		t.Fatalf("LeaseHeadsForSession(conflicting bytes for one lease ID) = (%#v, %v), want literal integrity_failure", got, err)
++	}
++}
++
++func TestLeaseHeadsForSessionCoversGeneratedCardinalityRange(t *testing.T) {
++	for size := 0; size <= 32; size++ {
++		t.Run(fmt.Sprintf("size_%02d", size), func(t *testing.T) {
++			firstOrder := make([][]byte, size)
++			secondOrder := make([][]byte, size)
++			wantIDs := make([]string, size)
++			for index := 0; index < size; index++ {
++				leaseID := fmt.Sprintf("00000000-0000-4000-8000-%012x", index+1)
++				wantIDs[index] = leaseID
++				firstTime, secondTime := "1900-01-01T00:00:00.000Z", "2099-12-31T23:59:59.999Z"
++				if index%2 == 1 {
++					firstTime, secondTime = secondTime, firstTime
++				}
++				firstOrder[index] = leaseRecordWithCreatedAt(t, leaseID, hostA, firstTime)
++				secondOrder[size-index-1] = leaseRecordWithCreatedAt(t, leaseID, hostA, secondTime)
++			}
++			sort.Strings(wantIDs)
++			want := make([]sessstate.LeaseHead, size)
++			for index, leaseID := range wantIDs {
++				want[index] = sessstate.LeaseHead{Epoch: 1, LeaseID: leaseID}
++			}
++			for _, records := range [][][]byte{firstOrder, secondOrder} {
++				reader := &Reader{LeaseRecords: records}
++				got, err := reader.LeaseHeadsForSession(idA)
++				if err != nil || !reflect.DeepEqual(got, want) {
++					t.Fatalf("LeaseHeadsForSession(%d generated records) = %#v/%v, want independently sorted tuples %#v", size, got, err, want)
++				}
++			}
++		})
++	}
++}
++
++func leaseRecordWithCreatedAt(t *testing.T, leaseID, holder, createdAt string) []byte {
++	t.Helper()
++	var object map[string]any
++	if err := json.Unmarshal(leaseCreate(t, idA, holder), &object); err != nil {
++		t.Fatal(err)
++	}
++	object["record_id"] = zeroDigest
++	object["lease_id"] = leaseID
++	object["created_at"] = createdAt
++	return identity(t, object, "record_id")
++}
++
+ // leasedPeerSession creates a leased session on a peer repository for
+ // union fixtures.
+ func leasedPeerSession(t *testing.T, peer *sessrepo.Repository, id, name string) sessrepo.SessionRef {
