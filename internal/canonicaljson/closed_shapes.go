@@ -104,10 +104,11 @@ func mustBuildImmutableObjectShapeValidators() map[schemaIdentityKey]immutableOb
 	register("urn:ax:schema:session-event", validateSessionEventV4, "4.0.0")
 	register("urn:ax:schema:checkpoint", validateCheckpointRecord, "1.0.0")
 
-	// Remaining Section 10.1 records retain their common-envelope gate before
-	// the public identity surface explicitly refuses an unsupported shape.
-	register("urn:ax:schema:tombstone", validateUnsupportedRecordEnvelopeShape, "1.0.0")
-	register("urn:ax:schema:tombstone-ack", validateUnsupportedRecordEnvelopeShape, "1.0.0")
+	// Section 10.7 records are admitted only after their complete closed shapes
+	// pass. Cross-object lease authority and acknowledgement subject links are
+	// intentionally left to the owner that has the referenced records.
+	register("urn:ax:schema:tombstone", validateTombstoneRecord, "1.0.0")
+	register("urn:ax:schema:tombstone-ack", validateTombstoneAckRecord, "1.0.0")
 
 	// The remaining registered identities are recognized for self-field
 	// selection but their schema-specific closed shapes are outside this task.
@@ -813,13 +814,6 @@ func validateCommonRecordEnvelope(object map[string]any) error {
 		return err
 	}
 	return validateMigrationExtensionObject(extensions)
-}
-
-func validateUnsupportedRecordEnvelopeShape(object map[string]any) error {
-	if err := validateCommonRecordEnvelope(object); err != nil {
-		return err
-	}
-	return rejectUnsupportedImmutableObjectShape(object)
 }
 
 func rejectUnsupportedImmutableObjectShape(object map[string]any) error {

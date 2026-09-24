@@ -40,6 +40,7 @@ var coverageNumberWords = map[string]int{
 	"sixty-eight": 68,
 	"sixty-nine":  69,
 	"seventy":     70,
+	"seventy-two": 72,
 }
 
 // TestREADMEMeasuredCoverageMatchesTracecheckReport pins the README "Measured
@@ -77,15 +78,19 @@ func TestREADMEMeasuredCoverageMatchesTracecheckReport(t *testing.T) {
 		t.Fatalf("VerifyRepository() error = %v", err)
 	}
 
-	subsection, start := measuredCoverageSubsection(t, repositoryRoot)
+	readmeRoot := os.Getenv("TRACECHECK_README_COPY_ROOT")
+	if readmeRoot == "" {
+		readmeRoot = repositoryRoot
+	}
+	subsection, start := measuredCoverageSubsection(t, readmeRoot)
 	assertFencedCoverageLine(t, subsection, start, lines[1])
 	prose := strings.Join(subsection, " ")
 
 	assertProseFigure(t, prose, start, `(\S+) section bindings discharge ([0-9]+) of the ([0-9]+) normative clauses`,
 		[]int{report.SectionBindings, report.DischargedClauses, report.NormativeClauses})
 	assertProseFigure(t, prose, start, `(Four) bindings are `+"`full`", []int{report.FullCoverage})
-	assertProseFigure(t, prose, start, `(ten) are `+"`partial`", []int{report.PartialCoverage})
-	assertProseFigure(t, prose, start, `(eleven) are `+"`sliver`", []int{report.SliverCoverage})
+	assertProseFigure(t, prose, start, `(eleven) are `+"`partial`", []int{report.PartialCoverage})
+	assertProseFigure(t, prose, start, `(twelve) are `+"`sliver`", []int{report.SliverCoverage})
 	assertProseFigure(t, prose, start, `(four) are `+"`unmeasured`", []int{report.UnmeasuredCoverage})
 	assertProseFigure(t, prose, start, `(forty-one) are `+"`unevidenced`", []int{report.UnevidencedCoverage})
 	assertProseFigure(t, prose, start, `(Seven) sections are recorded unowned`, []int{report.UnownedSections})
@@ -94,7 +99,7 @@ func TestREADMEMeasuredCoverageMatchesTracecheckReport(t *testing.T) {
 	if fullBindings != report.FullCoverage {
 		t.Fatalf("registry declares %d full bindings, VerifyRepository measures %d", fullBindings, report.FullCoverage)
 	}
-	assertProseFigure(t, prose, start, `(Four) admitted bindings out of (seventy) cover (twelve) clauses`,
+	assertProseFigure(t, prose, start, `(Four) admitted bindings out of (seventy-two) cover (twelve) clauses`,
 		[]int{report.FullCoverage, report.SectionBindings, fullClauses})
 }
 

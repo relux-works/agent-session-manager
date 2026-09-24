@@ -383,33 +383,33 @@ func TestSessionRecordV1NestedTaggedShapesReachBothIdentityEntries(t *testing.T)
 	}
 }
 
+// This declaration remains the canonical-identity-refusal owner in the
+// immutable traceability registry. Section 10.7 now has complete validators,
+// so the binding exercises valid admission and malformed common-envelope
+// refusal at both identity entries instead of the former unsupported-shape
+// refusal.
 func TestUnsupportedSection10RecordSchemasValidateCommonEnvelopeBeforeRefusal(t *testing.T) {
 	t.Parallel()
-
-	keys := []schemaIdentityKey{
-		{schema: "urn:ax:schema:tombstone", version: "1.0.0"},
-		{schema: "urn:ax:schema:tombstone-ack", version: "1.0.0"},
+	tests := []struct {
+		name      string
+		object    map[string]any
+		selfField SelfField
+	}{
+		{"Tombstone session", validTombstoneObject("session"), SelfTombstoneID},
+		{"Tombstone workspace entry", validTombstoneObject("workspace_entry"), SelfTombstoneID},
+		{"Tombstone provider snapshot", validTombstoneObject("provider_snapshot"), SelfTombstoneID},
+		{"Tombstone managed replica", validTombstoneObject("managed_replica"), SelfTombstoneID},
+		{"Acknowledgement applied", validTombstoneAckObject("applied", nil), SelfAckID},
+		{"Acknowledgement retained conflict", validTombstoneAckObject("retained_conflict", stringPointer(digestWithDigit('9'))), SelfAckID},
 	}
-	for _, key := range keys {
-		t.Run(key.schema+"@"+key.version, func(t *testing.T) {
-			contract := schemaIdentityContracts[key]
-			object := map[string]any{
-				"schema":                   key.schema,
-				"schema_version":           key.version,
-				string(contract.selfField): zeroDigest,
-				"subject_id":               "0198f4c8-3e70-7a11-8a2b-1234567890ab",
-				"created_by_host_id":       "0198f4c8-4a10-7b22-8b3c-1234567890ab",
-				"created_at":               "2026-08-19T04:00:00.000Z",
-				"extensions":               map[string]any{},
-			}
-			input := mustJSON(t, object)
-			if _, _, err := CalculateObjectIdentity(input); err == nil || !strings.Contains(err.Error(), "complete immutable-object shape validation is unavailable") {
-				t.Fatalf("CalculateObjectIdentity(%s complete shape unavailable) error = %v, want explicit refusal", key.schema, err)
-			}
-			object["subject_id"] = "not-a-uuid"
-			if _, _, err := CalculateObjectIdentity(mustJSON(t, object)); err == nil || !strings.Contains(err.Error(), "subject_id") {
-				t.Fatalf("CalculateObjectIdentity(%s malformed common envelope) error = %v, want subject_id refusal before unsupported shape", key.schema, err)
-			}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			assertIdentityEntriesAcceptShape(t, mustJSON(t, test.object), test.selfField)
+
+			malformed := cloneJSONObject(t, test.object)
+			malformed["subject_id"] = "not-a-uuid"
+			assertIdentityEntriesRefuseShape(t, mustJSON(t, malformed), test.selfField)
 		})
 	}
 }

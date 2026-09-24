@@ -201,6 +201,12 @@ var constraintRowSpecSections = map[string][]string{
 	"Session Record origin provenance":                  {"5.1"},
 	"Session Record same-provider-fork provenance":      {"5.1"},
 	"Transfer Manifest":                                 {"10.4"},
+	"Tombstone":                                         {"10.7"},
+	"Tombstone target.session":                          {"10.7"},
+	"Tombstone target.workspace_entry":                  {"10.7"},
+	"Tombstone target.provider_snapshot":                {"10.7"},
+	"Tombstone target.managed_replica":                  {"10.7"},
+	"Tombstone Acknowledgement":                         {"10.7"},
 	"Workspace Group Record":                            {"5.6"},
 	"WorkspaceMember.git":                               {"5.6"},
 	"WorkspaceMember.managed_tree":                      {"5.6"},
@@ -225,6 +231,10 @@ var constraintRowSpecSections = map[string][]string{
 // member need an entry. A shape declared by a per-member table anchors itself:
 // its citation lands on the table row whose first cell is the member.
 var constraintRowDeclaringIdentifiers = map[string]string{
+	"Tombstone target.session":             "session",
+	"Tombstone target.workspace_entry":     "workspace_entry",
+	"Tombstone target.provider_snapshot":   "provider_snapshot",
+	"Tombstone target.managed_replica":     "managed_replica",
 	"GitFeatures":                          "GitFeatures",
 	"GitHead":                              "GitHead",
 	"GitIndex":                             "GitIndex",

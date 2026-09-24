@@ -371,6 +371,24 @@ func presenceCouplingProofs() []presenceCouplingProof {
 				return candidates
 			},
 		},
+		{
+			key:       "tombstones.go|validateTombstoneAckRecord|conflictPresent != (disposition == \"retainedconflict\")",
+			direction: presenceLeftOnly,
+			spec:      "Tombstone Acknowledgement: conflict_checkpoint_id is non-null only for retained_conflict",
+			refusal:   "Tombstone Acknowledgement conflict_checkpoint_id must be non-null exactly for retained_conflict",
+			builds: single(func(t *testing.T) couplingCandidate {
+				return identityCandidate(SelfAckID, validTombstoneAckObject("applied", stringPointer(digestWithDigit('d'))))
+			}),
+		},
+		{
+			key:       "tombstones.go|validateTombstoneAckRecord|conflictPresent != (disposition == \"retainedconflict\")",
+			direction: presenceRightOnly,
+			spec:      "Tombstone Acknowledgement: conflict_checkpoint_id is non-null only for retained_conflict",
+			refusal:   "Tombstone Acknowledgement conflict_checkpoint_id must be non-null exactly for retained_conflict",
+			builds: single(func(t *testing.T) couplingCandidate {
+				return identityCandidate(SelfAckID, validTombstoneAckObject("retained_conflict", nil))
+			}),
+		},
 	}
 }
 

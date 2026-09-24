@@ -396,6 +396,15 @@ func coreRecordBoundProofs() []boundProof {
 			build: sessionEventPayloadBound("tombstone.resolved", "target_ref", sizedString),
 		},
 		{
+			key: "validateTombstoneTarget|requireBoundedString|logical_root|1..64", spec: "logical_root:string[1..64]",
+			selfField: SelfTombstoneID, minimum: 1, maximum: 64,
+			build: func(t *testing.T, size int) map[string]any {
+				object := validTombstoneObject("managed_replica")
+				object["target"].(map[string]any)["logical_root"] = strings.Repeat("r", size)
+				return object
+			},
+		},
+		{
 			key:       "validateTaskBoardLaunchedPayload|bounded|manager_session_ref|1..512",
 			spec:      "manager_session_ref:string[1..512]",
 			selfField: SelfEventID, minimum: 1, maximum: 512,

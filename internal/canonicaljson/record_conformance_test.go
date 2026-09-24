@@ -49,11 +49,8 @@ import (
 // objects."
 //
 // Tombstone and Tombstone Acknowledgement schemas are registered in the catalog
-// but have no complete shape validator in this package yet, so they are derived
-// out below rather than named as exemptions: a family without a complete
-// validator cannot be swept for its envelope, and a family that gains one must
-// gain a fixture or TestEveryCompletelyValidatedSchemaVersionHasAValidFixture
-// reddens first.
+// and have complete Section 10.7 shape validators and fixtures, so they enter
+// the same derived envelope sweep as the other identity-addressed families.
 var section101RecordFamilies = map[string]string{
 	"urn:ax:schema:session-record":    "Session",
 	"urn:ax:schema:session-event":     "event",
@@ -576,11 +573,9 @@ func majorVersion(t *testing.T, version string) int {
 func TestSection101EnvelopeProvenanceIsRequiredByEveryRecordFamilyFixture(t *testing.T) {
 	t.Parallel()
 
-	// A registered family is one this package validates completely. Tombstone
-	// and Tombstone Acknowledgement resolve a self field but route to a total
-	// refusal, so they have no valid object to sweep. They are derived out by
-	// walking the production sources, not excused by name: the day either gains
-	// a complete validator it enters this sweep automatically.
+	// A registered family is one this package validates completely. The
+	// production registry and the fixtures together determine which families
+	// enter this sweep.
 	totallyRefusing := deriveTotalRefusalValidators(t)
 	registered := make(map[string]struct{})
 	for key, validatorName := range deriveRegisteredShapeValidators(t) {

@@ -15,6 +15,7 @@ package sessquery
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
 	"github.com/relux-works/agent-session-manager/internal/environ"
@@ -343,6 +344,35 @@ func (reader *Reader) validatedLeasesBySession() (map[string][]validatedLease, e
 		out[lease.SessionID] = append(out[lease.SessionID], lease)
 	}
 	return out, nil
+}
+
+// LeaseHeadsForSession returns every distinct validated (epoch, lease_id)
+// observed for one session. It deliberately does not select a winner; the
+// pure sessstate reducer compares the complete post-union set by §5.3.
+func (reader *Reader) LeaseHeadsForSession(sessionID string) ([]sessstate.LeaseHead, error) {
+	parsed, err := scalar.ParseUUIDv7(sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: union session ID: %v", ErrInvalidConfig, err)
+	}
+	bySession, err := reader.validatedLeasesBySession()
+	if err != nil {
+		return nil, err
+	}
+	candidates := bySession[parsed.String()]
+	byLeaseID := make(map[string]validatedLease, len(candidates))
+	heads := make([]sessstate.LeaseHead, 0, len(candidates))
+	for _, candidate := range candidates {
+		if prior, exists := byLeaseID[candidate.LeaseID]; exists {
+			if prior.Digest != candidate.Digest || string(prior.Raw) != string(candidate.Raw) {
+				return nil, fmt.Errorf("%w: session %s carries conflicting bytes for lease %s", sessstate.ErrIntegrity, parsed.String(), candidate.LeaseID)
+			}
+			continue
+		}
+		byLeaseID[candidate.LeaseID] = candidate
+		heads = append(heads, sessstate.LeaseHead{Epoch: candidate.Epoch, LeaseID: candidate.LeaseID})
+	}
+	sort.Slice(heads, func(i, j int) bool { return sessstate.Compare(heads[i], heads[j]) < 0 })
+	return heads, nil
 }
 
 // winningLeaseFor selects the greatest (epoch, lease_id) validated Lease

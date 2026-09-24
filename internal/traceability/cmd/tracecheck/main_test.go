@@ -22,8 +22,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=160 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
-		"section coverage: bindings=70 full=4 partial=10 sliver=11 unevidenced=41 unmeasured=4 unowned=7 clauses_discharged=81/585\n"
+	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=163 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
+		"section coverage: bindings=72 full=4 partial=11 sliver=12 unevidenced=41 unmeasured=4 unowned=7 clauses_discharged=88/610\n"
 	if output.String() != want {
 		t.Fatalf("run() output = %q, want %q", output.String(), want)
 	}
@@ -55,8 +55,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run(assigned sections) error = %v", err)
 	}
-	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=160 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
-		"section coverage: bindings=70 full=4 partial=10 sliver=11 unevidenced=41 unmeasured=4 unowned=7 clauses_discharged=81/585\n"
+	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=163 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
+		"section coverage: bindings=72 full=4 partial=11 sliver=12 unevidenced=41 unmeasured=4 unowned=7 clauses_discharged=88/610\n"
 	if output.String() != want {
 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
 	}
@@ -169,6 +169,8 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds isolated tracecheck binaries")
 	}
+	repositoryRoot := filepath.Join("..", "..", "..", "..")
+	tracecheck := buildTracecheckBinary(t, repositoryRoot)
 
 	tests := []struct {
 		section     string
@@ -196,7 +198,7 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
 			fixtureRoot := isolatedTracecheckFixture(t)
 			renameGoDeclaration(t, filepath.Join(fixtureRoot, test.path), test.from, test.to)
 
-			output, err := runTracecheck(t, fixtureRoot, "-section", test.section)
+			output, err := runTracecheckBinary(t, tracecheck, fixtureRoot, "-section", test.section)
 			want := `section binding "section:` + test.section + `" production owner: declaration "` + test.declaration + `" is absent`
 			if test.declaration == "CheckSocketCustody" {
 				want = `acceptance case "tmux-socket-custody-v070" production owner: declaration "CheckSocketCustody" is absent from "internal/tmuxserver/bind.go"`
@@ -549,6 +551,27 @@ func runTracecheck(t *testing.T, root string, arguments ...string) (string, erro
 	command := exec.Command("go", commandArguments...)
 	command.Dir = root
 	command.Env = append(os.Environ(), "GOWORK=off", "GOTOOLCHAIN=local")
+	output, err := command.CombinedOutput()
+	return string(output), err
+}
+
+func buildTracecheckBinary(t *testing.T, repositoryRoot string) string {
+	t.Helper()
+	binary := filepath.Join(t.TempDir(), "tracecheck")
+	command := exec.Command("go", "build", "-o", binary, "./internal/traceability/cmd/tracecheck")
+	command.Dir = repositoryRoot
+	command.Env = append(os.Environ(), "GOWORK=off", "GOTOOLCHAIN=local")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build production tracecheck executable: %v\n%s", err, output)
+	}
+	return binary
+}
+
+func runTracecheckBinary(t *testing.T, binary, root string, arguments ...string) (string, error) {
+	t.Helper()
+	commandArguments := append([]string{"-root", root}, arguments...)
+	command := exec.Command(binary, commandArguments...)
+	command.Dir = root
 	output, err := command.CombinedOutput()
 	return string(output), err
 }

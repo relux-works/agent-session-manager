@@ -157,6 +157,56 @@ func TestStoryV070AcceptanceCasesHaveClauseEdges(t *testing.T) {
 	}
 }
 
+func TestStoryFinalAntiEntropyCasesAppearInDecodedClauseLists(t *testing.T) {
+	registry := decodeRegistryFile(t, "ownership.v0.7.0.json")
+	want := map[string][]string{
+		"story-260830-nxqqaw-inventory-exchange": {
+			"section:11.4#1", "section:11.4#2", "section:11.4#3", "section:11.4#4", "section:11.4#5",
+		},
+		"story-260830-147hsj-durable-union-projection": {
+			"section:10.7#13", "section:11.4#1", "section:11.4#2", "section:11.4#7", "section:5.3#6", "section:5.3#7",
+		},
+		"story-260830-2h5uv9-order-duplicate-gap-convergence": {
+			"section:10.7#13", "section:11.4#1", "section:11.4#2", "section:11.4#7", "section:5.3#6", "section:5.3#7",
+		},
+	}
+	registered := make(map[string]struct{}, len(registry.AcceptanceCases))
+	for _, acceptance := range registry.AcceptanceCases {
+		registered[acceptance.ID] = struct{}{}
+	}
+	references := make(map[string]map[string]struct{}, len(want))
+	for _, group := range registry.Ownership {
+		if group.Kind != ownershipSectionBinding || len(group.Keys) != 1 {
+			continue
+		}
+		for _, clause := range group.Clauses {
+			key := "section:" + clause.ID
+			for _, acceptanceID := range clause.AcceptanceCases {
+				if _, assigned := want[acceptanceID]; !assigned {
+					continue
+				}
+				if references[acceptanceID] == nil {
+					references[acceptanceID] = make(map[string]struct{})
+				}
+				references[acceptanceID][key] = struct{}{}
+			}
+		}
+	}
+	for acceptanceID, clauseKeys := range want {
+		if _, ok := registered[acceptanceID]; !ok {
+			t.Errorf("story acceptance case %q is absent from the decoded registry", acceptanceID)
+		}
+		for _, clauseKey := range clauseKeys {
+			if _, ok := references[acceptanceID][clauseKey]; !ok {
+				t.Errorf("story acceptance case %q is not named by decoded clause %q", acceptanceID, clauseKey)
+			}
+		}
+		if len(references[acceptanceID]) == 0 {
+			t.Errorf("story acceptance case %q is defined but referenced by no decoded clause", acceptanceID)
+		}
+	}
+}
+
 func decodeRegistryFile(t *testing.T, name string) ownershipRegistry {
 	t.Helper()
 
@@ -724,8 +774,9 @@ type storyBindingUpgrade struct {
 
 // storyNewV070Bindings is the exact set of new-with-proof section bindings a
 // post-adoption story may introduce for a section the trunk baseline never
-// bound. STORY-260830-ptxkqe introduces section 4.1 with lost-create recovery;
-// STORY-260830-2t4g7i introduces section 4.2 with its executed tmux clauses.
+// bound. STORY-260830-ptxkqe introduces section 4.1; STORY-260830-2t4g7i
+// introduces section 4.2; STORY-260830-ub60id adds the M2 anti-entropy clauses
+// for Sections 10.7 and 11.4.
 var storyNewV070Bindings = map[string]storyBindingUpgrade{
 	"section:4.2": {
 		Production: codeReference{Path: "internal/tmuxserver/acquire.go", Declaration: "Acquire"},
@@ -747,6 +798,29 @@ var storyNewV070Bindings = map[string]storyBindingUpgrade{
 		Gap:        "RecoverCreate discharges Section 4.1 clause 4.1#5: after a lost create result, one status read plus the durable (session_id, bootstrap_operation_id) binding proves absence or identifies the ONE child (unavailable with status_first when the effect cannot be disproven, never a second child, never a false absence claim). The other Section 4.1 clauses (backend semantic operations, wrapper validation and safe parking, the durable pair bind) belong to the operation matrix, the axpane wrapper, and the terminal backend receipt owners and stay unenumerated here.",
 		Clauses: []dischargedClause{
 			{ID: "4.1#5", Line: 1399, Excerpt: "<code>status</code> plus that binding MUST prove absence or identify the one", AcceptanceCases: []string{"terminal-create-recovery-exact"}},
+		},
+	},
+	"section:10.7": {
+		Production: codeReference{Path: "internal/merkleinventory/durable.go", Declaration: "SyncFrom"},
+		Cases:      []string{"story-260830-147hsj-durable-union-projection", "story-260830-2h5uv9-order-duplicate-gap-convergence"},
+		Coverage:   coverageSliver,
+		Gap:        "DurableIndex.SyncFrom validates and unions Tombstones and Acknowledgements as immutable data and the named test proves the repository session row is unchanged. This discharges only Section 10.7 clause 10.7#13. Issuance authority, target-state mutation, deletion convergence, acknowledgement authorization/disposition, and retention are outside the M2 anti-entropy acceptance criterion and remain unclaimed.",
+		Clauses: []dischargedClause{
+			{ID: "10.7#13", Line: 6398, Excerpt: "Object exchange only validates and unions Tombstones; it MUST NOT mutate a", AcceptanceCases: []string{"story-260830-147hsj-durable-union-projection", "story-260830-2h5uv9-order-duplicate-gap-convergence"}},
+		},
+	},
+	"section:11.4": {
+		Production: codeReference{Path: "internal/merkleinventory/durable.go", Declaration: "SyncFrom"},
+		Cases:      []string{"story-260830-nxqqaw-inventory-exchange", "story-260830-147hsj-durable-union-projection", "story-260830-2h5uv9-order-duplicate-gap-convergence"},
+		Coverage:   coveragePartial,
+		Gap:        "The inventory and union tests discharge Section 11.4 clauses 11.4#1–#5 and #7. Clause 11.4#6 (referenced raw-blob transfer and destination materialization after record union) belongs to the separate Section 11.5 transfer/materialization owners; DurableIndex.SyncFrom handles only the five validated JSON namespaces and makes no transfer or capability claim.",
+		Clauses: []dischargedClause{
+			{ID: "11.4#1", Line: 7784, Excerpt: "An identity MUST occur in exactly one namespace. A Blob Descriptor therefore", AcceptanceCases: []string{"story-260830-nxqqaw-inventory-exchange", "story-260830-147hsj-durable-union-projection", "story-260830-2h5uv9-order-duplicate-gap-convergence"}},
+			{ID: "11.4#2", Line: 7788, Excerpt: "appears in <code>blob</code>. <code>objects.get</code> MUST schema-validate each", AcceptanceCases: []string{"story-260830-nxqqaw-inventory-exchange", "story-260830-147hsj-durable-union-projection", "story-260830-2h5uv9-order-duplicate-gap-convergence"}},
+			{ID: "11.4#3", Line: 7790, Excerpt: "namespace. Local excluded objects MUST NOT affect any root or count.", AcceptanceCases: []string{"story-260830-nxqqaw-inventory-exchange"}},
+			{ID: "11.4#4", Line: 7810, Excerpt: "<code>count</code> and <code>hash</code> MUST equal its recursively constructed", AcceptanceCases: []string{"story-260830-nxqqaw-inventory-exchange"}},
+			{ID: "11.4#5", Line: 7918, Excerpt: "negative fixture <code>MIXED-NS-N1</code> and MUST fail the expected roots and", AcceptanceCases: []string{"story-260830-nxqqaw-inventory-exchange"}},
+			{ID: "11.4#7", Line: 7933, Excerpt: "No last-writer-wins rule exists. Timestamps MUST NOT select a winner.", AcceptanceCases: []string{"story-260830-147hsj-durable-union-projection", "story-260830-2h5uv9-order-duplicate-gap-convergence"}},
 		},
 	},
 }
@@ -775,16 +849,16 @@ var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
 	},
 	"section:5.3": {
 		Production: codeReference{Path: "internal/sessrepo/lease_store.go", Declaration: "CompareAndSwapLease"},
-		Cases:      []string{"lease-record-lifecycle", "lease-fencing-revalidation", "lease-checkpoint-admission", "lease-divergent-preservation", "lease-union-resolution", "lease-fencing-gates", "core-record-identity-validation", "lease-ownership-union-properties", "lease-ownership-store-properties", "story-260917-append-winning-lease-admission"},
+		Cases:      []string{"lease-record-lifecycle", "lease-fencing-revalidation", "lease-checkpoint-admission", "lease-divergent-preservation", "lease-union-resolution", "lease-fencing-gates", "core-record-identity-validation", "lease-ownership-union-properties", "lease-ownership-store-properties", "story-260917-append-winning-lease-admission", "story-260830-147hsj-durable-union-projection", "story-260830-2h5uv9-order-duplicate-gap-convergence"},
 		Coverage:   coveragePartial,
-		Gap:        "CompareAndSwapLease with the fencing gates discharges 7 of the 8 Section 5.3 clauses; clause 5.3#5 (every new takeover lease MUST use max_observed_epoch + 1 from the initiator's union) stays unimplemented because the union maximum is caller-side input and no takeover flow exists in this repository yet. The ownership property cases (union-order independence and loser preservation over Reduce, clock non-authority and single authority over the lease store) add executable proofs for the discharged 5.3#6 and 5.3#7 divergent-preservation evidence without changing the 7-of-8 ratio.",
+		Gap:        "CompareAndSwapLease with the fencing gates discharges 7 of the 8 Section 5.3 clauses; clause 5.3#5 (every new takeover lease MUST use max_observed_epoch + 1 from the initiator's union) stays unimplemented because the union maximum is caller-side input and no takeover flow exists in this repository yet. The ownership property cases and M2's durable union projection preserve losing-lease events and apply no timestamp winner without changing the 7-of-8 ratio.",
 		Clauses: []dischargedClause{
 			{ID: "5.3#1", Line: 2006, Excerpt: "| <code>created_by_host_id</code> | UUIDv7 | MUST equal <code>issued_by_host_id</code> |", AcceptanceCases: []string{"core-record-identity-validation"}},
 			{ID: "5.3#2", Line: 2036, Excerpt: "tie-break. A valid epoch greater than 1 MUST name a known predecessor for the", AcceptanceCases: []string{"lease-record-lifecycle", "lease-checkpoint-admission"}},
 			{ID: "5.3#3", Line: 2037, Excerpt: "same session, MUST equal that predecessor's epoch plus one, and MUST reference", AcceptanceCases: []string{"lease-record-lifecycle", "lease-checkpoint-admission"}},
 			{ID: "5.3#4", Line: 2039, Excerpt: "<code>create</code> lease MUST have a null predecessor and MAY have a null", AcceptanceCases: []string{"lease-record-lifecycle"}},
-			{ID: "5.3#6", Line: 2046, Excerpt: "lease wins. Events under the losing same-epoch lease and all lower epochs MUST", AcceptanceCases: []string{"lease-divergent-preservation", "lease-union-resolution", "lease-ownership-union-properties", "story-260917-append-winning-lease-admission"}},
-			{ID: "5.3#7", Line: 2047, Excerpt: "be preserved in a divergent branch and MUST NOT affect authoritative state.", AcceptanceCases: []string{"lease-divergent-preservation", "lease-union-resolution", "lease-ownership-union-properties", "story-260917-append-winning-lease-admission"}},
+			{ID: "5.3#6", Line: 2046, Excerpt: "lease wins. Events under the losing same-epoch lease and all lower epochs MUST", AcceptanceCases: []string{"lease-divergent-preservation", "lease-union-resolution", "lease-ownership-union-properties", "story-260917-append-winning-lease-admission", "story-260830-147hsj-durable-union-projection", "story-260830-2h5uv9-order-duplicate-gap-convergence"}},
+			{ID: "5.3#7", Line: 2047, Excerpt: "be preserved in a divergent branch and MUST NOT affect authoritative state.", AcceptanceCases: []string{"lease-divergent-preservation", "lease-union-resolution", "lease-ownership-union-properties", "story-260917-append-winning-lease-admission", "story-260830-147hsj-durable-union-projection", "story-260830-2h5uv9-order-duplicate-gap-convergence"}},
 			{ID: "5.3#8", Line: 2049, Excerpt: "An owner process MUST revalidate its fencing token before:", AcceptanceCases: []string{"lease-fencing-revalidation", "lease-fencing-gates"}},
 		},
 	},
@@ -1222,6 +1296,49 @@ var storyNewV070Cases = map[string]acceptanceCase{
 		Tests: []codeReference{
 			{Path: "internal/sessadapter/envelope_test.go", Declaration: "TestDecodeRequestFrameRefusesOversizeFrame"},
 			{Path: "internal/sessadapter/envelope_test.go", Declaration: "TestFrameBoundEdges"},
+		},
+	},
+	"story-260830-nxqqaw-inventory-exchange": {
+		ID:         "story-260830-nxqqaw-inventory-exchange",
+		Production: codeReference{Path: "internal/merkleinventory/serve.go", Declaration: "Dispatch"},
+		Tests: []codeReference{
+			{Path: "internal/merkleinventory/trie_test.go", Declaration: "TestNormativeRootAndChildFixtures"},
+			{Path: "internal/merkleinventory/trie_test.go", Declaration: "TestMixedNS1RootsFromNormativeSyntheticIDs"},
+			{Path: "internal/merkleinventory/membership_test.go", Declaration: "TestRPC2SchemaMembershipTableIsTotalAndDisjoint"},
+			{Path: "internal/merkleinventory/membership_test.go", Declaration: "TestMixedNSN1RejectsDescriptorRelabelingChunksAndLocalMarker"},
+			{Path: "internal/merkleinventory/identity_exchange_test.go", Declaration: "TestMixedNSExchangeIdentityLevelSyntheticIDs"},
+			{Path: "internal/merkleinventory/membership_test.go", Declaration: "TestInProcessExchangeWalksChangedNamespacesAndFetchesExactObjects"},
+			{Path: "internal/merkleinventory/tombstone_exchange_test.go", Declaration: "TestInProcessTombstoneUnionRetainsBothTimesAndAcknowledgements"},
+		},
+	},
+	"story-260830-147hsj-durable-union-projection": {
+		ID:         "story-260830-147hsj-durable-union-projection",
+		Production: codeReference{Path: "internal/merkleinventory/durable.go", Declaration: "SyncFrom"},
+		Tests: []codeReference{
+			{Path: "internal/merkleinventory/durable_test.go", Declaration: "TestDurableSyncFindsMissingJSONObjectsAndRetainsTombstoneRecords"},
+			{Path: "internal/merkleinventory/durable_test.go", Declaration: "TestDurableSyncAuditsCommonIDsAndQuarantinesDifferentBytes"},
+			{Path: "internal/merkleinventory/durable_test.go", Declaration: "TestDurableSyncRefusesUnclosedAcknowledgementThenRecovers"},
+			{Path: "internal/merkleinventory/durable_test.go", Declaration: "TestDurableJSONAddIsIdempotentAcrossCrashRestartByNamespace"},
+			{Path: "internal/merkleinventory/durable_test.go", Declaration: "TestDurableConflictCrashRestoresQuarantineAndAbortsSync"},
+			{Path: "internal/merkleinventory/durable_test.go", Declaration: "TestProjectionRebuildExhaustsUnionArrivalsWithoutTimestampAuthority"},
+			{Path: "internal/sessquery/union_test.go", Declaration: "TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation"},
+		},
+	},
+	"story-260830-2h5uv9-order-duplicate-gap-convergence": {
+		ID:         "story-260830-2h5uv9-order-duplicate-gap-convergence",
+		Production: codeReference{Path: "internal/merkleinventory/durable.go", Declaration: "SyncFrom"},
+		Tests: []codeReference{
+			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncGeneratedPerturbationProduct"},
+			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncArrivalOrderConverges"},
+			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncGapFillsOnLaterPass"},
+			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncClockSkewDoesNotSelectLeaseWinner"},
+			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncPartialPeerNeverRegressesLocalRoots"},
+			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncDuplicateDeliveryIsByteIdentical"},
+			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncSameDigestDifferentBytesIsTypedConflict"},
+			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncConflictWithPartialOverlapPeer"},
+			{Path: "internal/merkleinventory/sync_rework_test.go", Declaration: "TestDurableSyncConflictAuditsEveryCommonIDPositionWithPeerOnlyRecord"},
+			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncRefusesPeerNamespaceMismatch"},
+			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncUnclosedAcknowledgementAborts"},
 		},
 	},
 }

@@ -1413,7 +1413,8 @@ than being absorbed by it.
 Provenance is swept per Section 10.1 family rather than per record. The family
 list is the section's own sentence, and the families without a complete shape
 validator are derived out by walking the production sources rather than excused
-by name, so a Tombstone validator landing later enters the sweep automatically.
+by name; the Section 10.7 Tombstone and Tombstone Acknowledgement validators
+are now part of the identity sweep and have their own refusal-guard bindings.
 Each of `subject_id`, `created_by_host_id`, `created_at`, and `extensions` is
 driven absent, null, wrongly typed, empty, and — the one that matters — carrying
 a value of the right JSON type in the wrong identity grammar: a UUIDv4 stamped
@@ -3494,8 +3495,8 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7
 repository gate used by CI. Its reviewed
 [`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
 registry independently enumerates implementation owners for all 64 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 160
-executable acceptance cases, 70 exact section bindings with their declared
+contract rows, 36 pinned or catalog-referenced normative section keys, 163
+executable acceptance cases, 72 exact section bindings with their declared
 coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
 and the superseded v0.6.0 and v0.5.0 registries are checked as owned legacy projections.
@@ -3596,10 +3597,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=70 full=4 partial=10 sliver=11 unevidenced=41 unmeasured=4 unowned=7 clauses_discharged=81/585
+section coverage: bindings=72 full=4 partial=11 sliver=12 unevidenced=41 unmeasured=4 unowned=7 clauses_discharged=88/610
 ```
 
-Seventy section bindings discharge 81 of the 585 normative clauses their
+Seventy-two section bindings discharge 88 of the 610 normative clauses their
 sections carry. Four bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
@@ -3618,7 +3619,7 @@ manifest-metadata, fsync-verify-install, digest-only-log,
 chunk-agreement, and oversize-refusal clauses are discharged by the
 capture contracts, native capture, and projection fidelity cases, with
 the fsync-verify-install clause additionally discharged by the landed
-localstore immutable-blob-install case), ten are
+localstore immutable-blob-install case), eleven are
 `partial` (Section 13.13 at 9/11, bound to
 [`internal/matjournal`](internal/matjournal) with the
 [`internal/crashgate`](internal/crashgate) conformance harness, whose
@@ -3630,7 +3631,10 @@ produce; Section 14.2 at 8/9, bound to
 is the process exit status this repository has no binary to produce; Section
 5.3 at 7/8, bound to
 [`internal/sessrepo`](internal/sessrepo), whose undischarged clause `5.3#5`
-is the initiator-union maximum no takeover flow computes yet; Section
+is the initiator-union maximum no takeover flow computes yet; Section 11.4
+at 6/7, bound to [`internal/merkleinventory`](internal/merkleinventory), whose
+undischarged clause `11.4#6` is raw-blob transfer and destination materialization
+after record union, which `DurableIndex.SyncFrom` does not perform; Section
 15.1 at 5/7 and Section 15.3 at 2/3, both bound to
 [`internal/axerror`](internal/axerror); the three undischarged clauses there are
 the RPC hello obligation `15.1#5`, the bootstrap-row sentence `15.1#6` that
@@ -3671,7 +3675,7 @@ the LeaseToken v2 fencing rule stays with the provhost v2 machinery; Section
 4.C at 5/7, bound to [`internal/tmuxserver`](internal/tmuxserver) through
 `Lifecycle.Execute`, discharges the repeated-identity, wrapper-entrypoint,
 descriptor, attach-authorization, and refused-error clauses #3-#7; clauses
-#1-#2 remain undischarged), eleven are
+#1-#2 remain undischarged), twelve are
 `sliver` (Section 10.3, whose chunk offset invariant is
 enforced by `validateBlobDescriptor` while its two receiver clauses have no
 implementation; Section 5.5 at 1/3, whose discharged negative-battery clause
@@ -3683,7 +3687,12 @@ unimplemented; and Section 2.2 at 4/22, bound to
 [`internal/fencing`](internal/fencing), whose discharged clauses are the
 single-owner, replica-restraint, winning-epoch-carriage, and
 losing-event-rejection invariants while the replication, secret, store,
-and directory invariants have no implementation; Section 17.4 at 1/4, bound
+and directory invariants have no implementation; Section 10.7 at 1/18,
+bound to [`internal/merkleinventory`](internal/merkleinventory), whose
+discharged clause `10.7#13` requires Tombstone exchange to validate and union
+immutable objects without mutating a target session; issuance, deletion
+convergence, acknowledgement authorization, and retention remain unclaimed;
+Section 17.4 at 1/4, bound
 to [`internal/meshneg`](internal/meshneg), whose discharged clause is the
 report-activation-unavailable sentence while upgrade, downgrade, and resume
 flows do not exist; Section 4.1 at 1/5, bound to
@@ -3727,7 +3736,7 @@ other assignment is refused with its ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-Four admitted bindings out of seventy cover twelve clauses, and that is
+Four admitted bindings out of seventy-two cover twelve clauses, and that is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and
@@ -4031,6 +4040,49 @@ pre-hello violation. The ten HC-* gates of Section 11.10.4 run as
 executable positive/negative fixture families. There is no `ax`
 command, SSH process launch, or provider plugin; launch selection is a
 computed Configuration-4 argv only.
+
+[`internal/merkleinventory`](internal/merkleinventory) provides deterministic
+Mesh RPC 2 namespace roots/children, validated membership, bounded JSON object
+retrieval, and a `DurableIndex` library for validated immutable JSON unions.
+`SyncFrom` discovers missing IDs through the namespace trie, fetches objects by
+digest, audits bytes for common IDs, and quarantines/aborts same-digest byte
+conflicts. `RebuildProjection` verifies the union contains the repository's
+authoritative record and event bytes, derives every validated lease head after
+union, and sends that complete set to the existing `sessstate.Projector`.
+Losing-lease event objects remain in the immutable union; only the
+`sessrepo`-owned authoritative chain reaches the state reducer. The pinned
+contract says: “No last-writer-wins rule exists. Timestamps MUST NOT select a
+winner."
+
+The generated Story-final property suite exercises 75,765 bounded scenarios
+through `DurableIndex.SyncFrom`: 38,000 valid-union cases plus 37,765 generated
+same-identity/different-byte conflicts; every N≤5 arrival order, sampled N=6
+orders, duplicate replay, a later-filled gap, both timestamp orders, every
+proper peer-object subset, and one-to-three sync passes. Every feasible
+conflict target × conflict round (1–3) crosses those axes, and the peer holds
+an identity absent locally. An independent test oracle compares all six roots
+and the rebuilt projection; conflicts must return literal
+`integrity_failure` and persist both exact byte variants in quarantine. These
+checks add no sync command or advertised capability.
+
+This remains a library API. It is not wired into an `ax sync` command, the
+authenticated Host Channel handler, or a doctor/capability surface, and makes
+no network transport claim. Raw blob/chunk staging and destination
+materialization stay with SPEC §§11.5–11.6. Four mapped schemas remain
+fail-closed pending their owning validators; RPC 3/4 inventory serving and RPC
+5 authority rules are not supported here. Validation boundaries and commands
+are in the package README, [conformance matrix](internal/merkleinventory/CONFORMANCE-MATRIX.md),
+and [traceability](internal/merkleinventory/TRACEABILITY.md).
+
+| Inventory check | Command | Output |
+| --- | --- | --- |
+| Inventory, durable union and projection behavior | `go test ./internal/merkleinventory ./internal/sessquery -count=1` | Package logs under `.temp/TASK-260830-2h5uv9/`; the large generated property is selected separately; crash fixtures use `t.TempDir()` |
+| Generated reorder/duplicate/gap/skew/partial-peer and partial-overlap-conflict product | Example bounded shard: `go test ./internal/merkleinventory -run '^TestDurableSyncGeneratedPerturbationProduct$/^N5$/^skew[01]$/^order(000|001|002|003|004)$' -parallel=4 -count=1` | Task-scoped shard logs under `.temp/TASK-260830-2h5uv9/`; task result records exact ranges and exit codes |
+| Traceability importer set | `go test ./internal/traceability ./internal/traceability/cmd/tracecheck -count=1` on refreshed trunk and candidate | Base/candidate package logs and full graph under `.temp/TASK-260830-2h5uv9/importer/` |
+| Windows cross-platform vet | `GOOS=windows GOARCH=amd64 go vet ./...` | Vet output under `.temp/TASK-260830-2h5uv9/` |
+| Candidate-delta lint | `golangci-lint run --new ./...` | Changed and untracked Go code only; `.temp/TASK-260830-2h5uv9/golangci-lint-new.log`. The unconfigured full-tree default scan still reports existing repository findings. |
+| Full configured Go suite with generated property separately sharded | `go test ./... -count=1 -v` | Verbose package log under `.temp/TASK-260830-2h5uv9/`; the 75,765-case parent test skips without a nested selector and is exercised by the bounded-shard row above |
+| Inventory and union narrowing probes | `python3 internal/merkleinventory/mutations.py --output .temp/TASK-260830-2h5uv9/mutations-final` | Per-probe overlays and raw test logs, plus `results.json` and `table.md`; source snapshot recorded in task results |
 
 The hostile-network conformance suite (`internal/hostchannel/hostile_test.go`,
 `internal/hostchannel/hostile_carrier_test.go`, acceptance case `AC-HOST-001`)

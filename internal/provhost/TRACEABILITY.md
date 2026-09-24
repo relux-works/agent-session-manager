@@ -92,10 +92,11 @@ outside the numerator.
   comparison, so project-keyed subpaths count as store discovery
   while sibling prefixes refuse. Windows case-insensitivity is out
   of scope: comparison is byte-exact and fails closed on case drift.
-- Provider-identity binding attestation stays where the retained
-  `TestNoProductionPathAttestsProviderIdentityBinding` bound keeps
-  it: no production path outside `internal/sessrepo` calls
-  `VerifyObjectIdentity`. Creation computes digests with
-  `CalculateObjectIdentity`; only tests attest them.
+- The retained `TestNoProductionPathAttestsProviderIdentityBinding` now
+  pins exactly six verifier sites: five inside `internal/sessrepo` and
+  `internal/merkleinventory/index.go`, where an immutable object's
+  claimed ID must be verified before namespace membership. No other
+  production path calls `VerifyObjectIdentity`; the allowlist is anchored
+  to both full module-relative owners.
 - No CLI, doctor surface, or capability advertisement is added or
   changed: `ax` operator surfaces belong to their owning leaves.

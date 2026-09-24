@@ -66,11 +66,13 @@ func TestSpecIdentityExampleVerifiesAgainstItsClaimedDigest(t *testing.T) {
 	}
 }
 
-// TestNoProductionPathAttestsProviderIdentityBinding pins the second
-// half of the stated bound: no non-test Go file outside the session
-// persistence leaf calls VerifyObjectIdentity, so provider-identity
-// binding attestation happens nowhere in production — not at this gate
-// and not at any persistence path. The session-state story
+// TestNoProductionPathAttestsProviderIdentityBinding pins the allowed
+// production identity-verification sites. Session persistence owns its
+// five record/event/lease/checkpoint sites. The namespace-inventory task
+// adds one site in its classifier because object membership must bind a
+// claimed digest to validated immutable bytes before the ID enters a
+// Merkle root. No other production path may call VerifyObjectIdentity.
+// The session-state story
 // (TASK-260830-wbpf1v) landed the anticipated production call sites in
 // internal/sessrepo, and this bound is rewritten around that truth
 // rather than bypassed. The name-resolution story (TASK-260830-21gygk)
@@ -90,10 +92,10 @@ func TestSpecIdentityExampleVerifiesAgainstItsClaimedDigest(t *testing.T) {
 // TestLoadRefusesProviderIdentityBlobAtEventPath and
 // TestLoadRefusesSwappedEventBlobs: the first revision stated a schema
 // gate in front of every Verify call, which the load site never had.
-// The allowlist below names the owning directory by its full
-// module-relative path and pins the exact site count, so a stale
-// exception or a foreign directory with the same leaf name fails
-// instead of lingering; it still reddens for any other tree. The scan
+// The allowlist below names both owners by full module-relative path and
+// pins their exact call-site counts, so a stale exception or a foreign
+// directory with the same leaf name fails instead of lingering; it still
+// reddens for any other tree. The scan
 // is AST-based (comments and test files never count) and fails closed
 // when it sees nothing.
 // Stated bound on this test: only *ast.CallExpr nodes are inspected, so a
@@ -119,13 +121,25 @@ func TestNoProductionPathAttestsProviderIdentityBinding(t *testing.T) {
 	if scanned == 0 {
 		t.Fatal("scanned no production sources; the check is blind")
 	}
-	if len(allowed) != 5 {
-		t.Fatalf("session-leaf attestation sites = %d, want exactly 5 (decodeSessionRecord, decodeSessionEvent, loadSessionLocked, AttestLeaseRecord, AttestCheckpointRecord): a moved call site must rewrite the bound, a new one must justify itself, a stale exception must go", len(allowed))
+	if len(allowed) != 6 {
+		t.Fatalf("identity attestation sites = %d, want exactly 6 (five session-leaf sites plus merkleinventory.ClassifyJSON): a moved call site must rewrite the bound, a new one must justify itself, a stale exception must go", len(allowed))
 	}
 	if len(callers) != 0 {
-		t.Fatalf("production call sites outside the session leaf attest the identity binding, contradicting the stated bound:\n  %s", strings.Join(callers, "\n  "))
+		t.Fatalf("unowned production call sites attest an identity binding, contradicting the stated bound:\n  %s", strings.Join(callers, "\n  "))
 	}
-	t.Logf("attestation scan: %d production files, %d parsed, %d session-leaf call sites, 0 elsewhere", scanned, parsed, len(allowed))
+	sessionSites, inventorySites := 0, 0
+	for _, site := range allowed {
+		switch {
+		case strings.Contains(site, filepath.Join("internal", "sessrepo")+string(filepath.Separator)):
+			sessionSites++
+		case strings.Contains(site, filepath.Join("internal", "merkleinventory", "index.go")):
+			inventorySites++
+		}
+	}
+	if sessionSites != 5 || inventorySites != 1 {
+		t.Fatalf("identity attestation ownership = session %d, inventory %d; want session 5 and inventory classifier 1: %q", sessionSites, inventorySites, allowed)
+	}
+	t.Logf("attestation scan: %d production files, %d parsed, five session-leaf sites and one inventory classifier site, 0 elsewhere", scanned, parsed)
 }
 
 // isSessrepoLeafFile reports whether a scan path sits inside the owning
@@ -139,9 +153,16 @@ func isSessrepoLeafFile(root, path string) bool {
 	return strings.HasPrefix(path, leaf)
 }
 
+// isInventoryIdentityAttestationFile admits only the inventory classifier
+// file, where a verified immutable ID is required before Merkle membership.
+// Anchoring the full path rejects similarly named foreign or sibling trees.
+func isInventoryIdentityAttestationFile(root, path string) bool {
+	return filepath.Clean(path) == filepath.Join(root, "internal", "merkleinventory", "index.go")
+}
+
 // scanAttestationSites walks the production trees beneath root and
-// classifies every VerifyObjectIdentity call: inside the owning leaf it
-// is allowlisted, anywhere else it contradicts the bound. It returns
+// classifies every VerifyObjectIdentity call: inside either named owner
+// it is allowlisted, anywhere else it contradicts the bound. It returns
 // the allowlisted entries, the contradicting entries, and the scanned
 // and parsed file counts.
 func scanAttestationSites(t *testing.T, root string) (allowed, callers []string, scanned, parsed int) {
@@ -178,7 +199,7 @@ func scanAttestationSites(t *testing.T, root string) (allowed, callers []string,
 				}
 				record := func(position token.Position) {
 					entry := fmt.Sprintf("%s:%d", position.Filename, position.Line)
-					if isSessrepoLeafFile(root, path) {
+					if isSessrepoLeafFile(root, path) || isInventoryIdentityAttestationFile(root, path) {
 						allowed = append(allowed, entry)
 						return
 					}
@@ -207,22 +228,25 @@ func scanAttestationSites(t *testing.T, root string) (allowed, callers []string,
 	return allowed, callers, scanned, parsed
 }
 
-// TestAttestationAllowlistAnchorsOwningPath drives the allowlist through
-// a synthetic module tree, preserving the searched-for "sessrepo" token
-// while changing the owning directory: a plant under
-// internal/provhost/sessrepo/ and a near-miss under
-// internal/xsessrepo/ must both land outside the allowlist, while the
-// leaf's own file stays admitted. The production suite executes the
-// behavioral tests, not only this static shape, for the token-preserving
-// mutants in the owning task's battery.
+// TestAttestationAllowlistAnchorsOwningPath drives both owners through a
+// synthetic module tree. A plant under internal/provhost/sessrepo/, a
+// near-miss under internal/xsessrepo/, a foreign merkleinventory tree,
+// and any inventory file other than index.go all land outside the
+// allowlist. The production suite executes behavioral tests alongside
+// token-preserving mutants in the inventory task's battery.
 func TestAttestationAllowlistAnchorsOwningPath(t *testing.T) {
 	root := t.TempDir()
 	leafCall := "package sessrepo\nfunc load(raw []byte) {\n\t_, _, _ = canonicaljson.VerifyObjectIdentity(raw)\n}\n"
+	inventoryCall := "package merkleinventory\nfunc classify(raw []byte) {\n\t_, _, _ = canonicaljson.VerifyObjectIdentity(raw)\n}\n"
 	foreignCall := "package plant\nfunc plant(raw []byte) {\n\t_, _, _ = canonicaljson.VerifyObjectIdentity(raw)\n}\n"
 	for _, file := range []struct{ rel, body string }{
 		{"internal/sessrepo/chain.go", leafCall},
+		{"internal/merkleinventory/index.go", inventoryCall},
 		{"internal/provhost/sessrepo/plant.go", foreignCall},
 		{"internal/xsessrepo/plant.go", foreignCall},
+		{"internal/provhost/merkleinventory/index.go", foreignCall},
+		{"internal/xmerkleinventory/index.go", foreignCall},
+		{"internal/merkleinventory/other.go", foreignCall},
 	} {
 		path := filepath.Join(root, filepath.FromSlash(file.rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -233,17 +257,17 @@ func TestAttestationAllowlistAnchorsOwningPath(t *testing.T) {
 		}
 	}
 	allowed, callers, scanned, parsed := scanAttestationSites(t, root)
-	if scanned != 3 || parsed != 3 {
-		t.Fatalf("synthetic scan files = %d scanned %d parsed, want 3 and 3", scanned, parsed)
+	if scanned != 7 || parsed != 7 {
+		t.Fatalf("synthetic scan files = %d scanned %d parsed, want 7 and 7", scanned, parsed)
 	}
-	if len(allowed) != 1 {
-		t.Fatalf("synthetic allowlisted sites = %q, want only the owning leaf file", allowed)
+	if len(allowed) != 2 {
+		t.Fatalf("synthetic allowlisted sites = %q, want the session leaf and one inventory classifier", allowed)
 	}
-	if !strings.Contains(allowed[0], filepath.Join("internal", "sessrepo", "chain.go")) {
-		t.Fatalf("synthetic allowlisted site = %q, want the owning leaf file", allowed[0])
+	if !strings.Contains(strings.Join(allowed, "\n"), filepath.Join("internal", "sessrepo", "chain.go")) || !strings.Contains(strings.Join(allowed, "\n"), filepath.Join("internal", "merkleinventory", "index.go")) {
+		t.Fatalf("synthetic allowlisted sites = %q, want the session leaf and inventory index", allowed)
 	}
-	if len(callers) != 2 {
-		t.Fatalf("synthetic contradicting sites = %q, want the provhost/sessrepo and xsessrepo plants", callers)
+	if len(callers) != 5 {
+		t.Fatalf("synthetic contradicting sites = %q, want foreign and sibling plants", callers)
 	}
 }
 

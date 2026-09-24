@@ -228,6 +228,41 @@ var unreachableRefusalSites = map[string]unreachableRefusal{
 		subsumingRefusal: "duplicate self-identity contract for %s@%s",
 		provingTest:      "TestBuildSchemaIdentityContractsRefusesADuplicateContract",
 	},
+
+	// GROUP 11 - the schema key and self field are parsed before the selected
+	// Tombstone validator receives the object.
+	"tombstones.go|validateTombstoneRecord|return err|#1": selectedSchemaRefusal,
+	"tombstones.go|validateTombstoneRecord|return err|#2": selectedSchemaRefusal,
+	"tombstones.go|validateTombstoneRecord|return err|#3": {
+		reason:           "resolveSelfField parses tombstone_id before the selected validator can recheck it",
+		subsumingRefusal: "self field tombstone_id: invalid digest",
+		provingTest:      "TestTombstoneSchemaAndScopeSelectionRefusesAtIdentityEntries",
+	},
+	"tombstones.go|validateTombstoneAckRecord|return err|#1": selectedSchemaRefusal,
+	"tombstones.go|validateTombstoneAckRecord|return err|#2": selectedSchemaRefusal,
+	"tombstones.go|validateTombstoneAckRecord|return err|#3": {
+		reason:           "resolveSelfField parses ack_id before the selected validator can recheck it",
+		subsumingRefusal: "self field ack_id: invalid digest",
+		provingTest:      "TestTombstoneSchemaAndScopeSelectionRefusesAtIdentityEntries",
+	},
+
+	// GROUP 12 - the common envelope has already checked the subject, and its
+	// closed scope enum makes either defensive unknown-scope arm unreachable.
+	"tombstones.go|validateTombstoneTarget|return err|#6": {
+		reason:           "validateCommonRecordEnvelope rejects malformed subject_id before the target validator rereads it",
+		subsumingRefusal: "member subject_id: invalid UUIDv7",
+		provingTest:      "TestTombstoneIdentityEntryRefusesNarrowedTargetAndAuthorityShapes",
+	},
+	"tombstones.go|validateTombstoneTarget|return invalidIdentity(\"Tombstone scope %q has no target shape\", scope)|#0": {
+		reason:           "validateTombstoneRecord accepts only the four scopes in its closed enum before calling this helper",
+		subsumingRefusal: "Tombstone scope must be one of session, workspace_entry, provider_snapshot, managed_replica",
+		provingTest:      "TestTombstoneSchemaAndScopeSelectionRefusesAtIdentityEntries",
+	},
+	"tombstones.go|validateTombstoneTarget|return invalidIdentity(\"Tombstone scope %q has no target shape\", scope)|#1": {
+		reason:           "the same closed scope enum is checked before the second defensive switch",
+		subsumingRefusal: "Tombstone scope must be one of session, workspace_entry, provider_snapshot, managed_replica",
+		provingTest:      "TestTombstoneSchemaAndScopeSelectionRefusesAtIdentityEntries",
+	},
 }
 
 // The shared declarations below carry one reason per structural cause, so a

@@ -5,14 +5,103 @@
 package sessquery
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/relux-works/agent-session-manager/internal/sessrepo"
 	"github.com/relux-works/agent-session-manager/internal/sessstate"
 )
+
+func TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation(t *testing.T) {
+	leaseA := leaseRecordWithCreatedAt(t, lease, hostA, "2026-08-19T04:09:00.000Z")
+	leaseBBytes := leaseRecordWithCreatedAt(t, leaseB, hostB, "2026-08-20T04:09:00.000Z")
+	reader := &Reader{LeaseRecords: [][]byte{leaseBBytes, leaseA}}
+	got, err := reader.LeaseHeadsForSession(idA)
+	if err != nil {
+		t.Fatalf("LeaseHeadsForSession(first timestamp assignment) = %v", err)
+	}
+	want := []sessstate.LeaseHead{
+		{Epoch: 1, LeaseID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"},
+		{Epoch: 1, LeaseID: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("LeaseHeadsForSession() = %#v, want both literal §5.3 tuples %#v", got, want)
+	}
+
+	// Reverse the timestamps and input order. The same complete tuple set must
+	// reach Reduce; created_at is diagnostic only under pinned §5.3.
+	leaseA = leaseRecordWithCreatedAt(t, lease, hostA, "2099-12-31T23:59:59.999Z")
+	leaseBBytes = leaseRecordWithCreatedAt(t, leaseB, hostB, "1900-01-01T00:00:00.000Z")
+	reader = &Reader{LeaseRecords: [][]byte{leaseA, leaseBBytes}}
+	got, err = reader.LeaseHeadsForSession(idA)
+	if err != nil {
+		t.Fatalf("LeaseHeadsForSession(perturbed timestamps) = %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("LeaseHeadsForSession(perturbed timestamps) = %#v, want unchanged tuples %#v", got, want)
+	}
+}
+
+func TestLeaseHeadsForSessionRefusesConflictingBytesForOneLeaseID(t *testing.T) {
+	first := leaseRecordWithCreatedAt(t, lease, hostA, "2026-08-19T04:09:00.000Z")
+	second := leaseRecordWithCreatedAt(t, lease, hostA, "2026-08-20T04:09:00.000Z")
+	reader := &Reader{LeaseRecords: [][]byte{first, second}}
+	got, err := reader.LeaseHeadsForSession(idA)
+	if len(got) != 0 || !errors.Is(err, sessstate.ErrIntegrity) || !strings.Contains(err.Error(), "integrity_failure") {
+		t.Fatalf("LeaseHeadsForSession(conflicting bytes for one lease ID) = (%#v, %v), want literal integrity_failure", got, err)
+	}
+}
+
+func TestLeaseHeadsForSessionCoversGeneratedCardinalityRange(t *testing.T) {
+	for size := 0; size <= 32; size++ {
+		t.Run(fmt.Sprintf("size_%02d", size), func(t *testing.T) {
+			firstOrder := make([][]byte, size)
+			secondOrder := make([][]byte, size)
+			wantIDs := make([]string, size)
+			for index := 0; index < size; index++ {
+				leaseID := fmt.Sprintf("00000000-0000-4000-8000-%012x", index+1)
+				wantIDs[index] = leaseID
+				firstTime, secondTime := "1900-01-01T00:00:00.000Z", "2099-12-31T23:59:59.999Z"
+				if index%2 == 1 {
+					firstTime, secondTime = secondTime, firstTime
+				}
+				firstOrder[index] = leaseRecordWithCreatedAt(t, leaseID, hostA, firstTime)
+				secondOrder[size-index-1] = leaseRecordWithCreatedAt(t, leaseID, hostA, secondTime)
+			}
+			sort.Strings(wantIDs)
+			want := make([]sessstate.LeaseHead, size)
+			for index, leaseID := range wantIDs {
+				want[index] = sessstate.LeaseHead{Epoch: 1, LeaseID: leaseID}
+			}
+			for _, records := range [][][]byte{firstOrder, secondOrder} {
+				reader := &Reader{LeaseRecords: records}
+				got, err := reader.LeaseHeadsForSession(idA)
+				if err != nil || !reflect.DeepEqual(got, want) {
+					t.Fatalf("LeaseHeadsForSession(%d generated records) = %#v/%v, want independently sorted tuples %#v", size, got, err, want)
+				}
+			}
+		})
+	}
+}
+
+func leaseRecordWithCreatedAt(t *testing.T, leaseID, holder, createdAt string) []byte {
+	t.Helper()
+	var object map[string]any
+	if err := json.Unmarshal(leaseCreate(t, idA, holder), &object); err != nil {
+		t.Fatal(err)
+	}
+	object["record_id"] = zeroDigest
+	object["lease_id"] = leaseID
+	object["created_at"] = createdAt
+	return identity(t, object, "record_id")
+}
 
 // leasedPeerSession creates a leased session on a peer repository for
 // union fixtures.

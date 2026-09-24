@@ -270,3 +270,26 @@ while the not-applied and compile-failure controls remain classified as
 restored after the run and the candidate contains no Python cache artifact.
 The raw run, source manifest, and per-mutant logs are attached to the owning
 task resource.
+
+## TASK-260830-147hsj lease-union derivation supplement
+
+Authority: pinned `internal/specdoc/SPEC.v0.7.0.md`, §11.4 rules 5–6 and §5.3
+(lines 1987–2061, including line 2047). `Reader.LeaseHeadsForSession` is the
+post-union projection entry consumed by
+`internal/merkleinventory.Index.RebuildProjection`.
+
+| Rule | Production call site | Evidence | Narrowing |
+| --- | --- | --- | --- |
+| Derive every validated lease tuple; do not choose before union | `Reader.LeaseHeadsForSession` → `validatedLeasesBySession` / `parseLeaseRecord` | `TestLeaseHeadsForSessionReturnsEveryTupleAcrossTimestampPerturbation` asserts both literal sorted tuples for both opposing `created_at` assignments and reversed `LeaseRecords` input order. | `union-lease-tuple-omission` drops one competing UUIDv4 tuple; the named test alone fails. |
+| Timestamps have no winner authority | Same entry; returned `sessstate.LeaseHead` contains only epoch and lease UUID | The same test moves each Lease Record's `created_at` to opposite extremes; the tuple result is byte-for-byte equal. Projection permutation coverage is in `internal/merkleinventory/durable_test.go`. | `union-lease-created-at-winner` promotes the later diagnostic timestamp into an epoch; the named test alone fails. |
+| Generated tuple cardinality and order | `Reader.LeaseHeadsForSession` → `validatedLeasesBySession` / `parseLeaseRecord` | `TestLeaseHeadsForSessionCoversGeneratedCardinalityRange` generates 0–32 distinct UUIDv4 tuples, independently sorts the expected list, and compares both input order/timestamp assignments. | `union-lease-generated-cardinality-omission` omits a generated tuple at size 17; that subtest alone fails. The loop/map/sort structure has no size-specific branch beyond this generated range. |
+| One lease UUID cannot carry two conflicting object identities | Same entry, keyed by `validatedLease.LeaseID` | `TestLeaseHeadsForSessionRefusesConflictingBytesForOneLeaseID` uses two individually validated records with one UUID and distinct canonical bytes and asserts literal `integrity_failure`. | `union-lease-conflicting-same-id` admits the exact test UUID's conflicting bytes; that test alone fails. |
+
+The helper parses every record through the existing `parseLeaseRecord` owner,
+rejects conflicting bytes for one lease UUID with literal integrity refusal,
+deduplicates identical lease records, and sorts output by the existing
+`sessstate.Compare` tuple ordering. It does not select a winner; the existing
+pure reducer resolves the full supplied tuple set after union. Its existing
+`sessckpt` and `termbind` test importers are unchanged; the new production
+importer is `merkleinventory`, listed in
+`internal/merkleinventory/IMPORTER-OUTCOMES.md`.
