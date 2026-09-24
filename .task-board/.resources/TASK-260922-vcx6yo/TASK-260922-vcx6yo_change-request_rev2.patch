@@ -1,0 +1,1273 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index e7ab424..750249d 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -3,6 +3,26 @@
+ > Institutional memory. Concise, factual, high-signal.
+ > Newest entries first. One block per insight.
+ 
++## 2026-09-23
++
++### TASK-260922-vcx6yo — rev1 rework: overlap axes and isolated M2/M5 kills
++
++- P1 CLOSED (read-only atomicity): added `TestAttachReadOnlyOverlapAdmissionAtomicAcrossLifecycleInstances`. It pauses the first receipt after staging, races a second read-only client through an independent Lifecycle/store, and asserts one receipt/vector. `N-M2-attach-admission-lock-input-only` was run alone; it KILLED and the raw log shows the second receipt and read-only vector were returned.
++- P2 CLOSED (input peer position): added `TestAttachOverlapInputGateChecksEveryPeer` for a read-only peer sorting before one input peer and before two input peers. Each refusal asserts no new receipt and no vector. `N-M5-attach-overlap-input-first-peer-only` was run alone; both subtests KILLED with receipt/vector effects in the raw log.
++- Added `TestAttachOverlapRequiresMultiAttachForInputClient`; its separate `N-attach-overlap-multi-input-client` narrowing isolates `multi_attach` by keeping `multiple_input_clients` present. Expanded `TestAttachReceiptWithoutPositiveLivenessRemainsPossiblePeer` to cover read-only and input-authorized receipts whose returned vectors have not been executed.
++- Gate-axis census is complete across client class, peer count, sorted peer position, replay/new client, and concurrent/sequential calls: 6 gates × 5 axes = 30 rows, with 15 test-and-narrowing witnesses and 15 owned bounds. M2/M5 each have a single-killer raw log. The refreshed results, matrix, validation logs, and evidence archive are ready for review.
++- Focused axis tests and the `termbind` + `tmuxserver` package suite passed on the current candidate. Candidate remains uncommitted on Story checkpoint `d8decbb03db419c8ad2707cadc2eafd3027a9c4d`.
++
++### TASK-260922-vcx6yo — attach overlap admission, atomic census, and liveness bound
++
++- P1 FIXED (overlap capability gates): `Lifecycle.Execute(attach)` now keeps the landed `AttachStore.Peers` census as the single receipt-namespace authority, then requires `multi_attach` for a distinct possible peer and `multiple_input_clients` plus valid AX input authorization for concurrent input. Receipt-validated same-client retries are distinguished from new clients. The read-only-no-multi and writable-no-multiple-input paths refuse before a second receipt or vector; peer-present read-only/input retries and conflicting retries are exercised at the lifecycle entry.
++- P1 FIXED (attach-to-attach atomicity): a persistent per-instance OS lock spans the peer census through receipt installation. Unix uses `flock`; Windows uses `LockFileEx`. A paused receipt-stage interleaving across independently constructed Lifecycle values proves the second attach cannot commit from an empty census; separate-store and killed-process tests prove contention, cancellation, and kernel release. Existing quiesce ordering remains process-local under B42.
++- LIVENESS RULE / B44: a receipt proves an admitted client claim, not current tmux connectivity. The returned vector is caller-executed and this protocol has no positive client-identity or detach signal. If liveness cannot be shown, it is UNKNOWN and remains a possible peer; that can conservatively block a later attach after detach. Exact liveness and stale-receipt reclamation stay owned by a future authoritative protocol/receipt owner. The landed census remains fail-closed for corrupt, unreadable, directory-shaped, misfiled, and foreign-keyed entries; no second census was added.
++- OUTCOME COMPOSITION: the 216-row base/candidate closure grid shares all 216 `(package, entry, input)` keys. One outcome moved: `tmuxserver | ExecuteAttachOverlapRace | two-writable-clients/no-multiple-input-clients` now refuses the second attach with `terminal_backend_capability_unproven`, commits no second receipt, and returns no vector. All 33 importer packages have outcome rows; the accepted closure's three package-surface bounds (`cloneproject`, `crashgate`, `sshtransport`) remain explicitly fenced and their package tests ran.
++- MUTATION / VALIDATION: the initial candidate harness had 301 rows; that evidence is superseded by the rev1 review-rework pass recorded above. The refreshed tmuxserver harness has 304 unique rows (297 narrowing and 5 supplementary KILLED; one shadowed supplementary and C-control SURVIVED). All 45 Go packages passed regular, race, and coverage sweeps; all 17 configured 100x fuzz targets, Linux and Windows builds, native/Windows vet, tracecheck, cataloggen, importer package tests, JSON parsing, and formatting checks passed. `task-board validate` exited 0 and reported 254 unrelated task issues; none named this task or its Story.
++- PROCESS ANOMALY: an earlier path typo briefly created `/Users/iv/Developer/ReluxWorks/agent-session-manager/internal/termbind/admission_test.go` outside this Story worktree at `2026-09-23T05:25:21+0400`. It was removed immediately; the removal timestamp was not captured, and a final presence check confirms the file is absent. No direct control-root edit was made.
++- Candidate remains uncommitted in the Story worktree at checkpoint `d8decbb03db419c8ad2707cadc2eafd3027a9c4d`.
++
+ ## 2026-09-22
+ 
+ ### TASK-260830-1c28dz rev9 — census integrity, in-flight probe bounds, validated replay, attribution repair
+diff --git a/README.md b/README.md
+index 08f00dd..1bdd641 100644
+--- a/README.md
++++ b/README.md
+@@ -2430,7 +2430,19 @@ still refuses idempotency_mismatch) and corrupt census entries
+ (a directory at a receipt-shaped name, a receipt misfiled under
+ another client's key, a malformed receipt name) refusing rather
+ than reading as no peers; client liveness is bound B44 in the
+-traceability map (owned by TASK-260922-vcx6yo). Quiesce
++traceability map. The receipt census proves an admitted client claim,
++not a currently connected tmux client: the caller executes the
++returned vector and the current protocol has no positive client
++identity or detach signal. A valid receipt whose liveness is unknown
++therefore remains a possible peer until an authoritative retirement
++contract exists. This can conservatively block a later attach after
++the prior client detached. Admission uses a persistent per-instance
++OS file lock across Lifecycle instances and processes, held from the
++peer census through the durable receipt commit; Unix uses `flock` and
++Windows uses `LockFileEx`. Concurrent input requires both
++`multiple_input_clients` and the parsed AX input authorization, in
++addition to `multi_attach`; no writable vector or second receipt is
++returned if AX authorization refuses. Quiesce
+ cuts operator input by locking then detaching every attached client
+ and refusing new input-authorized attaches at the entry once its
+ closure report commits (read-only observation stays); a lost report
+@@ -2447,9 +2459,10 @@ Run the focused tests and coverage with:
+ ```bash
+ go test ./internal/tmuxserver -count=1
+ go test ./internal/tmuxserver -cover -count=1
++go test ./internal/termbind ./internal/tmuxserver -count=1
+ ```
+ 
+-Run the narrowing battery (291 narrowing mutants, six supplementary
++Run the narrowing battery (297 narrowing mutants, six supplementary
+ rows — three additive, two positive-path wiring, and one shadowed
+ entry-deadline narrowing that survives by reroute to the wait
+ bound — plus one harmless control) with:
+@@ -2463,9 +2476,11 @@ through the production entry point, restores the file from backup, and
+ reports per-row verdicts with subprocess exits; `AX_MUTANT_VERBOSE=1`
+ additionally prints the raw per-plant logs, and `--log-dir` captures one
+ raw log per plant. Task validation logs and mutation artifacts are
+-attached to `TASK-260830-35urbp`, with the lifecycle battery and its
+-raw per-plant logs attached to `TASK-260830-1c28dz`. The package adds
+-no `ax` command, no
++attached to their task-scoped `TASK-260830-*` and
++`TASK-260922-vcx6yo` outcome resources. Run-local logs and closure
++comparisons are stored under `.temp/<TASK-ID>/`; handoff summaries and
++evidence archives are attached to the owning task board item. The
++package adds no `ax` command, no
+ `doctor` result, and no runtime capability claim; the clause-to-test
+ matrix with its stated bounds lives in
+ [the task evidence map](internal/tmuxserver/TRACEABILITY.md).
+diff --git a/internal/termbind/TRACEABILITY.md b/internal/termbind/TRACEABILITY.md
+index 52bf40a..7d68a29 100644
+--- a/internal/termbind/TRACEABILITY.md
++++ b/internal/termbind/TRACEABILITY.md
+@@ -10,7 +10,7 @@ ax-pane-and-terminal-instance-binding (final leaf).
+ 
+ Rule: every row names its production entry point. A row is driven only
+ when the named committed test executes that entry. Prose in place of
+-the ratio is not evidence. 66 of 67 AC rows driven; row 57 is a stated
++the ratio is not evidence. 67 of 68 AC rows driven; row 57 is a stated
+ bound (payload census — no v1-v3-only reader exists on trunk to drive).
+ 
+ ## Identity and the Binding object (Section 4.B, Section 7.A)
+@@ -42,7 +42,8 @@ bound (payload census — no v1-v3-only reader exists on trunk to drive).
+ | # | Clause | Call site | Test |
+ |---|--------|-----------|------|
+ | 67 | MintSuccessorBinding mints the reboot-successor binding over a parsed prior: malformed and same-generation mints refuse, the successor names the new generation, links the prior binding id via supersedes_binding_id, recomputes the omit-self identity, re-admits its own image before return, and mints deterministically so a crash between the restore effects and the successor persist converges on retry | MintSuccessorBinding (successor.go) | TestMintSuccessorBindingSuccessesAcrossGenerations, TestMintSuccessorBindingIsDeterministic, TestMintSuccessorBindingRefusesSameGeneration, TestMintSuccessorBindingRefusesMalformedGeneration, TestMintSuccessorBindingIdentityBinds |
+-| 68 | Peers replays the stored peer census for one terminal instance except the requesting client: every recorded receipt except the caller's own, sorted by client ID, with no liveness decided. An unrecorded instance has no peers; staging entries and non-receipt names are skipped; a read, decode, or binding failure errors instead of reading as an empty census, as does a directory at a receipt-shaped name. | Peers (overlap.go) | TestAttachStorePeers, TestAttachStorePeersEmpty, TestAttachStorePeersFailsClosed, TestAttachStorePeersRejectsForeignReceipt, TestAttachStorePeersDirectoryFailsClosed |
++| 68 | Peers replays the stored peer census for one terminal instance except the requesting client: every recorded receipt except the caller's own, sorted by client ID. A valid receipt proves an admitted client claim, not current process liveness; absent positive evidence, liveness is UNKNOWN and the caller treats it as a possible peer. An unrecorded instance has no peers; staging entries and non-receipt names are skipped; a read, decode, or binding failure errors instead of reading as an empty census, as does a directory at a receipt-shaped name. | Peers (overlap.go) | TestAttachStorePeers, TestAttachStorePeersEmpty, TestAttachStorePeersFailsClosed, TestAttachStorePeersRejectsForeignReceipt, TestAttachStorePeersDirectoryFailsClosed |
++| 69 | AcquireAdmission serializes attach admission for one terminal instance across independent stores and processes; the persistent lock file is not removed, release and process death relinquish the OS lock, and caller cancellation bounds acquisition. | AcquireAdmission (admission.go) | TestAttachAdmissionLockSharedAcrossStores, TestAttachAdmissionLockReleasedAfterProcessExit |
+ 
+ ## Evidence resolution (Section 4.D, Section 5.2)
+ 
+diff --git a/internal/termbind/admission.go b/internal/termbind/admission.go
+new file mode 100644
+index 0000000..b6b1ce0
+--- /dev/null
++++ b/internal/termbind/admission.go
+@@ -0,0 +1,74 @@
++package termbind
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"os"
++	"path/filepath"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const admissionLockName = ".admission.lock"
++
++// AcquireAdmission holds the per-instance attach-admission lock until
++// release is called. Lifecycle callers hold it across the peer census,
++// capability decision, and durable receipt commit. The OS lock makes this
++// boundary shared by independently opened stores and processes. The lock
++// file is persistent: removing it after unlock could split contenders
++// across two inodes.
++func (store *AttachStore) AcquireAdmission(ctx context.Context, instanceID string) (release func(), err error) {
++	if ctx == nil {
++		return nil, errors.New("attach admission context is nil")
++	}
++	if err := CheckInstanceIdentity(instanceID); err != nil {
++		return nil, err
++	}
++	if _, err := scalar.ParseUUIDv7(instanceID); err != nil {
++		return nil, fmt.Errorf("attach admission instance %q is not a UUIDv7: %w", instanceID, err)
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
++
++	dir := store.instanceDir(instanceID)
++	if err := os.MkdirAll(dir, 0o755); err != nil {
++		return nil, fmt.Errorf("create attach admission directory: %w", err)
++	}
++	file, err := os.OpenFile(filepath.Join(dir, admissionLockName), os.O_CREATE|os.O_RDWR, 0o600)
++	if err != nil {
++		return nil, fmt.Errorf("open attach admission lock: %w", err)
++	}
++	if store.hooks != nil && store.hooks.BeforeAdmissionLock != nil {
++		store.hooks.BeforeAdmissionLock(instanceID)
++	}
++	for {
++		if err := ctx.Err(); err != nil {
++			_ = file.Close()
++			return nil, err
++		}
++		locked, unlock, lockErr := tryLockAdmissionFile(file)
++		if lockErr != nil {
++			_ = file.Close()
++			return nil, fmt.Errorf("lock attach admission: %w", lockErr)
++		}
++		if locked {
++			return func() {
++				_ = unlock()
++				_ = file.Close()
++			}, nil
++		}
++		timer := time.NewTimer(10 * time.Millisecond)
++		select {
++		case <-ctx.Done():
++			if !timer.Stop() {
++				<-timer.C
++			}
++			_ = file.Close()
++			return nil, ctx.Err()
++		case <-timer.C:
++		}
++	}
++}
+diff --git a/internal/termbind/admission_test.go b/internal/termbind/admission_test.go
+new file mode 100644
+index 0000000..0b71f4a
+--- /dev/null
++++ b/internal/termbind/admission_test.go
+@@ -0,0 +1,137 @@
++package termbind
++
++import (
++	"bufio"
++	"context"
++	"errors"
++	"fmt"
++	"os"
++	"os/exec"
++	"runtime"
++	"strings"
++	"testing"
++	"time"
++)
++
++// TestAttachAdmissionLockSharedAcrossStores proves that separately opened
++// stores arbitrate on one persistent per-instance OS lock and that a
++// canceled waiter does not acquire it after the owner releases.
++func TestAttachAdmissionLockSharedAcrossStores(t *testing.T) {
++	root := t.TempDir()
++	first, err := OpenAttachStore(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	second, err := OpenAttachStore(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	releaseFirst, err := first.AcquireAdmission(context.Background(), fixtureInstance)
++	if err != nil {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
++	defer cancel()
++	if release, err := second.AcquireAdmission(ctx, fixtureInstance); err == nil {
++		release()
++		t.Fatal("second store acquired an instance lock held by the first store")
++	} else if !errors.Is(err, context.DeadlineExceeded) {
++		t.Fatalf("second acquisition error = %v, want context deadline", err)
++	}
++	releaseFirst()
++	releaseSecond, err := second.AcquireAdmission(context.Background(), fixtureInstance)
++	if err != nil {
++		t.Fatalf("second store did not acquire after release: %v", err)
++	}
++	defer releaseSecond()
++}
++
++// TestAttachAdmissionLockReleasedAfterProcessExit is both the parent and
++// subprocess fixture. The helper holds the kernel lock until the parent
++// kills it; the persistent lock file remains reusable after process death.
++func TestAttachAdmissionLockReleasedAfterProcessExit(t *testing.T) {
++	if root := os.Getenv("AX_TEST_ATTACH_LOCK_HELPER_ROOT"); root != "" {
++		store, err := OpenAttachStore(root)
++		if err != nil {
++			fmt.Fprintln(os.Stderr, err)
++			os.Exit(2)
++		}
++		release, err := store.AcquireAdmission(context.Background(), fixtureInstance)
++		if err != nil {
++			fmt.Fprintln(os.Stderr, err)
++			os.Exit(2)
++		}
++		fmt.Fprintln(os.Stdout, "locked")
++		for {
++			runtime.KeepAlive(release)
++			time.Sleep(time.Hour)
++		}
++	}
++
++	root := t.TempDir()
++	command := exec.Command(os.Args[0], "-test.run=^TestAttachAdmissionLockReleasedAfterProcessExit$")
++	command.Env = append(os.Environ(), "AX_TEST_ATTACH_LOCK_HELPER_ROOT="+root)
++	stdout, err := command.StdoutPipe()
++	if err != nil {
++		t.Fatal(err)
++	}
++	var stderr strings.Builder
++	command.Stderr = &stderr
++	if err := command.Start(); err != nil {
++		t.Fatal(err)
++	}
++	finished := make(chan error, 1)
++	go func() {
++		line, err := bufio.NewReader(stdout).ReadString('\n')
++		if err != nil {
++			finished <- fmt.Errorf("read child lock-ready marker: %w (%s)", err, stderr.String())
++			return
++		}
++		if line != "locked\n" {
++			finished <- fmt.Errorf("child marker = %q, want locked", line)
++			return
++		}
++		finished <- nil
++	}()
++	select {
++	case err := <-finished:
++		if err != nil {
++			_ = command.Process.Kill()
++			_ = command.Wait()
++			t.Fatal(err)
++		}
++	case <-time.After(3 * time.Second):
++		_ = command.Process.Kill()
++		_ = command.Wait()
++		t.Fatal("child did not acquire the attach admission lock")
++	}
++
++	store, err := OpenAttachStore(root)
++	if err != nil {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
++	defer cancel()
++	if release, err := store.AcquireAdmission(ctx, fixtureInstance); err == nil {
++		release()
++		_ = command.Process.Kill()
++		_ = command.Wait()
++		t.Fatal("parent acquired the lock while the child process held it")
++	} else if !errors.Is(err, context.DeadlineExceeded) {
++		_ = command.Process.Kill()
++		_ = command.Wait()
++		t.Fatalf("parent acquisition error = %v, want context deadline", err)
++	}
++	if err := command.Process.Kill(); err != nil {
++		_ = command.Wait()
++		t.Fatal(err)
++	}
++	if err := command.Wait(); err == nil {
++		t.Fatal("killed child exited successfully")
++	}
++	release, err := store.AcquireAdmission(context.Background(), fixtureInstance)
++	if err != nil {
++		t.Fatalf("lock remained held after child process exit: %v", err)
++	}
++	release()
++}
+diff --git a/internal/termbind/admission_unix.go b/internal/termbind/admission_unix.go
+new file mode 100644
+index 0000000..0b9cf85
+--- /dev/null
++++ b/internal/termbind/admission_unix.go
+@@ -0,0 +1,21 @@
++//go:build !windows
++
++package termbind
++
++import (
++	"errors"
++	"os"
++
++	"golang.org/x/sys/unix"
++)
++
++func tryLockAdmissionFile(file *os.File) (bool, func() error, error) {
++	err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB)
++	if err == nil {
++		return true, func() error { return unix.Flock(int(file.Fd()), unix.LOCK_UN) }, nil
++	}
++	if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
++		return false, nil, nil
++	}
++	return false, nil, err
++}
+diff --git a/internal/termbind/admission_windows.go b/internal/termbind/admission_windows.go
+new file mode 100644
+index 0000000..4445abd
+--- /dev/null
++++ b/internal/termbind/admission_windows.go
+@@ -0,0 +1,23 @@
++//go:build windows
++
++package termbind
++
++import (
++	"errors"
++	"os"
++
++	"golang.org/x/sys/windows"
++)
++
++func tryLockAdmissionFile(file *os.File) (bool, func() error, error) {
++	overlapped := new(windows.Overlapped)
++	handle := windows.Handle(file.Fd())
++	err := windows.LockFileEx(handle, windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, overlapped)
++	if err == nil {
++		return true, func() error { return windows.UnlockFileEx(handle, 0, 1, 0, overlapped) }, nil
++	}
++	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
++		return false, nil, nil
++	}
++	return false, nil, err
++}
+diff --git a/internal/termbind/attach.go b/internal/termbind/attach.go
+index 6008f66..944bf70 100644
+--- a/internal/termbind/attach.go
++++ b/internal/termbind/attach.go
+@@ -62,6 +62,10 @@ var attachMembers = []string{
+ type AttachHooks struct {
+ 	AfterStage   func(path string) error
+ 	AfterInstall func(path string) error
++	// BeforeAdmissionLock runs after the shared lock file is opened
++	// and before the first lock attempt. It is a deterministic test
++	// interleaving hook; production leaves it nil.
++	BeforeAdmissionLock func(instanceID string)
+ }
+ 
+ // AttachStore is the durable attach-client receipt store rooted at one
+diff --git a/internal/termbind/overlap.go b/internal/termbind/overlap.go
+index 2b2b75e..8c61fe5 100644
+--- a/internal/termbind/overlap.go
++++ b/internal/termbind/overlap.go
+@@ -13,11 +13,13 @@ import (
+ 
+ // Peers replays every recorded presentation-client receipt for one
+ // terminal instance except the requesting client itself: the stored
+-// peer census the attach overlap gate fails closed on. A stored peer
+-// is possibly live — receipts outlive their clients, and no
+-// liveness is decided here — so callers treat a non-empty census as
+-// possible overlap. The requesting client is excluded by identity:
+-// a retry replays its own receipt rather than adding a client.
++// peer census the attach overlap gate fails closed on. A valid receipt
++// is positive evidence of an admitted client claim, not evidence that
++// its tmux client is still connected. This protocol has no positive
++// identity join or detach signal, so an unproven liveness state stays
++// UNKNOWN and remains a possible overlap. The requesting client is
++// excluded by identity: a retry replays its own receipt rather than
++// adding a client.
+ //
+ // An unrecorded instance has no peers. A read or validation failure
+ // is an error, never an empty census: unknown is not a verdict.
+diff --git a/internal/tmuxserver/TRACEABILITY.md b/internal/tmuxserver/TRACEABILITY.md
+index cdcb154..8d51f51 100644
+--- a/internal/tmuxserver/TRACEABILITY.md
++++ b/internal/tmuxserver/TRACEABILITY.md
+@@ -190,7 +190,7 @@ re-decides nothing the admission proves.
+ | # | Clause | Call site | Test |
+ |---|--------|-----------|------|
+ | 78 | Create runs the closed-shape admission, binding agreement, and relay refusal through the engine: interactive returns the bound descriptor, headless returns none, and identical requests replay one spawn. A fresh create rotates the incarnation, superseding prior closures; replays never rotate, and a failed rotation fails the operation closed. The wrapper is the path's only command: a rotation during its round trip changes nothing further (single-command probe). | executeCreate | TestExecuteCreateInteractive, TestExecuteCreateHeadless, TestExecuteCreateIdempotent, TestExecuteCreateRefusals, TestExecuteCreateBindingAgreement, TestExecuteCreateReplayPreservesBarrier, TestExecuteCreateIncarnationWriteFailureFailsClosed, TestEffectBoundaryAuditCreateIssuesSingleCommand |
+-| 79 | Attach returns the caller-executed vector with its descriptor and never execs an interactive attach: closed-shape admission, deadline, matching-transport capability, the quiescing input barrier, live attestation, the authoritative barrier recheck under the ordering lock, the post-lock generation and deadline rechecks, and the durable client receipt, with identical requests replaying; read-only authorization emits the read-only vector, a read-only attach observes without reopening quiesced input, and a lost state-record write fails closed, while a lost outcome-report write after committed closure is bound B43 (input may reopen before the retry heals the report). The barrier verdict is the incarnation-scoped closure proof alone: stale memory, caller-carried source state, and failure results are never consulted for their value, so none of them can reopen a closed input; only a fresh create or restore reopens, by rotating the incarnation. A corrupt scan, an empty time, a keyless report, or an unreadable state, incarnation, outcomes-directory, or outcome record errors. A second client that may overlap a recorded peer needs multi_attach, and new input over a recorded input peer needs multiple_input_clients, with receipt-validated same-client retries exempt (identical bodies replay with a peer present; conflicting retries still refuse idempotency_mismatch) and unreadable peers failing closed; a directory at a receipt-shaped name is corruption and refuses, a valid receipt misfiled under another client's durable key refuses through the keyed binding before any exclusion applies, and a malformed receipt name refuses, while staging and non-receipt entries still skip; client liveness is bound B44 (owned by TASK-260922-vcx6yo). The admission and barrier waits honor the operation deadline and cancellation with no late commit. | executeAttach | TestExecuteAttach, TestExecuteAttachRefusals, TestExecuteAttachIdempotent, TestAttachDescriptorNeverPersisted, TestExecuteAttachRefusesMeshWithoutCapability, TestExecuteAttachRefusesDeadline, TestExecuteAttachRefusesInputWhenQuiescing, TestExecuteReadOnlyAttachIsReadOnly, TestExecuteReadOnlyAttachPreservesQuiescedInput, TestExecuteQuiesceStateWriteFailureRefusesWiredAttach, TestExecuteAttachErrorsOnCorruptBarrierScan, TestExecuteAttachErrorsOnEmptyBarrierTime, TestReviewExistingActiveMemoryCannotReopenQuiescedInput, TestReviewFailedStopCannotEraseQuiescence, TestExecuteFailedStopPreservesQuiescingMemory, TestExecuteAdvisoryMemoryNeverDecidesAdmission, TestExecuteAttachErrorsOnEmptyBarrierKey, TestExecuteAttachErrorsOnStateReadFailure, TestAttachRefusesAfterQuiescenceWhenAdmittedLate, TestAttachQuiesceOrderingOverlapQuiesce, TestAttachQuiesceOrderingOverlapBoundary, TestExecuteAttachErrorsOnIncarnationReadFailure, TestExecuteAttachErrorsOnOutcomesDirReadFailure, TestExecuteAttachErrorsOnOutcomeFileReadFailure, TestAttachRefusesGenerationRotatedDuringLockWait, TestAttachRefusesDeadlineExpiredDuringAdmission, TestAttachRefusesDeadlineOnTheInstantDuringAdmission, TestAttachAuthorizationMembersRefuseWithoutReceipt, TestAttachOverlapRequiresMultiAttach, TestAttachOverlapInputRequiresMultipleInputClients, TestAttachSameClientRetryIgnoresOverlap, TestAttachOverlapPeerReadFailureFailsClosed, TestAttachPeerDirectoryFailsClosed, TestAttachSameClientRetryWithPeerPresent, TestAttachPeerFilenameMismatchFailsClosed, TestAttachWaitBoundedByOperationDeadline, TestAttachWaitCancelledReturnsPromptly |
++| 79 | Attach returns the caller-executed vector with its descriptor and never execs an interactive attach. Admission checks closed shape, deadline, matching-transport capability, AX input authorization, the quiescing input barrier, live attestation, and the authoritative barrier recheck; generation and deadline are rechecked after waits before a durable receipt commit. Identical requests replay; read-only authorization emits a read-only vector and cannot reopen quiesced input. The peer census is fail-closed: corrupt scans, unreadable entries, receipt-shaped directories, misfiled receipts, and malformed receipt names refuse, while staging and non-receipt names skip. A receipt proves an admitted client claim, not a connected tmux client; without positive identity or detach evidence its liveness is UNKNOWN and it remains a possible peer. A persistent per-instance OS lock serializes separate Lifecycle instances/processes from before census through durable receipt commit. New overlapping clients require multi_attach; concurrent input additionally requires multiple_input_clients and valid AX policy. Receipt-validated same-client replays with a peer are exempt; conflicting retries refuse idempotency_mismatch. Lost state-record writes fail closed; lost outcome-report writes remain B43. The barrier verdict remains incarnation-scoped; stale memory, caller-carried source state, and failure results cannot reopen it. Admission and barrier waits honor deadline and cancellation with no late commit. | executeAttach | TestExecuteAttach, TestExecuteAttachRefusals, TestExecuteAttachIdempotent, TestAttachDescriptorNeverPersisted, TestExecuteAttachRefusesMeshWithoutCapability, TestExecuteAttachRefusesDeadline, TestExecuteAttachRefusesInputWhenQuiescing, TestExecuteReadOnlyAttachIsReadOnly, TestExecuteReadOnlyAttachPreservesQuiescedInput, TestExecuteQuiesceStateWriteFailureRefusesWiredAttach, TestExecuteAttachErrorsOnCorruptBarrierScan, TestExecuteAttachErrorsOnEmptyBarrierTime, TestReviewExistingActiveMemoryCannotReopenQuiescedInput, TestReviewFailedStopCannotEraseQuiescence, TestExecuteFailedStopPreservesQuiescingMemory, TestExecuteAdvisoryMemoryNeverDecidesAdmission, TestExecuteAttachErrorsOnEmptyBarrierKey, TestExecuteAttachErrorsOnStateReadFailure, TestAttachRefusesAfterQuiescenceWhenAdmittedLate, TestAttachQuiesceOrderingOverlapQuiesce, TestAttachQuiesceOrderingOverlapBoundary, TestExecuteAttachErrorsOnIncarnationReadFailure, TestExecuteAttachErrorsOnOutcomesDirReadFailure, TestExecuteAttachErrorsOnOutcomeFileReadFailure, TestAttachRefusesGenerationRotatedDuringLockWait, TestAttachRefusesDeadlineExpiredDuringAdmission, TestAttachRefusesDeadlineOnTheInstantDuringAdmission, TestAttachAuthorizationMembersRefuseWithoutReceipt, TestAttachOverlapRequiresMultiAttach, TestAttachOverlapInputRequiresMultipleInputClients, TestAttachSameClientRetryIgnoresOverlap, TestAttachOverlapPeerReadFailureFailsClosed, TestAttachPeerDirectoryFailsClosed, TestAttachSameClientRetryWithPeerPresent, TestAttachPeerFilenameMismatchFailsClosed, TestAttachWaitBoundedByOperationDeadline, TestAttachWaitCancelledReturnsPromptly, TestAttachConcurrentInputRequiresAXPolicy, TestAttachReceiptWithoutPositiveLivenessRemainsPossiblePeer, TestAttachOverlapAdmissionAtomicAcrossLifecycleInstances |
+ | 80 | Status classifies present, absent, and unknown observations against the AX-side memory: absence needs its stderr marker (unmarked, refused, and killed probes read unavailable), contradictions read unavailable, malformations refuse, and the provider triple evidences only when requested, capable, and observed. Status observes the recorded binding tuple: drifted queries non-match member by member, unbound sessions refuse unknown, tampered documents refuse integrity, negative backend counts refuse, and nonzero attached exits, foreign attached rows, unmarked panes exits, and malformed counts with plausible output read unavailable. The live probes run under the query deadline in-flight: a probe still blocked at the bound concludes unknown with no report, never absent. | executeStatus, ObserveStatus | TestExecuteStatusPresent, TestExecuteStatusAbsent, TestExecuteStatusPresentIncludesIdentity, TestExecuteStatusUnknownProbeIsUnavailable, TestExecuteStatusProviderConditional, TestExecuteStatusContradictions, TestClassifyStatusAbsentProbe, TestClassifyStatusPresentProbe, TestClassifyAbsenceMarkers, TestObserveStatusPresentParked, TestObserveStatusAbsentProbe, TestObserveStatusMemoryReconciles, TestObserveStatusUnknowns, TestProviderTripleRule, TestCutRowShapes, TestExecuteStatusNonMatchEachMember, TestExecuteStatusExactUnboundSessionRefusesUnknown, TestExecuteStatusBindingTamperRefusesIntegrity, TestObserveStatusSessionScopedObservesRecordedTuple, TestObserveStatusExactBackendDriftNonMatches, TestObserveStatusExactProtocolDriftNonMatches, TestExecuteStatusRefusesNegativeAttachedCount, TestExecuteStatusAttachedExitIsUnknown, TestExecuteStatusForeignAttachedRowIsUnknown, TestExecuteStatusUnknownPanesExitIsUnknown, TestExecuteStatusMalformedAttachedCountIsUnknown, TestExecuteStatusProbeHonorsOperationDeadline |
+ | 81 | Quiesce, boundary, and stop run through the engine with their outcome members: quiesce locks then detaches with no provider input, the boundary waits blocking with the proof kind bound into its evidence and replays its recorded time, and stop proves closure only from marked absence; identical requests replay. Corrupt, forged-key, and empty-time outcome reports refuse integrity instead of becoming fresh evidence; a failed barrier-state write fails the operation instead of reporting closure, and the retry heals the barrier with the original time. The stop escalation revalidates deadline, authorization, and generation after its poll before the kill issues — a graceful timeout escalates, any other stale fact refuses — the quiesce detach revalidates between the commands, the boundary tail is read-only, and the barrier waits honor the deadline on all three paths. The stop poll itself honors the operation deadline in-flight: a probe still blocked at the bound concludes unknown with no kill and no closure, never absence. The post-escalation re-confirmation observes under the operation deadline, so a cancellation-honouring executor still observes the closure after the graceful wait expires. | executeEngineOp | TestExecuteQuiesce, TestExecuteQuiesceIdempotent, TestExecuteQuiesceBarrierSequence, TestExecuteQuiesceEmitsNoProviderInput, TestExecuteQuiesceRefusesFailedClose, TestExecuteQuiesceReplayKeepsTimestamps, TestExecuteBoundary, TestExecuteBoundaryIdempotent, TestExecuteBoundaryWaitsForSignal, TestExecuteBoundaryBindsProofKind, TestExecuteBoundaryWaitTimeout, TestExecuteBoundaryPastDeadline, TestExecuteBoundaryRefusesFailedWait, TestExecuteBoundaryReplayKeepsProofAndTime, TestExecuteStop, TestExecuteStopIdempotent, TestExecuteStopUnknownProbeIsNotClosure, TestExecuteStopUnmarkedExitIsNotClosure, TestExecuteStopPollHonorsOperationDeadline, TestBoundWaitTakesLesser, TestLesserDeadlineTakesLesser, TestLifecycleIgnoresAmbientEnvironment, TestObserveBoundaryBindsProviderRows, TestOutcomeRecordCrashConverges, TestExecuteQuiesceCorruptOutcomeRefusesIntegrity, TestExecuteBoundaryCorruptOutcomeRefusesIntegrity, TestExecuteQuiesceForgedOutcomeKeyRefusesIntegrity, TestExecuteQuiesceEmptyRecordedTimeRefusesIntegrity, TestExecuteBoundaryEmptyRecordedTimeRefusesIntegrity, TestExecuteBoundaryRecordCrashRefusesIntegrity, TestExecuteQuiesceStateWriteFailureRefusesWiredAttach, TestExecuteQuiesceRetryAfterStateWriteFailureHealsBarrier, TestExecuteBoundaryBarrierSurvivesStateWriteFailure, TestExecuteStopRefusesStaleFactsAfterPoll, TestExecuteStopEscalatesAfterGracefulTimeoutAlone, TestExecuteStopEscalationSucceedsWithContextHonoringRunner, TestExecuteQuiesceRefusesStaleFactsBetweenCommands, TestBackendPostWaitBoundaryRefusesWithoutRecheck, TestEffectBoundaryAuditBoundaryTailIsReadOnly, TestQuiesceBarrierWaitBoundedByOperationDeadline, TestBoundaryCommitWaitBoundedByOperationDeadline, TestQuiesceMalformedDeadlineRefusesBeforeBarrierWait |
+ | 82 | Terminate-stale runs the key, capability, transition, authorization, generation, fencing, target, winner, and deadline gates before the receipt-bound kill with its live-session confirm; an unproven confirm is unknown, never termination — including a confirm still blocked when the operation deadline fires, which concludes unknown in-flight with no termination evidence; the memory adopts stopped, identical requests replay, and effect failures resume through status. The re-confirm tail issues no command after its poll however the facts moved (no-post-wait-command probe). | executeTerminate | TestExecuteTerminate, TestExecuteTerminateRefusals, TestExecuteTerminateIdempotent, TestExecuteTerminateResumesAfterEffectFailure, TestExecuteTerminateUnknownConfirmIsNotTerminated, TestExecuteTerminateConfirmHonorsOperationDeadline, TestExecuteTerminateWinnerTracksCurrentLease, TestExecuteTerminateTargetLeaseIdentity, TestExecuteTerminateTargetSessionBinds, TestExecuteTerminateRefusesProviderOnlyCapability, TestExecuteTerminateRefusesOnDeadline, TestExecuteTerminateRedriveMismatch, TestExecuteTerminateRefusesAuthorizationExpiredAfterReceipt, TestExecuteEntryRefusesWrongAuthorizationKind, TestEffectBoundaryAuditTerminateIssuesNoPostWaitCommand |
+@@ -242,7 +242,7 @@ Second leaf: 218 narrowing rows KILLED net (221 added over the
+ wiring in revision 7, 1 shadowed in revision 8), 4 supplementary
+ rows added (2 wiring, 1 rotation, 1 shadowed), 1 harmless control
+ SURVIVED (shared), on the full pass with one raw log per plant —
+-298 rows total: 291 narrowing KILLED, 5 supplementary KILLED, 1
++301 rows total: 294 narrowing KILLED, 5 supplementary KILLED, 1
+ supplementary SURVIVED (shadowed), 1 control SURVIVED.
+ Rows N-lifecycle-entry-deadline-terminate and -restore kill by the
+ no-bind assertion (the loop recheck would refuse the same verdict);
+@@ -389,7 +389,7 @@ CheckBrokerContact, or the Acquire call sites).
+ | spawn (acquire.go:246) | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a |
+ | argv (argv.go:17,24) | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a | U2a |
+ 
+-Table C: new gates × old entries (149 × 11 = 1639 cells; 1621 U2a,
++Table C: new gates × old entries (152 × 11 = 1672 cells; 1654 U2a,
+ 18 U2c). Table C derives its gate set from Table D: the eight
+ revision-5 gates (barrierincarnation, barrierkey, attachhealth,
+ failurerecord, createincarnation, restoreincarnation,
+@@ -399,7 +399,9 @@ gates (effectrecheck, overlapmulti, overlapinput, waitbound), and
+ the four revision-9 gates (peershape, overlapreplay,
+ confirmbound, statusbound) and the one revision-10 gate
+ (escalationbound) add 220 U2a cells, because old code
+-calls none of them. Old code
++calls none of them. The three TASK-260922-vcx6yo gates
++(attachaxpolicy, admissionlock, livenessunknown) add 33 U2a cells.
++Old code
+ predates new code and calls
+ none of it, except
+ through caller-injected Dependencies: AFG reaches the adapter and
+@@ -412,8 +414,8 @@ spawnexit, spawnnil, unlinkkind, reconcilenil, sunpath, placement,
+ leafdelegate, leafwiring, rootwrite, rootowner, ancestorwrite,
+ ancestorkind, socketkind}; every other Table C cell is U2a.
+ 
+-Table D: new gates × new entries (149 × 21 = 3129 cells; 207 M, 187
+-B, 2735 U; counts verified by script over the table). Test names
++Table D: new gates × new entries (152 × 21 = 3192 cells; 210 M, 187
++B, 2795 U; counts verified by script over the table). Test names
+ drop the common Test prefix; "same N rows" means the row list in the
+ gate's first M cell.
+ 
+@@ -560,11 +562,14 @@ gate's first M cell.
+ | ordering (lifecycle.go:barrierMu, ops.go:executeAttach) | U2a no barrier commit on this path | M AttachQuiesceOrderingOverlapQuiesce / N-ordering-lock-attach | U2a no barrier commit on this path | M AttachQuiesceOrderingOverlapQuiesce, AttachQuiesceOrderingOverlapBoundary / N-ordering-lock-quiesce, N-ordering-lock-boundary | U2a no barrier commit on this path | U2a no barrier commit on this path | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
+ | barrierread (state.go:QuiesceBarrierProven) | U2a attach-only gate | M AttachErrorsOnOutcomesDirReadFailure, AttachErrorsOnOutcomeFileReadFailure / N-outcomes-dir-read-absent, N-outcome-file-read-skip | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
+ | effectrecheck (lifecycle.go:727; backend.go:closeInput,confirmClosed) | U2a create effects are single commands with no post-wait boundary; recheck never configured | U2a attach commits via the store with no post-wait destructive command; recheck never configured | U2a status has no side effects | M ExecuteStopRefusesStaleFactsAfterPoll, ExecuteStopEscalatesAfterGracefulTimeoutAlone, ExecuteQuiesceRefusesStaleFactsBetweenCommands / N-stop-escalation-generation, N-stop-escalation-expiry, N-stop-escalation-deadline shared 3 arms + N-stop-escalation-skip, N-quiesce-midsequence-skip per-site | U2a terminate tail issues no command after its poll; recheck never configured; the no-post-wait-command probe pins it | U2a restore effects are single commands with no post-wait boundary; recheck never configured | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | B22 BackendPostWaitBoundaryRefusesWithoutRecheck; singleton | U1 | U1 |
+-| overlapmulti (ops.go:299; termbind/overlap.go:36) | U2a attach-only gate | M AttachOverlapRequiresMultiAttach / N-attach-overlap-multi | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
+-| overlapinput (ops.go:299; termbind/overlap.go:36) | U2a attach-only gate | M AttachOverlapInputRequiresMultipleInputClients / N-attach-overlap-input | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
++| overlapmulti (ops.go:299; termbind/overlap.go:36) | U2a attach-only gate | M TestAttachOverlapRequiresMultiAttach / N-attach-overlap-multi; TestAttachOverlapRequiresMultiAttachForInputClient / N-attach-overlap-multi-input-client | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
++| overlapinput (ops.go:299; termbind/overlap.go:36) | U2a attach-only gate | M TestAttachOverlapInputRequiresMultipleInputClients / N-attach-overlap-input; TestAttachOverlapInputGateChecksEveryPeer / N-M5-attach-overlap-input-first-peer-only | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
+ | waitbound (lifecycle.go:750,776; ops.go:259) | U2a create takes no barrier and runs no admission wait | M AttachWaitBoundedByOperationDeadline/admission,barrier / N-attach-wait-deadline shared; AttachWaitCancelledReturnsPromptly stays green (cancellation companion) | U2a status takes no barrier and runs no admission wait | M QuiesceBarrierWaitBoundedByOperationDeadline, BoundaryCommitWaitBoundedByOperationDeadline / N-attach-wait-deadline shared | U2a terminate takes no barrier and runs no admission wait | U2a restore takes no barrier and runs no admission wait | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
+ | peershape (termbind/overlap.go:36) | U2a attach-only gate | M AttachPeerDirectoryFailsClosed / N-attach-peers-dir-skip; AttachPeerFilenameMismatchFailsClosed / N-attach-peers-filename-skip | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
+ | overlapreplay (ops.go:299) | U2a attach-only gate | M AttachSameClientRetryWithPeerPresent / N-attach-overlap-replay-unproven | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
++| admissionlock (ops.go:157; termbind/admission.go:22) | U2a attach-only gate | M TestAttachOverlapAdmissionAtomicAcrossLifecycleInstances / N-attach-admission-lock; TestAttachReadOnlyOverlapAdmissionAtomicAcrossLifecycleInstances / N-M2-attach-admission-lock-input-only | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
++| livenessunknown (ops.go:314; termbind/overlap.go:36) | U2a attach-only gate | M AttachReceiptWithoutPositiveLivenessRemainsPossiblePeer / N-attach-liveness-unknown | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
++| attachaxpolicy (ops.go:87; termbind/attach.go:143; terminalbackend/conformance.go:683) | U2a attach-only gate | M AttachConcurrentInputRequiresAXPolicy / N-attach-ax-input-policy | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U2a attach-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
+ | confirmbound (backend.go:540) | U2a terminate-only gate | U2a terminate-only gate | U2a terminate-only gate | U2a terminate-only gate | M ExecuteTerminateConfirmHonorsOperationDeadline / N-probe-deadline shared | U2a terminate-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | B39 direct staging unmeasured here; M at EXT | U1 | U1 |
+ | statusbound (status.go:28) | U2a status-only gate | U2a status-only gate | M ExecuteStatusProbeHonorsOperationDeadline / N-probe-deadline shared | U2a status-only gate | B39 resume reaches via status reconcile; M at EXS | B39 resume reaches via status reconcile; M at EXS | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 |
+ | escalationbound (backend.go:431) | U2a stop-only gate | U2a stop-only gate | U2a stop-only gate | M ExecuteStopEscalationSucceedsWithContextHonoringRunner / N-stop-escalation-budget | U2a stop-only gate | U2a stop-only gate | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | U1 | B39 direct staging unmeasured here; M at EXE | U1 | U1 |
+@@ -653,10 +658,44 @@ terminate-confirm, and status deadline tests with isolated
+ per-test attribution. Revision-10 gate: escalationbound single
+ measured side at EXE (B39 at PFX); the peershape EXA cell gains
+ the filename arm beside the directory arm, each narrowing killing
+-through its own entry test.
++through its own entry test. The three TASK-260922-vcx6yo semantic gates
++each have one reachable lifecycle-entry row at EXA. `attachaxpolicy`
++uses one shared `CheckAttachRequest` implementation at request preflight
++and durable receipt commit within that same `Lifecycle.Execute(attach)`
++entry; the common-helper narrowing and one end-to-end row measure both
++invocations. Symmetry: 2 helper call sites / 1 shared semantic gate / 1
++reachable lifecycle entry / 1 narrowing row. No task-added gate reaches a
++second lifecycle-operation entry.
+ 
+-Ratio: 267 measured of 5536 (50+10+207 M across Tables A/B/D;
+-Table C all U); 191 bound; 5078 unreachable with reasons. Every
++### TASK-260922-vcx6yo review rework — gate axes
++
++The rev1 verdict found that the lock and concurrent-input gate had only one
++axis measured. The following table enumerates each owned gate across client
++class, peer count, sorted peer position, replay versus new client, and
++concurrent versus sequential calls. Every cell is either test-and-narrowing
++evidence or an explicit bound with an owner.
++
++| Gate | Client class | Peer count | Peer position in client-ID order | Same-client replay vs new client | Concurrent vs sequential |
++|---|---|---|---|---|---|
++| `admissionlock` | `TestAttachOverlapAdmissionAtomicAcrossLifecycleInstances` / `N-attach-admission-lock` (input); `TestAttachReadOnlyOverlapAdmissionAtomicAcrossLifecycleInstances` / `N-M2-attach-admission-lock-input-only` (read-only) | Both paused tests race from an empty census through the first receipt install; after release the contender re-censuses one peer. `N-M2` kills the read-only narrowing. | BOUND: the key is the terminal instance and acquisition precedes `Peers` sorting. Owner: `AttachStore.AcquireAdmission`. | BOUND: the peer-present replay test is sequential; no concurrent duplicate-replay test isolates lock behavior. Replay/new share the same unconditional acquisition. Owner: `executeAttach`. | Both paused tests drive two independent Lifecycle values; `N-attach-admission-lock` and the reviewer-shaped `N-M2` run as isolated narrowing rows. |
++| `overlapmulti` | `TestAttachOverlapRequiresMultiAttach` / `N-attach-overlap-multi` (read-only); `TestAttachOverlapRequiresMultiAttachForInputClient` / `N-attach-overlap-multi-input-client` (input-authorized) | One-peer refusal and a later two-peer refusal are driven by `TestAttachOverlapRequiresMultiAttach`; `N-attach-overlap-multi` admits the one-peer class. | BOUND: the decision reads only whether `len(peers)>0`, not ordering or receipt fields. Owner: `checkAttachOverlap`. | `TestAttachSameClientRetryWithPeerPresent` covers read-only and input replay; `N-attach-overlap-replay-unproven` admits a receiptless new client named as a peer. | BOUND: no second multi-attach-only concurrency mutant; the paused read-only empty-census interleaving is assigned to `admissionlock`. Both decisions execute under that same lock. Owner: `executeAttach` / `checkAttachOverlap`. |
++| `overlapinput` | `TestAttachOverlapInputRequiresMultipleInputClients` proves read-only observation remains allowed and new input refuses; `N-attach-overlap-input` weakens the gate. | One-peer input, two-peer mixed census, and three-peer census are exercised by `TestAttachOverlapInputRequiresMultipleInputClients` and `TestAttachOverlapInputGateChecksEveryPeer`; `N-M5-attach-overlap-input-first-peer-only` admits only the narrowed mixed-peer class. | `TestAttachOverlapInputGateChecksEveryPeer` sorts a read-only peer first, then one or two input-authorized peers; isolated `N-M5` kills both subtests. | `TestAttachSameClientRetryWithPeerPresent` covers validated read-only/input replay; `N-attach-overlap-replay-unproven` catches the receiptless new-client exemption, while `N-M5` catches a new input client with later input peers. | `TestAttachOverlapAdmissionAtomicAcrossLifecycleInstances` races input-authorized clients with `multiple_input_clients` absent for the contender; `N-attach-admission-lock` admits from the stale empty census. Sequential decisions are killed by `N-attach-overlap-input` and `N-M5`. |
++| `attachaxpolicy` | `TestAttachConcurrentInputRequiresAXPolicy` refuses input without matching AX authorization using literal `terminal_backend_unauthorized`; `N-attach-ax-input-policy` admits that input class. | BOUND: the shared request gate consumes no peer count. Owner: `terminalbackend.CheckAttachRequest`. | BOUND: neither CheckAttachRequest call receives the peer slice. Owner: `terminalbackend.CheckAttachRequest`. | `TestAttachSameClientRetryWithPeerPresent` covers valid policy on read-only and input replay. BOUND: invalid-policy replay has no separate Lifecycle narrowing row; the store rechecks the same binding. Owner: `AttachStore.Attach`. | BOUND: no simultaneous AX-policy narrowing is claimed. The request is checked at entry and again in the receipt commit after the wait. Owner: `CheckAttachRequest` / `AttachStore.Attach`. |
++| `overlapreplay` | `TestAttachSameClientRetryWithPeerPresent` covers read-only and input-authorized validated replay; `N-attach-overlap-replay-unproven` admits a receiptless caller. | BOUND: the replay cases include one other peer; more than one distinct peer is not separately driven. Owner: `AttachStore.Lookup`. | BOUND: requester proof uses `Lookup(session, instance, client)`; peer ordering does not prove replay. Owner: `checkAttachOverlap`. | The named replay test contrasts the Lookup-proven caller with a new client; isolated `N-attach-overlap-replay-unproven` kills bare-ID exemption. | BOUND: no concurrent duplicate replay is claimed; all requests acquire the same per-instance lock before Lookup. Owner: `executeAttach`. |
++| `livenessunknown` | `TestAttachReceiptWithoutPositiveLivenessRemainsPossiblePeer` covers read-only and input-authorized receipts whose returned vectors have not been executed; `N-attach-liveness-unknown` retires the receipt and is killed. | BOUND: a single peer is the direct liveness witness; the protocol has no status or retirement signal, so all receipts returned by `Peers` remain possible. Owner: future authoritative receipt/protocol owner (B44). | BOUND: liveness reads no position or client-live field; `Peers` sorts but does not discard valid receipts. Owner: `AttachStore.Peers`. | BOUND: replay exclusion is receipt/key validation, not liveness; no positive evidence can retire another client's receipt. Owner: `checkAttachOverlap` / `AttachStore.Peers`. | BOUND: there is no mutable liveness signal to race; the read-only peer census is serialized by `admissionlock`. Owner: `AttachStore.Peers`. |
++
++Axis count: **15 of 30 cells** are test-and-narrowing witnessed; **15 of 30**
++are explicit bounds above. The gate × lifecycle-entry census contains six
++gates × eight `Lifecycle.Execute` operation entries: six attach cells are
++measured and 42 non-attach cells are unreachable because dispatch selects a
++different handler. Symmetry: `attachaxpolicy` has 2 `CheckAttachRequest`
++call sites / 1 shared gate / 1 lifecycle entry / 1 shared narrowing;
++`admissionlock` has 2 OS lock implementations (`flock`, `LockFileEx`) / 1
++shared API / 1 lifecycle call site / 1 Unix interleaving witness. Windows is
++cross-built and vetted; this run has no Windows-host runtime witness.
++
++Ratio: 270 measured of 5632 (50+10+210 M across Tables A/B/D;
++Table C all U); 191 bound; 5171 unreachable with reasons. Every
+ driven refusal direction is measured except the bound cells: 27
+ driven but rowless (B22 singletons/forks, B23 normalized details,
+ B32 propagation, B36 singleton deps) and
+@@ -1013,20 +1052,22 @@ backend-row concern, not a Table E row.
+   advisory-memory split, in-process ordering) stands, and row 79
+   claims only the lost state-record write fails closed.
+ - B44 Attach overlap is inferred from stored receipts, not
+-  liveness: a recorded peer reads as possibly live, so the overlap
+-  gate requires multi_attach (and multiple_input_clients for
+-  concurrent input) even when the peer already detached, with
+-  receipt-validated same-client retries exempt and unreadable
+-  peers failing closed. The receipt-validated distinction —
+-  a Lookup-proven recorded receipt replays, a client with none
+-  still gates — is this leaf's; the active-client census that
+-  refines the possibility further — overlap admission over live
+-  clients — is owned by
+-  TASK-260922-vcx6yo (active-client-census-and-overlap-admission).
+-  Until it lands this leaf fails closed (over-strict) rather than
+-  admitting overlap without the capabilities. Owner:
+-  TASK-260922-vcx6yo for the census; this leaf for the fail-closed
+-  gate.
++  current tmux liveness: the receipt census proves an admitted client
++  claim, but the protocol has no positive client identity or detach
++  signal and the returned vector is caller-executed. A valid receipt
++  without positive liveness evidence is UNKNOWN and remains a possible
++  peer. It may conservatively block a later attach after detach; it
++  never makes the peer census empty. A persistent per-instance OS lock
++  held from census through durable receipt commit makes the overlap
++  decision atomic across Lifecycle instances and processes. The gate
++  requires multi_attach for any new client that may overlap, plus
++  multiple_input_clients and valid AX input authorization for concurrent
++  input. A validated same-client replay with a peer is exempt; unreadable
++  census data fails closed. This closes B44's admission-safety gap while
++  retaining a stated bound: exact live-client distinction and stale
++  receipt reclamation require an authoritative retirement signal from a
++  future protocol/receipt owner. Owner: this leaf for UNKNOWN-as-possible
++  admission; future protocol/receipt owner for retirement evidence.
+ - B45 Single-shot commit commands (lock-session, detach-client,
+   send-keys, new-session, kill-session) and the bind-step spawn
+   are bounded by caller cancellation only — not by the operation
+@@ -1119,4 +1160,4 @@ wait killers now measured, not claimed), revises B29 to the
+ exact-instant remainder, clarifies B44 (receipt-validated replay
+ here, liveness with TASK-260922-vcx6yo), states B45 (commits
+ bounded by caller cancellation), and recounts Table C from the
+-Table D gate set (148 gates, 1628 cells).
++Table D gate set (148 gates, 1628 cells). Revision 11 / TASK-260922-vcx6yo adds the AX input-policy composition row, a persistent per-instance OS admission lock, and the UNKNOWN-as-possible-peer liveness rule; its three EXA gates each have one narrowing mutant row. Table C is recounted from 152 gates.
+diff --git a/internal/tmuxserver/lifecycle.go b/internal/tmuxserver/lifecycle.go
+index 9a52cd7..245e824 100644
+--- a/internal/tmuxserver/lifecycle.go
++++ b/internal/tmuxserver/lifecycle.go
+@@ -100,10 +100,11 @@ type Lifecycle struct {
+ 	// lock (its tmux effects return immediately); the boundary wait
+ 	// runs outside (it blocks on the wrapper signal) and only its
+ 	// report commit takes the lock. Non-reentrant: hooks firing
+-	// inside a locked section must not call Execute. The contract
+-	// is in-process: concurrent ax processes racing attach against
+-	// quiesce serialize only through the report files, not through
+-	// this mutex (bound B42). The vector handoff the contract
++	// inside a locked section must not call Execute. Attach-to-attach
++	// overlap admission additionally uses AttachStore's per-instance
++	// OS lock across processes. Attach-versus-quiesce ordering remains
++	// in-process: concurrent ax processes serialize only through the
++	// report files, not through this mutex (bound B42). The vector handoff the contract
+ 	// covers ends at vector construction: a caller that execs a
+ 	// pre-quiescence vector after quiescence commits holds a
+ 	// pre-quiescence authorization, which quiesce does not revoke.
+diff --git a/internal/tmuxserver/lifecycle_active_clients_unix_test.go b/internal/tmuxserver/lifecycle_active_clients_unix_test.go
+new file mode 100644
+index 0000000..426021a
+--- /dev/null
++++ b/internal/tmuxserver/lifecycle_active_clients_unix_test.go
+@@ -0,0 +1,446 @@
++//go:build !windows
++
++package tmuxserver
++
++import (
++	"context"
++	"errors"
++	"path/filepath"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/termbind"
++	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
++)
++
++type attachResult struct {
++	outcome OpOutcome
++	err     error
++}
++
++func awaitAttachResult(t *testing.T, ch <-chan attachResult) attachResult {
++	t.Helper()
++	select {
++	case result := <-ch:
++		return result
++	case <-time.After(3 * time.Second):
++		t.Fatal("attach did not finish within the test bound")
++		return attachResult{}
++	}
++}
++
++// TestAttachOverlapAdmissionAtomicAcrossLifecycleInstances pauses the first
++// attach after staging but before its no-replace receipt install. A second
++// independently constructed Lifecycle reaches the shared store lock while
++// the first census still says empty. Once released, the first commits; the
++// second must re-census under the lock and refuse the writable overlap.
++// The test does not start tmux: Execute returns vectors but neither vector is
++// run by this fixture.
++func TestAttachOverlapAdmissionAtomicAcrossLifecycleInstances(t *testing.T) {
++	fx := newLifecycleFixture(t, fullLifecycleAdmitted())
++	staged := make(chan struct{})
++	releaseStage := make(chan struct{})
++	var releaseOnce sync.Once
++	release := func() { releaseOnce.Do(func() { close(releaseStage) }) }
++	fx.lc.Attach.WithHooks(&termbind.AttachHooks{AfterStage: func(string) error {
++		close(staged)
++		<-releaseStage
++		return nil
++	}})
++	defer release()
++
++	firstBody := lxAttachBody(t, nil)
++	firstDone := make(chan attachResult, 1)
++	go func() {
++		outcome, err := fx.lc.Execute(context.Background(), OpRequest{
++			Operation: "attach", Body: firstBody, Source: "parked", Admitted: fullLifecycleAdmitted(),
++		})
++		firstDone <- attachResult{outcome: outcome, err: err}
++	}()
++	select {
++	case <-staged:
++	case <-time.After(3 * time.Second):
++		t.Fatal("first attach did not reach its staged-receipt pause")
++	}
++
++	secondStore, err := termbind.OpenAttachStore(filepath.Join(fx.data, "attachstore"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	lockAttempt := make(chan struct{}, 1)
++	secondStore.WithHooks(&termbind.AttachHooks{BeforeAdmissionLock: func(string) {
++		lockAttempt <- struct{}{}
++	}})
++	secondLifecycle := Lifecycle{
++		RuntimeDir:         fx.lc.RuntimeDir,
++		Root:               fx.lc.Root,
++		Platform:           fx.lc.Platform,
++		Runner:             fx.lc.Runner,
++		Receipts:           fx.lc.Receipts,
++		Bindings:           fx.lc.Bindings,
++		Attach:             secondStore,
++		States:             fx.lc.States,
++		CurrentLease:       fx.lc.CurrentLease,
++		CurrentGeneration:  fx.lc.CurrentGeneration,
++		Now:                fx.lc.Now,
++		Sleep:              fx.lc.Sleep,
++		PollInterval:       fx.lc.PollInterval,
++		ServerAdmission:    fx.lc.ServerAdmission,
++		LocalHostID:        fx.lc.LocalHostID,
++		LeaseRefresh:       fx.lc.LeaseRefresh,
++		MeshRefreshTimeout: fx.lc.MeshRefreshTimeout,
++		Hooks:              fx.lc.Hooks,
++		RefreshHooks:       fx.lc.RefreshHooks,
++	}
++	withoutConcurrentInput := withoutCapability("multiple_input_clients")
++	secondBody := lxAttachBody(t, func(object map[string]any) { object["client_id"] = lxClientB })
++	secondDone := make(chan attachResult, 1)
++	go func() {
++		outcome, err := secondLifecycle.Execute(context.Background(), OpRequest{
++			Operation: "attach", Body: secondBody, Source: "active", Admitted: withoutConcurrentInput,
++		})
++		secondDone <- attachResult{outcome: outcome, err: err}
++	}()
++	select {
++	case <-lockAttempt:
++	case <-time.After(3 * time.Second):
++		t.Fatal("second attach did not reach the shared admission lock")
++	}
++	select {
++	case result := <-secondDone:
++		t.Fatalf("second attach completed while the first receipt was staged: err=%v outcome=%+v", result.err, result.outcome)
++	case <-time.After(50 * time.Millisecond):
++	}
++
++	release()
++	first := awaitAttachResult(t, firstDone)
++	if first.err != nil || first.outcome.Attach == nil || !first.outcome.Attach.InputAuthorized {
++		t.Fatalf("first writable attach = %+v, %v", first.outcome.Attach, first.err)
++	}
++	second := awaitAttachResult(t, secondDone)
++	requireLocalCode(t, second.err, "terminal_backend_capability_unproven", "operation capability conditional")
++	if _, found, err := secondLifecycle.Attach.Lookup(lxSession, lxInstance, lxClientB); err != nil || found {
++		t.Fatalf("second receipt found=%v err=%v; want no receipt for the refused client", found, err)
++	}
++	if second.outcome.Attach != nil || len(second.outcome.Argv) != 0 {
++		t.Fatalf("refused second attach returned authorization or argv: %+v %q", second.outcome.Attach, second.outcome.Argv)
++	}
++}
++
++// TestAttachReadOnlyOverlapAdmissionAtomicAcrossLifecycleInstances exercises
++// the same census-to-receipt interval for two read-only clients. multi_attach
++// is absent, so a second client must not pass even though neither client can
++// send input. The first receipt is paused after staging while a separately
++// opened Lifecycle attempts admission against the same instance lock.
++func TestAttachReadOnlyOverlapAdmissionAtomicAcrossLifecycleInstances(t *testing.T) {
++	admitted := withoutCapability("multi_attach")
++	fx := newLifecycleFixture(t, admitted)
++	staged := make(chan struct{})
++	releaseStage := make(chan struct{})
++	var releaseOnce sync.Once
++	release := func() { releaseOnce.Do(func() { close(releaseStage) }) }
++	fx.lc.Attach.WithHooks(&termbind.AttachHooks{AfterStage: func(string) error {
++		close(staged)
++		<-releaseStage
++		return nil
++	}})
++	defer release()
++
++	readOnly := func(clientID string) []byte {
++		return lxAttachBody(t, func(object map[string]any) {
++			object["client_id"] = clientID
++			object["input_authorized"] = false
++			object["authorization"] = lxAttachAuth("local_only", false)
++		})
++	}
++	firstBody := readOnly(lxClient)
++	firstDone := make(chan attachResult, 1)
++	go func() {
++		outcome, err := fx.lc.Execute(context.Background(), OpRequest{
++			Operation: "attach", Body: firstBody, Source: "parked", Admitted: admitted,
++		})
++		firstDone <- attachResult{outcome: outcome, err: err}
++	}()
++	select {
++	case <-staged:
++	case <-time.After(3 * time.Second):
++		t.Fatal("first read-only attach did not reach its staged-receipt pause")
++	}
++
++	secondStore, err := termbind.OpenAttachStore(filepath.Join(fx.data, "attachstore"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	lockAttempt := make(chan struct{}, 1)
++	secondStore.WithHooks(&termbind.AttachHooks{BeforeAdmissionLock: func(string) {
++		lockAttempt <- struct{}{}
++	}})
++	secondLifecycle := &Lifecycle{
++		RuntimeDir:         fx.lc.RuntimeDir,
++		Root:               fx.lc.Root,
++		Platform:           fx.lc.Platform,
++		Runner:             fx.lc.Runner,
++		Receipts:           fx.lc.Receipts,
++		Bindings:           fx.lc.Bindings,
++		Attach:             secondStore,
++		States:             fx.lc.States,
++		CurrentLease:       fx.lc.CurrentLease,
++		CurrentGeneration:  fx.lc.CurrentGeneration,
++		Now:                fx.lc.Now,
++		Sleep:              fx.lc.Sleep,
++		PollInterval:       fx.lc.PollInterval,
++		ServerAdmission:    fx.lc.ServerAdmission,
++		LocalHostID:        fx.lc.LocalHostID,
++		LeaseRefresh:       fx.lc.LeaseRefresh,
++		MeshRefreshTimeout: fx.lc.MeshRefreshTimeout,
++		Hooks:              fx.lc.Hooks,
++		RefreshHooks:       fx.lc.RefreshHooks,
++	}
++	secondBody := readOnly(lxClientB)
++	secondDone := make(chan attachResult, 1)
++	go func() {
++		outcome, err := secondLifecycle.Execute(context.Background(), OpRequest{
++			Operation: "attach", Body: secondBody, Source: "active", Admitted: admitted,
++		})
++		secondDone <- attachResult{outcome: outcome, err: err}
++	}()
++	lockReached := false
++	var earlySecond *attachResult
++	select {
++	case <-lockAttempt:
++		lockReached = true
++	case result := <-secondDone:
++		// Continue through the receipt and vector assertions below. Under
++		// a missing lock, this is the effect the test is intended to attack.
++		earlySecond = &result
++	case <-time.After(3 * time.Second):
++	}
++	if lockReached {
++		select {
++		case result := <-secondDone:
++			earlySecond = &result
++		case <-time.After(50 * time.Millisecond):
++		}
++	}
++
++	release()
++	first := awaitAttachResult(t, firstDone)
++	if first.err != nil || first.outcome.Attach == nil || first.outcome.Attach.InputAuthorized || len(first.outcome.Argv) == 0 {
++		t.Fatalf("first read-only attach = %+v argv=%q err=%v", first.outcome.Attach, first.outcome.Argv, first.err)
++	}
++	second := attachResult{}
++	if earlySecond != nil {
++		second = *earlySecond
++	} else {
++		second = awaitAttachResult(t, secondDone)
++	}
++	var backendErr *Error
++	if !errors.As(second.err, &backendErr) || backendErr.Code != "terminal_backend_capability_unproven" {
++		t.Errorf("second read-only attach error = %T %v, want literal terminal_backend_capability_unproven", second.err, second.err)
++	}
++	if _, found, err := secondLifecycle.Attach.Lookup(lxSession, lxInstance, lxClientB); err != nil || found {
++		t.Errorf("second receipt found=%v err=%v; want no receipt for the refused read-only client", found, err)
++	}
++	peers, err := secondLifecycle.Attach.Peers(lxSession, lxInstance, "0198f4c8-8e50-7f66-8f70-555555555554")
++	if err != nil || len(peers) != 1 || peers[0].ClientID != lxClient {
++		t.Errorf("receipt census after concurrent refusal = %+v, %v; want only the first client", peers, err)
++	}
++	if second.outcome.Attach != nil || len(second.outcome.Argv) != 0 || fx.runner.callCount() != 0 {
++		t.Errorf("refused second read-only attach returned an effect: attach=%+v argv=%q tmux-calls=%d", second.outcome.Attach, second.outcome.Argv, fx.runner.callCount())
++	}
++	if !lockReached {
++		t.Error("second read-only attach did not enter the shared admission lock")
++	}
++}
++
++// TestAttachOverlapInputGateChecksEveryPeer puts the read-only client first
++// in the sorted receipt census and the input-authorized peer after it. The
++// second subtest has two input-authorized peers after that read-only client.
++// A new input-authorized client must be refused in both shapes when the
++// current admission lacks multiple_input_clients.
++func TestAttachOverlapInputGateChecksEveryPeer(t *testing.T) {
++	clientC := "0198f4c8-8e50-7f66-8f70-555555555553"
++	clientD := "0198f4c8-8e50-7f66-8f70-555555555554"
++	for _, test := range []struct {
++		name                string
++		inputPeers          int
++		seedWithInputClient bool
++	}{
++		{name: "input-peer-after-read-only-peer", inputPeers: 1},
++		{name: "several-input-peers-after-read-only-peer", inputPeers: 2, seedWithInputClient: true},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			admitted := withoutCapability("multiple_input_clients")
++			fx := newLifecycleFixture(t, admitted)
++			readOnly := lxAttachBody(t, func(object map[string]any) {
++				object["input_authorized"] = false
++				object["authorization"] = lxAttachAuth("local_only", false)
++			})
++			if _, err := fx.lc.Execute(context.Background(), OpRequest{
++				Operation: "attach", Body: readOnly, Source: "parked", Admitted: admitted,
++			}); err != nil {
++				t.Fatalf("read-only first peer refused: %v", err)
++			}
++
++			inputIDs := []string{lxClientB, clientC}
++			seedAdmission := admitted
++			if test.seedWithInputClient {
++				seedAdmission = fullLifecycleAdmitted()
++			}
++			for _, clientID := range inputIDs[:test.inputPeers] {
++				inputPeer := lxAttachBody(t, func(object map[string]any) { object["client_id"] = clientID })
++				if _, err := fx.lc.Execute(context.Background(), OpRequest{
++					Operation: "attach", Body: inputPeer, Source: "active", Admitted: seedAdmission,
++				}); err != nil {
++					t.Fatalf("input-authorized peer %s refused during setup: %v", clientID, err)
++				}
++			}
++
++			newClientID := clientC
++			if test.inputPeers == 2 {
++				newClientID = clientD
++			}
++			peers, err := fx.lc.Attach.Peers(lxSession, lxInstance, newClientID)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if len(peers) != test.inputPeers+1 || peers[0].ClientID != lxClient || peers[0].InputAuthorized {
++				t.Fatalf("precondition peers = %+v; want read-only %s first and %d input peers after it", peers, lxClient, test.inputPeers)
++			}
++			for i := 0; i < test.inputPeers; i++ {
++				if peers[i+1].ClientID != inputIDs[i] || !peers[i+1].InputAuthorized {
++					t.Fatalf("precondition peer %d = %+v; want input-authorized %s after the first read-only peer", i+1, peers[i+1], inputIDs[i])
++				}
++			}
++
++			candidate := lxAttachBody(t, func(object map[string]any) { object["client_id"] = newClientID })
++			outcome, err := fx.lc.Execute(context.Background(), OpRequest{
++				Operation: "attach", Body: candidate, Source: "active", Admitted: admitted,
++			})
++			var backendErr *Error
++			if !errors.As(err, &backendErr) || backendErr.Code != "terminal_backend_capability_unproven" {
++				t.Errorf("candidate attach error = %T %v, want literal terminal_backend_capability_unproven", err, err)
++			}
++			if _, found, err := fx.lc.Attach.Lookup(lxSession, lxInstance, newClientID); err != nil || found {
++				t.Errorf("candidate receipt found=%v err=%v; want no receipt", found, err)
++			}
++			if outcome.Attach != nil || len(outcome.Argv) != 0 {
++				t.Errorf("refused input overlap returned attach=%+v argv=%q", outcome.Attach, outcome.Argv)
++			}
++			peersAfter, err := fx.lc.Attach.Peers(lxSession, lxInstance, newClientID)
++			if err != nil || len(peersAfter) != test.inputPeers+1 {
++				t.Errorf("receipt census after refusal = %+v, %v; want no newly committed receipt", peersAfter, err)
++			}
++		})
++	}
++}
++
++// TestAttachOverlapRequiresMultiAttachForInputClient ensures the overlap
++// capability applies to an input-authorized requester as well as a read-only
++// requester. multiple_input_clients is present, isolating the missing
++// multi_attach refusal.
++func TestAttachOverlapRequiresMultiAttachForInputClient(t *testing.T) {
++	admitted := withoutCapability("multi_attach")
++	fx := newLifecycleFixture(t, admitted)
++	first := lxAttachBody(t, func(object map[string]any) {
++		object["input_authorized"] = false
++		object["authorization"] = lxAttachAuth("local_only", false)
++	})
++	if _, err := fx.lc.Execute(context.Background(), OpRequest{
++		Operation: "attach", Body: first, Source: "parked", Admitted: admitted,
++	}); err != nil {
++		t.Fatal(err)
++	}
++	second := lxAttachBody(t, func(object map[string]any) { object["client_id"] = lxClientB })
++	outcome, err := fx.lc.Execute(context.Background(), OpRequest{
++		Operation: "attach", Body: second, Source: "active", Admitted: admitted,
++	})
++	requireLocalCode(t, err, "terminal_backend_capability_unproven", "operation capability conditional")
++	if _, found, err := fx.lc.Attach.Lookup(lxSession, lxInstance, lxClientB); err != nil || found {
++		t.Fatalf("input-authorized candidate receipt found=%v err=%v; want no receipt", found, err)
++	}
++	if outcome.Attach != nil || len(outcome.Argv) != 0 {
++		t.Fatalf("refused input-authorized overlap returned attach=%+v argv=%q", outcome.Attach, outcome.Argv)
++	}
++}
++
++// TestAttachReceiptWithoutPositiveLivenessRemainsPossiblePeer states the
++// liveness rule at Lifecycle.Execute: the caller has not executed the first
++// returned vector, so no tmux client can be shown live. The durable receipt
++// nevertheless remains a possible peer; missing liveness evidence is not
++// proof of detach or death.
++func TestAttachReceiptWithoutPositiveLivenessRemainsPossiblePeer(t *testing.T) {
++	for _, test := range []struct {
++		name              string
++		missingCapability string
++		inputAuthorized   bool
++	}{
++		{name: "read-only-peer-without-multi-attach", missingCapability: "multi_attach"},
++		{name: "input-peer-without-multiple-input-clients", missingCapability: "multiple_input_clients", inputAuthorized: true},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			admitted := withoutCapability(test.missingCapability)
++			fx := newLifecycleFixture(t, admitted)
++			makeBody := func(clientID string) []byte {
++				return lxAttachBody(t, func(object map[string]any) {
++					object["client_id"] = clientID
++					if !test.inputAuthorized {
++						object["input_authorized"] = false
++						object["authorization"] = lxAttachAuth("local_only", false)
++					}
++				})
++			}
++			first, err := fx.lc.Execute(context.Background(), OpRequest{
++				Operation: "attach", Body: makeBody(lxClient), Source: "parked", Admitted: admitted,
++			})
++			if err != nil || first.Attach == nil || first.Attach.InputAuthorized != test.inputAuthorized || len(first.Argv) == 0 {
++				t.Fatalf("first attach = %+v argv=%q err=%v; input_authorized=%v", first.Attach, first.Argv, err, test.inputAuthorized)
++			}
++			if fx.runner.callCount() != 0 {
++				t.Fatalf("Execute unexpectedly ran tmux %d times", fx.runner.callCount())
++			}
++
++			second, err := fx.lc.Execute(context.Background(), OpRequest{
++				Operation: "attach", Body: makeBody(lxClientB), Source: "active", Admitted: admitted,
++			})
++			requireLocalCode(t, err, "terminal_backend_capability_unproven", "operation capability conditional")
++			if _, found, err := fx.lc.Attach.Lookup(lxSession, lxInstance, lxClientB); err != nil || found {
++				t.Fatalf("second receipt found=%v err=%v; want no receipt while liveness is unknown", found, err)
++			}
++			if second.Attach != nil || len(second.Argv) != 0 || fx.runner.callCount() != 0 {
++				t.Fatalf("unproven overlap returned effect: attach=%+v argv=%q tmux-calls=%d", second.Attach, second.Argv, fx.runner.callCount())
++			}
++		})
++	}
++}
++
++// TestAttachConcurrentInputRequiresAXPolicy is the composition row for the
++// two independent requirements in §4.C: even with both overlap capabilities,
++// input_authorized must have matching AX authorization before the receipt or
++// writable vector can be returned.
++func TestAttachConcurrentInputRequiresAXPolicy(t *testing.T) {
++	fx := newLifecycleFixture(t, fullLifecycleAdmitted())
++	if _, err := fx.lc.Execute(context.Background(), OpRequest{
++		Operation: "attach", Body: lxAttachBody(t, nil), Source: "parked", Admitted: fullLifecycleAdmitted(),
++	}); err != nil {
++		t.Fatal(err)
++	}
++	unauthorized := lxAttachBody(t, func(object map[string]any) {
++		object["client_id"] = lxClientB
++		object["authorization"] = lxAttachAuth("local_only", false)
++	})
++	outcome, err := fx.lc.Execute(context.Background(), OpRequest{
++		Operation: "attach", Body: unauthorized, Source: "active", Admitted: fullLifecycleAdmitted(),
++	})
++	var backendErr *terminalbackend.Error
++	if !errors.As(err, &backendErr) || backendErr.Code != "terminal_backend_unauthorized" {
++		t.Fatalf("AX input policy refusal = %T %v, want literal terminal_backend_unauthorized", err, err)
++	}
++	if _, found, err := fx.lc.Attach.Lookup(lxSession, lxInstance, lxClientB); err != nil || found {
++		t.Fatalf("unauthorized second receipt found=%v err=%v; want no receipt", found, err)
++	}
++	if outcome.Attach != nil || len(outcome.Argv) != 0 {
++		t.Fatalf("unauthorized concurrent input returned attach=%+v argv=%q", outcome.Attach, outcome.Argv)
++	}
++}
+diff --git a/internal/tmuxserver/lifecycle_rev8_unix_test.go b/internal/tmuxserver/lifecycle_rev8_unix_test.go
+index cd01405..55a28fd 100644
+--- a/internal/tmuxserver/lifecycle_rev8_unix_test.go
++++ b/internal/tmuxserver/lifecycle_rev8_unix_test.go
+@@ -732,8 +732,8 @@ func TestAttachOverlapRequiresMultiAttach(t *testing.T) {
+ 	if _, found, err := fx.lc.Attach.Lookup(lxSession, lxInstance, lxClientB); err != nil || found {
+ 		t.Fatalf("lookup = %v, %v; want no overlapping receipt", found, err)
+ 	}
+-	if len(outcome.Argv) != 0 {
+-		t.Fatalf("refused attach built argv %q", outcome.Argv)
++	if outcome.Attach != nil || len(outcome.Argv) != 0 {
++		t.Fatalf("refused attach returned a vector: attach=%+v argv=%q", outcome.Attach, outcome.Argv)
+ 	}
+ 	if _, err := fx.lc.Execute(context.Background(), OpRequest{
+ 		Operation: "attach", Body: second, Source: "active", Admitted: fullLifecycleAdmitted(),
+@@ -779,8 +779,8 @@ func TestAttachOverlapInputRequiresMultipleInputClients(t *testing.T) {
+ 	if _, found, err := fx.lc.Attach.Lookup(lxSession, lxInstance, lxClientB); err != nil || found {
+ 		t.Fatalf("lookup = %v, %v; want no concurrent-input receipt", found, err)
+ 	}
+-	if outcome.Attach != nil && outcome.Attach.InputAuthorized {
+-		t.Fatalf("refused attach authorized input: %+v", outcome.Attach)
++	if outcome.Attach != nil || len(outcome.Argv) != 0 {
++		t.Fatalf("refused concurrent-input attach returned a vector: attach=%+v argv=%q", outcome.Attach, outcome.Argv)
+ 	}
+ 	readonly := lxAttachBody(t, func(object map[string]any) {
+ 		object["client_id"] = lxClientB
+diff --git a/internal/tmuxserver/mutant_harness.py b/internal/tmuxserver/mutant_harness.py
+index 5966924..6e27503 100644
+--- a/internal/tmuxserver/mutant_harness.py
++++ b/internal/tmuxserver/mutant_harness.py
+@@ -2802,8 +2802,8 @@ MUTANTS = [
+     Mutant(
+         name="N-attach-barrier-recheck",
+         path=f"{PACKAGE}/ops.go",
+-        find='\trelease, err := lc.acquireBarrier(waitCtx)\n\tif err != nil {\n\t\treturn empty, &Error{Code: terminstance.CodeTimeout, Detail: "operation deadline"}\n\t}\n\tdefer release()\n\tif err := lc.checkAttachQuiesced(body.TerminalInstanceID, body.InputAuthorized); err != nil {\n',
+-        replace='\trelease, err := lc.acquireBarrier(waitCtx)\n\tif err != nil {\n\t\treturn empty, &Error{Code: terminstance.CodeTimeout, Detail: "operation deadline"}\n\t}\n\tdefer release()\n\tif err := lc.checkAttachQuiesced(body.TerminalInstanceID, body.InputAuthorized); err != nil && body.TerminalInstanceID != "0198f4c8-8e50-7f66-8f70-222222222221" {\n',
++        find='\tif err := lc.checkAttachQuiesced(body.TerminalInstanceID, body.InputAuthorized); err != nil {\n\t\treturn empty, err\n\t}\n\tif !lc.Now().Before(deadline) {\n',
++        replace='\tif err := lc.checkAttachQuiesced(body.TerminalInstanceID, body.InputAuthorized); err != nil && body.TerminalInstanceID != "0198f4c8-8e50-7f66-8f70-222222222221" {\n\t\treturn empty, err\n\t}\n\tif !lc.Now().Before(deadline) {\n',
+         count=1,
+         run="(TestAttachRefusesAfterQuiescenceWhenAdmittedLate|TestAttachQuiesceOrderingOverlapQuiesce)",
+         expect="KILLED",
+@@ -2969,6 +2969,16 @@ MUTANTS = [
+         expect="KILLED",
+         note="Admits exactly the one-peer overlap past the multi_attach arm (the second client commits its receipt); two-peer overlaps still refuse. Kill path: the second attach succeeds without the capability while the third-attach precision leg stays refused.",
+     ),
++    Mutant(
++        name="N-attach-overlap-multi-input-client",
++        path=f"{PACKAGE}/ops.go",
++        find='\tif !admitted.Has("multi_attach") {\n\t\treturn &Error{Code: terminalbackend.CodeCapabilityUnproven, Detail: "operation capability conditional"}\n\t}\n',
++        replace='\tif !admitted.Has("multi_attach") && !body.InputAuthorized {\n\t\treturn &Error{Code: terminalbackend.CodeCapabilityUnproven, Detail: "operation capability conditional"}\n\t}\n',
++        count=1,
++        run="TestAttachOverlapRequiresMultiAttachForInputClient",
++        expect="KILLED",
++        note="Admits exactly input-authorized requesters past the multi_attach gate while read-only requesters still refuse. The input test supplies multiple_input_clients, so no later overlap gate masks the narrowed effect.",
++    ),
+     Mutant(
+         name="N-attach-overlap-input",
+         path=f"{PACKAGE}/ops.go",
+@@ -2979,6 +2989,56 @@ MUTANTS = [
+         expect="KILLED",
+         note="Admits exactly the one-peer concurrent input past the multiple_input_clients arm (the second writable client commits its receipt with authorized input); overlaps over two peers still refuse. Kill path: the second attach succeeds without the capability while the third-attach precision leg stays refused.",
+     ),
++    Mutant(
++        name="N-M5-attach-overlap-input-first-peer-only",
++        path=f"{PACKAGE}/ops.go",
++        find='\tfor _, peer := range peers {\n\t\tif peer.InputAuthorized {\n\t\t\tif !admitted.Has("multiple_input_clients") {\n\t\t\t\treturn &Error{Code: terminalbackend.CodeCapabilityUnproven, Detail: "operation capability conditional"}\n\t\t\t}\n\t\t\treturn nil\n\t\t}\n\t}\n\treturn nil\n',
++        replace='\tif peers[0].InputAuthorized {\n\t\tif !admitted.Has("multiple_input_clients") {\n\t\t\treturn &Error{Code: terminalbackend.CodeCapabilityUnproven, Detail: "operation capability conditional"}\n\t\t}\n\t}\n\treturn nil\n',
++        count=1,
++        run="TestAttachOverlapInputGateChecksEveryPeer",
++        expect="KILLED",
++        note="Checks multiple_input_clients only against sorted peers[0], admitting exactly new input clients when the first peer is read-only even if later peers are input-authorized. The named entry test covers one later input peer and several later input peers; each subtest asserts no receipt and no vector.",
++    ),
++    Mutant(
++        name="N-attach-ax-input-policy",
++        path="internal/terminalbackend/conformance.go",
++        find='\tif requested != auth.Transport || inputAuthorized != auth.InputAuthorized {\n\t\treturn refuse(&Error{Code: CodeUnauthorized, Detail: "attach authorization binding"})\n\t}\n',
++        replace='\tif requested != auth.Transport || (inputAuthorized != auth.InputAuthorized && !(transport == "local_only" && inputAuthorized && !auth.InputAuthorized)) {\n\t\treturn refuse(&Error{Code: CodeUnauthorized, Detail: "attach authorization binding"})\n\t}\n',
++        count=1,
++        run="TestAttachConcurrentInputRequiresAXPolicy",
++        expect="KILLED",
++        note="Weakens the shared AX input-policy gate for exactly a local input-authorized request with false AX authorization; transport and expiry gates remain. The Lifecycle.Execute test asserts no second receipt and no vector, so if both request and receipt checks are bypassed and a receipt commits before result validation, that effect assertion fails.",
++    ),
++    Mutant(
++        name="N-attach-liveness-unknown",
++        path=f"{PACKAGE}/ops.go",
++        find='\tif len(peers) == 0 {\n\t\treturn nil\n\t}\n',
++        replace='\tif len(peers) == 0 || (len(peers) == 1 && peers[0].ClientID == "0198f4c8-8e50-7f66-8f70-555555555551") {\n\t\treturn nil\n\t}\n',
++        count=1,
++        run="TestAttachReceiptWithoutPositiveLivenessRemainsPossiblePeer",
++        expect="KILLED",
++        note="Treats exactly the fixture peer receipt with no positive live-client evidence as retired; every other receipt remains a possible peer. The second client must then be refused without multi_attach, no receipt, and no vector.",
++    ),
++    Mutant(
++        name="N-attach-admission-lock",
++        path="internal/termbind/admission.go",
++        find='\t\tlocked, unlock, lockErr := tryLockAdmissionFile(file)\n',
++        replace='\t\tlocked, unlock, lockErr := tryLockAdmissionFile(file)\n\t\tif instanceID == "0198f4c8-8e50-7f66-8f70-222222222221" {\n\t\t\tlocked, unlock, lockErr = true, func() error { return nil }, nil\n\t\t}\n',
++        count=1,
++        run="TestAttachOverlapAdmissionAtomicAcrossLifecycleInstances",
++        expect="KILLED",
++        note="Weakens the cross-store lock for exactly the fixture terminal instance while leaving the lock gate intact elsewhere. During the paused first receipt, the second Lifecycle must not complete before the first commit; bypassing the lock lets it census an empty directory and commit a second writable receipt.",
++    ),
++    Mutant(
++        name="N-M2-attach-admission-lock-input-only",
++        path=f"{PACKAGE}/ops.go",
++        find='\treleaseAdmission, err := lc.Attach.AcquireAdmission(waitCtx, body.TerminalInstanceID)\n',
++        replace='\tvar releaseAdmission func()\n\tif body.InputAuthorized {\n\t\treleaseAdmission, err = lc.Attach.AcquireAdmission(waitCtx, body.TerminalInstanceID)\n\t} else {\n\t\treleaseAdmission = func() {}\n\t}\n',
++        count=1,
++        run="TestAttachReadOnlyOverlapAdmissionAtomicAcrossLifecycleInstances",
++        expect="KILLED",
++        note="Keeps the shared per-instance lock for input-authorized requests but skips it for read-only requests. The paused read-only interleaving must fail before either second receipt or vector can be returned.",
++    ),
+     Mutant(
+         name="N-attach-wait-deadline",
+         path=f"{PACKAGE}/lifecycle.go",
+diff --git a/internal/tmuxserver/ops.go b/internal/tmuxserver/ops.go
+index ac0e28f..611f59d 100644
+--- a/internal/tmuxserver/ops.go
++++ b/internal/tmuxserver/ops.go
+@@ -61,8 +61,8 @@ func createDescriptor(socket, instance string) string {
+ // transition, landed attach authorization, capability conferral plus
+ // the matching-transport arm, the fast-path quiesce barrier check,
+ // live server attestation (the P3-A wiring: a fresh decoy admission
+-// refuses), the authoritative barrier recheck under the ordering
+-// lock, the durable client receipt, and the caller-executed attach
++// refuses), the authoritative barrier recheck under the ordering and
++// shared per-instance admission locks, the durable client receipt, and the caller-executed attach
+ // vector with its descriptor. The entry returns the vector; it never
+ // execs an interactive attach.
+ func (lc *Lifecycle) executeAttach(ctx context.Context, req OpRequest, socket string) (OpOutcome, error) {
+@@ -117,17 +117,17 @@ func (lc *Lifecycle) executeAttach(ctx context.Context, req OpRequest, socket st
+ 		return empty, &Error{Code: terminalbackend.CodeUnauthorized, Detail: "attach server attestation"}
+ 	}
+ 	// Ordering contract, attach side: the checks above ran before
+-	// the (possibly blocking) server admission and the barrier
+-	// lock wait, so every live fact they observed may have gone
++	// the (possibly blocking) server admission and the barrier and
++	// file-lock waits, so every live fact they observed may have gone
+ 	// stale. The effect boundary below re-observes every live
+-	// authorization fact under the lock immediately before the
++	// authorization fact under both locks immediately before the
+ 	// receipt commit, and the lock holds through the receipt, the
+ 	// returned vector, and the advisory memory record. The
+ 	// enumeration, first-observed site to revalidation site:
+ 	// closure (fast path above, rechecked here); server
+ 	// generation (admission above, live CurrentGeneration here);
+-	// request deadline (entry above, live clock here — the lock
+-	// wait counts against the deadline, and the deadline stays
++	// request deadline (entry above, live clock here — both lock
++	// waits count against the deadline, and the deadline stays
+ 	// distinct from the authorization expiry); authorization
+ 	// expiry, transport binding, and input binding (entry
+ 	// CheckAttachRequest above, live clock rechecked inside the
+@@ -139,18 +139,31 @@ func (lc *Lifecycle) executeAttach(ctx context.Context, req OpRequest, socket st
+ 	// attestation value is immutable once returned; its live
+ 	// counterpart is the generation rechecked here. The overlap
+ 	// possibility (below) is likewise a live fact: a peer client
+-	// may commit between the admission and this lock, so the
++	// may commit between server admission and these locks, so the
+ 	// receipt census is read here, not earlier. Residual: a
+ 	// rotation landing between this recheck and the commit —
+ 	// inside one process or across processes — is not excluded;
+ 	// the window holds no waits (file I/O only). That remainder
+ 	// is the B42 in-process scope, extended to the generation
+-	// and deadline rechecks.
++	// and deadline rechecks. The OS-backed per-instance admission
++	// lock spans peer census through receipt install across
++	// independent Lifecycle values and processes; quiesce ordering
++	// remains process-local (bound B42).
+ 	release, err := lc.acquireBarrier(waitCtx)
+ 	if err != nil {
+ 		return empty, &Error{Code: terminstance.CodeTimeout, Detail: "operation deadline"}
+ 	}
+ 	defer release()
++	releaseAdmission, err := lc.Attach.AcquireAdmission(waitCtx, body.TerminalInstanceID)
++	if err != nil {
++		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
++			return empty, &Error{Code: terminstance.CodeTimeout, Detail: "operation deadline"}
++		}
++		return empty, rowError(terminalbackend.OperationAttach, err)
++	}
++	defer releaseAdmission()
++	// File-lock acquisition is another wait boundary. Recheck facts
++	// that could change while an independent attach held the lock.
+ 	if err := lc.checkAttachQuiesced(body.TerminalInstanceID, body.InputAuthorized); err != nil {
+ 		return empty, err
+ 	}
+@@ -280,9 +293,13 @@ func (lc *Lifecycle) admitServer(ctx context.Context) (RealmAdmission, error) {
+ // at the effect boundary: a new client that may overlap a recorded
+ // peer needs multi_attach, and new concurrent input over a recorded
+ // input-authorized peer needs multiple_input_clients. Overlap cannot
+-// be ruled out here — this leaf has no client-liveness census — so
+-// a stored peer receipt is treated as possibly live and the gate
+-// fails closed on the possibility. A validated identical replay is
++// be ruled out from this protocol's evidence: the returned attach
++// vector is executed by the caller, and AX has no positive client
++// identity or detach signal that retires a receipt. A valid peer
++// receipt proves an admitted client claim; if that client can no
++// longer be shown live, its liveness is UNKNOWN and the receipt
++// remains a possible peer until an authoritative retirement
++// contract exists. A validated identical replay is
+ // exempt: the requesting client already holds a recorded receipt,
+ // and the durable store below replays it — or refuses
+ // idempotency_mismatch when transport or input changed — after
+@@ -292,10 +309,8 @@ func (lc *Lifecycle) admitServer(ctx context.Context) (RealmAdmission, error) {
+ // below however it names itself. Generation and deadline already
+ // rechecked above; authorization rechecks in the commit. A
+ // peer-census read failure is an error, never admission: unknown
+-// is not a verdict. The liveness census that refines this
+-// receipt-inferred possibility (including detached clients whose
+-// receipts still stand) is owned by TASK-260922-vcx6yo; until it
+-// lands this gate stays over-strict rather than over-permissive.
++// is not a verdict. This conservative liveness rule deliberately
++// retains detached or not-yet-executed receipts as possible peers.
+ func (lc *Lifecycle) checkAttachOverlap(body AttachBody, admitted terminalbackend.Admitted) error {
+ 	peers, err := lc.Attach.Peers(body.SessionID, body.TerminalInstanceID, body.ClientID)
+ 	if err != nil {

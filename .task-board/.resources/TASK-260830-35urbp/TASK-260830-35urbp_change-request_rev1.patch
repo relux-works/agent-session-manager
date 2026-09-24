@@ -1,0 +1,2834 @@
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index eed03e1..7b3445b 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -3,6 +3,18 @@
+ > Institutional memory. Concise, factual, high-signal.
+ > Newest entries first. One block per insight.
+ 
++## 2026-09-21
++
++### TASK-260830-35urbp — Private tmux server management (first leaf, STORY-260830-2t4g7i)
++
++- DELIVERED: `internal/tmuxserver` — the §4.2/§4.C-4.E first leaf over the landed owners: `EnsureRuntimeDir` commits the runtime leaf via `mkdirat` from a pinned root handle with three independent custody gates (containment, exact `0700`, eUID ownership, each refusing alone; existing dirs verified, never repaired); `ResolveSocket` derives the one `-S` socket from the runtime dir and refuses any override on all four ambient vectors (TMUX env, inherited socket, default path, conventional name); `Acquire` attaches/spawns on foreground and brokers-or-refuses on background with the typed `capability_unavailable` (via `axerror.NewRealmEvidenceUnavailable`) and no fallback — the miss path consults the creation gate by call, and every background test arms a zero-call spy spawner; `CheckLiveAttestation` admits only complete live sentinel+smoke bound to generation/build/macOS, while the managername hint and cached observations travel diagnostics-only and authorize nothing; `BuildArgv` emits the exact `tmux -S socket new-session -d -s session ax pane session` vector through the landed argv gate. No test starts tmux: all probes/spawns are injected fakes.
++- F1: a structural absence ("this path has no spawn call") is not an enforceable gate until a call exists to weaken — the background miss path now consults `checkCreationAllowed` by call so the N-creation-literal narrowing (background admitted) reddens through the entry with the creation code instead of the typed unavailable, and the D-background-fallback additive plant (reviewer-shaped direct-creation call) reddens on the spy assertions.
++- F2: `Fchmod` before verification silently repairs — the create path now chmods only leaves it created (`Mkdirat` success, for umask) while pre-existing leaves verify as-is, so a widened `0755` refuses on both ensure and verify instead of being narrowed back.
++- F3: single-member refusal classes still narrow honestly — `caller == "background"` weakens to the capitalized twin (gate present, one member admitted), and delegated wirings (scalar UUIDv7/platform/path grammars) narrow at our call site with reroute kills, never by re-testing the owner.
++- MUTATION EVIDENCE: 29 narrowing mutants plus one supplementary additive row, all KILLED (`mutant_harness.py`, 31/31 with the harmless SURVIVED control on two full passes, verdict lists identical), per-plant raw logs with subprocess exits on both passes, production blobs byte-identical. No token-preserving source-text mutant applies: no gate inspects source text. Suite: 89 subtests green, 87.5% statement coverage; `GOOS=windows` builds.
++- AC: 54 of 54 rows driven through production entries by named tests (matrix in `internal/tmuxserver/TRACEABILITY.md`); crash/idempotency evidence via real SIGKILL between mkdir and fsync plus spawn-then-retry convergence. Candidate UNCOMMITTED in the Story worktree; no review acceptance or main integration claimed.
++- BOUNDS: no real-tmux witness for any row (determinism design); Windows ownership is the creating-user ACL (tripwire-pinned); attach presentation vectors and lifecycle operations are sibling-leaf scope; registry bindings and the digest re-pin belong to the final leaf.
++
+ ## 2026-09-18
+ 
+ ### TASK-260830-32ypr2 — projection fidelity over captured bytes (FINAL leaf, STORY-260830-1cyj0q)
+diff --git a/README.md b/README.md
+index c44349b..0d9313d 100644
+--- a/README.md
++++ b/README.md
+@@ -2326,6 +2326,59 @@ adds no `ax` command, no `doctor` result, and no runtime capability
+ claim; the clause-to-test matrix with its stated bounds lives in
+ [the task evidence map](internal/termbind/TRACEABILITY.md).
+ 
++## Private tmux server management (`tmuxserver` leaf)
++
++[`internal/tmuxserver`](internal/tmuxserver) creates owner-only runtime
++directories and manages dedicated `tmux -S` servers with no ambient or
++default-server discovery or reuse (pinned Sections 4.2, 4.C-4.E).
++`EnsureRuntimeDir` commits the runtime leaf relative to a pinned root
++handle (`mkdirat`, never a path-string `MkdirAll`) and enforces three
++independent custody gates — containment, exact `0700` mode, effective-UID
++ownership — each of which refuses alone; an existing directory is
++verified, never silently repaired. `ResolveSocket` derives the one
++server socket from the runtime directory and refuses any explicit
++override, whether it arrives as a `TMUX` environment value, an inherited
++socket, a default path, or the conventional `default` name. `Acquire`
++reaches the server through the caller-appropriate path: foreground
++attaches to the running attested server or spawns the dedicated `-S`
++server whose stable pane entrypoint is `ax pane SESSION_ID`, while
++background contacts only the already-running authenticated broker and
++its attested server, and otherwise returns the typed
++`capability_unavailable` refusal with realm/readiness details — there is
++no fallback to direct creation, and every background test arms a spy
++spawner that fails the run if it is ever invoked. `CheckLiveAttestation`
++admits only a complete live observation (passed sentinel and
++provider-auth smoke bound to the exact server generation, provider
++build, and macOS version); the `launchctl managername` hint and any
++cached sentinel observation travel for diagnostics only and authorize
++nothing. Every broker, server, and spawner interaction runs through
++injected dependencies, so the suite passes with no tmux process
++anywhere.
++
++Run the focused tests and coverage with:
++
++```bash
++go test ./internal/tmuxserver -count=1
++go test ./internal/tmuxserver -cover -count=1
++```
++
++Run the narrowing battery (29 narrowing mutants, one supplementary
++additive row, plus one harmless control) with:
++
++```bash
++PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py
++```
++
++The harness mutates one production file in place, runs the named killer
++through the production entry point, restores the file from backup, and
++reports per-row verdicts with subprocess exits; `AX_MUTANT_VERBOSE=1`
++additionally prints the raw per-plant logs, and `--log-dir` captures one
++raw log per plant. Task validation logs and mutation artifacts are
++attached to `TASK-260830-35urbp`. The package adds no `ax` command, no
++`doctor` result, and no runtime capability claim; the clause-to-test
++matrix with its stated bounds lives in
++[the task evidence map](internal/tmuxserver/TRACEABILITY.md).
++
+ ## Ownership reducer properties
+ 
+ The four story-pinned ownership invariants (pinned v0.6.0 Sections 2.2, 5.3,
+diff --git a/internal/tmuxserver/TRACEABILITY.md b/internal/tmuxserver/TRACEABILITY.md
+new file mode 100644
+index 0000000..48582f1
+--- /dev/null
++++ b/internal/tmuxserver/TRACEABILITY.md
+@@ -0,0 +1,150 @@
++# TRACEABILITY — internal/tmuxserver (AX v0.7.0)
++
++Normative scope: AX v0.7.0 Section 4.2 (tmux backend: dedicated -S
++server, no ambient/default discovery or reuse, credential-sensitive
++creation, background broker-or-refuse with typed capability_unavailable
++and no fallback to direct creation, launchctl managername as diagnostic
++hint only, cached observations never authorize resume), Section 4.C
++(operation vocabulary cited for the wrapper entrypoint shape only),
++Section 4.D (capability evidence cited landed), and Section 4.E
++(sensitive runtime state is owner-only and non-replicable). Story:
++production-tmux-backend (first leaf).
++
++Rule: every row names its production entry point. A row is driven only
++when the named committed test executes that entry. Prose in place of
++the ratio is not evidence. 54 of 54 AC rows driven; no row is a
++bound — the eight stated bounds below cover deliberately unclaimed
++surfaces, not undriven rows.
++
++No test in this package starts a tmux process: every broker, server,
++and spawner interaction runs through injected dependencies, and the
++suite passes with no tmux installed. No row has a real-tmux witness;
++that is the determinism design, not a gap (bound B1).
++
++## Runtime custody (Sections 4.2, 4.E)
++
++| # | Clause | Call site | Test |
++|---|--------|-----------|------|
++| 1 | Ensure creates the owner-only 0700 directory | EnsureRuntimeDir (runtime.go, runtime_unix.go) | TestEnsureRuntimeDirCreatesOwnerOnly |
++| 2 | Re-ensure is idempotent and verifies mode | EnsureRuntimeDir (runtime.go, runtime_unix.go) | TestEnsureRuntimeDirIsIdempotent |
++| 3 | Compliant directory verifies | VerifyRuntimeDir (runtime.go, runtime_unix.go) | TestVerifyRuntimeDirAdmitsCompliant |
++| 4 | Widened mode refuses on ensure and verify, never silently repaired | EnsureRuntimeDir, VerifyRuntimeDir (runtime_unix.go) | TestEnsureRuntimeDirRefusesWidenedMode |
++| 5 | Non-directory leaf refuses | EnsureRuntimeDir (runtime_unix.go) | TestEnsureRuntimeDirRefusesNonDirectoryLeaf |
++| 6 | Symlink leaf refuses | EnsureRuntimeDir (runtime_unix.go) | TestEnsureRuntimeDirRefusesSymlinkLeaf |
++| 7 | Foreign ownership refuses on ensure and verify | EnsureRuntimeDir, VerifyRuntimeDir (ownership_unix.go) | TestEnsureRuntimeDirRefusesForeignOwnership |
++| 8 | Handle/path mismatch refuses | EnsureRuntimeDir (runtime.go) | TestEnsureRuntimeDirRefusesHandleMismatch |
++| 9 | Symlinked root refuses | EnsureRuntimeDir (runtime_unix.go) | TestEnsureRuntimeDirRefusesSymlinkRoot |
++| 10 | Relative, empty, parent, and missing roots refuse | EnsureRuntimeDir (runtime.go) | TestEnsureRuntimeDirRefusesBadRoots (4 subtests) |
++| 11 | Empty, dot, parent, nested, absolute, and NUL names refuse | EnsureRuntimeDir (runtime.go) | TestEnsureRuntimeDirRefusesBadNames (6 subtests) |
++| 12 | Unknown platform refuses | EnsureRuntimeDir (runtime.go) | TestEnsureRuntimeDirRefusesBadPlatform |
++| 13 | Verify refuses absence without creating | VerifyRuntimeDir (runtime_unix.go) | TestVerifyRuntimeDirRefusesAbsence |
++| 14 | Linux and WSL2 share the unix custody discipline | EnsureRuntimeDir (runtime_unix.go) | TestLinuxAndWSL2ShareUnixCustody |
++| 15 | Windows platform on a unix host refuses; the Windows custody subset is a pinned bound | EnsureRuntimeDir (runtime_unix.go, runtime_windows.go) | TestEnsureRuntimeDirRefusesWindowsOnUnixHost, TestWindowsCustodyBoundIsStated (windows-only) |
++
++## Dedicated socket and ambient non-use (Section 4.2)
++
++| # | Clause | Call site | Test |
++|---|--------|-----------|------|
++| 16 | Socket derives only from the runtime directory | SocketPath (socket.go) | TestSocketPathDerivesOnlyFromRuntimeDir |
++| 17 | Resolution returns the derived socket under hostile ambient on all five members | ResolveSocket (socket.go) | TestResolveSocketDerivesIgnoringAmbient |
++| 18 | Ambient observation records without using, including nil lookup | ObserveAmbient (socket.go) | TestObserveAmbientRecordsWithoutUsing, TestObserveAmbientNilLookupKeepsOutOfBand |
++| 19 | TMUX environment value as override refuses through Acquire with no spawn | Acquire (acquire.go) via ResolveSocket (socket.go) | TestAcquireRefusesEveryAmbientOverrideVector/environment_variable |
++| 20 | Inherited socket as override refuses through Acquire with no spawn | Acquire (acquire.go) via ResolveSocket (socket.go) | TestAcquireRefusesEveryAmbientOverrideVector/inherited_socket |
++| 21 | Default path as override refuses through Acquire with no spawn | Acquire (acquire.go) via ResolveSocket (socket.go) | TestAcquireRefusesEveryAmbientOverrideVector/default_path |
++| 22 | Conventional name as override refuses through Acquire with no spawn | Acquire (acquire.go) via ResolveSocket (socket.go) | TestAcquireRefusesEveryAmbientOverrideVector/conventional_name |
++| 23 | Ambient value colliding with the derived socket refuses | Acquire (acquire.go) via ResolveSocket (socket.go) | TestAcquireRefusesAmbientCollision, TestResolveSocketRefusesAmbientCollision |
++
++## Background broker-or-refuse (Section 4.2)
++
++| # | Clause | Call site | Test |
++|---|--------|-----------|------|
++| 24 | Authenticated broker plus attested server contacts on macOS with credentials, with no spawn and no argv | Acquire (acquire.go) via CheckBrokerContact (readiness.go) | TestAcquireBackgroundContactsBroker |
++| 25 | No broker returns the typed capability_unavailable with no spawn | Acquire (acquire.go) | TestAcquireBackgroundMissReturnsTypedUnavailable/no_broker |
++| 26 | Unauthenticated broker returns the typed capability_unavailable with no spawn | Acquire (acquire.go) | TestAcquireBackgroundMissReturnsTypedUnavailable/unauthenticated_broker |
++| 27 | Unattested server returns the typed capability_unavailable with no spawn | Acquire (acquire.go) | TestAcquireBackgroundMissReturnsTypedUnavailable/unattested_server |
++| 28 | Sentinel-only attestation returns the typed capability_unavailable with no spawn | Acquire (acquire.go) | TestAcquireBackgroundMissReturnsTypedUnavailable/sentinel-only_attestation |
++| 29 | Linux miss also returns the typed capability_unavailable with no spawn | Acquire (acquire.go) | TestAcquireBackgroundMissOnLinuxAlsoRefusesWithoutFallback |
++| 30 | Broker probe failure passes through as unknown, never unavailable, with no spawn | Acquire (acquire.go) | TestAcquireBackgroundProbeFailurePassesThrough |
++| 31 | Creation gate refuses the background caller; the miss path enforces it by call | checkCreationAllowed via Acquire (acquire.go) | TestCheckCreationAllowedRefusesBackground, TestAcquireBackgroundMissReturnsTypedUnavailable (kill path of N-creation-literal) |
++
++## Readiness non-authorization (Sections 4.2, 4.D)
++
++| # | Clause | Call site | Test |
++|---|--------|-----------|------|
++| 32 | Aqua hint plus cached pass still returns the typed capability_unavailable on a broker miss | Acquire (acquire.go) | TestAcquireBackgroundHintAndCacheAuthorizeNothing |
++| 33 | Aqua hint plus cached pass neither fakes a running server nor skips the live spawn | Acquire (acquire.go) | TestAcquireForegroundHintAndCacheChangeNothing |
++| 34 | Complete live attestation admits | CheckLiveAttestation (readiness.go) | TestCheckLiveAttestationAdmitsComplete |
++| 35 | Sentinel-only observation refuses | CheckLiveAttestation (readiness.go) | TestCheckLiveAttestationRefusesEachMissingConjunct/sentinel_only_is_insufficient |
++| 36 | Smoke-only observation refuses | CheckLiveAttestation (readiness.go) | TestCheckLiveAttestationRefusesEachMissingConjunct/smoke_only_is_insufficient |
++| 37 | Generation-, build-, and macOS-unbound observations refuse | CheckLiveAttestation (readiness.go) | TestCheckLiveAttestationRefusesEachMissingConjunct (3 binding subtests) |
++| 38 | Authenticated plus attested broker report admits | CheckBrokerContact (readiness.go) | TestCheckBrokerContactAdmitsAuthenticatedAttested |
++| 39 | Missing broker, authentication, attestation, and smoke each refuse | CheckBrokerContact (readiness.go) | TestCheckBrokerContactRefusesEachMissingFact (4 subtests) |
++
++## Foreground acquisition (Section 4.2)
++
++| # | Clause | Call site | Test |
++|---|--------|-----------|------|
++| 40 | Absent server spawns dedicated with exact -S argv disjoint from every ambient vector and the ax pane tail | Acquire (acquire.go) via BuildArgv (argv.go) | TestAcquireForegroundSpawnsDedicatedServer |
++| 41 | Running attested server attaches with no spawn | Acquire (acquire.go) | TestAcquireForegroundAttachesToRunningAttested |
++| 42 | Running unattested server refuses with no spawn and no repair | Acquire (acquire.go) | TestAcquireForegroundRefusesRunningUnattested |
++| 43 | Server probe failure passes through as unknown with no spawn | Acquire (acquire.go) | TestAcquireForegroundProbeFailurePassesThrough |
++| 44 | Spawn failure reports with exactly one attempt and no fallback | Acquire (acquire.go) | TestAcquireForegroundSpawnFailureReportsWithoutFallback |
++| 45 | Malformed session refuses before any spawn | Acquire (acquire.go) via BuildArgv (argv.go) | TestAcquireForegroundRefusesMalformedSession |
++
++## Spawn argv (Sections 4.2, 4.C)
++
++| # | Clause | Call site | Test |
++|---|--------|-----------|------|
++| 46 | Spawn vector is exactly tmux -S socket new-session -d -s session ax pane session | BuildArgv (argv.go) | TestBuildArgvAddressesOnlyTheDerivedSocket |
++| 47 | Default, inherited, conventional, and tmpdir sockets refuse | BuildArgv (argv.go) | TestBuildArgvRefusesAmbientSocket (4 subtests) |
++| 48 | Malformed sessions refuse the landed UUIDv7 wiring | BuildArgv (argv.go) | TestBuildArgvRefusesMalformedSession |
++
++## Input validation (Sections 4.2, 15.3)
++
++| # | Clause | Call site | Test |
++|---|--------|-----------|------|
++| 49 | Unknown caller refuses | Acquire (acquire.go) | TestAcquireRefusesUnknownCaller |
++| 50 | Missing generation, broker state, and remediation each refuse | Acquire (acquire.go) | TestAcquireRefusesMissingRealmDetails (3 subtests) |
++| 51 | Missing dependencies refuse on every nil shape | Acquire (acquire.go) | TestAcquireRefusesMissingDependencies, TestAcquireBackgroundNilBrokerWithSpawnRefuses, TestAcquireForegroundNilSpawnWithProbeRefuses |
++| 52 | Acquisition ensures the runtime directory idempotently | Acquire (acquire.go) via EnsureRuntimeDir (runtime.go) | TestAcquireCreatesRuntimeDirIdempotently |
++
++## Crash and idempotency (Sections 4.2, 4.E)
++
++| # | Clause | Call site | Test |
++|---|--------|-----------|------|
++| 53 | Real SIGKILL between mkdir and fsync leaves a retry that converges to the one verified directory | EnsureRuntimeDir (runtime_unix.go) | TestEnsureCrashChildSelfTerminates |
++| 54 | Spawn-then-retry attaches to the one server with exactly one spawn | Acquire (acquire.go) | TestAcquireForegroundSpawnIsIdempotentAcrossRetry |
++
++## Mutation battery
++
++`PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py`:
++29 narrowing rows KILLED, 1 supplementary additive row KILLED
++(D-background-fallback, labeled), 1 harmless control SURVIVED, on two
++full passes with identical verdicts and one raw log per plant per run.
++Rows N-deps-background and N-deps-foreground kill by panic: the
++admitted request calls the nil dependency and the panic fails the
++test. No token-preserving source-text mutant applies: no gate inspects
++source text, and the harness executes the behavioral suite (bound B4).
++
++## Stated bounds
++
++- B1 Determinism: no row has a real-tmux witness. Every broker, server,
++  and spawner interaction runs through injected dependencies; the suite
++  passes with no tmux process anywhere. A live-server test would add a
++  witness, not a rule, and is sibling scope.
++- B2 Windows custody: ownership on Windows is the creating-user ACL
++  installed by the OS; no UID gate is claimed
++  (runtime_windows.go, TestWindowsCustodyBoundIsStated).
++- B3 Nil-dependency weakening panics instead of misbehaving; the two
++  narrowing rows pin the refusal and disclose the panic kill.
++- B4 No gate inspects source text, so no token-preserving mutant
++  applies; the harness executes the behavioral suite.
++- B5 Attach presentation vectors are sibling scope: attached and broker
++  outcomes carry the socket, and only the spawned outcome carries argv.
++- B6 Lifecycle operations (create, attach, status, quiesce, stop,
++  terminate, restore) belong to the sibling leaves, not to acquisition.
++- B7 The handle-mismatch arm stages its race through the sameDirectory
++  seam; a true concurrent handle swap is not staged.
++- B8 Registry bindings and the digest re-pin belong to the story's
++  final leaf; this leaf documents clause coverage here and in the
++  conformance matrix only.
+diff --git a/internal/tmuxserver/acquire.go b/internal/tmuxserver/acquire.go
+new file mode 100644
+index 0000000..8bc9dff
+--- /dev/null
++++ b/internal/tmuxserver/acquire.go
+@@ -0,0 +1,252 @@
++package tmuxserver
++
++import (
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/axpane"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// Caller names the acquisition caller. The vocabulary is owned by
++// internal/axpane, which already gates the wrapper decision over it;
++// this package reuses its constants rather than retyping them.
++type Caller = string
++
++const (
++	// CallerForeground is an interactive operator-side caller that
++	// may create the dedicated server.
++	CallerForeground = axpane.CallerForeground
++	// CallerBackground is a background CLI, SSH RPC process,
++	// daemon, or restore worker: it must never create a
++	// credential-dependent tmux server, may contact an
++	// already-running authenticated broker, and otherwise receives
++	// capability_unavailable with no fallback to direct creation.
++	CallerBackground = axpane.CallerBackground
++)
++
++// Acquisition outcomes name how the caller reached the dedicated
++// server. Exactly one applies; there is no combined or fallback
++// outcome.
++const (
++	// ViaSpawned created the dedicated -S server on the foreground
++	// path and returns its spawn argv.
++	ViaSpawned = "spawned"
++	// ViaAttachedFound the dedicated server already running and
++	// attested on the foreground path.
++	ViaAttached = "attached-running"
++	// ViaBroker contacted the already-running authenticated Aqua
++	// broker and its attested AX tmux server on the background
++	// path. No local spawn argv exists on this path.
++	ViaBroker = "broker"
++)
++
++// realmCapability is the Section 4.D capability the background
++// typed refusal names: the exact instance passes the AX sentinel
++// and the provider-auth smoke without UI.
++const realmCapability = "credential_capable_execution_realm"
++
++// ServerReport is the live dedicated-server probe result: whether
++// the private socket answers, with the live attestation observed
++// inside the exact server when it does.
++type ServerReport struct {
++	Running     bool
++	Attestation LiveAttestation
++}
++
++// Dependencies carries every external interaction acquisition
++// performs. Production wires live tmux and broker probes; tests
++// wire fakes. No probe runs without its dependency: a nil entry
++// refuses instead of reaching for a default.
++type Dependencies struct {
++	// ProbeServer reports the dedicated socket's live state.
++	ProbeServer func(socket string) (ServerReport, error)
++	// ProbeBroker reports the live Aqua broker state.
++	ProbeBroker func() (BrokerStatus, error)
++	// Spawn creates the dedicated server with the given -S argv.
++	Spawn func(socket string, argv []string) error
++}
++
++// Request is the complete acquisition surface.
++type Request struct {
++	Caller   Caller
++	Platform scalar.Platform
++	// Root and Name select the runtime directory: Root is the AX
++	// state root, Name is the runtime leaf (usually
++	// RuntimeDirName). The directory is ensured idempotently;
++	// ensuring a directory is not creating a server.
++	Root string
++	Name string
++	// Ambient carries the observed ambient socket facts for
++	// evidence. Resolution never reads them; tests assert the
++	// acquired socket equals none of them.
++	Ambient Ambient
++	// SocketOverride must be empty. Any caller-supplied socket —
++	// whichever ambient vector supplied it — refuses.
++	SocketOverride string
++	// SessionID is the logical session the spawned server will
++	// host, as canonical UUIDv7. It shapes spawn argv only.
++	SessionID string
++	// NeedsCredentials marks a credential-dependent server on
++	// macOS, where server creation is credential-sensitive.
++	NeedsCredentials bool
++	// Generation, BrokerState, and Remediation are the typed
++	// realm/readiness details the capability_unavailable refusal
++	// carries. All three are required: an input that omits one
++	// is malformed and refuses invalid_arguments instead of
++	// emitting an untyped refusal.
++	Generation  string
++	BrokerState string
++	Remediation string
++	// Hint is the launchctl managername diagnostic observation.
++	// It travels for operator diagnostics and no gate reads it.
++	Hint ManagerNameHint
++	// Cached is a prior sentinel or managername observation. It
++	// is accepted only so tests can prove it authorizes nothing;
++	// no gate reads it.
++	Cached *CachedObservation
++	Deps   Dependencies
++}
++
++// Outcome is the one acquisition result.
++type Outcome struct {
++	Via    string
++	Socket string
++	// Argv is the dedicated -S spawn argv. It is set only for
++	// ViaSpawned: the broker path spawns nothing and the
++	// attached path presents through sibling-owned attach
++	// semantics, not through a second spawn vector.
++	Argv []string
++}
++
++// Acquire resolves the dedicated server socket from the runtime
++// directory and reaches the server through the caller-appropriate
++// path. Foreground attaches to the running attested server or
++// spawns the dedicated -S server; background contacts the
++// already-running authenticated broker or receives the typed
++// capability_unavailable refusal, and never falls back to direct
++// server creation — there is no spawn call on the background path,
++// and every background test arms a spy spawner that fails the run
++// if it is ever invoked.
++func Acquire(req Request) (Outcome, error) {
++	if req.Caller != CallerForeground && req.Caller != CallerBackground {
++		return Outcome{}, &Error{Code: CodeInvalidArguments, Detail: "caller"}
++	}
++	if req.Generation == "" || req.BrokerState == "" || req.Remediation == "" {
++		return Outcome{}, &Error{Code: CodeInvalidArguments, Detail: "realm details"}
++	}
++	dir, err := EnsureRuntimeDir(req.Root, req.Name, req.Platform, nil)
++	if err != nil {
++		return Outcome{}, err
++	}
++	socket, err := ResolveSocket(dir, req.SocketOverride, req.Ambient)
++	if err != nil {
++		return Outcome{}, err
++	}
++	if req.Caller == CallerBackground {
++		return acquireBackground(req, socket)
++	}
++	return acquireForeground(req, dir, socket)
++}
++
++// acquireBackground implements the broker-or-refuse rule: it may
++// contact the already-running authenticated broker and its attested
++// server, and when neither exists it returns capability_unavailable
++// with typed realm/readiness details. Direct server creation is not
++// the else branch — this function has no path to the spawner, on
++// any platform, with or without credentials.
++func acquireBackground(req Request, socket string) (Outcome, error) {
++	if req.Deps.ProbeBroker == nil {
++		return Outcome{}, &Error{Code: CodeInvalidArguments, Detail: "dependencies"}
++	}
++	status, err := req.Deps.ProbeBroker()
++	if err != nil {
++		return Outcome{}, err
++	}
++	if err := CheckBrokerContact(status); err != nil {
++		// The miss path creates nothing: it consults the creation
++		// gate so the no-fallback rule is enforced by a call, not
++		// by the absence of one. The gate refuses every background
++		// caller; its refusal is expected here and the path reports
++		// the typed unavailable the spec names. The else branch is
++		// reachable only when the gate is weakened to admit a
++		// background caller, and then it refuses with the creation
++		// code instead of the typed unavailable, so the committed
++		// background-miss tests redden.
++		if cerr := checkCreationAllowed(req.Caller); cerr != nil {
++			return Outcome{}, backgroundUnavailable(req, err)
++		}
++		return Outcome{}, &Error{Code: CodeBackgroundCreationRefused, Detail: "background fallback"}
++	}
++	return Outcome{Via: ViaBroker, Socket: socket}, nil
++}
++
++// acquireForeground attaches to the running attested dedicated
++// server or spawns it. A running but unattested server refuses:
++// acquisition never attaches to a server whose sentinel, smoke, or
++// binding is unproven, and never repairs it here — lifecycle owns
++// that decision.
++func acquireForeground(req Request, dir, socket string) (Outcome, error) {
++	if req.Deps.ProbeServer == nil || req.Deps.Spawn == nil {
++		return Outcome{}, &Error{Code: CodeInvalidArguments, Detail: "dependencies"}
++	}
++	report, err := req.Deps.ProbeServer(socket)
++	if err != nil {
++		return Outcome{}, err
++	}
++	if report.Running {
++		if err := CheckLiveAttestation(report.Attestation); err != nil {
++			return Outcome{}, err
++		}
++		return Outcome{Via: ViaAttached, Socket: socket}, nil
++	}
++	if err := checkCreationAllowed(req.Caller); err != nil {
++		return Outcome{}, err
++	}
++	argv, err := BuildArgv(dir, socket, req.SessionID)
++	if err != nil {
++		return Outcome{}, err
++	}
++	if err := req.Deps.Spawn(socket, argv); err != nil {
++		return Outcome{}, &Error{Code: CodeSpawnFailed, Detail: "server spawn"}
++	}
++	return Outcome{Via: ViaSpawned, Socket: socket, Argv: argv}, nil
++}
++
++// checkCreationAllowed is the single choke point before every
++// direct server creation. A background caller never creates: on
++// macOS because server creation is credential-sensitive, and on
++// every platform because the background path must not fall back to
++// direct creation. The macOS credential-dependent case is one
++// fixture of this gate, not a narrower arm: narrowing the gate to
++// macOS or to credential-dependent servers would admit background
++// creation the no-fallback rule forbids. Foreground creation is
++// allowed on every platform; the credential binding it needs is
++// proven by the live attestation the server must present before
++// any attach.
++func checkCreationAllowed(caller Caller) error {
++	if caller == CallerBackground {
++		return &Error{Code: CodeBackgroundCreationRefused, Detail: "background creation"}
++	}
++	return nil
++}
++
++// backgroundUnavailable composes the typed capability_unavailable
++// refusal the spec names for the background miss, with the exact
++// Section 15.3 detail set. The constructor enforces the typed
++// details; a failure to render them is itself malformed input, not
++// an untyped refusal.
++func backgroundUnavailable(req Request, cause error) error {
++	details := axerror.RealmEvidence{
++		Capability:           realmCapability,
++		CallerRealm:          req.Caller,
++		BrokerState:          req.BrokerState,
++		TmuxServerGeneration: req.Generation,
++		Remediation:          req.Remediation,
++	}
++	failure, err := axerror.NewRealmEvidenceUnavailable(axerror.Version130,
++		"no authenticated broker or attested tmux server",
++		axerror.NoIDs(), details, cause)
++	if err != nil {
++		return &Error{Code: CodeInvalidArguments, Detail: "realm details"}
++	}
++	return failure
++}
+diff --git a/internal/tmuxserver/acquire_test.go b/internal/tmuxserver/acquire_test.go
+new file mode 100644
+index 0000000..aa713f7
+--- /dev/null
++++ b/internal/tmuxserver/acquire_test.go
+@@ -0,0 +1,434 @@
++package tmuxserver
++
++import (
++	"errors"
++	"path/filepath"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++var errProbeBoom = errors.New("probe boom")
++
++func TestAcquireForegroundSpawnsDedicatedServer(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	req.Ambient = hostileAmbient()
++	spy := &spawnSpy{}
++	req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++		return ServerReport{}, nil
++	}
++	req.Deps.Spawn = spy.spawn
++	outcome, err := Acquire(req)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if outcome.Via != "spawned" {
++		t.Fatalf("via = %q, want spawned", outcome.Via)
++	}
++	if outcome.Socket != SocketPath(filepath.Join(root, RuntimeDirName)) {
++		t.Fatalf("socket = %q", outcome.Socket)
++	}
++	if spy.calls != 1 || spy.socket != outcome.Socket {
++		t.Fatalf("spawn calls = %d socket = %q", spy.calls, spy.socket)
++	}
++	if len(spy.argv) < 3 || spy.argv[0] != "tmux" || spy.argv[1] != "-S" || spy.argv[2] != outcome.Socket {
++		t.Fatalf("spawn argv = %q", spy.argv)
++	}
++	for i, ambient := range []string{req.Ambient.TMUXEnv, req.Ambient.TMUXTmpDir, req.Ambient.InheritedSocket, req.Ambient.DefaultPath, req.Ambient.ConventionalName} {
++		if ambient == "" {
++			continue
++		}
++		if outcome.Socket == ambient {
++			t.Fatalf("socket reuses ambient vector %d", i)
++		}
++		for _, arg := range spy.argv {
++			if arg == ambient {
++				t.Fatalf("argv carries ambient vector %d: %q", i, arg)
++			}
++		}
++	}
++	wantTail := []string{"ax", "pane", fixtureSession}
++	tail := spy.argv[len(spy.argv)-3:]
++	for i := range wantTail {
++		if tail[i] != wantTail[i] {
++			t.Fatalf("argv tail = %q, want %q", tail, wantTail)
++		}
++	}
++}
++
++func socketDir(t *testing.T, root string) string {
++	t.Helper()
++	return runtimeDir(t, root)
++}
++
++func TestAcquireForegroundAttachesToRunningAttested(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	spy := &spawnSpy{}
++	probed := ""
++	req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++		probed = socket
++		return ServerReport{Running: true, Attestation: liveAttestation()}, nil
++	}
++	req.Deps.Spawn = spy.spawn
++	outcome, err := Acquire(req)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if outcome.Via != "attached-running" {
++		t.Fatalf("via = %q", outcome.Via)
++	}
++	if probed != outcome.Socket || outcome.Socket != SocketPath(socketDir(t, root)) {
++		t.Fatalf("probed = %q socket = %q", probed, outcome.Socket)
++	}
++	if spy.calls != 0 {
++		t.Fatalf("spawn calls = %d, want 0 on attach", spy.calls)
++	}
++}
++
++func TestAcquireForegroundRefusesRunningUnattested(t *testing.T) {
++	root := stateRoot(t)
++	live := liveAttestation()
++	live.SmokePassed = false
++	req := validRequest(t, root)
++	spy := &spawnSpy{}
++	req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++		return ServerReport{Running: true, Attestation: live}, nil
++	}
++	req.Deps.Spawn = spy.spawn
++	_, err := Acquire(req)
++	requireLocalError(t, err, "tmux_readiness_not_authorizing", "provider smoke result")
++	if spy.calls != 0 {
++		t.Fatalf("spawn calls = %d, want 0 on unattested", spy.calls)
++	}
++}
++
++func TestAcquireForegroundProbeFailurePassesThrough(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	spy := &spawnSpy{}
++	req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++		return ServerReport{}, errProbeBoom
++	}
++	req.Deps.Spawn = spy.spawn
++	_, err := Acquire(req)
++	if !errors.Is(err, errProbeBoom) {
++		t.Fatalf("err = %v, want the probe failure", err)
++	}
++	if spy.calls != 0 {
++		t.Fatalf("spawn calls = %d, want 0 on unknown", spy.calls)
++	}
++}
++
++func TestAcquireForegroundSpawnFailureReportsWithoutFallback(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	spy := &spawnSpy{err: errors.New("exec failed")}
++	req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++		return ServerReport{}, nil
++	}
++	req.Deps.Spawn = spy.spawn
++	_, err := Acquire(req)
++	requireLocalError(t, err, "tmux_server_spawn_failed", "server spawn")
++	if spy.calls != 1 {
++		t.Fatalf("spawn calls = %d, want exactly 1", spy.calls)
++	}
++}
++
++func TestAcquireForegroundRefusesMalformedSession(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	req.SessionID = "12345"
++	spy := &spawnSpy{}
++	req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++		return ServerReport{}, nil
++	}
++	req.Deps.Spawn = spy.spawn
++	_, err := Acquire(req)
++	requireLocalError(t, err, "tmux_invalid_arguments", "session identity")
++	if spy.calls != 0 {
++		t.Fatalf("spawn calls = %d, want 0", spy.calls)
++	}
++}
++
++func TestAcquireBackgroundContactsBroker(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	req.Caller = CallerBackground
++	req.Platform = scalar.PlatformMacOS
++	req.NeedsCredentials = true
++	spy := &spawnSpy{}
++	probed := false
++	req.Deps.ProbeBroker = func() (BrokerStatus, error) {
++		probed = true
++		return BrokerStatus{Authenticated: true, Attested: true, Attestation: liveAttestation()}, nil
++	}
++	req.Deps.Spawn = spy.spawn
++	outcome, err := Acquire(req)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !probed {
++		t.Fatal("broker was not probed")
++	}
++	if outcome.Via != "broker" {
++		t.Fatalf("via = %q", outcome.Via)
++	}
++	if outcome.Socket != SocketPath(socketDir(t, root)) {
++		t.Fatalf("socket = %q", outcome.Socket)
++	}
++	if len(outcome.Argv) != 0 {
++		t.Fatalf("broker outcome carries argv %q", outcome.Argv)
++	}
++	if spy.calls != 0 {
++		t.Fatalf("spawn calls = %d, want 0 on broker contact", spy.calls)
++	}
++}
++
++func TestAcquireBackgroundMissReturnsTypedUnavailable(t *testing.T) {
++	for _, tc := range []struct {
++		name   string
++		status BrokerStatus
++	}{
++		{"no broker", BrokerStatus{}},
++		{"unauthenticated broker", BrokerStatus{Attested: true, Attestation: liveAttestation()}},
++		{"unattested server", BrokerStatus{Authenticated: true, Attestation: liveAttestation()}},
++		{"sentinel-only attestation", BrokerStatus{Authenticated: true, Attested: true, Attestation: LiveAttestation{
++			SentinelPassed:   true,
++			ServerGeneration: fixtureGeneration,
++			ProviderBuild:    fixtureProvider,
++			MacOSVersion:     fixtureMacOS,
++		}}},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			root := stateRoot(t)
++			req := validRequest(t, root)
++			req.Caller = CallerBackground
++			req.Platform = scalar.PlatformMacOS
++			req.NeedsCredentials = true
++			spy := &spawnSpy{}
++			// Even a spawner that would succeed must never run:
++			// the miss path has no fallback to direct creation.
++			req.Deps.Spawn = spy.spawn
++			req.Deps.ProbeBroker = func() (BrokerStatus, error) {
++				return tc.status, nil
++			}
++			_, err := Acquire(req)
++			requireCapabilityUnavailable(t, err, "background", fixtureBroker, fixtureGeneration, fixtureRemedy)
++			if spy.calls != 0 {
++				t.Fatalf("spawn calls = %d, want 0 without fallback", spy.calls)
++			}
++		})
++	}
++}
++
++func TestAcquireBackgroundMissOnLinuxAlsoRefusesWithoutFallback(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	req.Caller = CallerBackground
++	req.Platform = scalar.PlatformLinux
++	spy := &spawnSpy{}
++	req.Deps.Spawn = spy.spawn
++	req.Deps.ProbeBroker = func() (BrokerStatus, error) {
++		return BrokerStatus{}, nil
++	}
++	_, err := Acquire(req)
++	requireCapabilityUnavailable(t, err, "background", fixtureBroker, fixtureGeneration, fixtureRemedy)
++	if spy.calls != 0 {
++		t.Fatalf("spawn calls = %d, want 0", spy.calls)
++	}
++}
++
++func TestAcquireBackgroundHintAndCacheAuthorizeNothing(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	req.Caller = CallerBackground
++	req.Hint = ManagerNameHint{Value: "Aqua"}
++	req.Cached = &CachedObservation{SentinelPassed: true, ManagerName: "Aqua"}
++	spy := &spawnSpy{}
++	req.Deps.Spawn = spy.spawn
++	req.Deps.ProbeBroker = func() (BrokerStatus, error) {
++		return BrokerStatus{}, nil
++	}
++	_, err := Acquire(req)
++	requireCapabilityUnavailable(t, err, "background", fixtureBroker, fixtureGeneration, fixtureRemedy)
++	if spy.calls != 0 {
++		t.Fatalf("spawn calls = %d, want 0", spy.calls)
++	}
++}
++
++func TestAcquireForegroundHintAndCacheChangeNothing(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	req.Hint = ManagerNameHint{Value: "Aqua"}
++	req.Cached = &CachedObservation{SentinelPassed: true, ManagerName: "Aqua"}
++	spy := &spawnSpy{}
++	req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++		return ServerReport{}, nil
++	}
++	req.Deps.Spawn = spy.spawn
++	outcome, err := Acquire(req)
++	if err != nil {
++		t.Fatal(err)
++	}
++	// A cached pass must not fake a running server: the absent
++	// server still spawns through the live path.
++	if outcome.Via != "spawned" || spy.calls != 1 {
++		t.Fatalf("via = %q calls = %d", outcome.Via, spy.calls)
++	}
++}
++
++func TestAcquireBackgroundProbeFailurePassesThrough(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	req.Caller = CallerBackground
++	spy := &spawnSpy{}
++	req.Deps.Spawn = spy.spawn
++	req.Deps.ProbeBroker = func() (BrokerStatus, error) {
++		return BrokerStatus{}, errProbeBoom
++	}
++	_, err := Acquire(req)
++	if !errors.Is(err, errProbeBoom) {
++		t.Fatalf("err = %v, want the probe failure, not unavailable", err)
++	}
++	if spy.calls != 0 {
++		t.Fatalf("spawn calls = %d, want 0", spy.calls)
++	}
++}
++
++func TestAcquireRefusesEveryAmbientOverrideVector(t *testing.T) {
++	hostile := hostileAmbient()
++	vectors := map[string]string{
++		"environment variable": hostile.TMUXEnv,
++		"inherited socket":     hostile.InheritedSocket,
++		"default path":         hostile.DefaultPath,
++		"conventional name":    hostile.ConventionalName,
++	}
++	for name, override := range vectors {
++		t.Run(name, func(t *testing.T) {
++			root := stateRoot(t)
++			req := validRequest(t, root)
++			spy := &spawnSpy{}
++			req.SocketOverride = override
++			req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++				return ServerReport{}, nil
++			}
++			req.Deps.Spawn = spy.spawn
++			_, err := Acquire(req)
++			requireLocalError(t, err, "tmux_ambient_server_reuse", "socket override")
++			if spy.calls != 0 {
++				t.Fatalf("spawn calls = %d, want 0 on ambient refusal", spy.calls)
++			}
++		})
++	}
++}
++
++func TestAcquireRefusesAmbientCollision(t *testing.T) {
++	root := stateRoot(t)
++	dir := socketDir(t, root)
++	req := validRequest(t, root)
++	req.Ambient = Ambient{DefaultPath: SocketPath(dir)}
++	spy := &spawnSpy{}
++	req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++		return ServerReport{}, nil
++	}
++	req.Deps.Spawn = spy.spawn
++	_, err := Acquire(req)
++	requireLocalError(t, err, "tmux_ambient_server_reuse", "ambient collision")
++	if spy.calls != 0 {
++		t.Fatalf("spawn calls = %d, want 0", spy.calls)
++	}
++}
++
++func TestAcquireRefusesUnknownCaller(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	req.Caller = "operator"
++	_, err := Acquire(req)
++	requireLocalError(t, err, "tmux_invalid_arguments", "caller")
++}
++
++func TestAcquireRefusesMissingRealmDetails(t *testing.T) {
++	base := validRequest(t, stateRoot(t))
++	for _, tc := range []struct {
++		name   string
++		mutate func(*Request)
++	}{
++		{"generation", func(r *Request) { r.Generation = "" }},
++		{"broker state", func(r *Request) { r.BrokerState = "" }},
++		{"remediation", func(r *Request) { r.Remediation = "" }},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			req := base
++			tc.mutate(&req)
++			_, err := Acquire(req)
++			requireLocalError(t, err, "tmux_invalid_arguments", "realm details")
++		})
++	}
++}
++
++func TestAcquireRefusesMissingDependencies(t *testing.T) {
++	root := stateRoot(t)
++	foreground := validRequest(t, root)
++	_, err := Acquire(foreground)
++	requireLocalError(t, err, "tmux_invalid_arguments", "dependencies")
++	background := validRequest(t, root)
++	background.Caller = CallerBackground
++	_, err = Acquire(background)
++	requireLocalError(t, err, "tmux_invalid_arguments", "dependencies")
++}
++
++func TestAcquireCreatesRuntimeDirIdempotently(t *testing.T) {
++	root := stateRoot(t)
++	make := func() Request {
++		req := validRequest(t, root)
++		spy := &spawnSpy{}
++		req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++			return ServerReport{}, nil
++		}
++		req.Deps.Spawn = spy.spawn
++		return req
++	}
++	first, err := Acquire(make())
++	if err != nil {
++		t.Fatal(err)
++	}
++	second, err := Acquire(make())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if first.Socket != second.Socket {
++		t.Fatalf("sockets differ: %q vs %q", first.Socket, second.Socket)
++	}
++}
++
++func TestAcquireBackgroundNilBrokerWithSpawnRefuses(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	req.Caller = CallerBackground
++	spy := &spawnSpy{}
++	req.Deps.Spawn = spy.spawn
++	_, err := Acquire(req)
++	requireLocalError(t, err, "tmux_invalid_arguments", "dependencies")
++	if spy.calls != 0 {
++		t.Fatalf("spawn calls = %d, want 0", spy.calls)
++	}
++}
++
++func TestAcquireForegroundNilSpawnWithProbeRefuses(t *testing.T) {
++	root := stateRoot(t)
++	req := validRequest(t, root)
++	req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++		return ServerReport{}, nil
++	}
++	_, err := Acquire(req)
++	requireLocalError(t, err, "tmux_invalid_arguments", "dependencies")
++}
++
++func TestCheckCreationAllowedRefusesBackground(t *testing.T) {
++	requireLocalError(t, checkCreationAllowed(CallerBackground), "tmux_background_creation_refused", "background creation")
++	if err := checkCreationAllowed(CallerForeground); err != nil {
++		t.Fatalf("foreground creation refused: %v", err)
++	}
++}
+diff --git a/internal/tmuxserver/argv.go b/internal/tmuxserver/argv.go
+new file mode 100644
+index 0000000..bee7a70
+--- /dev/null
++++ b/internal/tmuxserver/argv.go
+@@ -0,0 +1,36 @@
++package tmuxserver
++
++import (
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++)
++
++// BuildArgv builds the dedicated server spawn vector: tmux addressed
++// by the exact -S socket with the stable pane entrypoint the spec
++// requires every managed pane to run (ax pane SESSION_ID). The
++// socket must be the one derived from the runtime directory: an
++// ambient socket passed here refuses instead of being addressed.
++// The session identity delegates to the landed UUIDv7 grammar, and
++// the assembled vector passes the landed argv shape gate before it
++// is returned, so a malformed vector never reaches the spawner.
++func BuildArgv(runtimeDir, socket, sessionID string) ([]string, error) {
++	if socket != SocketPath(runtimeDir) {
++		return nil, &Error{Code: CodeAmbientReuse, Detail: "spawn socket"}
++	}
++	session, err := scalar.ParseUUIDv7(sessionID)
++	if err != nil {
++		return nil, &Error{Code: CodeInvalidArguments, Detail: "session identity"}
++	}
++	argv := []string{
++		"tmux",
++		"-S", socket,
++		"new-session",
++		"-d",
++		"-s", session.String(),
++		"ax", "pane", session.String(),
++	}
++	if err := secprim.CheckArgv(argv); err != nil {
++		return nil, &Error{Code: CodeInvalidArguments, Detail: "spawn argv"}
++	}
++	return argv, nil
++}
+diff --git a/internal/tmuxserver/argv_test.go b/internal/tmuxserver/argv_test.go
+new file mode 100644
+index 0000000..f673cde
+--- /dev/null
++++ b/internal/tmuxserver/argv_test.go
+@@ -0,0 +1,50 @@
++package tmuxserver
++
++import (
++	"testing"
++)
++
++func TestBuildArgvAddressesOnlyTheDerivedSocket(t *testing.T) {
++	dir := runtimeDir(t, stateRoot(t))
++	socket := SocketPath(dir)
++	argv, err := BuildArgv(dir, socket, fixtureSession)
++	if err != nil {
++		t.Fatal(err)
++	}
++	want := []string{"tmux", "-S", socket, "new-session", "-d", "-s", fixtureSession, "ax", "pane", fixtureSession}
++	if len(argv) != len(want) {
++		t.Fatalf("argv = %q, want %q", argv, want)
++	}
++	for i := range want {
++		if argv[i] != want[i] {
++			t.Fatalf("argv = %q, want %q", argv, want)
++		}
++	}
++}
++
++func TestBuildArgvRefusesAmbientSocket(t *testing.T) {
++	dir := runtimeDir(t, stateRoot(t))
++	hostile := hostileAmbient()
++	for _, tc := range []struct {
++		name   string
++		socket string
++	}{
++		{"default path", hostile.DefaultPath},
++		{"inherited socket", hostile.InheritedSocket},
++		{"conventional name", hostile.ConventionalName},
++		{"tmpdir", hostile.TMUXTmpDir},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			_, err := BuildArgv(dir, tc.socket, fixtureSession)
++			requireLocalError(t, err, "tmux_ambient_server_reuse", "spawn socket")
++		})
++	}
++}
++
++func TestBuildArgvRefusesMalformedSession(t *testing.T) {
++	dir := runtimeDir(t, stateRoot(t))
++	for _, session := range []string{"", "12345", "not-a-uuid", "0198f4c8-7d40-7e55-8e6f-1234567890ag"} {
++		_, err := BuildArgv(dir, SocketPath(dir), session)
++		requireLocalError(t, err, "tmux_invalid_arguments", "session identity")
++	}
++}
+diff --git a/internal/tmuxserver/crash_unix_test.go b/internal/tmuxserver/crash_unix_test.go
+new file mode 100644
+index 0000000..f30ea25
+--- /dev/null
++++ b/internal/tmuxserver/crash_unix_test.go
+@@ -0,0 +1,127 @@
++//go:build darwin || linux
++
++package tmuxserver
++
++import (
++	"context"
++	"errors"
++	"os"
++	"os/exec"
++	"syscall"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// Real process-termination evidence for the runtime-directory seam.
++// The child runs the genuine production EnsureRuntimeDir entry and
++// SIGKILLs itself in the AfterMkdir hook, after the mkdirat commit
++// and before verification and the parent fsync. The parent proves
++// the interrupted run left no half-custody behind: the retry
++// converges to the one verified owner-only directory.
++const (
++	crashChildMode = "AX_TMUXSERVER_CRASH_MODE"
++	crashChildRoot = "AX_TMUXSERVER_CRASH_ROOT"
++)
++
++func TestEnsureCrashChildSelfTerminates(t *testing.T) {
++	if os.Getenv(crashChildMode) == "ensure" {
++		ensureCrashChild(t)
++		return
++	}
++	root := stateRoot(t)
++	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
++	defer cancel()
++	child := exec.CommandContext(ctx, os.Args[0],
++		"-test.run=^TestEnsureCrashChildSelfTerminates$",
++		"-test.count=1",
++	)
++	child.Env = append(os.Environ(),
++		crashChildMode+"=ensure",
++		crashChildRoot+"="+root,
++	)
++	runErr := child.Run()
++	var exitErr *exec.ExitError
++	if !errors.As(runErr, &exitErr) {
++		t.Fatalf("child run = %v, want a signal-kill exit", runErr)
++	}
++	status, ok := exitErr.Sys().(syscall.WaitStatus)
++	if !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
++		t.Fatalf("child status = %v, want killed by SIGKILL", exitErr)
++	}
++	dir, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	if err != nil {
++		t.Fatalf("EnsureRuntimeDir() retry after kill error = %v", err)
++	}
++	info, err := os.Lstat(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !info.IsDir() || info.Mode().Perm() != 0o700 {
++		t.Fatalf("dir after kill = %04o dir=%v, want 0700 dir", info.Mode().Perm(), info.IsDir())
++	}
++	if err := VerifyRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS); err != nil {
++		t.Fatalf("VerifyRuntimeDir() after kill error = %v", err)
++	}
++	again, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if again != dir {
++		t.Fatalf("second retry = %q, want %q", again, dir)
++	}
++}
++
++func ensureCrashChild(t *testing.T) {
++	t.Helper()
++	root := os.Getenv(crashChildRoot)
++	hooks := &Hooks{AfterMkdir: func(dir string) {
++		_ = syscall.Kill(syscall.Getpid(), syscall.SIGKILL)
++	}}
++	_, _ = EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, hooks)
++	// If the hook failed to kill, fail loudly so the parent never
++	// mistakes a clean exit for a kill.
++	t.Fatal("crash child survived its kill hook")
++}
++
++func TestAcquireForegroundSpawnIsIdempotentAcrossRetry(t *testing.T) {
++	root := stateRoot(t)
++	spawned := false
++	spawns := 0
++	make := func() Request {
++		req := validRequest(t, root)
++		req.Deps.ProbeServer = func(socket string) (ServerReport, error) {
++			if spawned {
++				return ServerReport{Running: true, Attestation: liveAttestation()}, nil
++			}
++			return ServerReport{}, nil
++		}
++		req.Deps.Spawn = func(socket string, argv []string) error {
++			spawns++
++			spawned = true
++			return nil
++		}
++		return req
++	}
++	first, err := Acquire(make())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if first.Via != "spawned" {
++		t.Fatalf("first via = %q", first.Via)
++	}
++	second, err := Acquire(make())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if second.Via != "attached-running" {
++		t.Fatalf("second via = %q, want attached-running", second.Via)
++	}
++	if second.Socket != first.Socket {
++		t.Fatalf("sockets differ: %q vs %q", second.Socket, first.Socket)
++	}
++	if spawns != 1 {
++		t.Fatalf("spawns = %d, want exactly 1", spawns)
++	}
++}
+diff --git a/internal/tmuxserver/doc.go b/internal/tmuxserver/doc.go
+new file mode 100644
+index 0000000..36172d4
+--- /dev/null
++++ b/internal/tmuxserver/doc.go
+@@ -0,0 +1,43 @@
++// Package tmuxserver owns AX private tmux server management: owner-only
++// runtime directories and dedicated tmux -S servers with no ambient or
++// default-server discovery or reuse. It is the first leaf of the
++// production-tmux-backend story.
++//
++// Normative scope: AX v0.7.0 Section 4.2 (tmux backend, dedicated -S
++// server, credential-sensitive creation, background broker-or-refuse,
++// launchctl managername as diagnostic hint only, cached observations
++// never authorize resume), Section 4.C (operation vocabulary cited for
++// the wrapper entrypoint shape only), Section 4.D (capability evidence
++// cited landed), and Section 4.E (sensitive runtime state is owner-only
++// and non-replicable).
++//
++// Division of authority (composed, never forked): the caller vocabulary
++// (foreground/background) comes from internal/axpane, which already
++// gates the wrapper decision over it; the capability_unavailable typed
++// refusal comes from internal/axerror.NewRealmEvidenceUnavailable, which
++// enforces the exact Section 15.3 detail set; path grammars come from
++// internal/scalar (absolute root, relative member, UUIDv7 session);
++// lexical containment comes from internal/secprim.Guard; the ambient
++// environment-name rule comes from internal/secprim.IsEnvName; argv
++// shape validation comes from internal/secprim.CheckArgv. What this
++// package owns is the composition no landed package provides: the
++// descriptor-relative runtime-directory commit (mkdirat from a pinned
++// root handle, not a path-string MkdirAll), the three independent
++// custody gates (mode, ownership, containment), the four-vector ambient
++// non-use proof (environment variable, inherited socket, default path,
++// conventional name), the background broker-or-refuse acquisition path
++// with its no-fallback gate, the live-attestation authorization gate
++// over which cached sentinel and managername observations carry no
++// authority, and the dedicated -S argv builder.
++//
++// Bounds: no ax CLI surface, no lifecycle operations (create, attach,
++// status, quiesce, stop, terminate, restore belong to the sibling
++// leaves), no ConPTY process control, no provider process, no mesh
++// transport, and no evidence signature verification (caller-supplied
++// probes report attestation; this package decides over their reports).
++// Windows ownership is verified through the platform ACL where the OS
++// exposes it and is otherwise a stated bound pinned by a tripwire test.
++// No test in this package starts a tmux process: every broker, server,
++// and spawner interaction runs through injected dependencies, and the
++// suite passes with no tmux installed.
++package tmuxserver
+diff --git a/internal/tmuxserver/errors.go b/internal/tmuxserver/errors.go
+new file mode 100644
+index 0000000..fd2ad3b
+--- /dev/null
++++ b/internal/tmuxserver/errors.go
+@@ -0,0 +1,44 @@
++package tmuxserver
++
++// Local refusal codes. The spec names capability_unavailable for the
++// background broker-or-refuse path (emitted through axerror with its
++// typed details); the codes below name the package-local safety gates
++// the spec states as MUST NOT rules without assigning a wire code.
++// Tests assert the literal strings, never these constants.
++const (
++	// CodeAmbientReuse refuses an explicit socket override: the only
++	// admissible server socket is the one derived from the runtime
++	// directory, so any caller-supplied socket (ambient environment
++	// value, inherited socket, default path, or conventional name)
++	// refuses instead of redirecting acquisition.
++	CodeAmbientReuse = "tmux_ambient_server_reuse"
++	// CodeBackgroundCreationRefused refuses direct server creation
++	// on the background path. A background caller never creates; it
++	// contacts the broker or receives capability_unavailable.
++	CodeBackgroundCreationRefused = "tmux_background_creation_refused"
++	// CodeUnsafeRuntimeDir refuses a runtime directory that fails
++	// any of the three custody gates: mode, ownership, containment.
++	CodeUnsafeRuntimeDir = "tmux_unsafe_runtime_dir"
++	// CodeReadinessNotAuthorizing refuses an authorization attempt
++	// backed only by a diagnostic hint or a cached observation.
++	CodeReadinessNotAuthorizing = "tmux_readiness_not_authorizing"
++	// CodeInvalidArguments refuses a malformed acquisition request:
++	// unknown caller, unknown platform, malformed generation, or
++	// missing typed-detail members.
++	CodeInvalidArguments = "tmux_invalid_arguments"
++	// CodeSpawnFailed reports a dedicated-server spawn failure.
++	// The spawner is caller-supplied; this code carries no fallback.
++	CodeSpawnFailed = "tmux_server_spawn_failed"
++)
++
++// Error is a package-local refusal. Code is one of the Code*
++// constants; Detail is a static clause naming the gate. It never
++// echoes paths, socket names, generations, or environment values.
++type Error struct {
++	Code   string
++	Detail string
++}
++
++func (err *Error) Error() string {
++	return "tmux server refused: " + err.Code + " at " + err.Detail
++}
+diff --git a/internal/tmuxserver/mutant_harness.py b/internal/tmuxserver/mutant_harness.py
+new file mode 100644
+index 0000000..51a86d9
+--- /dev/null
++++ b/internal/tmuxserver/mutant_harness.py
+@@ -0,0 +1,447 @@
++#!/usr/bin/env python3
++"""Narrowing-mutant harness for internal/tmuxserver.
++
++Every gate ships a narrowing mutant: the gate stays present and is
++weakened to admit exactly one member of the class it must reject, and
++the named killer tests must fail. A delete-only mutant proves only that
++the gate exists and is not accepted as evidence; row D-background-fallback
++is the one explicitly supplementary additive plant (the reviewer-shaped
++direct-creation call on the background path), labeled as such and not
++counted as any gate's narrowing.
++
++Each row runs M (mutate production files in place), R (run the scoped Go
++killers through the production entries), V (verdict from the Go exit code
++plus a FAIL kill-line: KILLED iff R fails with a test failure line,
++SURVIVED iff R passes, ERROR for anything else -- unapplied patches,
++build breaks, timeouts). M failures and R infrastructure errors are
++ERROR, never kills or survivals. Files are restored from backups after
++every row, pass or fail.
++
++Row C-control is the harmless control: a comment-only edit that must
++SURVIVE, proving the harness observes test outcomes instead of
++hard-coding kills.
++
++Usage:
++  PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py
++  PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py N-mode-create
++  PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py --log-dir /tmp/mutant-logs
++  AX_MUTANT_VERBOSE=1 PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py N-mode-create
++"""
++
++import os
++import shutil
++import subprocess
++import sys
++import tempfile
++from dataclasses import dataclass
++from pathlib import Path
++
++REPO = Path(__file__).resolve().parents[2]
++PACKAGE = "internal/tmuxserver"
++
++
++@dataclass(frozen=True)
++class Mutant:
++    name: str
++    path: str
++    find: str
++    replace: str
++    count: int
++    run: str
++    expect: str
++    note: str
++
++
++BG_MISS = "(TestAcquireBackgroundMissReturnsTypedUnavailable|TestAcquireBackgroundHintAndCacheAuthorizeNothing)"
++OVERRIDE = "TestAcquireRefusesEveryAmbientOverrideVector"
++WIDENED = "TestEnsureRuntimeDirRefusesWidenedMode"
++
++MUTANTS = [
++    Mutant(
++        name="N-mode-create",
++        path=f"{PACKAGE}/runtime_unix.go",
++        find="\t// leaf above; the mode comparison below is the load-bearing\n\t// arm this gate's tests and mutants pin.\n\tif info.Mode().Perm() != 0o700 {\n",
++        replace="\t// leaf above; the mode comparison below is the load-bearing\n\t// arm this gate's tests and mutants pin.\n\tif info.Mode().Perm() != 0o700 && info.Mode().Perm() != 0o755 {\n",
++        count=1,
++        run=WIDENED,
++        expect="KILLED",
++        note="Admits exactly 0755 at the create-path mode arm; other widened modes still refuse. Kill path: Ensure stops refusing.",
++    ),
++    Mutant(
++        name="N-mode-verify",
++        path=f"{PACKAGE}/runtime_unix.go",
++        find='\tinfo, err := leaf.Stat()\n\tif err != nil {\n\t\treturn &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime mode"}\n\t}\n\tif info.Mode().Perm() != 0o700 {\n',
++        replace='\tinfo, err := leaf.Stat()\n\tif err != nil {\n\t\treturn &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime mode"}\n\t}\n\tif info.Mode().Perm() != 0o700 && info.Mode().Perm() != 0o755 {\n',
++        count=1,
++        run=WIDENED,
++        expect="KILLED",
++        note="Admits exactly 0755 at the verify-path mode arm; the create arm still refuses. Kill path: Verify stops refusing.",
++    ),
++    Mutant(
++        name="N-ownership-uid",
++        path=f"{PACKAGE}/ownership_unix.go",
++        find="\tif stat.Uid != uint32(effectiveUID()) {\n",
++        replace="\tif stat.Uid != uint32(effectiveUID()) && stat.Uid != uint32(effectiveUID())-100000 {\n",
++        count=1,
++        run="TestEnsureRuntimeDirRefusesForeignOwnership",
++        expect="KILLED",
++        note="Admits exactly the seam-shifted foreign UID; every other foreign UID still refuses.",
++    ),
++    Mutant(
++        name="N-containment-slash",
++        path=f"{PACKAGE}/runtime.go",
++        find='\tif strings.Contains(name, "/") {\n',
++        replace='\tif strings.Contains(name, "/") && name != "a/b" {\n',
++        count=1,
++        run="TestEnsureRuntimeDirRefusesBadNames",
++        expect="KILLED",
++        note="Admits exactly the nested a/b name past the single-segment arm; every other multi-segment name still refuses. Kill reroutes to the commit refusal.",
++    ),
++    Mutant(
++        name="N-containment-mismatch",
++        path=f"{PACKAGE}/runtime.go",
++        find="\treturn sameDirectory(handleInfo, pathInfo)\n",
++        replace="\treturn sameDirectory(handleInfo, pathInfo) || handleInfo.IsDir()\n",
++        count=1,
++        run="TestEnsureRuntimeDirRefusesHandleMismatch",
++        expect="KILLED",
++        note="Admits exactly directory handles past the handle-binding check; the mismatch still refuses for non-directories.",
++    ),
++    Mutant(
++        name="N-containment-symlink",
++        path=f"{PACKAGE}/runtime_unix.go",
++        find="\tleafFd, err := unix.Openat(rootFd, name,\n\t\tunix.O_RDONLY|unix.O_NOFOLLOW|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)\n\tif err != nil {\n\t\treturn &Error{Code: CodeUnsafeRuntimeDir, Detail: \"runtime containment\"}\n\t}\n",
++        replace="\tleafFd, err := unix.Openat(rootFd, name,\n\t\tunix.O_RDONLY|unix.O_NOFOLLOW|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)\n\tif err != nil {\n\t\tleafFd, err = unix.Openat(rootFd, name,\n\t\t\tunix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)\n\t}\n\tif err != nil {\n\t\treturn &Error{Code: CodeUnsafeRuntimeDir, Detail: \"runtime containment\"}\n\t}\n",
++        count=1,
++        run="TestEnsureRuntimeDirRefusesSymlinkLeaf",
++        expect="KILLED",
++        note="Admits exactly symlink leaves via an ELOOP fallback open; every other commit failure still refuses.",
++    ),
++    Mutant(
++        name="N-root-wiring",
++        path=f"{PACKAGE}/runtime.go",
++        find='\tif _, err := scalar.ParseAbsolutePath(platform, root); err != nil {\n\t\treturn "", &Error{Code: CodeInvalidArguments, Detail: "runtime root"}\n\t}\n',
++        replace='\tif _, err := scalar.ParseAbsolutePath(platform, root); err != nil && root != "relative/root" {\n\t\treturn "", &Error{Code: CodeInvalidArguments, Detail: "runtime root"}\n\t}\n',
++        count=1,
++        run="TestEnsureRuntimeDirRefusesBadRoots",
++        expect="KILLED",
++        note="Admits exactly the relative-root fixture past our wiring of the landed grammar; every other malformed root still refuses. Kill reroutes to the guard refusal.",
++    ),
++    Mutant(
++        name="N-platform-wiring",
++        path=f"{PACKAGE}/runtime.go",
++        find="\tif _, err := scalar.ParsePlatform(string(platform)); err != nil {\n",
++        replace='\tif _, err := scalar.ParsePlatform(string(platform)); err != nil && platform != "plan9" {\n',
++        count=1,
++        run="TestEnsureRuntimeDirRefusesBadPlatform",
++        expect="KILLED",
++        note="Admits exactly the plan9 platform past our wiring of the landed vocabulary; every other unknown platform still refuses. Kill reroutes to the root refusal.",
++    ),
++    Mutant(
++        name="N-override-env",
++        path=f"{PACKAGE}/socket.go",
++        find='\tif override != "" {\n',
++        replace='\tif override != "" && override != "/tmp/tmux-501/default,12345,0" {\n',
++        count=1,
++        run=f"{OVERRIDE}/environment_variable",
++        expect="KILLED",
++        note="Admits exactly the TMUX environment value as an override; the other three vectors still refuse.",
++    ),
++    Mutant(
++        name="N-override-inherited",
++        path=f"{PACKAGE}/socket.go",
++        find='\tif override != "" {\n',
++        replace='\tif override != "" && override != "/tmp/inherited.sock" {\n',
++        count=1,
++        run=f"{OVERRIDE}/inherited_socket",
++        expect="KILLED",
++        note="Admits exactly the inherited socket as an override; the other three vectors still refuse.",
++    ),
++    Mutant(
++        name="N-override-default",
++        path=f"{PACKAGE}/socket.go",
++        find='\tif override != "" {\n',
++        replace='\tif override != "" && override != "/tmp/tmux-501/default" {\n',
++        count=1,
++        run=f"{OVERRIDE}/default_path",
++        expect="KILLED",
++        note="Admits exactly the default path as an override; the other three vectors still refuse.",
++    ),
++    Mutant(
++        name="N-override-conventional",
++        path=f"{PACKAGE}/socket.go",
++        find='\tif override != "" {\n',
++        replace='\tif override != "" && override != "default" {\n',
++        count=1,
++        run=f"{OVERRIDE}/conventional_name",
++        expect="KILLED",
++        note="Admits exactly the conventional name as an override; the other three vectors still refuse.",
++    ),
++    Mutant(
++        name="N-collision",
++        path=f"{PACKAGE}/socket.go",
++        find='\tif candidate != "" && candidate == socket {\n',
++        replace='\tif candidate != "" && candidate == socket && candidate != ambient.DefaultPath {\n',
++        count=1,
++        run="(TestResolveSocketRefusesAmbientCollision|TestAcquireRefusesAmbientCollision)",
++        expect="KILLED",
++        note="Admits exactly the default-path collision; collisions on the other four ambient members still refuse.",
++    ),
++    Mutant(
++        name="N-attestation-smoke",
++        path=f"{PACKAGE}/readiness.go",
++        find="\tif !live.SmokePassed {\n",
++        replace="\tif !live.SmokePassed && !live.SentinelPassed {\n",
++        count=1,
++        run="(TestCheckLiveAttestationRefusesEachMissingConjunct|TestAcquireBackgroundMissReturnsTypedUnavailable)",
++        expect="KILLED",
++        note="Admits exactly sentinel-only observations past the smoke arm; every other incomplete attestation still refuses.",
++    ),
++    Mutant(
++        name="N-attestation-sentinel",
++        path=f"{PACKAGE}/readiness.go",
++        find="\tif !live.SentinelPassed {\n",
++        replace="\tif !live.SentinelPassed && !live.SmokePassed {\n",
++        count=1,
++        run="TestCheckLiveAttestationRefusesEachMissingConjunct",
++        expect="KILLED",
++        note="Admits exactly smoke-only observations past the sentinel arm; every other incomplete attestation still refuses.",
++    ),
++    Mutant(
++        name="N-attestation-binding",
++        path=f"{PACKAGE}/readiness.go",
++        find='\tif live.ServerGeneration == "" || live.ProviderBuild == "" || live.MacOSVersion == "" {\n',
++        replace='\tif live.ServerGeneration == "" || live.ProviderBuild == "" {\n',
++        count=1,
++        run="TestCheckLiveAttestationRefusesEachMissingConjunct",
++        expect="KILLED",
++        note="Admits exactly macOS-unbound observations past the binding arm; generation- and build-unbound still refuse.",
++    ),
++    Mutant(
++        name="N-broker-auth",
++        path=f"{PACKAGE}/readiness.go",
++        find="\tif !status.Authenticated {\n",
++        replace="\tif !status.Authenticated && !status.Attested {\n",
++        count=1,
++        run=f"(TestCheckBrokerContactRefusesEachMissingFact|{BG_MISS})",
++        expect="KILLED",
++        note="Admits exactly attested-but-unauthenticated brokers; every other broker report still refuses.",
++    ),
++    Mutant(
++        name="N-broker-attested",
++        path=f"{PACKAGE}/readiness.go",
++        find="\tif !status.Attested {\n",
++        replace="\tif !status.Attested && !status.Authenticated {\n",
++        count=1,
++        run=f"(TestCheckBrokerContactRefusesEachMissingFact|{BG_MISS})",
++        expect="KILLED",
++        note="Admits exactly authenticated-but-unattested servers; every other broker report still refuses.",
++    ),
++    Mutant(
++        name="N-creation-literal",
++        path=f"{PACKAGE}/acquire.go",
++        find="\tif caller == CallerBackground {\n",
++        replace='\tif caller == "Background" {\n',
++        count=1,
++        run=f"(TestCheckCreationAllowedRefusesBackground|{BG_MISS})",
++        expect="KILLED",
++        note="Admits exactly the background caller at the creation choke point; the gate still refuses the capitalized twin. Kill path: background miss reports the creation code instead of the typed unavailable.",
++    ),
++    Mutant(
++        name="N-caller-vocabulary",
++        path=f"{PACKAGE}/acquire.go",
++        find="\tif req.Caller != CallerForeground && req.Caller != CallerBackground {\n",
++        replace='\tif req.Caller != CallerForeground && req.Caller != CallerBackground && req.Caller != "operator" {\n',
++        count=1,
++        run="TestAcquireRefusesUnknownCaller",
++        expect="KILLED",
++        note="Admits exactly the operator caller past the vocabulary arm; every other unknown caller still refuses. Kill reroutes to the dependencies refusal.",
++    ),
++    Mutant(
++        name="N-details-remediation",
++        path=f"{PACKAGE}/acquire.go",
++        find='\tif req.Generation == "" || req.BrokerState == "" || req.Remediation == "" {\n',
++        replace='\tif req.Generation == "" || req.BrokerState == "" {\n',
++        count=1,
++        run="TestAcquireRefusesMissingRealmDetails",
++        expect="KILLED",
++        note="Admits exactly remediation-less requests past the typed-details arm; generation- and broker-less still refuse. Kill reroutes to the dependencies refusal.",
++    ),
++    Mutant(
++        name="N-unattested-foreground",
++        path=f"{PACKAGE}/acquire.go",
++        find="\t\tif err := CheckLiveAttestation(report.Attestation); err != nil {\n\t\t\treturn Outcome{}, err\n\t\t}\n",
++        replace="\t\tif err := CheckLiveAttestation(report.Attestation); err != nil && !report.Attestation.SentinelPassed {\n\t\t\treturn Outcome{}, err\n\t\t}\n",
++        count=1,
++        run="TestAcquireForegroundRefusesRunningUnattested",
++        expect="KILLED",
++        note="Admits exactly sentinel-passed-but-smoke-missing running servers to attach; every other unattested report still refuses.",
++    ),
++    Mutant(
++        name="N-spawn-swallow",
++        path=f"{PACKAGE}/acquire.go",
++        find="\tif err := req.Deps.Spawn(socket, argv); err != nil {\n",
++        replace='\tif err := req.Deps.Spawn(socket, argv); err != nil && err.Error() != "exec failed" {\n',
++        count=1,
++        run="TestAcquireForegroundSpawnFailureReportsWithoutFallback",
++        expect="KILLED",
++        note="Admits exactly the fixture spawn failure as success; every other spawn failure still reports.",
++    ),
++    Mutant(
++        name="N-probe-swallow-foreground",
++        path=f"{PACKAGE}/acquire.go",
++        find="\treport, err := req.Deps.ProbeServer(socket)\n\tif err != nil {\n",
++        replace='\treport, err := req.Deps.ProbeServer(socket)\n\tif err != nil && err.Error() != "probe boom" {\n',
++        count=1,
++        run="TestAcquireForegroundProbeFailurePassesThrough",
++        expect="KILLED",
++        note="Admits exactly the fixture probe failure as an absent server (then spawns); every other probe failure still passes through.",
++    ),
++    Mutant(
++        name="N-probe-swallow-background",
++        path=f"{PACKAGE}/acquire.go",
++        find="\tstatus, err := req.Deps.ProbeBroker()\n\tif err != nil {\n",
++        replace='\tstatus, err := req.Deps.ProbeBroker()\n\tif err != nil && err.Error() != "probe boom" {\n',
++        count=1,
++        run="TestAcquireBackgroundProbeFailurePassesThrough",
++        expect="KILLED",
++        note="Admits exactly the fixture probe failure as a broker miss (then reports unavailable); every other probe failure still passes through.",
++    ),
++    Mutant(
++        name="N-argv-socket",
++        path=f"{PACKAGE}/argv.go",
++        find="\tif socket != SocketPath(runtimeDir) {\n",
++        replace='\tif socket != SocketPath(runtimeDir) && socket != "/tmp/tmux-501/default" {\n',
++        count=1,
++        run="TestBuildArgvRefusesAmbientSocket",
++        expect="KILLED",
++        note="Admits exactly the default path at the spawn-socket arm; every other ambient socket still refuses.",
++    ),
++    Mutant(
++        name="N-argv-session",
++        path=f"{PACKAGE}/argv.go",
++        find="\tsession, err := scalar.ParseUUIDv7(sessionID)\n\tif err != nil {\n",
++        replace='\tsession, err := scalar.ParseUUIDv7(sessionID)\n\tif err != nil && sessionID != "12345" {\n',
++        count=1,
++        run="(TestBuildArgvRefusesMalformedSession|TestAcquireForegroundRefusesMalformedSession)",
++        expect="KILLED",
++        note="Admits exactly the PID-form session past our wiring of the landed UUIDv7 grammar; every other malformed session still refuses.",
++    ),
++    Mutant(
++        name="N-deps-background",
++        path=f"{PACKAGE}/acquire.go",
++        find="\tif req.Deps.ProbeBroker == nil {\n",
++        replace="\tif req.Deps.ProbeBroker == nil && req.Deps.Spawn == nil {\n",
++        count=1,
++        run="TestAcquireBackgroundNilBrokerWithSpawnRefuses",
++        expect="KILLED",
++        note="Admits exactly the nil-probe-with-spawn background request past the dependencies arm; the fully-nil request still refuses. Kill path: the admitted request panics on the nil probe, and the panic fails the test.",
++    ),
++    Mutant(
++        name="N-deps-foreground",
++        path=f"{PACKAGE}/acquire.go",
++        find="\tif req.Deps.ProbeServer == nil || req.Deps.Spawn == nil {\n",
++        replace="\tif req.Deps.ProbeServer == nil && req.Deps.Spawn == nil {\n",
++        count=1,
++        run="TestAcquireForegroundNilSpawnWithProbeRefuses",
++        expect="KILLED",
++        note="Admits exactly the half-nil foreground dependencies past the arm; fully-nil dependencies still refuse. Kill path: the admitted request panics on the nil spawn, and the panic fails the test.",
++    ),
++    Mutant(
++        name="D-background-fallback",
++        path=f"{PACKAGE}/acquire.go",
++        find="\t\tif cerr := checkCreationAllowed(req.Caller); cerr != nil {\n\t\t\treturn Outcome{}, backgroundUnavailable(req, err)\n\t\t}\n",
++        replace="\t\tif cerr := checkCreationAllowed(req.Caller); cerr != nil {\n\t\t\tif req.Deps.Spawn != nil {\n\t\t\t\t_ = req.Deps.Spawn(socket, nil)\n\t\t\t}\n\t\t\treturn Outcome{}, backgroundUnavailable(req, err)\n\t\t}\n",
++        count=1,
++        run=BG_MISS,
++        expect="KILLED",
++        note="SUPPLEMENTARY ADDITIVE, not a narrowing: plants the reviewer-shaped direct-creation call on the background miss path. Kill path: every background-miss spy asserts zero spawn calls.",
++    ),
++    Mutant(
++        name="C-control",
++        path=f"{PACKAGE}/errors.go",
++        find="// Error is a package-local refusal. Code is one of the Code*",
++        replace="// Error is a package-local refusal (harness control: comment-only). Code is one of the Code*",
++        count=1,
++        run="TestSocketPathDerivesOnlyFromRuntimeDir",
++        expect="SURVIVED",
++        note="Harmless control: a comment-only edit that must SURVIVE, proving the harness observes outcomes.",
++    ),
++]
++
++
++def apply(mutant: Mutant, original: str) -> str:
++    return original.replace(mutant.find, mutant.replace)
++
++
++def run_mutant(mutant: Mutant, log_dir: Path | None) -> str:
++    target = REPO / mutant.path
++    original = target.read_text()
++    found = original.count(mutant.find)
++    if found != mutant.count:
++        return f"ERROR: {mutant.name}: patch anchors {found}, want {mutant.count}"
++    with tempfile.TemporaryDirectory() as staging:
++        backup = Path(staging) / "backup"
++        shutil.copy2(target, backup)
++        try:
++            target.write_text(apply(mutant, original))
++            run = subprocess.run(
++                ["go", "test", f"./{PACKAGE}/", "-run", mutant.run, "-count=1"],
++                cwd=REPO,
++                capture_output=True,
++                text=True,
++                timeout=300,
++            )
++        finally:
++            shutil.copy2(backup, target)
++    output = (run.stdout + run.stderr).strip()
++    if os.environ.get("AX_MUTANT_VERBOSE") == "1":
++        print(f"--- raw: {mutant.name}: exit {run.returncode} ---", flush=True)
++        print(output, flush=True)
++        print(f"--- end raw: {mutant.name} ---", flush=True)
++    if log_dir is not None:
++        (log_dir / f"{mutant.name}.log").write_text(
++            f"exit: {run.returncode}\nrun: go test ./{PACKAGE}/ -run {mutant.run} -count=1\n\n{output}\n"
++        )
++    if 'build failed' in output or '\n# ' in output or output.startswith('# '):
++        return f"ERROR: {mutant.name}: build broke under the patch"
++    if run.returncode == 0:
++        verdict = "SURVIVED"
++    elif '--- FAIL' in output or 'FAIL:' in output:
++        verdict = "KILLED"
++    else:
++        return f"ERROR: {mutant.name}: exit {run.returncode} with no kill line"
++    mark = "ok" if verdict == mutant.expect else "MISMATCH"
++    return f"{mark}: {mutant.name}: {verdict} (want {mutant.expect}) :: {mutant.note} [exit {run.returncode}]"
++
++
++def main(argv: list[str]) -> int:
++    log_dir: Path | None = None
++    names = list(argv)
++    if "--log-dir" in names:
++        idx = names.index("--log-dir")
++        if idx + 1 >= len(names):
++            print("--log-dir needs a directory")
++            return 2
++        log_dir = Path(names[idx + 1])
++        log_dir.mkdir(parents=True, exist_ok=True)
++        del names[idx : idx + 2]
++    selected = [m for m in MUTANTS if not names or m.name in names]
++    if names and len(selected) != len(names):
++        unknown = sorted(set(names) - {m.name for m in selected})
++        print(f"unknown mutants: {', '.join(unknown)}")
++        return 2
++    failures = 0
++    for mutant in selected:
++        try:
++            line = run_mutant(mutant, log_dir)
++        except subprocess.TimeoutExpired:
++            line = f"ERROR: {mutant.name}: killer timed out"
++        print(line, flush=True)
++        if not line.startswith("ok:"):
++            failures += 1
++    return 1 if failures else 0
++
++
++if __name__ == "__main__":
++    sys.exit(main(sys.argv[1:]))
+diff --git a/internal/tmuxserver/ownership_unix.go b/internal/tmuxserver/ownership_unix.go
+new file mode 100644
+index 0000000..23fad02
+--- /dev/null
++++ b/internal/tmuxserver/ownership_unix.go
+@@ -0,0 +1,33 @@
++//go:build !windows
++
++package tmuxserver
++
++import (
++	"io/fs"
++	"os"
++	"syscall"
++)
++
++// effectiveUID reports the process effective UID. It is a variable
++// only so seam-failure tests can force the foreign-ownership path
++// through the production entries: staging a foreign-owned directory
++// needs privilege no test may assume, and without the seam the
++// ownership refusal is untestable. Production code never reassigns
++// it.
++var effectiveUID = os.Geteuid
++
++// verifyOwnership enforces the ownership gate on unix: the directory
++// must belong to the effective UID. Mode bits are checked by the
++// caller against the exact 0700 requirement, so any group or world
++// access already refused there. A stat without ownership metadata
++// fails closed: unreadable ownership is never legitimate custody.
++func verifyOwnership(info fs.FileInfo) error {
++	stat, ok := info.Sys().(*syscall.Stat_t)
++	if !ok {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime ownership"}
++	}
++	if stat.Uid != uint32(effectiveUID()) {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime ownership"}
++	}
++	return nil
++}
+diff --git a/internal/tmuxserver/readiness.go b/internal/tmuxserver/readiness.go
+new file mode 100644
+index 0000000..6828c2c
+--- /dev/null
++++ b/internal/tmuxserver/readiness.go
+@@ -0,0 +1,84 @@
++package tmuxserver
++
++// ManagerNameHint documents the launchctl managername observation:
++// a diagnostic hint only. The value travels on the request for
++// operator diagnostics and no gate reads it. Any test that sets a
++// hint and varies only live attestation proves the hint carries no
++// authority.
++type ManagerNameHint struct {
++	// Value is the observed manager name, for example "Aqua".
++	// Empty means no observation was made.
++	Value string
++}
++
++// CachedObservation is a previously recorded sentinel or managername
++// result. It is a distinct type that no authorizing entry accepts:
++// CheckLiveAttestation takes LiveAttestation only, so a cached
++// value cannot be passed where live proof is required even by
++// accident. Its only use is negative tests proving it authorizes
++// nothing.
++type CachedObservation struct {
++	SentinelPassed bool
++	ManagerName    string
++}
++
++// LiveAttestation is one live functional-sentinel plus
++// provider-auth-smoke observation inside the exact tmux server. Every
++// member is required: Aqua alone and sentinel-only evidence are
++// insufficient, and the binding members tie the observation to the
++// exact server generation, provider build, and macOS version.
++type LiveAttestation struct {
++	SentinelPassed   bool
++	SmokePassed      bool
++	ServerGeneration string
++	ProviderBuild    string
++	MacOSVersion     string
++}
++
++// CheckLiveAttestation admits exactly one complete live observation:
++// a passed sentinel AND a passed provider-auth smoke AND the full
++// generation/build/version binding. Each conjunct refuses alone with
++// the non-authorizing code, so weakening any one arm admits a
++// sentinel-only, smoke-only, or unbound observation the committed
++// tests pin. A cached observation is not a LiveAttestation and has
++// no conversion: the type boundary, not a boolean, keeps the cache
++// off the authorizing path.
++func CheckLiveAttestation(live LiveAttestation) error {
++	if !live.SentinelPassed {
++		return &Error{Code: CodeReadinessNotAuthorizing, Detail: "sentinel result"}
++	}
++	if !live.SmokePassed {
++		return &Error{Code: CodeReadinessNotAuthorizing, Detail: "provider smoke result"}
++	}
++	if live.ServerGeneration == "" || live.ProviderBuild == "" || live.MacOSVersion == "" {
++		return &Error{Code: CodeReadinessNotAuthorizing, Detail: "attestation binding"}
++	}
++	return nil
++}
++
++// BrokerStatus is the live Aqua broker report the background path
++// decides over. Authenticated names an already-running authenticated
++// broker; Attested names its attested AX tmux server with a live
++// attestation. Either fact missing means neither exists for the
++// purpose of the broker-or-refuse rule.
++type BrokerStatus struct {
++	Authenticated bool
++	Attested      bool
++	Attestation   LiveAttestation
++}
++
++// CheckBrokerContact admits exactly the background MAY case: an
++// already-running authenticated broker AND its attested AX tmux
++// server with a complete live attestation. Every other report —
++// no broker, unauthenticated broker, unattested server, incomplete
++// attestation — refuses, and the caller maps the refusal to the
++// typed capability_unavailable the spec names.
++func CheckBrokerContact(status BrokerStatus) error {
++	if !status.Authenticated {
++		return &Error{Code: CodeReadinessNotAuthorizing, Detail: "broker authentication"}
++	}
++	if !status.Attested {
++		return &Error{Code: CodeReadinessNotAuthorizing, Detail: "server attestation"}
++	}
++	return CheckLiveAttestation(status.Attestation)
++}
+diff --git a/internal/tmuxserver/readiness_test.go b/internal/tmuxserver/readiness_test.go
+new file mode 100644
+index 0000000..4a6d2a8
+--- /dev/null
++++ b/internal/tmuxserver/readiness_test.go
+@@ -0,0 +1,62 @@
++package tmuxserver
++
++import (
++	"testing"
++)
++
++func TestCheckLiveAttestationAdmitsComplete(t *testing.T) {
++	if err := CheckLiveAttestation(liveAttestation()); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestCheckLiveAttestationRefusesEachMissingConjunct(t *testing.T) {
++	base := liveAttestation()
++	for _, tc := range []struct {
++		name   string
++		mutate func(*LiveAttestation)
++		detail string
++	}{
++		{"sentinel only is insufficient", func(l *LiveAttestation) { l.SmokePassed = false }, "provider smoke result"},
++		{"smoke only is insufficient", func(l *LiveAttestation) { l.SentinelPassed = false }, "sentinel result"},
++		{"unbound generation", func(l *LiveAttestation) { l.ServerGeneration = "" }, "attestation binding"},
++		{"unbound provider build", func(l *LiveAttestation) { l.ProviderBuild = "" }, "attestation binding"},
++		{"unbound macos version", func(l *LiveAttestation) { l.MacOSVersion = "" }, "attestation binding"},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			live := base
++			tc.mutate(&live)
++			requireLocalError(t, CheckLiveAttestation(live), "tmux_readiness_not_authorizing", tc.detail)
++		})
++	}
++}
++
++func TestCheckBrokerContactAdmitsAuthenticatedAttested(t *testing.T) {
++	status := BrokerStatus{Authenticated: true, Attested: true, Attestation: liveAttestation()}
++	if err := CheckBrokerContact(status); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestCheckBrokerContactRefusesEachMissingFact(t *testing.T) {
++	live := liveAttestation()
++	for _, tc := range []struct {
++		name   string
++		status BrokerStatus
++		detail string
++	}{
++		{"no broker", BrokerStatus{}, "broker authentication"},
++		{"unauthenticated broker", BrokerStatus{Attested: true, Attestation: live}, "broker authentication"},
++		{"unattested server", BrokerStatus{Authenticated: true, Attestation: live}, "server attestation"},
++		{"sentinel-only attestation", BrokerStatus{Authenticated: true, Attested: true, Attestation: LiveAttestation{
++			SentinelPassed:   true,
++			ServerGeneration: fixtureGeneration,
++			ProviderBuild:    fixtureProvider,
++			MacOSVersion:     fixtureMacOS,
++		}}, "provider smoke result"},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			requireLocalError(t, CheckBrokerContact(tc.status), "tmux_readiness_not_authorizing", tc.detail)
++		})
++	}
++}
+diff --git a/internal/tmuxserver/runtime.go b/internal/tmuxserver/runtime.go
+new file mode 100644
+index 0000000..6d33868
+--- /dev/null
++++ b/internal/tmuxserver/runtime.go
+@@ -0,0 +1,126 @@
++package tmuxserver
++
++import (
++	"os"
++	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++)
++
++// RuntimeDirName is the fixed leaf name of the AX tmux runtime
++// directory under the AX state root. It is AX-controlled vocabulary,
++// never an ambient or conventional tmux name.
++const RuntimeDirName = "ax-tmux"
++
++// Hooks arms the crash boundaries of EnsureRuntimeDir. AfterMkdir
++// runs after the directory entry is committed and before the parent
++// fsync; a crash there must leave a retry that converges to the one
++// verified directory. Hooks is nil in production.
++type Hooks struct {
++	AfterMkdir func(dir string)
++}
++
++// EnsureRuntimeDir creates the owner-only runtime directory
++// root/name when absent and verifies it when present, returning the
++// joined path. Creation and verification enforce three independent
++// gates — containment, mode, ownership — and each refuses alone:
++//
++//   - containment: the root must be an absolute path on the platform
++//     grammar, the name must be one relative segment, and the commit
++//     opens the parent through a pinned directory handle and creates
++//     the leaf relative to that handle, so a symlinked intermediate
++//     directory cannot redirect the commit outside the root;
++//   - mode: the leaf must carry exactly 0700, enforced explicitly
++//     after creation because mkdir honors umask;
++//   - ownership: the leaf must belong to the effective UID.
++//
++// Lexical validation delegates to its landed owners (absolute root
++// and relative member to scalar, the join to secprim.Guard); the
++// descriptor-relative commit below is what this package owns, because
++// no landed helper commits a directory relative to a handle.
++func EnsureRuntimeDir(root, name string, platform scalar.Platform, hooks *Hooks) (string, error) {
++	joined, err := lexicalRuntimePath(root, name, platform)
++	if err != nil {
++		return "", err
++	}
++	return joined, commitRuntimeDir(root, name, joined, platform, hooks)
++}
++
++// VerifyRuntimeDir enforces the three custody gates on an existing
++// runtime directory without creating it. Acquisition calls this
++// instead of Ensure: the directory must already exist with exact
++// custody, and a missing directory refuses rather than being
++// silently created on the authorizing path.
++func VerifyRuntimeDir(root, name string, platform scalar.Platform) error {
++	if _, err := lexicalRuntimePath(root, name, platform); err != nil {
++		return err
++	}
++	return verifyRuntimeDir(root, name, platform)
++}
++
++// lexicalRuntimePath validates the root grammar, the name grammar,
++// and the lexical join. It answers the lexical question only; the
++// commit answers the filesystem question through a handle.
++func lexicalRuntimePath(root, name string, platform scalar.Platform) (string, error) {
++	if _, err := scalar.ParsePlatform(string(platform)); err != nil {
++		return "", &Error{Code: CodeInvalidArguments, Detail: "runtime platform"}
++	}
++	if _, err := scalar.ParseAbsolutePath(platform, root); err != nil {
++		return "", &Error{Code: CodeInvalidArguments, Detail: "runtime root"}
++	}
++	if err := checkRuntimeName(name); err != nil {
++		return "", err
++	}
++	guard, err := secprim.NewGuard(root, platform, []string{name})
++	if err != nil {
++		return "", &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	joined, err := guard.Resolve(name)
++	if err != nil {
++		return "", &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	return joined, nil
++}
++
++// checkRuntimeName admits exactly one relative path segment. The
++// shared grammar (absolute, parent, dot, empty, NUL, backslash,
++// encoded separators) is decided by scalar; this gate adds only the
++// single-segment rule scalar does not own, because the commit opens
++// the leaf relative to the pinned parent handle and a second segment
++// would name a path the handle walk never descends.
++func checkRuntimeName(name string) error {
++	if _, err := scalar.ParseRelativePath(name); err != nil {
++		return &Error{Code: CodeInvalidArguments, Detail: "runtime name"}
++	}
++	if strings.Contains(name, "/") {
++		return &Error{Code: CodeInvalidArguments, Detail: "runtime name"}
++	}
++	return nil
++}
++
++// sameDirectory compares two stat results for directory identity. It
++// is a variable only so seam-failure tests can force the
++// handle-mismatch path through the production entries: a handle that
++// names a different directory than the path cannot be staged without
++// a filesystem race, and without the seam the mismatch branch is
++// untestable. Production code never reassigns it.
++var sameDirectory = os.SameFile
++
++// handleBoundToPath reports whether the open directory handle refers
++// to the same directory as rootPath. It mirrors the private
++// secprim.guardRootMatches check, which no caller outside secprim
++// can invoke: a stat failure on either side is not a match, and an
++// unreadable root fails closed into the mismatch refusal rather
++// than admitting an unverifiable handle.
++func handleBoundToPath(handle *os.File, rootPath string) bool {
++	handleInfo, err := handle.Stat()
++	if err != nil || handleInfo == nil {
++		return false
++	}
++	pathInfo, err := os.Stat(rootPath)
++	if err != nil || pathInfo == nil {
++		return false
++	}
++	return sameDirectory(handleInfo, pathInfo)
++}
+diff --git a/internal/tmuxserver/runtime_test.go b/internal/tmuxserver/runtime_test.go
+new file mode 100644
+index 0000000..c5bafc1
+--- /dev/null
++++ b/internal/tmuxserver/runtime_test.go
+@@ -0,0 +1,204 @@
++package tmuxserver
++
++import (
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++func TestEnsureRuntimeDirCreatesOwnerOnly(t *testing.T) {
++	root := stateRoot(t)
++	dir, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if dir != filepath.Join(root, RuntimeDirName) {
++		t.Fatalf("dir = %q", dir)
++	}
++	info, err := os.Lstat(dir)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !info.IsDir() || info.Mode().Perm() != 0o700 {
++		t.Fatalf("mode = %04o dir=%v, want 0700 dir", info.Mode().Perm(), info.IsDir())
++	}
++}
++
++func TestEnsureRuntimeDirIsIdempotent(t *testing.T) {
++	root := stateRoot(t)
++	first, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	second, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if first != second {
++		t.Fatalf("second = %q, want %q", second, first)
++	}
++	info, err := os.Lstat(second)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if info.Mode().Perm() != 0o700 {
++		t.Fatalf("mode after re-ensure = %04o, want 0700", info.Mode().Perm())
++	}
++}
++
++func TestVerifyRuntimeDirAdmitsCompliant(t *testing.T) {
++	root := stateRoot(t)
++	runtimeDir(t, root)
++	if err := VerifyRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestEnsureRuntimeDirRefusesWidenedMode(t *testing.T) {
++	root := stateRoot(t)
++	dir, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	// The suite widens the mode behind the entry's back; re-entry
++	// must refuse, never silently repair.
++	if err := os.Chmod(dir, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	_, err = EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	requireLocalError(t, err, "tmux_unsafe_runtime_dir", "runtime mode")
++	if err := VerifyRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS); err != nil {
++		requireLocalError(t, err, "tmux_unsafe_runtime_dir", "runtime mode")
++	} else {
++		t.Fatal("VerifyRuntimeDir admitted a 0755 directory")
++	}
++}
++
++func TestEnsureRuntimeDirRefusesNonDirectoryLeaf(t *testing.T) {
++	root := stateRoot(t)
++	leaf := filepath.Join(root, RuntimeDirName)
++	if err := os.WriteFile(leaf, []byte("x"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	_, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	requireLocalError(t, err, "tmux_unsafe_runtime_dir", "runtime containment")
++}
++
++func TestEnsureRuntimeDirRefusesSymlinkLeaf(t *testing.T) {
++	root := stateRoot(t)
++	escape := t.TempDir()
++	leaf := filepath.Join(root, RuntimeDirName)
++	if err := os.Symlink(escape, leaf); err != nil {
++		t.Fatal(err)
++	}
++	_, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	requireLocalError(t, err, "tmux_unsafe_runtime_dir", "runtime containment")
++}
++
++func TestEnsureRuntimeDirRefusesForeignOwnership(t *testing.T) {
++	root := stateRoot(t)
++	runtimeDir(t, root)
++	previous := effectiveUID
++	effectiveUID = func() int { return previous() + 100000 }
++	defer func() { effectiveUID = previous }()
++	_, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	requireLocalError(t, err, "tmux_unsafe_runtime_dir", "runtime ownership")
++	if err := VerifyRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS); err != nil {
++		requireLocalError(t, err, "tmux_unsafe_runtime_dir", "runtime ownership")
++	} else {
++		t.Fatal("VerifyRuntimeDir admitted foreign ownership")
++	}
++}
++
++func TestEnsureRuntimeDirRefusesHandleMismatch(t *testing.T) {
++	root := stateRoot(t)
++	previous := sameDirectory
++	sameDirectory = func(_, _ os.FileInfo) bool { return false }
++	defer func() { sameDirectory = previous }()
++	_, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	requireLocalError(t, err, "tmux_unsafe_runtime_dir", "runtime containment")
++}
++
++func TestEnsureRuntimeDirRefusesSymlinkRoot(t *testing.T) {
++	real := stateRoot(t)
++	link := filepath.Join(t.TempDir(), "linkroot")
++	if err := os.Symlink(real, link); err != nil {
++		t.Fatal(err)
++	}
++	_, err := EnsureRuntimeDir(link, RuntimeDirName, scalar.PlatformMacOS, nil)
++	requireLocalError(t, err, "tmux_unsafe_runtime_dir", "runtime containment")
++}
++
++func TestEnsureRuntimeDirRefusesBadRoots(t *testing.T) {
++	root := stateRoot(t)
++	for _, tc := range []struct {
++		name string
++		root string
++	}{
++		{"relative", "relative/root"},
++		{"empty", ""},
++		{"parent", "/tmp/../etc"},
++		{"missing", filepath.Join(root, "no-such-root")},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			_, err := EnsureRuntimeDir(tc.root, RuntimeDirName, scalar.PlatformMacOS, nil)
++			requireLocalError(t, err, "tmux_invalid_arguments", "runtime root")
++		})
++	}
++}
++
++func TestEnsureRuntimeDirRefusesBadNames(t *testing.T) {
++	root := stateRoot(t)
++	for _, tc := range []struct {
++		name  string
++		value string
++	}{
++		{"empty", ""},
++		{"dot", "."},
++		{"parent", ".."},
++		{"nested", "a/b"},
++		{"absolute", "/abs"},
++		{"nul", "a\x00b"},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			_, err := EnsureRuntimeDir(root, tc.value, scalar.PlatformMacOS, nil)
++			requireLocalError(t, err, "tmux_invalid_arguments", "runtime name")
++		})
++	}
++}
++
++func TestEnsureRuntimeDirRefusesBadPlatform(t *testing.T) {
++	root := stateRoot(t)
++	_, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.Platform("plan9"), nil)
++	requireLocalError(t, err, "tmux_invalid_arguments", "runtime platform")
++}
++
++func TestEnsureRuntimeDirRefusesWindowsOnUnixHost(t *testing.T) {
++	_, err := EnsureRuntimeDir(`C:\ax-state`, RuntimeDirName, scalar.PlatformWindows, nil)
++	requireLocalError(t, err, "tmux_invalid_arguments", "runtime platform host")
++}
++
++func TestVerifyRuntimeDirRefusesAbsence(t *testing.T) {
++	root := stateRoot(t)
++	err := VerifyRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS)
++	requireLocalError(t, err, "tmux_unsafe_runtime_dir", "runtime containment")
++}
++
++func TestLinuxAndWSL2ShareUnixCustody(t *testing.T) {
++	for _, platform := range []scalar.Platform{scalar.PlatformLinux, scalar.PlatformWSL2} {
++		root := stateRoot(t)
++		dir, err := EnsureRuntimeDir(root, RuntimeDirName, platform, nil)
++		if err != nil {
++			t.Fatalf("%s: %v", platform, err)
++		}
++		info, err := os.Lstat(dir)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if info.Mode().Perm() != 0o700 {
++			t.Fatalf("%s: mode = %04o", platform, info.Mode().Perm())
++		}
++	}
++}
+diff --git a/internal/tmuxserver/runtime_unix.go b/internal/tmuxserver/runtime_unix.go
+new file mode 100644
+index 0000000..e238402
+--- /dev/null
++++ b/internal/tmuxserver/runtime_unix.go
+@@ -0,0 +1,122 @@
++//go:build !windows
++
++package tmuxserver
++
++import (
++	"errors"
++	"os"
++
++	"golang.org/x/sys/unix"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++)
++
++// commitRuntimeDir creates the leaf relative to the pinned root
++// handle and verifies exact custody on the opened descriptor. The
++// root itself must already exist: this entry creates exactly one
++// leaf and never builds parents, so a missing root refuses instead
++// of materializing an arbitrary ancestor chain with owner-only
++// modes. Mkdirat from the handle closes the validate-then-create
++// TOCTOU a path-string MkdirAll leaves open: descriptors pin what
++// they opened, and the leaf name is one grammar-checked segment.
++func commitRuntimeDir(root, name, joined string, platform scalar.Platform, hooks *Hooks) error {
++	if platform == scalar.PlatformWindows {
++		return &Error{Code: CodeInvalidArguments, Detail: "runtime platform host"}
++	}
++	rootHandle, err := secprim.OpenNoFollowDir(root)
++	if err != nil {
++		if os.IsNotExist(err) || errors.Is(err, os.ErrNotExist) {
++			return &Error{Code: CodeInvalidArguments, Detail: "runtime root"}
++		}
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	defer func() { _ = rootHandle.Close() }()
++	if !handleBoundToPath(rootHandle, root) {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	rootFd := int(rootHandle.Fd())
++	created := true
++	if err := unix.Mkdirat(rootFd, name, 0o700); err != nil {
++		if !errors.Is(err, unix.EEXIST) {
++			return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime commit"}
++		}
++		created = false
++	}
++	if hooks != nil && hooks.AfterMkdir != nil {
++		hooks.AfterMkdir(joined)
++	}
++	leafFd, err := unix.Openat(rootFd, name,
++		unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
++	if err != nil {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	leaf := os.NewFile(uintptr(leafFd), joined)
++	if created {
++		// The mkdir mode honors umask, so the exact owner-only
++		// mode is enforced explicitly on a leaf this call
++		// created. An existing leaf is verified, never
++		// repaired: silently narrowing a widened directory
++		// would mask the custody violation.
++		if err := unix.Fchmod(leafFd, 0o700); err != nil {
++			_ = leaf.Close()
++			return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime mode"}
++		}
++	}
++	info, err := leaf.Stat()
++	if err != nil {
++		_ = leaf.Close()
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime mode"}
++	}
++	// The openat O_DIRECTORY flag already refused a non-directory
++	// leaf above; the mode comparison below is the load-bearing
++	// arm this gate's tests and mutants pin.
++	if info.Mode().Perm() != 0o700 {
++		_ = leaf.Close()
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime mode"}
++	}
++	if err := verifyOwnership(info); err != nil {
++		_ = leaf.Close()
++		return err
++	}
++	// The parent fsync persists the directory entry; without it a
++	// crash after mkdir can lose the leaf on journaling filesystems.
++	if err := unix.Fsync(rootFd); err != nil {
++		_ = leaf.Close()
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime commit"}
++	}
++	_ = leaf.Close()
++	return nil
++}
++
++// verifyRuntimeDir enforces the three custody gates on an existing
++// leaf without creating it. A missing leaf refuses: absence on the
++// authorizing path is a fact, never a silent repair.
++func verifyRuntimeDir(root, name string, platform scalar.Platform) error {
++	if platform == scalar.PlatformWindows {
++		return &Error{Code: CodeInvalidArguments, Detail: "runtime platform host"}
++	}
++	rootHandle, err := secprim.OpenNoFollowDir(root)
++	if err != nil {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	defer func() { _ = rootHandle.Close() }()
++	if !handleBoundToPath(rootHandle, root) {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	leafFd, err := unix.Openat(int(rootHandle.Fd()), name,
++		unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
++	if err != nil {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	leaf := os.NewFile(uintptr(leafFd), name)
++	defer func() { _ = leaf.Close() }()
++	info, err := leaf.Stat()
++	if err != nil {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime mode"}
++	}
++	if info.Mode().Perm() != 0o700 {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime mode"}
++	}
++	return verifyOwnership(info)
++}
+diff --git a/internal/tmuxserver/runtime_windows.go b/internal/tmuxserver/runtime_windows.go
+new file mode 100644
+index 0000000..6c24b84
+--- /dev/null
++++ b/internal/tmuxserver/runtime_windows.go
+@@ -0,0 +1,59 @@
++//go:build windows
++
++package tmuxserver
++
++import (
++	"os"
++	"path/filepath"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++// WindowsBound records the stated platform bound: on Windows the
++// runtime directory is created through the path string with the
++// lexical containment checks, and ownership is the creating user's
++// ACL as installed by the OS. Descriptor-relative mkdirat and
++// explicit UID verification are unix-only; a Windows ACL audit is
++// sibling scope and is not claimed here.
++const WindowsBound = "windows ownership is the creating-user ACL; no UID gate is claimed"
++
++// commitRuntimeDir creates the leaf on Windows. The lexical gates in
++// runtime.go already refused non-absolute roots, multi-segment names,
++// and guard mismatches before this entry runs.
++func commitRuntimeDir(root, name, joined string, platform scalar.Platform, hooks *Hooks) error {
++	if platform != scalar.PlatformWindows {
++		return &Error{Code: CodeInvalidArguments, Detail: "runtime platform host"}
++	}
++	if err := os.MkdirAll(joined, 0o700); err != nil {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime commit"}
++	}
++	if hooks != nil && hooks.AfterMkdir != nil {
++		hooks.AfterMkdir(joined)
++	}
++	info, err := os.Lstat(joined)
++	if err != nil {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	_ = filepath.Clean
++	return nil
++}
++
++// verifyRuntimeDir enforces the Windows custody subset on an
++// existing leaf without creating it.
++func verifyRuntimeDir(root, name string, platform scalar.Platform) error {
++	if platform != scalar.PlatformWindows {
++		return &Error{Code: CodeInvalidArguments, Detail: "runtime platform host"}
++	}
++	joined := filepath.Join(root, name)
++	info, err := os.Lstat(joined)
++	if err != nil {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
++		return &Error{Code: CodeUnsafeRuntimeDir, Detail: "runtime containment"}
++	}
++	return nil
++}
+diff --git a/internal/tmuxserver/socket.go b/internal/tmuxserver/socket.go
+new file mode 100644
+index 0000000..0b2956b
+--- /dev/null
++++ b/internal/tmuxserver/socket.go
+@@ -0,0 +1,113 @@
++package tmuxserver
++
++import (
++	"path/filepath"
++
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++)
++
++// SocketName is the fixed private socket leaf inside the runtime
++// directory. AX derives its server socket from this name under the
++// owner-only directory and from nothing else.
++const SocketName = "ax-tmux.sock"
++
++// Ambient environment names the four discovery vectors AX must never
++// use. TMUXEnv and TMUXTmpDir name the two environment variables
++// whose values may carry an ambient socket; InheritedSocket is a
++// socket path handed to the process out of band; DefaultPath is the
++// operator default socket path; ConventionalName is the bare
++// conventional socket name. No member of this struct ever selects
++// the acquisition socket: ResolveSocket derives the socket from the
++// runtime directory and refuses any explicit override.
++type Ambient struct {
++	TMUXEnv          string
++	TMUXTmpDir       string
++	InheritedSocket  string
++	DefaultPath      string
++	ConventionalName string
++}
++
++// Ambient environment variable names. Both are validated by the
++// landed environment-name grammar at the observation boundary, so a
++// misspelled variable cannot smuggle an ambient value past the
++// non-use proof.
++const (
++	// EnvTMUX is the tmux(1) session environment variable.
++	EnvTMUX = "TMUX"
++	// EnvTMUXTmpDir is the tmux(1) socket-directory override.
++	EnvTMUXTmpDir = "TMUX_TMPDIR"
++)
++
++// ConventionalSocketName is the operator default socket leaf that AX
++// must never resolve to.
++const ConventionalSocketName = "default"
++
++// ObserveAmbient records the ambient socket facts visible to the
++// caller without using any of them. The lookup is caller-supplied so
++// the production entry never reads the process environment itself:
++// ambient discovery cannot hide in an os.Getenv call this package
++// never makes. Unknown variable names refuse rather than being
++// silently skipped, so a renamed vector cannot pass unobserved.
++func ObserveAmbient(lookup func(name string) (string, bool), inherited, defPath, conventional string) (Ambient, error) {
++	if !secprim.IsEnvName(EnvTMUX) || !secprim.IsEnvName(EnvTMUXTmpDir) {
++		return Ambient{}, &Error{Code: CodeInvalidArguments, Detail: "ambient vocabulary"}
++	}
++	observed := Ambient{
++		InheritedSocket:  inherited,
++		DefaultPath:      defPath,
++		ConventionalName: conventional,
++	}
++	if lookup == nil {
++		return observed, nil
++	}
++	if value, ok := lookup(EnvTMUX); ok {
++		observed.TMUXEnv = value
++	}
++	if value, ok := lookup(EnvTMUXTmpDir); ok {
++		observed.TMUXTmpDir = value
++	}
++	return observed, nil
++}
++
++// SocketPath derives the dedicated server socket from the runtime
++// directory. It is the only socket constructor: acquisition never
++// substitutes an ambient value for its result.
++func SocketPath(runtimeDir string) string {
++	return filepath.Join(runtimeDir, SocketName)
++}
++
++// ResolveSocket returns the acquisition socket for the runtime
++// directory. An explicit override refuses with the ambient code no
++// matter which vector supplied it: there is no override surface,
++// only the derived socket. The ambient observation is carried for
++// evidence and asserted disjoint from the result by the caller
++// tests; resolution never reads it.
++func ResolveSocket(runtimeDir string, override string, ambient Ambient) (string, error) {
++	if override != "" {
++		return "", &Error{Code: CodeAmbientReuse, Detail: "socket override"}
++	}
++	socket := SocketPath(runtimeDir)
++	if err := checkAmbientDisjoint(socket, ambient); err != nil {
++		return "", err
++	}
++	return socket, nil
++}
++
++// checkAmbientDisjoint refuses the degenerate case where an ambient
++// value already names the derived socket: using the socket then
++// would be indistinguishable from reusing the ambient server, so
++// acquisition refuses instead of proceeding on an ambiguous fact.
++func checkAmbientDisjoint(socket string, ambient Ambient) error {
++	for _, candidate := range []string{
++		ambient.TMUXEnv,
++		ambient.TMUXTmpDir,
++		ambient.InheritedSocket,
++		ambient.DefaultPath,
++		ambient.ConventionalName,
++	} {
++		if candidate != "" && candidate == socket {
++			return &Error{Code: CodeAmbientReuse, Detail: "ambient collision"}
++		}
++	}
++	return nil
++}
+diff --git a/internal/tmuxserver/socket_test.go b/internal/tmuxserver/socket_test.go
+new file mode 100644
+index 0000000..ad99b09
+--- /dev/null
++++ b/internal/tmuxserver/socket_test.go
+@@ -0,0 +1,85 @@
++package tmuxserver
++
++import (
++	"strings"
++	"testing"
++)
++
++func TestObserveAmbientRecordsWithoutUsing(t *testing.T) {
++	hostile := hostileAmbient()
++	observed, err := ObserveAmbient(func(name string) (string, bool) {
++		switch name {
++		case "TMUX":
++			return hostile.TMUXEnv, true
++		case "TMUX_TMPDIR":
++			return hostile.TMUXTmpDir, true
++		default:
++			return "", false
++		}
++	}, hostile.InheritedSocket, hostile.DefaultPath, hostile.ConventionalName)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if observed != hostile {
++		t.Fatalf("observed = %+v, want %+v", observed, hostile)
++	}
++}
++
++func TestObserveAmbientNilLookupKeepsOutOfBand(t *testing.T) {
++	observed, err := ObserveAmbient(nil, "/tmp/x.sock", "/tmp/tmux-501/default", "default")
++	if err != nil {
++		t.Fatal(err)
++	}
++	if observed.TMUXEnv != "" || observed.TMUXTmpDir != "" {
++		t.Fatalf("nil lookup observed env: %+v", observed)
++	}
++	if observed.InheritedSocket != "/tmp/x.sock" {
++		t.Fatalf("observed = %+v", observed)
++	}
++}
++
++func TestResolveSocketDerivesIgnoringAmbient(t *testing.T) {
++	dir := runtimeDir(t, stateRoot(t))
++	socket, err := ResolveSocket(dir, "", hostileAmbient())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if socket != SocketPath(dir) {
++		t.Fatalf("socket = %q", socket)
++	}
++	for _, ambient := range []string{
++		hostileAmbient().TMUXEnv,
++		hostileAmbient().TMUXTmpDir,
++		hostileAmbient().InheritedSocket,
++		hostileAmbient().DefaultPath,
++		hostileAmbient().ConventionalName,
++	} {
++		if strings.Contains(socket, ambient) || socket == ambient {
++			t.Fatalf("socket %q reuses ambient %q", socket, ambient)
++		}
++	}
++}
++
++func TestResolveSocketRefusesEveryOverrideVector(t *testing.T) {
++	dir := runtimeDir(t, stateRoot(t))
++	hostile := hostileAmbient()
++	vectors := map[string]string{
++		"environment variable": hostile.TMUXEnv,
++		"inherited socket":     hostile.InheritedSocket,
++		"default path":         hostile.DefaultPath,
++		"conventional name":    hostile.ConventionalName,
++	}
++	for name, override := range vectors {
++		t.Run(name, func(t *testing.T) {
++			_, err := ResolveSocket(dir, override, Ambient{})
++			requireLocalError(t, err, "tmux_ambient_server_reuse", "socket override")
++		})
++	}
++}
++
++func TestResolveSocketRefusesAmbientCollision(t *testing.T) {
++	dir := runtimeDir(t, stateRoot(t))
++	derived := SocketPath(dir)
++	_, err := ResolveSocket(dir, "", Ambient{DefaultPath: derived})
++	requireLocalError(t, err, "tmux_ambient_server_reuse", "ambient collision")
++}
+diff --git a/internal/tmuxserver/tmuxserver_test.go b/internal/tmuxserver/tmuxserver_test.go
+new file mode 100644
+index 0000000..8e3a2c6
+--- /dev/null
++++ b/internal/tmuxserver/tmuxserver_test.go
+@@ -0,0 +1,141 @@
++package tmuxserver
++
++import (
++	"errors"
++	"os"
++	"path/filepath"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/axerror"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++const (
++	fixtureSession    = "0198f4c8-7d40-7e55-8e6f-1234567890ab"
++	fixtureGeneration = "generation-7"
++	fixtureBroker     = "absent"
++	fixtureRemedy     = "sign in to the GUI realm and retry"
++	fixtureProvider   = "9.9.9-test"
++	fixtureMacOS      = "15.4-test"
++)
++
++func liveAttestation() LiveAttestation {
++	return LiveAttestation{
++		SentinelPassed:   true,
++		SmokePassed:      true,
++		ServerGeneration: fixtureGeneration,
++		ProviderBuild:    fixtureProvider,
++		MacOSVersion:     fixtureMacOS,
++	}
++}
++
++func validRequest(t *testing.T, root string) Request {
++	t.Helper()
++	return Request{
++		Caller:           CallerForeground,
++		Platform:         scalar.PlatformMacOS,
++		Root:             root,
++		Name:             RuntimeDirName,
++		SessionID:        fixtureSession,
++		Generation:       fixtureGeneration,
++		BrokerState:      fixtureBroker,
++		Remediation:      fixtureRemedy,
++		NeedsCredentials: false,
++	}
++}
++
++func hostileAmbient() Ambient {
++	return Ambient{
++		TMUXEnv:          "/tmp/tmux-501/default,12345,0",
++		TMUXTmpDir:       "/tmp/operator-tmux",
++		InheritedSocket:  "/tmp/inherited.sock",
++		DefaultPath:      "/tmp/tmux-501/default",
++		ConventionalName: "default",
++	}
++}
++
++func requireLocalError(t *testing.T, err error, code, detail string) {
++	t.Helper()
++	if err == nil {
++		t.Fatalf("err = nil, want %s at %s", code, detail)
++	}
++	var local *Error
++	if !errors.As(err, &local) {
++		t.Fatalf("err type = %T (%v), want *tmuxserver.Error", err, err)
++	}
++	if local.Code != code || local.Detail != detail {
++		t.Fatalf("err = %s at %s, want %s at %s", local.Code, local.Detail, code, detail)
++	}
++}
++
++func requireCapabilityUnavailable(t *testing.T, err error, caller, broker, generation, remedy string) {
++	t.Helper()
++	if err == nil {
++		t.Fatal("err = nil, want capability_unavailable")
++	}
++	var failure *axerror.Error
++	if !errors.As(err, &failure) {
++		t.Fatalf("err type = %T (%v), want *axerror.Error", err, err)
++	}
++	if string(failure.Code()) != "capability_unavailable" {
++		t.Fatalf("code = %q, want %q", string(failure.Code()), "capability_unavailable")
++	}
++	if failure.ExitCode() != 6 {
++		t.Fatalf("exit = %d, want 6", failure.ExitCode())
++	}
++	want := map[string]string{
++		"capability":             "credential_capable_execution_realm",
++		"caller_realm":           caller,
++		"broker_state":           broker,
++		"tmux_server_generation": generation,
++		"remediation":            remedy,
++	}
++	for key, value := range want {
++		got, ok := failure.Detail(key)
++		if !ok {
++			t.Fatalf("missing typed detail %q", key)
++		}
++		if got != value {
++			t.Fatalf("detail %q = %v, want %q", key, got, value)
++		}
++	}
++}
++
++type spawnSpy struct {
++	calls  int
++	socket string
++	argv   []string
++	err    error
++}
++
++func (spy *spawnSpy) spawn(socket string, argv []string) error {
++	spy.calls++
++	spy.socket = socket
++	spy.argv = append([]string(nil), argv...)
++	return spy.err
++}
++
++func stateRoot(t *testing.T) string {
++	t.Helper()
++	root := t.TempDir()
++	if err := os.Chmod(root, 0o755); err != nil {
++		t.Fatal(err)
++	}
++	return root
++}
++
++func runtimeDir(t *testing.T, root string) string {
++	t.Helper()
++	dir, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return dir
++}
++
++func TestSocketPathDerivesOnlyFromRuntimeDir(t *testing.T) {
++	dir := filepath.Join(t.TempDir(), RuntimeDirName)
++	if got := SocketPath(dir); got != filepath.Join(dir, "ax-tmux.sock") {
++		t.Fatalf("SocketPath = %q", got)
++	}
++}
+diff --git a/internal/tmuxserver/windows_bound_test.go b/internal/tmuxserver/windows_bound_test.go
+new file mode 100644
+index 0000000..572c399
+--- /dev/null
++++ b/internal/tmuxserver/windows_bound_test.go
+@@ -0,0 +1,15 @@
++//go:build windows
++
++package tmuxserver
++
++import "testing"
++
++// The Windows custody bound is pinned here: ownership on Windows is
++// the creating-user ACL installed by the OS, and no UID gate is
++// claimed. This tripwire fails if the bound text is ever removed
++// while the windows commit still relies on it.
++func TestWindowsCustodyBoundIsStated(t *testing.T) {
++	if WindowsBound == "" {
++		t.Fatal("WindowsBound is empty")
++	}
++}
