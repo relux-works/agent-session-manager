@@ -531,7 +531,7 @@ func TestExecuteEveryOperationRefusesForeignOrPermissiveSocket(t *testing.T) {
 	}
 }
 
-const attachOwnershipSessionRecord = `{ 
+const attachOwnershipSessionRecord = `{
   "schema": "urn:ax:schema:session-record",
   "schema_version": "1.0.0",
   "record_id": "sha256:d61701066a7f5dd37bf35fea0e85e7f154251355ad24a49976532d7f79ddc772",
