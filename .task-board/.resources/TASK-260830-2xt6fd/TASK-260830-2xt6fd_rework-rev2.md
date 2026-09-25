@@ -1,0 +1,14 @@
+REWORK for TASK-260830-2xt6fd, CR rev1 → rev2. Read `TASK-260830-2xt6fd_review-verdict-rev1.md` first. Production looks right, and the stop-point design is accepted. The findings are about MEASUREMENT: three of the four coordinator admission gates in `internal/tmuxserver/capture_git_workspace.go` are never reached by the test that names them. `TestCaptureRejectsCheckpointBoundaryAsProviderProof` passes no Runner, so the `Runner == nil` arm refuses first and the proof-kind gate never runs.
+
+INVARIANT: every gate is witnessed by a test that reaches exactly that gate. Build it BY CONSTRUCTION:
+1. **Gate reachability matrix.** Write one helper that builds a capture request VALID for every gate: Runner, Assembly, a valid BoundaryBody, a current-incarnation quiesce receipt, and a proven barrier. For each gate G, derive a request from it by breaking ONLY G's input. Assert that the refusal comes from G by checking its literal code AND its literal detail, never the code alone. Add a control row, the fully valid request, which must be admitted in both allowed states: quiescing with a current boundary, and stopped. Enumerate the gate list mechanically from the coordinator's refusal sites (AST or a source census), not by hand. A refusal site without a matrix row makes the test fail. Control-plant the census.
+2. **The four gates and their narrowing mutants,** each KILLED by its matrix row run ALONE:
+   - proof kind admits `ax_checkpoint_boundary` (§12.3, lines 9076-9078: a checkpoint-only boundary is not provider quiescence);
+   - a quiesce receipt from another incarnation is admitted;
+   - the final barrier no longer proven is admitted;
+   - stopped→non-stopped at the closing read is admitted.
+3. `TestCaptureStopPointStateDomain` must distinguish arms. The admitted rows are exactly quiescing-with-boundary and stopped. Every other Terminal Instance state refuses with its own literal detail.
+4. **probe.go.** Either justify your change to `Dial` in `probe.go` with a pinned-spec citation and a test that needs it, or revert it and file it as a separate note. Nothing may be widened silently.
+5. Keep every held row unchanged. Continue the remaining steps of `TASK-260830-2xt6fd_resume-rev1.md` if any are incomplete: the story-final registry for all three leaves (decoded edges, digest, tracecheck, README pin) and full validation. Run `GOOS=windows GOARCH=amd64 go vet ./...`, exact-tree hygiene through a scratch index, the harness and the full configured suite. If trunk moved past `6d3bff9`, run `refresh-candidate` once, as the last step before the handoff. Keep the checklist current, then run `task-board handoff TASK-260830-2xt6fd --role developer`.
+
+SCRATCH RULE: no /tmp. Canonical CLI: /Users/iv/.curator/global/bin/task-board. Model: gpt-6-luna max. Reviewer: claude-opus-5-5 low.

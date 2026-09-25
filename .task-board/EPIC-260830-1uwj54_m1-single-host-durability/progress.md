@@ -1,5 +1,5 @@
 ## Status
-integrating
+to-dev
 
 ## Review
 required
@@ -65,7 +65,7 @@ Continuation evidence: /Users/iv/Developer/ReluxWorks/skill-project-management/.
 2026-08-29T22:00:10Z
 
 ## Last Update
-2026-09-24T06:38:13Z
+2026-09-25T10:04:17Z
 
 ## Assigned To
 [analyst] orchestrator (codex)

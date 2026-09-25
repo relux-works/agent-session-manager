@@ -1,0 +1,2271 @@
+diff --git a/.scripts/gitsnap-mutations.py b/.scripts/gitsnap-mutations.py
+index 971b2ed..71ea065 100644
+--- a/.scripts/gitsnap-mutations.py
++++ b/.scripts/gitsnap-mutations.py
+@@ -11,6 +11,7 @@ import sys
+ 
+ parser = argparse.ArgumentParser(description=__doc__)
+ parser.add_argument('--out', required=True, type=Path)
++parser.add_argument('--vectors', type=Path, help='Use a task-specific vector file')
+ parser.add_argument('--only', help='Regex selecting vector names (controls still run)')
+ args = parser.parse_args()
+ root = Path(__file__).resolve().parent.parent
+@@ -20,14 +21,14 @@ work = out / 'candidate'
+ if work.exists():
+     parser.error('output candidate already exists; choose a fresh --out directory')
+ # Snapshot only the module and leaf dependencies; no .git, board or secrets.
+-for relative in ['go.mod', 'go.sum', 'internal/gitsnap', 'internal/scalar']:
++for relative in ['go.mod', 'go.sum', 'internal']:
+     source, target = root / relative, work / relative
+     target.parent.mkdir(parents=True, exist_ok=True)
+     if source.is_dir():
+         shutil.copytree(source, target)
+     else:
+         shutil.copy2(source, target)
+-rows = json.loads((root / 'internal/gitsnap/testdata/mutations.json').read_text())
++rows = json.loads((args.vectors or root / 'internal/gitsnap/testdata/mutations.json').read_text())
+ rows.sort(key=lambda row: 0 if row['name'].startswith('C-') else 1)
+ if args.only:
+     rows = [r for r in rows if r['name'].startswith('C-') or re.search(args.only, r['name'])]
+@@ -53,6 +54,7 @@ def run(name, command):
+ 
+ for row in rows:
+     name = row['name']
++    package = row.get('package', './internal/gitsnap')
+     target = work / 'internal/gitsnap' / row['file']
+     original = target.read_bytes()
+     text = original.decode()
+@@ -66,13 +68,13 @@ for row in rows:
+         changed = text.replace(old, row['new'], limit or hits) if old else text + row['new']
+         target.write_text(changed)
+         result['applied'] = True
+-        compile_code, _, _ = run(name + '.compile', ['go', 'test', './internal/gitsnap', '-run', '^$', '-count=1'])
++        compile_code, _, _ = run(name + '.compile', ['go', 'test', package, '-run', '^$', '-count=1'])
+         result['compile_exit'] = compile_code
+         if compile_code != 0:
+             result['status'] = 'COMPILE_FAILED' if compile_code is not None else 'TIMEOUT'
+             continue
+         full = row.get('full', False) or row['expect'] == 'survive'
+-        command = ['go', 'test', './internal/gitsnap', '-v', '-count=1']
++        command = ['go', 'test', package, '-v', '-count=1']
+         if not full:
+             if not row['tests']:
+                 result['status'] = 'NO_BEHAVIOR_SELECTED'
+@@ -82,7 +84,7 @@ for row in rows:
+         result.update(behavior_exit=code, failing=failing, executed=executed)
+         positive = None
+         if row['positive']:
+-            positive, _, ran = run(name + '.positive', ['go', 'test', './internal/gitsnap', '-v', '-count=1', '-run', '^(' + '|'.join(row['positive']) + ')$'])
++            positive, _, ran = run(name + '.positive', ['go', 'test', package, '-v', '-count=1', '-run', '^(' + '|'.join(row['positive']) + ')$'])
+             if not set(row['positive']).issubset(ran):
+                 positive = 'NOT_EXECUTED'
+         result['positive_exit'] = positive
+diff --git a/LOGBOOK.md b/LOGBOOK.md
+index 4eb14a3..37ba7fe 100644
+--- a/LOGBOOK.md
++++ b/LOGBOOK.md
+@@ -5,6 +5,14 @@
+ 
+ ## 2026-09-08
+ 
++### Working-copy capture — shared owners and path-alias exclusion
++- SCOPE: TASK-260830-3m7m7w, accepted predecessor checkpoint d888cd576f5962eb258e40ca487f7711b2215610. ContentOptions extends the existing Capture entry and leaves the private-index algorithm intact.
++- OWNERS: safe regular-file reads use secprim.Guard.Open, durable installs use localstore.PutBlob, entry/blob grammar uses canonicaljson. A diagnostic redactor is not a secret classifier. Trusted include classifications and owner path exclusions remain explicit inputs.
++- FINDING: Git canonicalizes macOS /var paths to /private/var. Comparing AX layout paths lexically missed exclusions; canonicalize policy roots, distinguish missing ordinary components from failed reads/dangling links, and test the real alias through Capture.
++- EVIDENCE: exact pinned parent/child pack/index payloads instantiate separate real Git databases; working bytes and independent pointers are verified. A child process exits 73 after blob installs and before a result; fresh capture reuses verified bytes. No durable checkpoint/manifest publication is implemented.
++- INSTRUMENT: census method-control assumed its appended call would be last across files. Check membership plus the exact count increase instead. The new entry-array boundary is driven at 65536/65537 and executed by the existing bound-proof census.
++- BOUNDS: no whole-program secret guarantee, CLI capture/doctor capability, object-pack production, workspace manifest closure, cross-platform runtime, change-and-revert race detection or measured 128 GiB success claim. Mutant outcomes and actual command exits belong to the task-scoped evidence packet.
++
+ ### Git capture CR rev2 — seven review findings and evidence correction
+ - SCOPE: TASK-260830-2bnr39, preserved Story checkpoint 7aa151a and CR rev1 tree 2a7575a. Reworked the existing candidate; no manual commits or Story branch changes.
+ - F1: inherited optional-lock settings now lose to runner-owned values. Real Git 2.50.1 also refreshes stat-only index entries regardless of that environment guard. Disabling autoRefreshIndex prevented writes but produced false M deltas; per-diff private index copies retain Git comparison semantics. Copies preserve original mtime because Git uses it for racy-index checks, and are cleaned on return. Byte-preservation, failure cleanup, alternate-index and split-index tests drive real Git. Trusted external filter configuration is not sandboxed.
+diff --git a/README.md b/README.md
+index 0e89db2..403f8e0 100644
+--- a/README.md
++++ b/README.md
+@@ -2244,7 +2244,7 @@ Git can refresh stat-only entries without changing the real index bytes.
+ Temporary copies are removed when the call returns; abrupt termination can
+ leave OS-temp files. This is not a sandbox for external filter programs.
+ 
+-Seventeen registry gates name refusals in `gates.go`. The source census
++The repository/index and content registry gates name refusals in `gates.go`. The source census
+ checks literal call-site registration and test linkage, not behavioral
+ coverage of every clause. Its controls exercise comment/string exclusion,
+ an unknown gate, and the explicitly invisible alias-call case. The mutation
+@@ -2269,13 +2269,57 @@ The `WS-GIT-ROUNDTRIP-1` parent/child index lines still drive `Capture`.
+ The [acceptance mapping](internal/gitsnap/testdata/acceptance.md) records 8 of
+ 8 AC rows driven, with named tests and production call sites.
+ 
+-Stated bounds: object packs, raw-index blob delivery, untracked/ignored
+-content, symlink targets, recursive submodules, and working-tree manifests
+-belong to sibling leaves. Full wire assembly/validation belongs to
+-`internal/canonicaljson`; `Capture` is an internal library entry with no CLI
+-or doctor capability advertised. The [string-domain audit](internal/gitsnap/testdata/string-domain-audit.md)
+-accounts for every produced string field, including supplementary native
+-paths and raw delta OIDs that are not normative wire scalars.
++`Capture(ctx, runner, dir, ContentOptions{Store: store, ...})` additionally
++captures actual tracked and untracked working bytes, explicitly included ignored
++files, directory modes, symlink targets, sparse patterns, and recursive submodule
++state. Omitting `ContentOptions` retains the repository/index observation API;
++that result has no `Content` and must not be used as a complete workspace capture.
++The immutable object store must be outside the checkout. Files stream through
++4 MiB chunks and rewind the guarded file handle, with whole-blob SHA-256, chunk descriptors,
++and existing `localstore.PutBlob` verification and installation. A file above
++128 GiB refuses before its bytes are read. Included bytes are re-read before
++return; a read failure or observed content change refuses the snapshot.
++
++`ContentOptions.IncludeIgnored` lists exact repository-relative files classified
++non-secret by trusted project/provider configuration. `Exclude` supplies paths
++or subtrees with diagnostic classes; exclusions override includes. The existing
++`localstore.ResolvedPaths` owner supplies machine-local layout exclusions,
++including canonical path aliases on macOS. Conventional credential, dotenv,
++PID/updater-lock/journal, Git metadata, socket and pipe paths are excluded.
++Dependency lockfiles such as Cargo.lock remain project content; arbitrary live
++lock paths require explicit exclusion policy. Arbitrarily
++named runtime artifacts need explicit owner policy; filenames and an include
++classification are not a confidentiality guarantee. The diagnostic redactor is
++not used as a content classifier. A required submodule excluded by policy
++refuses capture instead of entering through recursion.
++
++Submodule stage-0 gitlinks remain independent of child HEAD/index/working bytes.
++Initialized children are captured recursively; uninitialized children carry no
++invented state, and nonempty uninitialized directories refuse. Relative mappings
++resolve against the default remote using Git directory semantics. Local or
++credential-bearing URLs, conflicting gitlinks, unsafe paths and recursion bounds
++refuse. Filesystem symlink targets are checked component by component, including
++existing chains and dangling in-root targets. Entry-set checks reuse
++`canonicaljson.CheckManifestEntries`, the same validator as wire manifests.
++
++The [content acceptance mapping](internal/gitsnap/testdata/content-acceptance.md)
++records 7 of 7 scoped AC rows with production drivers. The pinned Section 10.4
++pack/index corpus creates real parent and child repositories in separate object
++databases; capture reproduces its working bytes and pointers. This does not claim
++pack production or destination materialization. The capture result is internal:
++object packs, raw-index blob delivery, workspace-root/child manifest assembly,
++quiescence, complete race/closure validation and the CLI integration remain
++separate work. No CLI or doctor capture capability is advertised. Existing
++private-index semantics and shared-index auxiliary timestamp bounds remain.
++
++A crash after immutable installs may leave verified, unreferenced blobs; retry
++reuses them. No checkpoint or manifest publication occurs in this entry. The
++process-crash test verifies the expected exit 73 and a fresh successful capture.
++Capture creates no additional spool outside the immutable store. Native
++validation is macOS arm64 with Apple Git; Windows compilation is not execution,
++and a 128 GiB successful transfer has not been measured. The
++[string-domain audit](internal/gitsnap/testdata/string-domain-audit.md) covers the
++predecessor fields; the content mapping covers new fields and their bounds.
+ 
+ Tools and outputs for this leaf (run from the repository root):
+ 
+@@ -2284,6 +2328,7 @@ go test ./internal/gitsnap -v -cover -count=1
+ go vet ./internal/gitsnap
+ go build ./...
+ python3 .scripts/gitsnap-mutations.py --out .temp/TASK-260830-2bnr39/mutations
++python3 .scripts/gitsnap-mutations.py --vectors internal/gitsnap/testdata/content-mutations.json --out .temp/TASK-260830-3m7m7w/mutations
+ ```
+ 
+ The mutation tool uses Python 3, Git and Go; it copies only the leaf and its
+diff --git a/internal/canonicaljson/declared_bounds_proofs_test.go b/internal/canonicaljson/declared_bounds_proofs_test.go
+index 3d6f9c1..deeafba 100644
+--- a/internal/canonicaljson/declared_bounds_proofs_test.go
++++ b/internal/canonicaljson/declared_bounds_proofs_test.go
+@@ -60,7 +60,8 @@ var subsumedBoundProofs = map[boundObligation]boundSubsumption{
+ func collectBoundProofClaims(t *testing.T) []boundObligation {
+ 	t.Helper()
+ 
+-	var claims []boundObligation
++	TestCheckManifestEntriesCountBounds(t)
++	claims := []boundObligation{{key: "CheckManifestEntries|requireArray|entries|-..65536", direction: boundMaximum}}
+ 	for _, proof := range coreRecordBoundProofs() {
+ 		if proof.maximum >= 0 {
+ 			claims = append(claims, boundObligation{key: proof.key, direction: boundMaximum})
+diff --git a/internal/canonicaljson/manifest_entries.go b/internal/canonicaljson/manifest_entries.go
+new file mode 100644
+index 0000000..cc029c0
+--- /dev/null
++++ b/internal/canonicaljson/manifest_entries.go
+@@ -0,0 +1,17 @@
++package canonicaljson
++
++// CheckManifestEntries validates an encoded Section 10.4 entries array using
++// the same owner as immutable Transfer Manifest identity validation. Capture
++// uses this before root/child manifests have been assembled; this checks only
++// the entry set, not blob availability, filesystem containment, or closure.
++func CheckManifestEntries(input []byte) error {
++	value, err := decodeStrict(input)
++	if err != nil {
++		return err
++	}
++	values, err := requireArray(map[string]any{"entries": value}, "entries", 65536)
++	if err != nil {
++		return err
++	}
++	return validateManifestEntries(values)
++}
+diff --git a/internal/canonicaljson/manifest_entries_test.go b/internal/canonicaljson/manifest_entries_test.go
+new file mode 100644
+index 0000000..ac47170
+--- /dev/null
++++ b/internal/canonicaljson/manifest_entries_test.go
+@@ -0,0 +1,35 @@
++package canonicaljson
++
++import (
++	"encoding/json"
++	"fmt"
++	"testing"
++)
++
++func TestCheckManifestEntriesUsesManifestOwner(t *testing.T) {
++	for _, raw := range []string{`[]`, `[{"path":"src","type":"directory","mode":493}]`, `[{"path":"current","type":"symlink","mode":511,"target":"releases/v1"}]`} {
++		if err := CheckManifestEntries([]byte(raw)); err != nil {
++			t.Fatal(err)
++		}
++	}
++	for _, raw := range []string{`null`, `{}`, `[`, `[{"path":"src","type":"directory","mode":493,"target":"leak"}]`, `[{"path":"current","type":"symlink","mode":511,"target":"../escape"}]`, `[{"path":"A","type":"directory","mode":493},{"path":"a","type":"directory","mode":493}]`} {
++		if err := CheckManifestEntries([]byte(raw)); err == nil {
++			t.Fatalf("admitted %s", raw)
++		}
++	}
++}
++
++func TestCheckManifestEntriesCountBounds(t *testing.T) {
++	entries := make([]any, 65537)
++	for i := range entries {
++		entries[i] = map[string]any{"path": fmt.Sprintf("dir-%05d", i), "type": "directory", "mode": 493}
++	}
++	at, _ := json.Marshal(entries[:65536])
++	over, _ := json.Marshal(entries)
++	if err := CheckManifestEntries(at); err != nil {
++		t.Fatal(err)
++	}
++	if err := CheckManifestEntries(over); err == nil {
++		t.Fatal("65537 entries admitted")
++	}
++}
+diff --git a/internal/gitsnap/census_test.go b/internal/gitsnap/census_test.go
+index 5bb0908..a6ba541 100644
+--- a/internal/gitsnap/census_test.go
++++ b/internal/gitsnap/census_test.go
+@@ -5,6 +5,7 @@ import (
+ 	"path/filepath"
+ 	"regexp"
+ 	"runtime"
++	"slices"
+ 	"sort"
+ 	"strings"
+ 	"testing"
+@@ -23,6 +24,12 @@ import (
+ // deleting a proving test breaks the build instead of silently
+ // shrinking the census.
+ var gateProvingTests = map[string]string{
++	"GateCapturePolicy":     "TestContentIgnoredDefaultAndPolicyRefusal",
++	"GateContentRead":       "TestContentReadFailureIsNotAbsence",
++	"GateContentPath":       "TestContentSymlinks",
++	"GateBlobLimit":         "TestContentLargeBlobChunksAndLimit",
++	"GateBlobInstall":       "TestContentBlobInstallFailureAndRetry",
++	"GateSubmoduleState":    "TestContentSubmoduleUninitializedAndRefusals",
+ 	"GateFeatures":          "TestCaptureRequiredFilterCountBounds",
+ 	"GateNotRepository":     "TestRefuseOutsideRepository",
+ 	"GateHeadCorrupt":       "TestRefuseCorruptHead",
+@@ -363,7 +370,16 @@ func TestCensusControlMethodLiteralIsCounted(t *testing.T) {
+ 	before := len(gateSites(t, dir))
+ 	appendControl(t, dir, "snapshot.go", "type plantedReceiver struct{}\nfunc (plantedReceiver) check() *Refusal { return refuse(GatePlantedMethod, \"plant\") }\n")
+ 	sites := gateSites(t, dir)
+-	if len(sites) != before+1 || sites[len(sites)-1] != "GatePlantedMethod" {
++	if len(sites) != before+1 || !slices.Contains(sites, "GatePlantedMethod") {
+ 		t.Errorf("method-literal plant not counted: %d -> %d", before, len(sites))
+ 	}
+ }
++
++var (
++	_ = TestContentIgnoredDefaultAndPolicyRefusal
++	_ = TestContentReadFailureIsNotAbsence
++	_ = TestContentSymlinks
++	_ = TestContentLargeBlobChunksAndLimit
++	_ = TestContentBlobInstallFailureAndRetry
++	_ = TestContentSubmoduleUninitializedAndRefusals
++)
+diff --git a/internal/gitsnap/content.go b/internal/gitsnap/content.go
+new file mode 100644
+index 0000000..b77f620
+--- /dev/null
++++ b/internal/gitsnap/content.go
+@@ -0,0 +1,598 @@
++package gitsnap
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"io"
++	"io/fs"
++	"os"
++	"path"
++	"path/filepath"
++	"runtime"
++	"sort"
++	"strings"
++	"unicode/utf8"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/localstore"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++)
++
++// ContentOptions enables working-copy content capture in Capture. Without it,
++// Capture retains the repository/index observation API. Store must be outside
++// the checkout. Policies are trusted project/provider configuration, not proof
++// supplied by files being captured. Paths are relative to the outer repository,
++// including submodule prefixes. No content-level confidentiality is asserted.
++type ContentOptions struct {
++	Store *localstore.ObjectStore
++	// IncludeIgnored names exact files, positively classified as non-secret by
++	// the project/provider owner. False classifications cannot authorize capture.
++	IncludeIgnored map[string]bool
++	// Exclude names files or directory subtrees and their diagnostic classes.
++	// Exclusions always win over includes, including for tracked content.
++	Exclude map[string]string
++	// LocalPaths is the existing AX path owner's resolved layout. Its paths are
++	// excluded when nested inside this checkout; local runtime state is not history.
++	LocalPaths *localstore.ResolvedPaths
++}
++
++// Content is the captured working-copy leaf, not a workspace-group wire object.
++// Entries use the exact Section 10.4 tagged shapes; descriptors and bytes are
++// installed in Store before this value can be returned. Git object packs and
++// workspace-root/child manifest assembly remain separate closure work.
++type Content struct {
++	Entries         []map[string]any `json:"entries"`
++	Blobs           []BlobDescriptor `json:"blobs"`
++	ExcludedClasses []string         `json:"excluded_classes"`
++	Submodules      []Submodule      `json:"submodules"`
++	SparsePatterns  *BlobDescriptor  `json:"sparse_patterns"`
++}
++
++type BlobChunk struct {
++	Index   uint32 `json:"index"`
++	Offset  uint64 `json:"offset"`
++	Size    uint64 `json:"size"`
++	ChunkID string `json:"chunk_id"`
++}
++
++type BlobDescriptor struct {
++	Schema        string      `json:"schema"`
++	SchemaVersion string      `json:"schema_version"`
++	DescriptorID  string      `json:"descriptor_id"`
++	BlobID        string      `json:"blob_id"`
++	Size          uint64      `json:"size"`
++	MediaType     string      `json:"media_type"`
++	Chunks        []BlobChunk `json:"chunks"`
++}
++
++// Submodule preserves the stage-0 pointer independently of the recursive child
++// HEAD and index. State is nil only for an observed uninitialized checkout.
++// The parent HEAD-tree pointer remains derivable from its HEAD; no child object
++// is read through the parent object database.
++type Submodule struct {
++	Path               string    `json:"path"`
++	RepositoryIdentity string    `json:"repository_identity"`
++	SanitizedURL       string    `json:"sanitized_url"`
++	GitlinkOID         string    `json:"gitlink_oid"`
++	Initialized        bool      `json:"initialized"`
++	State              *Snapshot `json:"state"`
++}
++
++type contentState struct {
++	localRoots []string
++	options    ContentOptions
++	active     map[string]bool
++	count      int
++}
++
++const chunkSize = 4 * 1024 * 1024
++const maxBlobSize int64 = 128 * 1024 * 1024 * 1024
++
++func (s *contentState) validate() error {
++	if s.options.Store == nil {
++		return refuse(GateCapturePolicy, "content capture requires an immutable object store")
++	}
++	for name, nonSecret := range s.options.IncludeIgnored {
++		if _, err := scalar.ParseRelativePath(name); err != nil || !nonSecret {
++			return refuse(GateCapturePolicy, "ignored include requires a valid path and non-secret classification")
++		}
++	}
++	for name, class := range s.options.Exclude {
++		if _, err := scalar.ParseRelativePath(name); err != nil || class == "" || !utf8.ValidString(class) {
++			return refuse(GateCapturePolicy, "exclusion requires a valid path and class")
++		}
++	}
++	if s.options.LocalPaths != nil {
++		for _, local := range s.options.LocalPaths.Paths() {
++			root, err := canonicalPolicyPath(local.Value.String())
++			if err != nil {
++				return refuse(GateCapturePolicy, "cannot resolve machine-local exclusion root")
++			}
++			s.localRoots = append(s.localRoots, root)
++		}
++	}
++	return nil
++}
++
++func canonicalPolicyPath(name string) (string, error) {
++	resolved, err := filepath.EvalSymlinks(name)
++	if err == nil {
++		return resolved, nil
++	}
++	if !errors.Is(err, os.ErrNotExist) {
++		return "", err
++	}
++	info, statErr := os.Lstat(name)
++	if statErr == nil && info.Mode()&os.ModeSymlink != 0 {
++		return "", err
++	}
++	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
++		return "", statErr
++	}
++	parent := filepath.Dir(name)
++	if parent == name {
++		return "", err
++	}
++	resolved, err = canonicalPolicyPath(parent)
++	if err != nil {
++		return "", err
++	}
++	return filepath.Join(resolved, filepath.Base(name)), nil
++}
++
++func pathWithin(parent, child string) bool {
++	relative, err := filepath.Rel(parent, child)
++	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
++}
++
++// excluded is the one capture-selection owner shared by the parent and every
++// child. It does not use the diagnostic redactor as a secret classifier.
++func (s *contentState) excluded(root, name, prefix string, mode fs.FileMode) string {
++	logical := path.Join(prefix, name)
++	excludedNames := make([]string, 0, len(s.options.Exclude))
++	for name := range s.options.Exclude {
++		excludedNames = append(excludedNames, name)
++	}
++	sort.Strings(excludedNames)
++	for _, excluded := range excludedNames {
++		class := s.options.Exclude[excluded]
++		if logical == excluded || strings.HasPrefix(logical, excluded+"/") {
++			return class
++		}
++	}
++	for _, localRoot := range s.localRoots {
++		if pathWithin(localRoot, filepath.Join(root, filepath.FromSlash(name))) {
++			return "machine_local"
++		}
++	}
++
++	for _, component := range strings.Split(name, "/") {
++		switch component {
++		case ".git":
++			return "git_metadata"
++		case ".ssh", "auth.json", "credentials.json", ".git-credentials":
++			return "credential"
++		case ".env":
++			return "environment_secret"
++		}
++	}
++	base := path.Base(name)
++	if strings.HasPrefix(base, ".env.") {
++		return "environment_secret"
++	}
++	if strings.HasSuffix(base, ".pid") {
++		return "live_pid"
++	}
++	if base == "updater.lock" || base == "provider.pid.lock" || strings.HasSuffix(base, "-wal") || strings.HasSuffix(base, "-shm") || strings.HasSuffix(base, "-journal") {
++		return "transient_lock"
++	}
++	if mode&os.ModeSocket != 0 || mode&os.ModeNamedPipe != 0 {
++		return "socket"
++	}
++	return ""
++}
++
++func (s *contentState) capture(ctx context.Context, runner Runner, repo *repositoryFacts, index []IndexEntry, features Features, head Head, remotes []Remote, prefix string, depth int) (*Content, error) {
++	root := repo.worktree.RepoRoot
++	if repo.worktree.IsBare {
++		return nil, refuse(GateCapturePolicy, "content capture requires a working tree")
++	}
++	storeRoot, err := filepath.EvalSymlinks(s.options.Store.DataRoot())
++	if err != nil {
++		return nil, refuse(GateCapturePolicy, "cannot resolve object-store root")
++	}
++	if pathWithin(root, storeRoot) {
++		return nil, refuse(GateCapturePolicy, "object store must be outside the captured checkout")
++	}
++	// Canonical Git directories detect recursion cycles even for linked worktrees.
++	gitDir, err := filepath.EvalSymlinks(repo.worktree.GitDir)
++	if err != nil {
++		return nil, refuse(GateContentRead, "cannot resolve Git directory")
++	}
++	if s.active[gitDir] {
++		return nil, refuse(GateSubmoduleState, "recursive repository cycle")
++	}
++	s.active[gitDir] = true
++	defer delete(s.active, gitDir)
++	ignoredRaw, failure := runOK(ctx, runner, root, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z")
++	if failure != nil {
++		return nil, refuse(GateContentRead, "ignored-path enumeration failed")
++	}
++	ignored, err := nulPaths(ignoredRaw)
++	if err != nil {
++		return nil, err
++	}
++	links := map[string]IndexEntry{}
++	for _, entry := range index {
++		if entry.Mode == 0o160000 {
++			if entry.Stage != 0 {
++				return nil, refuse(GateSubmoduleState, "conflicted submodule index is not representable")
++			}
++			links[entry.Path] = entry
++		}
++	}
++	tree := &Content{Entries: []map[string]any{}, Blobs: []BlobDescriptor{}, ExcludedClasses: []string{}, Submodules: []Submodule{}}
++	classes := map[string]bool{}
++	platform := scalar.PlatformLinux
++	if runtime.GOOS == "darwin" {
++		platform = scalar.PlatformMacOS
++	}
++	if runtime.GOOS == "windows" {
++		platform = scalar.PlatformWindows
++	}
++	guard, err := secprim.NewGuard(root, platform, nil)
++	if err != nil {
++		return nil, refuse(GateContentPath, "invalid content root")
++	}
++	rootHandle, err := secprim.OpenNoFollowDir(root)
++	if err != nil {
++		return nil, refuse(GateContentRead, "cannot open content root")
++	}
++	defer rootHandle.Close()
++	captured := map[string]BlobDescriptor{}
++	symlinks := map[string]string{}
++	err = filepath.WalkDir(root, func(native string, item fs.DirEntry, walkErr error) error {
++		if walkErr != nil {
++			return refuse(GateContentRead, "working-tree enumeration failed")
++		}
++		if err := ctx.Err(); err != nil {
++			return refuse(GateContentRead, "capture cancelled")
++		}
++		if native == root {
++			return nil
++		}
++		relative, err := filepath.Rel(root, native)
++		if err != nil {
++			return refuse(GateContentPath, "cannot resolve content path")
++		}
++		name := filepath.ToSlash(relative)
++		info, err := item.Info()
++		if err != nil {
++			return refuse(GateContentRead, "cannot stat content path")
++		}
++		if class := s.excluded(root, name, prefix, info.Mode()); class != "" {
++			classes[class] = true
++			if item.IsDir() {
++				return filepath.SkipDir
++			}
++			return nil
++		}
++		if _, err := scalar.ParseRelativePath(name); err != nil {
++			return refuse(GateContentPath, "invalid content path")
++		}
++		skip := false
++		for _, ignore := range ignored {
++			ignore = strings.TrimSuffix(ignore, "/")
++			if name == ignore || strings.HasPrefix(name, ignore+"/") {
++				skip = true
++				break
++			}
++		}
++		if skip {
++			wanted := s.options.IncludeIgnored[path.Join(prefix, name)]
++			if item.IsDir() {
++				for include := range s.options.IncludeIgnored {
++					if strings.HasPrefix(include, path.Join(prefix, name)+"/") {
++						wanted = true
++						break
++					}
++				}
++			}
++			if !wanted {
++				classes["ignored"] = true
++				if item.IsDir() {
++					return filepath.SkipDir
++				}
++				return nil
++			}
++		}
++		mode := uint32(info.Mode().Perm())
++		if info.Mode()&os.ModeSetuid != 0 {
++			mode |= 0o4000
++		}
++		if info.Mode()&os.ModeSetgid != 0 {
++			mode |= 0o2000
++		}
++		if info.Mode()&os.ModeSticky != 0 {
++			mode |= 0o1000
++		}
++		entry := map[string]any{"path": name, "mode": mode}
++		switch {
++		case info.IsDir():
++			entry["type"] = "directory"
++		case info.Mode().IsRegular():
++			file, err := guard.Open(rootHandle, name)
++			if err != nil {
++				return refuse(GateContentRead, "cannot safely open content file")
++			}
++			opened, statErr := file.Stat()
++			if statErr != nil || !os.SameFile(info, opened) {
++				file.Close()
++				return refuse(GateConsistency, "content file replaced before open")
++			}
++			descriptor, err := s.blob(ctx, file, info.Size(), "application/octet-stream")
++			closeErr := file.Close()
++			if err != nil {
++				return err
++			}
++			if closeErr != nil {
++				return refuse(GateContentRead, "content file close failed")
++			}
++			captured[name] = descriptor
++			tree.Blobs = append(tree.Blobs, descriptor)
++			entry["type"], entry["size"], entry["blob_id"], entry["blob_descriptor_id"] = "file", descriptor.Size, descriptor.BlobID, descriptor.DescriptorID
++		case info.Mode()&os.ModeSymlink != 0:
++			target, err := os.Readlink(native)
++			if err != nil {
++				return refuse(GateContentRead, "cannot read symlink")
++			}
++			if err := safeSymlink(root, name, target); err != nil {
++				return err
++			}
++			symlinks[name] = target
++			entry["type"], entry["target"] = "symlink", target
++		default:
++			return refuse(GateWorktreeKind, "unsupported included filesystem kind")
++		}
++		tree.Entries = append(tree.Entries, entry)
++		if _, isLink := links[name]; isLink {
++			if !info.IsDir() {
++				return refuse(GateSubmoduleState, "submodule path is not a directory")
++			}
++			return filepath.SkipDir
++		}
++		return nil
++	})
++	if err != nil {
++		return nil, err
++	}
++	tree.Submodules, err = s.submodules(ctx, runner, root, links, head, remotes, prefix, depth)
++	if err != nil {
++		return nil, err
++	}
++	if features.SparseCheckout {
++		result, failure := runOK(ctx, runner, root, "rev-parse", "--path-format=absolute", "--git-path", "info/sparse-checkout")
++		if failure != nil {
++			return nil, refuse(GateContentRead, "cannot locate sparse patterns")
++		}
++		file, err := secprim.OpenNoFollowFile(strings.TrimSuffix(string(result), "\n"))
++		if err != nil {
++			return nil, refuse(GateContentRead, "cannot read sparse patterns")
++		}
++		info, err := file.Stat()
++		if err != nil {
++			file.Close()
++			return nil, refuse(GateContentRead, "cannot stat sparse patterns")
++		}
++		descriptor, err := s.blob(ctx, file, info.Size(), "text/plain")
++		closeErr := file.Close()
++		if err != nil {
++			return nil, err
++		}
++		if closeErr != nil {
++			return nil, refuse(GateContentRead, "cannot close sparse patterns")
++		}
++		tree.SparsePatterns = &descriptor
++	}
++	// Re-open through the same guard: missing/unreadable bytes never count as an
++	// absent optional file. Store installs are inert if this closing check fails.
++	for name, descriptor := range captured {
++		file, err := guard.Open(rootHandle, name)
++		if err != nil {
++			return nil, refuse(GateContentRead, "cannot re-read captured file")
++		}
++		hash := sha256.New()
++		n, readErr := io.Copy(hash, &contextReader{ctx: ctx, reader: file})
++		closeErr := file.Close()
++		if readErr != nil || closeErr != nil {
++			return nil, refuse(GateContentRead, "captured file re-read failed")
++		}
++		if uint64(n) != descriptor.Size || digestHex(hash.Sum(nil)) != descriptor.BlobID {
++			return nil, refuse(GateConsistency, "included file changed during capture")
++		}
++	}
++	for name, target := range symlinks {
++		current, err := os.Readlink(filepath.Join(root, filepath.FromSlash(name)))
++		if err != nil || current != target {
++			return nil, refuse(GateConsistency, "symlink changed during capture")
++		}
++		if err := safeSymlink(root, name, current); err != nil {
++			return nil, err
++		}
++	}
++	sort.Slice(tree.Entries, func(i, j int) bool { return tree.Entries[i]["path"].(string) < tree.Entries[j]["path"].(string) })
++	rawEntries, err := json.Marshal(tree.Entries)
++	if err != nil {
++		return nil, refuse(GateContentPath, "cannot encode content entries")
++	}
++	if err := canonicaljson.CheckManifestEntries(rawEntries); err != nil {
++		return nil, refuse(GateContentPath, "content entries violate the manifest contract")
++	}
++	for class := range classes {
++		tree.ExcludedClasses = append(tree.ExcludedClasses, class)
++	}
++	sort.Strings(tree.ExcludedClasses)
++	if len(tree.ExcludedClasses) > 128 {
++		return nil, refuse(GateCapturePolicy, "exclusion class count exceeds 128")
++	}
++	return tree, nil
++}
++
++func nulPaths(raw []byte) ([]string, error) {
++	if len(raw) == 0 {
++		return nil, nil
++	}
++	if raw[len(raw)-1] != 0 {
++		return nil, refuse(GateContentRead, "partial path enumeration")
++	}
++	paths := strings.Split(string(raw[:len(raw)-1]), "\x00")
++	for _, name := range paths {
++		if _, err := scalar.ParseRelativePath(strings.TrimSuffix(name, "/")); err != nil {
++			return nil, refuse(GateContentPath, "invalid enumerated path")
++		}
++	}
++	return paths, nil
++}
++
++func safeSymlink(root, name, target string) error {
++	if !utf8.ValidString(target) || utf8.RuneCountInString(target) < 1 || utf8.RuneCountInString(target) > 4096 || strings.ContainsAny(target, "\\\x00") || path.IsAbs(target) {
++		return refuse(GateContentPath, "invalid symlink target")
++	}
++	joined := filepath.Join(root, filepath.FromSlash(path.Dir(name)), filepath.FromSlash(target))
++	if !pathWithin(root, joined) {
++		return refuse(GateContentPath, "symlink target escapes root")
++	}
++	// Resolve components without cleaning away a symlink/.. pair before
++	// filesystem inspection. Missing ordinary components are safe dangling
++	// targets; inaccessible components and cycles are not evidence of absence.
++	pending := strings.Split(path.Dir(name)+"/"+target, "/")
++	resolved := []string{}
++	hops := 0
++	for len(pending) > 0 {
++		component := pending[0]
++		pending = pending[1:]
++		if component == "" || component == "." {
++			continue
++		}
++		if component == ".." {
++			if len(resolved) == 0 {
++				return refuse(GateContentPath, "symlink resolves outside root")
++			}
++			resolved = resolved[:len(resolved)-1]
++			continue
++		}
++		candidate := filepath.Join(append([]string{root}, append(resolved, component)...)...)
++		info, err := os.Lstat(candidate)
++		if err != nil && !errors.Is(err, os.ErrNotExist) {
++			return refuse(GateContentRead, "symlink ancestor read failed")
++		}
++		if err == nil && info.Mode()&os.ModeSymlink != 0 {
++			hops++
++			if hops > 40 {
++				return refuse(GateContentPath, "symlink cycle or excessive chain")
++			}
++			next, err := os.Readlink(candidate)
++			if err != nil {
++				return refuse(GateContentRead, "symlink chain read failed")
++			}
++			if filepath.IsAbs(next) || strings.ContainsAny(next, "\\\x00") {
++				return refuse(GateContentPath, "symlink chain escapes root")
++			}
++			pending = append(strings.Split(next, "/"), pending...)
++			continue
++		}
++		resolved = append(resolved, component)
++	}
++	return nil
++}
++
++func digestHex(sum []byte) string { return "sha256:" + hex.EncodeToString(sum) }
++
++type contextReader struct {
++	ctx    context.Context
++	reader io.Reader
++}
++
++func (r *contextReader) Read(p []byte) (int, error) {
++	if err := r.ctx.Err(); err != nil {
++		return 0, err
++	}
++	return r.reader.Read(p)
++}
++
++// blob streams through fixed-size chunks and then rewinds the open file. The immutable
++// store remains the sole fsync/verification/install owner. A failed capture can
++// leave verified, unreferenced blobs; it never publishes a partial manifest.
++func (s *contentState) blob(ctx context.Context, source io.ReadSeeker, size int64, mediaType string) (BlobDescriptor, error) {
++	if size < 0 || size > maxBlobSize {
++		return BlobDescriptor{}, refuse(GateBlobLimit, "blob exceeds protocol 1.0.0 size bound")
++	}
++
++	descriptor := BlobDescriptor{Schema: "urn:ax:schema:blob", SchemaVersion: "1.0.0", MediaType: mediaType, DescriptorID: "sha256:" + strings.Repeat("0", 64), Chunks: []BlobChunk{}}
++	full := sha256.New()
++	buffer := make([]byte, chunkSize)
++	reader := &contextReader{ctx: ctx, reader: source}
++	for {
++		n, readErr := io.ReadFull(reader, buffer)
++		if readErr != nil && readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
++			return BlobDescriptor{}, refuse(GateContentRead, "blob read failed")
++		}
++		if n > 0 {
++			if descriptor.Size+uint64(n) > uint64(size) {
++				return BlobDescriptor{}, refuse(GateConsistency, "blob grew during capture")
++			}
++			part := buffer[:n]
++			sum := sha256.Sum256(part)
++			id := digestHex(sum[:])
++			parsed, _ := scalar.ParseDigest(id)
++			if err := s.installBlob(parsed, uint64(n), bytes.NewReader(part)); err != nil {
++				return BlobDescriptor{}, err
++			}
++
++			full.Write(part)
++			descriptor.Chunks = append(descriptor.Chunks, BlobChunk{Index: uint32(len(descriptor.Chunks)), Offset: descriptor.Size, Size: uint64(n), ChunkID: id})
++			descriptor.Size += uint64(n)
++		}
++		if readErr != nil {
++			break
++		}
++	}
++	if descriptor.Size != uint64(size) {
++		return BlobDescriptor{}, refuse(GateConsistency, "blob size changed during capture")
++	}
++	descriptor.BlobID = digestHex(full.Sum(nil))
++	id, _ := scalar.ParseDigest(descriptor.BlobID)
++	if _, err := source.Seek(0, io.SeekStart); err != nil {
++		return BlobDescriptor{}, refuse(GateContentRead, "blob source seek failed")
++	}
++	if err := s.installBlob(id, descriptor.Size, &contextReader{ctx: ctx, reader: source}); err != nil {
++		return BlobDescriptor{}, err
++	}
++	raw, _ := json.Marshal(descriptor)
++	identity, _, err := canonicaljson.CalculateObjectIdentity(raw)
++	if err != nil {
++		return BlobDescriptor{}, refuse(GateBlobInstall, "invalid blob descriptor")
++	}
++	descriptor.DescriptorID = identity.String()
++	raw, _ = json.Marshal(descriptor)
++	// Descriptor identity omits descriptor_id; its storage address instead hashes
++	// the complete representation, as required by the uninterpreted blob store.
++	sum := sha256.Sum256(raw)
++	rawID, _ := scalar.ParseDigest(digestHex(sum[:]))
++	if err := s.installBlob(rawID, uint64(len(raw)), bytes.NewReader(raw)); err != nil {
++		return BlobDescriptor{}, err
++	}
++	return descriptor, nil
++}
++
++func (s *contentState) installBlob(id scalar.Digest, size uint64, source io.Reader) error {
++	if _, err := s.options.Store.PutBlob(id, size, source); err != nil {
++		return refuse(GateBlobInstall, "immutable blob install failed")
++	}
++	return nil
++}
+diff --git a/internal/gitsnap/content_crash_test.go b/internal/gitsnap/content_crash_test.go
+new file mode 100644
+index 0000000..80470e0
+--- /dev/null
++++ b/internal/gitsnap/content_crash_test.go
+@@ -0,0 +1,75 @@
++package gitsnap
++
++import (
++	"context"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"runtime"
++	"testing"
++
++	"github.com/relux-works/agent-session-manager/internal/localstore"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++func openCrashStore(t *testing.T, home string) ContentOptions {
++	t.Helper()
++	platform := scalar.PlatformLinux
++	if runtime.GOOS == "darwin" {
++		platform = scalar.PlatformMacOS
++	}
++	if runtime.GOOS == "windows" {
++		platform = scalar.PlatformWindows
++	}
++	paths, err := localstore.ResolvePaths(localstore.ResolveRequest{Platform: platform, HomeDir: home, TemporaryDir: home})
++	if err != nil {
++		t.Fatal(err)
++	}
++	store, err := localstore.OpenObjectStore(paths)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return ContentOptions{Store: store}
++}
++func TestContentCrashAfterInstall(t *testing.T) {
++	if os.Getenv("AX_CAPTURE_CRASH_CHILD") == "1" {
++		options := openCrashStore(t, os.Getenv("AX_CAPTURE_STORE_HOME"))
++		runner := contentFaultRunner{Runner: ExecGitRunner{}, command: "rev-parse --path-format=absolute --git-path info/sparse-checkout", action: func() { os.Exit(73) }}
++		Capture(context.Background(), runner, os.Getenv("AX_CAPTURE_REPO"), options)
++		t.Fatal("crash point not reached")
++		return
++	}
++	root := initLiveRepo(t)
++	home := t.TempDir()
++	options := openCrashStore(t, home)
++	gitRun(t, root, "sparse-checkout", "set", "src")
++	exe, err := os.Executable()
++	if err != nil {
++		t.Fatal(err)
++	}
++	command := exec.Command(exe, "-test.run=^TestContentCrashAfterInstall$", "-test.count=1")
++	command.Env = append(os.Environ(), "AX_CAPTURE_CRASH_CHILD=1", "AX_CAPTURE_STORE_HOME="+home, "AX_CAPTURE_REPO="+root)
++	output, err := command.CombinedOutput()
++	exit, ok := err.(*exec.ExitError)
++	if !ok || exit.ExitCode() != 73 {
++		t.Fatalf("expected crash exit 73; err=%v output=%s", err, output)
++	}
++	t.Log("child capture exited 73 at the post-install/pre-result crash point (expected failure)")
++	value := captureContent(t, root, options)
++	entry := entriesByPath(value.Content)["README.md"]
++	if string(storedBytes(t, options, entry["blob_id"].(string))) != "base\n" {
++		t.Fatal("recovery bytes differ")
++	}
++	err = filepath.WalkDir(options.Store.DataRoot(), func(name string, entry os.DirEntry, err error) error {
++		if err != nil {
++			return err
++		}
++		if !entry.IsDir() && len(entry.Name()) >= 17 && entry.Name()[:17] == ".ax-object-stage-" {
++			t.Error("staged blob leaked")
++		}
++		return nil
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++}
+diff --git a/internal/gitsnap/content_fixture_test.go b/internal/gitsnap/content_fixture_test.go
+new file mode 100644
+index 0000000..9a568a2
+--- /dev/null
++++ b/internal/gitsnap/content_fixture_test.go
+@@ -0,0 +1,136 @@
++package gitsnap
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/json"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"regexp"
++	"strings"
++	"testing"
++)
++
++// The real repositories are created from the exact pinned Section 10.4 pack,
++// raw index, and working-byte corpus. Packs are imported into separate object
++// databases. This is a capture test, not an implementation of materialization.
++func TestContentNormativeWorkspaceBytes(t *testing.T) {
++	source, err := os.ReadFile("../specdoc/SPEC.md")
++	if err != nil {
++		t.Fatal(err)
++	}
++	hash := sha256.Sum256(source)
++	if digestHex(hash[:]) != "sha256:562546d240f0fa3e71b47e6359a002f9892c0efd97e19eb55917527552ac484a" {
++		t.Fatal("source is not the pinned specification")
++	}
++	var corpus struct {
++		Fixture  string `json:"fixture"`
++		Parent   string `json:"parent_commit"`
++		Child    string `json:"child_commit"`
++		Payloads []struct {
++			Label  string `json:"label"`
++			Base64 string `json:"base64url"`
++			Blob   string `json:"blob_id"`
++		} `json:"payloads"`
++	}
++	found := false
++	for _, match := range regexp.MustCompile("(?s)~~~json\\n(.*?)\\n~~~").FindAllSubmatch(source, -1) {
++		var tag struct {
++			Fixture string `json:"fixture"`
++		}
++		if json.Unmarshal(match[1], &tag) == nil && tag.Fixture == "ax-git-workspace-v1" {
++			if err := json.Unmarshal(match[1], &corpus); err != nil {
++				t.Fatal(err)
++			}
++			found = true
++			break
++		}
++	}
++	if !found {
++		t.Fatal("normative corpus not found")
++	}
++	payloads := map[string][]byte{}
++	ids := map[string]string{}
++	for _, p := range corpus.Payloads {
++		raw, err := base64.RawURLEncoding.DecodeString(p.Base64)
++		if err != nil {
++			t.Fatal(err)
++		}
++		sum := sha256.Sum256(raw)
++		if digestHex(sum[:]) != p.Blob {
++			t.Fatal("payload digest mismatch")
++		}
++		payloads[p.Label] = raw
++		ids[p.Label] = p.Blob
++	}
++	root := initLiveRepo(t)
++	child := filepath.Join(root, "vendor/lib")
++	if err := os.MkdirAll(child, 0755); err != nil {
++		t.Fatal(err)
++	}
++	gitRun(t, child, "init", "-q", "-b", "main")
++	gitRun(t, child, "remote", "add", "origin", "ssh://git@github.com/relux/lib.git")
++	for _, repo := range []struct{ dir, prefix, head string }{{root, "parent", corpus.Parent}, {child, "child", corpus.Child}} {
++		command := exec.Command("git", "index-pack", "--stdin")
++		command.Dir = repo.dir
++		command.Env = isolatedGitEnv()
++		command.Stdin = bytes.NewReader(payloads[repo.prefix+"_pack"])
++		if output, err := command.CombinedOutput(); err != nil {
++			t.Fatalf("index-pack: %v %s", err, output)
++		}
++		gitRun(t, repo.dir, "update-ref", "refs/heads/main", strings.TrimPrefix(repo.head, "sha1:"))
++		writeContent(t, repo.dir, ".git/index", payloads[repo.prefix+"_index"])
++	}
++	files := map[string]string{"AGENTS.md": "agent_file", "README.md": "working_file", "notes.txt": "notes_file", ".gitmodules": "gitmodules_file", "vendor/lib/README.md": "child_file"}
++	for name, label := range files {
++		writeContent(t, root, name, payloads[label])
++	}
++	if err := os.MkdirAll(filepath.Join(root, "src"), 0755); err != nil {
++		t.Fatal(err)
++	}
++	options := contentOptions(t)
++	value := captureContent(t, root, options)
++	parentEntries := entriesByPath(value.Content)
++	childEntries := entriesByPath(value.Content.Submodules[0].State.Content)
++	for name, label := range files {
++		entry := parentEntries[name]
++		if name == "vendor/lib/README.md" {
++			entry = childEntries["README.md"]
++		}
++		if entry == nil || entry["blob_id"] != ids[label] {
++			t.Fatalf("%s differs from pinned working-byte corpus", name)
++		}
++		if !bytes.Equal(storedBytes(t, options, entry["blob_id"].(string)), payloads[label]) {
++			t.Fatal("stored fixture differs")
++		}
++	}
++	if value.Content.Submodules[0].GitlinkOID != corpus.Child || *value.Head.OID != corpus.Parent {
++		t.Fatal("fixture pointers differ")
++	}
++}
++
++func TestContentExcludedSubmoduleCannotBypassPolicy(t *testing.T) {
++	root, _ := submoduleRepo(t)
++	options := contentOptions(t)
++	options.Exclude = map[string]string{"vendor": "credential"}
++	value, err := Capture(context.Background(), ExecGitRunner{}, root, options)
++	requireRefusal(t, err, GateCapturePolicy)
++	if value != nil {
++		t.Fatal("excluded child captured")
++	}
++}
++
++func TestContentSparseReadFailure(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	gitRun(t, root, "sparse-checkout", "set", "src")
++	sparse := strings.TrimSpace(gitRun(t, root, "rev-parse", "--path-format=absolute", "--git-path", "info/sparse-checkout"))
++	if err := os.Remove(sparse); err != nil {
++		t.Fatal(err)
++	}
++	_, err := Capture(context.Background(), ExecGitRunner{}, root, options)
++	requireRefusal(t, err, GateContentRead)
++}
+diff --git a/internal/gitsnap/content_test.go b/internal/gitsnap/content_test.go
+new file mode 100644
+index 0000000..e422897
+--- /dev/null
++++ b/internal/gitsnap/content_test.go
+@@ -0,0 +1,542 @@
++package gitsnap
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"fmt"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"runtime"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/relux-works/agent-session-manager/internal/canonicaljson"
++	"github.com/relux-works/agent-session-manager/internal/localstore"
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++)
++
++func contentOptions(t *testing.T) ContentOptions {
++	t.Helper()
++	platform := scalar.PlatformLinux
++	if runtime.GOOS == "darwin" {
++		platform = scalar.PlatformMacOS
++	}
++	if runtime.GOOS == "windows" {
++		platform = scalar.PlatformWindows
++	}
++	paths, err := localstore.ResolvePaths(localstore.ResolveRequest{Platform: platform, HomeDir: t.TempDir(), TemporaryDir: t.TempDir()})
++	if err != nil {
++		t.Fatal(err)
++	}
++	store, err := localstore.OpenObjectStore(paths)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return ContentOptions{Store: store}
++}
++func writeContent(t *testing.T, root, name string, data []byte) {
++	t.Helper()
++	native := filepath.Join(root, filepath.FromSlash(name))
++	if err := os.MkdirAll(filepath.Dir(native), 0755); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(native, data, 0644); err != nil {
++		t.Fatal(err)
++	}
++}
++func captureContent(t *testing.T, root string, options ContentOptions) *Snapshot {
++	t.Helper()
++	value, err := Capture(context.Background(), ExecGitRunner{}, root, options)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if value.Content == nil {
++		t.Fatal("content capture was bypassed")
++	}
++	return value
++}
++func entriesByPath(content *Content) map[string]map[string]any {
++	result := map[string]map[string]any{}
++	for _, entry := range content.Entries {
++		result[entry["path"].(string)] = entry
++	}
++	return result
++}
++func storedBytes(t *testing.T, options ContentOptions, id string) []byte {
++	t.Helper()
++	parsed, err := scalar.ParseDigest(id)
++	if err != nil {
++		t.Fatal(err)
++	}
++	relative, err := localstore.DigestPathV1(parsed, localstore.PathStylePOSIX)
++	if err != nil {
++		t.Fatal(err)
++	}
++	data, err := os.ReadFile(filepath.Join(options.Store.DataRoot(), "objects", filepath.FromSlash(relative)))
++	if err != nil {
++		t.Fatal(err)
++	}
++	return data
++}
++
++func TestContentCaptureSelectionAndBytes(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	writeContent(t, root, ".gitignore", []byte("build/\nAGENTS.local.md\n"))
++	writeContent(t, root, "README.md", []byte("staged\n"))
++	gitRun(t, root, "add", "README.md")
++	writeContent(t, root, "README.md", []byte("working\n"))
++	writeContent(t, root, "notes.txt", []byte("notes\n"))
++	writeContent(t, root, "AGENTS.local.md", []byte("project rules\n"))
++	writeContent(t, root, "build/output", []byte("build bytes"))
++	writeContent(t, root, "auth.json", []byte("excluded auth"))
++	writeContent(t, root, "private/runtime", []byte("local bytes"))
++	writeContent(t, root, "nested/tool.lock", []byte("live lock"))
++	options.IncludeIgnored = map[string]bool{"AGENTS.local.md": true, "auth.json": true}
++	options.Exclude = map[string]string{"private": "terminal_runtime", "nested/tool.lock": "transient_lock"}
++	writeContent(t, root, "Cargo.lock", []byte("dependency versions"))
++	value := captureContent(t, root, options)
++	entries := entriesByPath(value.Content)
++	for _, name := range []string{"README.md", "AGENTS.md", "notes.txt", "AGENTS.local.md", ".gitignore", "nested", "Cargo.lock"} {
++		if entries[name] == nil {
++			t.Errorf("missing %s", name)
++		}
++	}
++	for _, name := range []string{"build", "build/output", "auth.json", "private", "nested/tool.lock", ".git"} {
++		if entries[name] != nil {
++			t.Errorf("excluded %s captured", name)
++		}
++	}
++	for name, want := range map[string]string{"README.md": "working\n", "notes.txt": "notes\n", "AGENTS.local.md": "project rules\n"} {
++		if got := string(storedBytes(t, options, entries[name]["blob_id"].(string))); got != want {
++			t.Errorf("%s bytes=%q", name, got)
++		}
++	}
++	if len(value.Staged) != 1 || len(value.Unstaged) != 1 {
++		t.Fatalf("lost staged/unstaged distinction: %+v %+v", value.Staged, value.Unstaged)
++	}
++	classes := strings.Join(value.Content.ExcludedClasses, ",")
++	for _, class := range []string{"credential", "ignored", "terminal_runtime", "transient_lock", "git_metadata"} {
++		if !strings.Contains(classes, class) {
++			t.Errorf("missing class %s", class)
++		}
++	}
++	for _, descriptor := range value.Content.Blobs {
++		raw, _ := json.Marshal(descriptor)
++		if _, _, err := canonicaljson.VerifyObjectIdentity(raw); err != nil {
++			t.Fatal(err)
++		}
++	}
++}
++
++func TestContentIgnoredDefaultAndPolicyRefusal(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	writeContent(t, root, ".gitignore", []byte("ignored/\n"))
++	writeContent(t, root, "ignored/allow", []byte("yes"))
++	writeContent(t, root, "ignored/deny", []byte("no"))
++	if entriesByPath(captureContent(t, root, options).Content)["ignored"] != nil {
++		t.Fatal("ignored directory included by default")
++	}
++	options.IncludeIgnored = map[string]bool{"ignored/allow": true}
++	entries := entriesByPath(captureContent(t, root, options).Content)
++	if entries["ignored/allow"] == nil || entries["ignored/deny"] != nil {
++		t.Fatal("ignored include scope widened")
++	}
++	options.IncludeIgnored["ignored/allow"] = false
++	value, err := Capture(context.Background(), ExecGitRunner{}, root, options)
++	requireRefusal(t, err, GateCapturePolicy)
++	if value != nil {
++		t.Fatal("partial capture")
++	}
++}
++
++func TestContentSymlinks(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	for name, target := range map[string]string{"current": "README.md", "dangling": "absent", "nested/up": "../README.md"} {
++		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755); err != nil {
++			t.Fatal(err)
++		}
++		if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
++			t.Fatal(err)
++		}
++	}
++	entries := entriesByPath(captureContent(t, root, options).Content)
++	if entries["current"]["target"] != "README.md" || entries["dangling"]["target"] != "absent" || entries["nested/up"]["target"] != "../README.md" {
++		t.Fatal("symlink targets not preserved")
++	}
++	for _, target := range []string{"../outside", "/etc/passwd"} {
++		t.Run(target, func(t *testing.T) {
++			if err := os.Symlink(target, filepath.Join(root, "escape")); err != nil {
++				t.Fatal(err)
++			}
++			defer os.Remove(filepath.Join(root, "escape"))
++			_, err := Capture(context.Background(), ExecGitRunner{}, root, options)
++			requireRefusal(t, err, GateContentPath)
++		})
++	}
++}
++
++func TestContentLargeBlobChunksAndLimit(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	data := bytes.Repeat([]byte{0, 1, 2, 3}, chunkSize/2+1)
++	writeContent(t, root, "large.bin", data)
++	writeContent(t, root, "empty", nil)
++	value := captureContent(t, root, options)
++	entries := entriesByPath(value.Content)
++	if !bytes.Equal(storedBytes(t, options, entries["large.bin"]["blob_id"].(string)), data) {
++		t.Fatal("large bytes differ")
++	}
++	for _, descriptor := range value.Content.Blobs {
++		if descriptor.BlobID == entries["large.bin"]["blob_id"] {
++			if len(descriptor.Chunks) != 3 || descriptor.Chunks[2].Size != 4 || descriptor.Chunks[2].Offset != 2*chunkSize {
++				t.Fatalf("chunks=%+v", descriptor.Chunks)
++			}
++		}
++		if descriptor.BlobID == entries["empty"]["blob_id"] && len(descriptor.Chunks) != 0 {
++			t.Fatal("empty blob has chunks")
++		}
++	}
++	if err := os.Truncate(filepath.Join(root, "large.bin"), maxBlobSize+1); err != nil {
++		t.Fatal(err)
++	}
++	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
++	defer cancel()
++	value, err := Capture(ctx, ExecGitRunner{}, root, options)
++	requireRefusal(t, err, GateBlobLimit)
++	if value != nil {
++		t.Fatal("partial oversize capture")
++	}
++}
++
++type contentFaultRunner struct {
++	Runner
++	command string
++	result  GitResult
++	action  func()
++}
++
++func (r contentFaultRunner) Run(ctx context.Context, root string, args ...string) (GitResult, error) {
++	if strings.Join(args, " ") == r.command {
++		if r.action != nil {
++			r.action()
++		}
++		return r.result, nil
++	}
++	return r.Runner.Run(ctx, root, args...)
++}
++func TestContentReadFailureIsNotAbsence(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	for _, result := range []GitResult{{ExitCode: 128}, {ExitCode: 0, Stdout: []byte("partial")}} {
++		runner := contentFaultRunner{Runner: ExecGitRunner{}, command: "ls-files --others --ignored --exclude-standard --directory -z", result: result}
++		value, err := Capture(context.Background(), runner, root, options)
++		requireRefusal(t, err, GateContentRead)
++		if value != nil {
++			t.Fatal("partial snapshot")
++		}
++	}
++	captureContent(t, root, options)
++}
++func TestContentBlobInstallFailureAndRetry(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	objects := filepath.Join(options.Store.DataRoot(), "objects")
++	if err := os.Chmod(objects, 0755); err != nil {
++		t.Fatal(err)
++	}
++	value, err := Capture(context.Background(), ExecGitRunner{}, root, options)
++	requireRefusal(t, err, GateBlobInstall)
++	if value != nil {
++		t.Fatal("failed install returned snapshot")
++	}
++	if err := os.Chmod(objects, 0700); err != nil {
++		t.Fatal(err)
++	}
++	first := captureContent(t, root, options)
++	second := captureContent(t, root, options)
++	a, _ := json.Marshal(first)
++	b, _ := json.Marshal(second)
++	if !bytes.Equal(a, b) {
++		t.Fatal("retry not idempotent")
++	}
++}
++func TestContentSparseLinkedWorktree(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	writeContent(t, root, "present/a", []byte("present"))
++	writeContent(t, root, "absent/b", []byte("absent"))
++	gitRun(t, root, "add", ".")
++	gitRun(t, root, "commit", "-qm", "directories")
++	linked := filepath.Join(t.TempDir(), "linked")
++	gitRun(t, root, "worktree", "add", "-b", "sparse", linked)
++	gitRun(t, linked, "sparse-checkout", "set", "present")
++	value := captureContent(t, linked, options)
++	entries := entriesByPath(value.Content)
++	if entries["present/a"] == nil || entries["absent/b"] != nil {
++		t.Fatal("sparse working bytes incorrect")
++	}
++	if value.Content.SparsePatterns == nil || !value.Features.SparseCheckout {
++		t.Fatal("missing sparse patterns")
++	}
++	patterns := storedBytes(t, options, value.Content.SparsePatterns.BlobID)
++	if !bytes.Contains(patterns, []byte("present")) {
++		t.Fatal("wrong worktree patterns")
++	}
++	if value.Worktree.GitDir == value.Worktree.CommonDir {
++		t.Fatal("linked worktree metadata collapsed")
++	}
++}
++
++func submoduleRepo(t *testing.T) (string, string) {
++	t.Helper()
++	root := initLiveRepo(t)
++	source := initLiveRepo(t)
++	gitRun(t, root, "-c", "protocol.file.allow=always", "submodule", "add", source, "vendor/lib")
++	child := filepath.Join(root, "vendor/lib")
++	gitRun(t, root, "config", "--file", ".gitmodules", "submodule.vendor/lib.url", "ssh://git@github.com/relux/lib.git")
++	gitRun(t, child, "remote", "set-url", "origin", "ssh://git@github.com/relux/lib.git")
++	gitRun(t, root, "add", ".gitmodules", "vendor/lib")
++	gitRun(t, root, "commit", "-qm", "submodule")
++	return root, child
++}
++func TestContentSubmodulePointerStates(t *testing.T) {
++	for _, shape := range []string{"clean", "staged", "unstaged", "combined"} {
++		t.Run(shape, func(t *testing.T) {
++			root, child := submoduleRepo(t)
++			options := contentOptions(t)
++			base := strings.TrimSpace(gitRun(t, child, "rev-parse", "HEAD"))
++			indexOID := base
++			headOID := base
++			advance := func(label string) string {
++				writeContent(t, child, "README.md", []byte(label))
++				gitRun(t, child, "add", "README.md")
++				gitRun(t, child, "commit", "-qm", label)
++				return strings.TrimSpace(gitRun(t, child, "rev-parse", "HEAD"))
++			}
++			if shape == "staged" || shape == "combined" {
++				indexOID = advance("staged child")
++				headOID = indexOID
++				gitRun(t, root, "add", "vendor/lib")
++			}
++			if shape == "unstaged" || shape == "combined" {
++				headOID = advance("unstaged child")
++			}
++			writeContent(t, child, "notes", []byte("child untracked"))
++			writeContent(t, child, "README.md", []byte("child dirty"))
++			value := captureContent(t, root, options)
++			if len(value.Content.Submodules) != 1 {
++				t.Fatal("missing child")
++			}
++			sub := value.Content.Submodules[0]
++			if !sub.Initialized || sub.GitlinkOID != "sha1:"+indexOID || sub.State.Head.OID == nil || *sub.State.Head.OID != "sha1:"+headOID {
++				t.Fatalf("pointer state %+v", sub)
++			}
++			if entriesByPath(sub.State.Content)["notes"] == nil || entriesByPath(value.Content)["vendor/lib/notes"] != nil {
++				t.Fatal("child boundary lost")
++			}
++			if got := strings.TrimSpace(gitRun(t, root, "ls-tree", "HEAD", "vendor/lib")); !strings.Contains(got, base) {
++				t.Fatal("parent HEAD pointer changed")
++			}
++		})
++	}
++}
++func TestContentSubmoduleUninitializedAndRefusals(t *testing.T) {
++	root, child := submoduleRepo(t)
++	options := contentOptions(t)
++	gitRun(t, root, "submodule", "deinit", "-f", "vendor/lib")
++	value := captureContent(t, root, options)
++	sub := value.Content.Submodules[0]
++	if sub.Initialized || sub.State != nil {
++		t.Fatal("uninitialized state invented")
++	}
++	writeContent(t, child, "stray", []byte("unrepresented"))
++	_, err := Capture(context.Background(), ExecGitRunner{}, root, options)
++	requireRefusal(t, err, GateSubmoduleState)
++	os.Remove(filepath.Join(child, "stray"))
++	gitRun(t, root, "config", "--file", ".gitmodules", "submodule.vendor/lib.url", "https://user:secret@example.com/lib.git")
++	_, err = Capture(context.Background(), ExecGitRunner{}, root, options)
++	requireRefusal(t, err, GateSubmoduleState)
++}
++
++func TestContentSymlinkChainsAndExcludedTargets(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	if err := os.Symlink("missing", filepath.Join(root, "chain-end")); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.Symlink("chain-end", filepath.Join(root, "chain-start")); err != nil {
++		t.Fatal(err)
++	}
++	captureContent(t, root, options)
++	outside := t.TempDir()
++	writeContent(t, outside, "secret", []byte("outside bytes"))
++	if err := os.Symlink(outside, filepath.Join(root, "outside")); err != nil {
++		t.Fatal(err)
++	}
++	options.Exclude = map[string]string{"outside": "machine_local"}
++	if err := os.Symlink("outside/secret", filepath.Join(root, "escape-chain")); err != nil {
++		t.Fatal(err)
++	}
++	value, err := Capture(context.Background(), ExecGitRunner{}, root, options)
++	requireRefusal(t, err, GateContentPath)
++	if value != nil {
++		t.Fatal("outside symlink admitted")
++	}
++}
++
++func TestContentLocalPathOwnerExclusions(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	platform := scalar.PlatformLinux
++	if runtime.GOOS == "darwin" {
++		platform = scalar.PlatformMacOS
++	}
++	if runtime.GOOS == "windows" {
++		platform = scalar.PlatformWindows
++	}
++	paths, err := localstore.ResolvePaths(localstore.ResolveRequest{Platform: platform, HomeDir: root, TemporaryDir: root})
++	if err != nil {
++		t.Fatal(err)
++	}
++	options.LocalPaths = &paths
++	for _, p := range paths.Paths() {
++		name := p.Value.String()
++		if p.Class != localstore.PathConfig {
++			name = filepath.Join(name, "sensitive")
++		}
++		rel, err := filepath.Rel(root, name)
++		if err != nil {
++			t.Fatal(err)
++		}
++		writeContent(t, root, filepath.ToSlash(rel), []byte("machine local"))
++	}
++	value := captureContent(t, root, options)
++	for _, entry := range value.Content.Entries {
++		for _, p := range paths.Paths() {
++			if pathWithin(p.Value.String(), filepath.Join(root, entry["path"].(string))) {
++				t.Fatal("AX local path copied")
++			}
++		}
++	}
++	if !strings.Contains(strings.Join(value.Content.ExcludedClasses, ","), "machine_local") {
++		t.Fatal("missing exclusion evidence")
++	}
++}
++
++func TestContentDigestRaceAndRetry(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	gitRun(t, root, "update-index", "--assume-unchanged", "README.md")
++	gitRun(t, root, "sparse-checkout", "set", "src")
++	sparse := gitRun(t, root, "rev-parse", "--path-format=absolute", "--git-path", "info/sparse-checkout")
++	fired := false
++	runner := contentFaultRunner{Runner: ExecGitRunner{}, command: "rev-parse --path-format=absolute --git-path info/sparse-checkout", result: okResult(sparse), action: func() { fired = true; writeContent(t, root, "README.md", []byte("race\n")) }}
++	value, err := Capture(context.Background(), runner, root, options)
++	requireRefusal(t, err, GateConsistency)
++	if !fired || value != nil {
++		t.Fatal("race did not fire or partial capture")
++	}
++	captureContent(t, root, options)
++}
++
++func TestContentSubmoduleCountBounds(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	oid := strings.TrimSpace(gitRun(t, root, "rev-parse", "HEAD"))
++	var mappings, index strings.Builder
++	for i := 0; i < 256; i++ {
++		name := fmt.Sprintf("child-%03d", i)
++		fmt.Fprintf(&mappings, "[submodule \"%s\"]\n path = %s\n url = ssh://git@github.com/relux/lib.git\n", name, name)
++		fmt.Fprintf(&index, "160000 %s\t%s\n", oid, name)
++	}
++	writeContent(t, root, ".gitmodules", []byte(mappings.String()))
++	gitRun(t, root, "add", ".gitmodules")
++	updateIndex := func(raw string) {
++		command := exec.Command("git", "update-index", "--index-info")
++		command.Dir = root
++		command.Env = isolatedGitEnv()
++		command.Stdin = strings.NewReader(raw)
++		if output, err := command.CombinedOutput(); err != nil {
++			t.Fatalf("update-index: %v %s", err, output)
++		}
++	}
++	updateIndex(index.String())
++	value := captureContent(t, root, options)
++	if len(value.Content.Submodules) != 256 {
++		t.Fatal("lost uninitialized submodules")
++	}
++	updateIndex(fmt.Sprintf("160000 %s\tchild-256\n", oid))
++	_, err := Capture(context.Background(), ExecGitRunner{}, root, options)
++	refusal := requireRefusal(t, err, GateSubmoduleState)
++	if !strings.Contains(refusal.Detail, "total") {
++		t.Fatal("count boundary masked by other refusal")
++	}
++}
++
++func TestContentRelativeSubmoduleURL(t *testing.T) {
++	root, _ := submoduleRepo(t)
++	options := contentOptions(t)
++	gitRun(t, root, "config", "--file", ".gitmodules", "submodule.vendor/lib.url", "../lib.git")
++	value := captureContent(t, root, options)
++	if value.Content.Submodules[0].SanitizedURL != "ssh://git@github.com/relux/lib.git" {
++		t.Fatal("relative URL not resolved against default remote")
++	}
++	gitRun(t, root, "remote", "add", "upstream", "https://example.com/team/parent.git")
++	gitRun(t, root, "config", "branch.main.remote", "upstream")
++	value = captureContent(t, root, options)
++	if value.Content.Submodules[0].SanitizedURL != "https://example.com/team/lib.git" {
++		t.Fatal("tracking remote ignored")
++	}
++	gitRun(t, root, "config", "branch.main.remote", ".")
++	_, err := Capture(context.Background(), ExecGitRunner{}, root, options)
++	requireRefusal(t, err, GateSubmoduleState)
++}
++
++func TestContentNestedDetachedSubmodule(t *testing.T) {
++	root, child := submoduleRepo(t)
++	source := initLiveRepo(t)
++	options := contentOptions(t)
++	gitRun(t, child, "-c", "protocol.file.allow=always", "submodule", "add", source, "nested")
++	grand := filepath.Join(child, "nested")
++	gitRun(t, child, "config", "--file", ".gitmodules", "submodule.nested.url", "ssh://git@github.com/relux/nested.git")
++	gitRun(t, grand, "remote", "set-url", "origin", "ssh://git@github.com/relux/nested.git")
++	gitRun(t, grand, "checkout", "--detach", "-q")
++	writeContent(t, grand, ".gitignore", []byte("AGENTS.local.md\n"))
++	writeContent(t, grand, "AGENTS.local.md", []byte("nested rules"))
++	writeContent(t, grand, "notes", []byte("nested untracked"))
++	options.IncludeIgnored = map[string]bool{"vendor/lib/nested/AGENTS.local.md": true}
++	value := captureContent(t, root, options)
++	sub := value.Content.Submodules[0].State.Content.Submodules[0]
++	if sub.State == nil || sub.State.Head.Mode != "detached" || sub.State.Head.Ref != nil {
++		t.Fatal("nested detached state lost")
++	}
++	entries := entriesByPath(sub.State.Content)
++	if entries["AGENTS.local.md"] == nil || entries["notes"] == nil {
++		t.Fatal("nested content policy lost")
++	}
++}
++
++func TestContentExclusionClassCountBounds(t *testing.T) {
++	root := initLiveRepo(t)
++	options := contentOptions(t)
++	options.Exclude = map[string]string{}
++	for i := 0; i < 127; i++ {
++		name := fmt.Sprintf("excluded-%03d", i)
++		writeContent(t, root, name, []byte("excluded"))
++		options.Exclude[name] = fmt.Sprintf("class-%03d", i)
++	}
++	value := captureContent(t, root, options)
++	if len(value.Content.ExcludedClasses) != 128 {
++		t.Fatal("wrong at-limit class count")
++	}
++	writeContent(t, root, "excluded-127", []byte("excluded"))
++	options.Exclude["excluded-127"] = "class-127"
++	_, err := Capture(context.Background(), ExecGitRunner{}, root, options)
++	requireRefusal(t, err, GateCapturePolicy)
++}
+diff --git a/internal/gitsnap/doc.go b/internal/gitsnap/doc.go
+index 2d82d53..6056a85 100644
+--- a/internal/gitsnap/doc.go
++++ b/internal/gitsnap/doc.go
+@@ -13,16 +13,14 @@
+ // canonical wire member. See testdata/string-domain-audit.md for every string
+ // field and the validation boundary.
+ //
+-// Scope boundary: this leaf owns repository identity, HEAD/ref, worktree
+-// metadata, index stages/flags, staged and unstaged deltas, and tracked
+-// file modes. It does not own object packs, raw index/pack blobs,
+-// untracked or ignored bytes, symlink targets, submodule recursion, or
+-// working-tree manifests; those belong to sibling leaves of the same
+-// story. Capture records the logical index entries and version but not
+-// the raw index blob, and records tracked-path stat kinds but not
+-// symlink targets or untracked paths. Anything outside that boundary is
+-// refused or omitted only as this document states, never silently
+-// substituted.
++// ContentOptions enables working-copy bytes, ignored-policy selection, symlink
++// targets, recursive submodules and sparse pattern blobs at the same Capture
++// entry. The existing localstore, secprim and canonicaljson owners perform
++// immutable installation, guarded file opens and descriptor/entry validation.
++// Without options Capture retains the accepted repository/index observation API;
++// a nil Content is explicitly not a complete workspace capture. Object packs,
++// raw-index blob delivery, wire root/child assembly and quiescence remain separate
++// work. See testdata/content-acceptance.md for scope, policy and evidence bounds.
+ //
+ // ExecGitRunner overrides inherited optional-lock settings and gives each
+ // porcelain diff a private index copy, removed when the command returns.
+@@ -34,9 +32,9 @@
+ // Capture compares HEAD mode/ref/OID, actual index path/file identity/digest
+ // and version, logical entries and both raw delta streams. These sentinels
+ // detect observed changes inside their read windows; they do not provide an
+-// atomic transaction, detect change-and-revert between reads, or hash all
+-// working-tree content. Quiescence and full content capture belong to the
+-// sibling/integration owners. A refusal returns no partial snapshot; retry
++// atomic transaction or detect change-and-revert between reads. With content
++// options, included files are hashed and re-read; full race/manifest closure and
++// quiescence remain sibling/integration responsibilities. A refusal returns no partial snapshot; retry
+ // after quiescence is supported.
+ //
+ // Refusal codes reuse the specification vocabulary (workspace_conflict,
+diff --git a/internal/gitsnap/gates.go b/internal/gitsnap/gates.go
+index a60de90..2714984 100644
+--- a/internal/gitsnap/gates.go
++++ b/internal/gitsnap/gates.go
+@@ -58,6 +58,12 @@ var gateRegistry = []Gate{
+ 	{Name: "GateWorktreeKind", Code: CodeCapabilityUnavailable, Clause: "12.1 tracked state is represented; devices, FIFOs, and sockets are unsupported"},
+ 	{Name: "GateConsistency", Code: CodeWorkspaceConflict, Clause: "12.3 fail when HEAD, index, or included file digests change during capture"},
+ 	{Name: "GateFeatures", Code: CodeIncompatibleSchema, Clause: "10.4 required_filter_names sorted unique string[0..64]"},
++	{Name: "GateCapturePolicy", Code: CodeCapabilityUnavailable, Clause: "12.1 ignored includes require non-secret classification; 16.2 exclusions"},
++	{Name: "GateContentRead", Code: CodeWorkspaceConflict, Clause: "12.3 unreadable content cannot establish capture"},
++	{Name: "GateContentPath", Code: CodeCapabilityUnavailable, Clause: "10.4 paths and symlinks stay within root"},
++	{Name: "GateSubmoduleState", Code: CodeIncompatibleSchema, Clause: "10.4 recursive submodule state, stage-0 pointers, 16 depth and 256 total"},
++	{Name: "GateBlobLimit", Code: CodeCapabilityUnavailable, Clause: "10.2 one blob is at most 128 GiB"},
++	{Name: "GateBlobInstall", Code: CodeWorkspaceConflict, Clause: "10.2 verified immutable blob installation before publication"},
+ }
+ 
+ // Refusal is the error Capture returns when a gate fires. Code carries
+@@ -101,3 +107,12 @@ var (
+ 	GateConsistency       = gateRegistry[15]
+ 	GateFeatures          = gateRegistry[16]
+ )
++
++var (
++	GateCapturePolicy  = gateRegistry[17]
++	GateContentRead    = gateRegistry[18]
++	GateContentPath    = gateRegistry[19]
++	GateSubmoduleState = gateRegistry[20]
++	GateBlobLimit      = gateRegistry[21]
++	GateBlobInstall    = gateRegistry[22]
++)
+diff --git a/internal/gitsnap/snapshot.go b/internal/gitsnap/snapshot.go
+index 948631a..2a756de 100644
+--- a/internal/gitsnap/snapshot.go
++++ b/internal/gitsnap/snapshot.go
+@@ -159,7 +159,21 @@ type Features struct {
+ // snapshot. The closing re-read refuses with GateConsistency when HEAD,
+ // the index, or either delta stream moved mid-capture; a retry after
+ // quiesce heals.
+-func Capture(ctx context.Context, runner Runner, dir string) (*Snapshot, error) {
++func Capture(ctx context.Context, runner Runner, dir string, content ...ContentOptions) (*Snapshot, error) {
++	var state *contentState
++	if len(content) > 1 {
++		return nil, refuse(GateCapturePolicy, "one content policy is required")
++	}
++	if len(content) == 1 {
++		state = &contentState{options: content[0], active: map[string]bool{}}
++		if err := state.validate(); err != nil {
++			return nil, err
++		}
++	}
++	return capture(ctx, runner, dir, state, "", 0)
++}
++
++func capture(ctx context.Context, runner Runner, dir string, state *contentState, prefix string, depth int) (*Snapshot, error) {
+ 	if runner == nil {
+ 		return nil, refuse(GateNotRepository, "nil runner captures no repository")
+ 	}
+@@ -230,6 +244,13 @@ func Capture(ctx context.Context, runner Runner, dir string) (*Snapshot, error)
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	var content *Content
++	if state != nil {
++		content, err = state.capture(ctx, runner, repo, entries, features, head, remotes, prefix, depth)
++		if err != nil {
++			return nil, err
++		}
++	}
+ 	if err := recheckConsistency(ctx, runner, dir, head, repo.objectFormat, version, indexState, indexBytes, stagedBytes, unstagedBytes); err != nil {
+ 		return nil, err
+ 	}
+@@ -246,6 +267,7 @@ func Capture(ctx context.Context, runner Runner, dir string) (*Snapshot, error)
+ 		Unstaged:           unstaged,
+ 		PathModes:          modes,
+ 		Features:           features,
++		Content:            content,
+ 	}, nil
+ }
+ 
+@@ -1105,6 +1127,7 @@ func digestSnapshot(value *Snapshot) string {
+ // Snapshot is an internal capture result, not a complete wire member.
+ // See doc.go for validated domains and the sibling-owned wire fields.
+ type Snapshot struct {
++	Content            *Content   `json:"content,omitempty"`
+ 	RepositoryIdentity string     `json:"repository_identity"`
+ 	Remotes            []Remote   `json:"remotes"`
+ 	Head               Head       `json:"head"`
+diff --git a/internal/gitsnap/submodules.go b/internal/gitsnap/submodules.go
+new file mode 100644
+index 0000000..3e7a6fa
+--- /dev/null
++++ b/internal/gitsnap/submodules.go
+@@ -0,0 +1,205 @@
++package gitsnap
++
++import (
++	"context"
++	"errors"
++	"os"
++	"path"
++	"path/filepath"
++	"sort"
++	"strings"
++
++	"github.com/relux-works/agent-session-manager/internal/scalar"
++	"github.com/relux-works/agent-session-manager/internal/secprim"
++)
++
++func (s *contentState) submodules(ctx context.Context, runner Runner, root string, links map[string]IndexEntry, head Head, remotes []Remote, prefix string, depth int) ([]Submodule, error) {
++	result := []Submodule{}
++	if len(links) == 0 {
++		return result, nil
++	}
++	if depth >= 16 || s.count+len(links) > 256 {
++		return nil, refuse(GateSubmoduleState, "submodule depth or total exceeds protocol bound")
++	}
++	s.count += len(links)
++	// Read only the working .gitmodules mapping. --no-includes prevents local
++	// include directives from turning this logical mapping into arbitrary config.
++	file, err := secprim.OpenNoFollowFile(filepath.Join(root, ".gitmodules"))
++	if err != nil {
++		return nil, refuse(GateSubmoduleState, "submodule mapping is missing or unsafe")
++	}
++	file.Close()
++	raw, fail := runOK(ctx, runner, root, "config", "--no-includes", "--file", ".gitmodules", "-z", "--get-regexp", `^submodule\..*\.(path|url)$`)
++	if fail != nil {
++		return nil, refuse(GateSubmoduleState, "submodule mapping read failed")
++	}
++	if len(raw) == 0 || raw[len(raw)-1] != 0 {
++		return nil, refuse(GateSubmoduleState, "partial submodule mapping")
++	}
++	type mapping struct{ name, url string }
++	byKey := map[string]*mapping{}
++	for _, record := range strings.Split(string(raw[:len(raw)-1]), "\x00") {
++		key, value, ok := strings.Cut(record, "\n")
++		if !ok {
++			return nil, refuse(GateSubmoduleState, "malformed submodule mapping")
++		}
++		dot := strings.LastIndexByte(key, '.')
++		if dot < 0 {
++			return nil, refuse(GateSubmoduleState, "malformed submodule mapping key")
++		}
++		section, field := key[:dot], key[dot+1:]
++		m := byKey[section]
++		if m == nil {
++			m = &mapping{}
++			byKey[section] = m
++		}
++		switch field {
++		case "path":
++			if m.name != "" {
++				return nil, refuse(GateSubmoduleState, "duplicate submodule path mapping")
++			}
++			m.name = value
++		case "url":
++			if m.url != "" {
++				return nil, refuse(GateSubmoduleState, "duplicate submodule URL mapping")
++			}
++			m.url = value
++		default:
++			return nil, refuse(GateSubmoduleState, "unexpected submodule mapping field")
++		}
++	}
++	byPath := map[string]string{}
++	for _, m := range byKey {
++		if _, err := scalar.ParseRelativePath(m.name); err != nil {
++			return nil, refuse(GateSubmoduleState, "invalid submodule path")
++		}
++		if _, ok := byPath[m.name]; ok {
++			return nil, refuse(GateSubmoduleState, "ambiguous submodule path")
++		}
++		byPath[m.name] = m.url
++	}
++	names := make([]string, 0, len(links))
++	for name := range links {
++		names = append(names, name)
++	}
++	sort.Strings(names)
++	for _, name := range names {
++		if s.excluded(root, name, prefix, os.ModeDir) != "" {
++			return nil, refuse(GateCapturePolicy, "required submodule is excluded by capture policy")
++		}
++		url, ok := byPath[name]
++		if !ok {
++			return nil, refuse(GateSubmoduleState, "gitlink has no mapping")
++		}
++		url, err = resolveSubmoduleURL(ctx, runner, root, url, head, remotes)
++		if err != nil {
++			return nil, err
++		}
++		parsed, err := scalar.ParseSanitizedGitURL(url)
++		if err != nil {
++			return nil, refuse(GateSubmoduleState, "submodule URL is not portable and sanitized")
++		}
++		identity, err := deriveIdentity([]Remote{{Name: "origin", FetchURL: parsed.String()}})
++		if err != nil {
++			return nil, err
++		}
++		sub := Submodule{Path: name, RepositoryIdentity: identity, SanitizedURL: parsed.String(), GitlinkOID: links[name].OID}
++		native := filepath.Join(root, filepath.FromSlash(name))
++		// Reject symlinked parents before probing Git, which would otherwise follow
++		// them into another checkout. The accepted index path grammar is lexical.
++		cursor := root
++		missing := false
++		for _, component := range strings.Split(name, "/") {
++			cursor = filepath.Join(cursor, component)
++			info, err := os.Lstat(cursor)
++			if errors.Is(err, os.ErrNotExist) {
++				missing = true
++				break
++			}
++			if err != nil {
++				return nil, refuse(GateContentRead, "submodule path read failed")
++			}
++			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
++				return nil, refuse(GateSubmoduleState, "unsafe submodule checkout path")
++			}
++		}
++		if !missing {
++			marker, err := os.Lstat(filepath.Join(native, ".git"))
++			if err != nil && !errors.Is(err, os.ErrNotExist) {
++				return nil, refuse(GateContentRead, "submodule initialization read failed")
++			}
++			if err == nil {
++				if marker.Mode()&os.ModeSymlink != 0 || (!marker.IsDir() && !marker.Mode().IsRegular()) {
++					return nil, refuse(GateSubmoduleState, "unsafe submodule Git marker")
++				}
++				child, err := capture(ctx, runner, native, s, path.Join(prefix, name), depth+1)
++				if err != nil {
++					return nil, err
++				}
++				if child.Head.Mode == "unborn" || child.Worktree.RepoRoot != native {
++					return nil, refuse(GateSubmoduleState, "initialized submodule has no own committed checkout")
++				}
++				sub.Initialized, sub.State = true, child
++			} else {
++				entries, readErr := os.ReadDir(native)
++				if readErr != nil {
++					return nil, refuse(GateContentRead, "uninitialized submodule read failed")
++				}
++				if len(entries) != 0 {
++					return nil, refuse(GateSubmoduleState, "uninitialized submodule contains unrepresented files")
++				}
++			}
++		}
++		result = append(result, sub)
++	}
++	return result, nil
++}
++
++// Git resolves ./ and ../ mappings as directories relative to the default
++// remote repository, not its parent. This reads tracking configuration without
++// running submodule init, which would mutate the user's repository config.
++func resolveSubmoduleURL(ctx context.Context, runner Runner, root, mapping string, head Head, remotes []Remote) (string, error) {
++	if !strings.HasPrefix(mapping, "./") && !strings.HasPrefix(mapping, "../") {
++		return mapping, nil
++	}
++	remoteName := "origin"
++	if head.Mode == "branch" {
++		result, err := readOptionalConfig(ctx, runner, root, "config", "--get", "branch."+strings.TrimPrefix(*head.Ref, "refs/heads/")+".remote")
++		if err != nil {
++			return "", err
++		}
++		if result.ExitCode == 0 {
++			remoteName = strings.TrimSuffix(string(result.Stdout), "\n")
++		}
++	}
++	base := ""
++	for _, remote := range remotes {
++		if remote.Name == remoteName {
++			base = remote.FetchURL
++			break
++		}
++	}
++	if base == "" {
++		return "", refuse(GateSubmoduleState, "relative mapping has no portable default remote")
++	}
++	prefix, repoPath := "", ""
++	if scheme := strings.Index(base, "://"); scheme >= 0 {
++		slash := strings.Index(base[scheme+3:], "/")
++		if slash < 0 {
++			return "", refuse(GateSubmoduleState, "default remote has no repository path")
++		}
++		cut := scheme + 3 + slash
++		prefix, repoPath = base[:cut+1], base[cut+1:]
++	} else {
++		host, remotePath, ok := strings.Cut(base, ":")
++		if !ok {
++			return "", refuse(GateSubmoduleState, "default remote is machine-local")
++		}
++		prefix, repoPath = host+":", remotePath
++	}
++	resolved := path.Join(repoPath, mapping)
++	if resolved == ".." || strings.HasPrefix(resolved, "../") {
++		return "", refuse(GateSubmoduleState, "relative mapping escapes remote namespace")
++	}
++	return prefix + resolved, nil
++}
+diff --git a/internal/gitsnap/testdata/content-acceptance.md b/internal/gitsnap/testdata/content-acceptance.md
+new file mode 100644
+index 0000000..d64f90c
+--- /dev/null
++++ b/internal/gitsnap/testdata/content-acceptance.md
+@@ -0,0 +1,84 @@
++# Working-copy content capture acceptance
++
++Task TASK-260830-3m7m7w; parent STORY-260830-35dbcs. Normative source is
++agent-session-manager-spec v0.5.0, commit
++28bf96d7dd7ebf3cd9e2ccd91d35b8660699dd5c, §§10.2–10.4 and 12.1–12.3.
++The embedded document hash is checked by TestContentNormativeWorkspaceBytes.
++
++**7 of 7 scoped AC rows driven.** These are the seven content classes in this
++leaf's assignment, not seven discharged specification sections or complete
++workspace closure. Tests reside in the managed candidate; the owner commits
++only after independent review. Production entry is the internal
++`Capture(ctx, runner, directory, ContentOptions)` API. No CLI capture or doctor
++capability is advertised; omitting options returns only predecessor metadata.
++
++| AC row | Production call site | Named drivers |
++| --- | --- | --- |
++| Untracked bytes, with staged/working bytes distinct | Capture → contentState.capture → Guard.Open → blob → ObjectStore.PutBlob | TestContentCaptureSelectionAndBytes; TestContentNormativeWorkspaceBytes |
++| Ignored files only through classified project/provider includes | Capture → contentState.validate/capture | TestContentIgnoredDefaultAndPolicyRefusal; TestContentNestedDetachedSubmodule |
++| Symlink targets and containment | Capture → contentState.capture → safeSymlink; canonicaljson.CheckManifestEntries | TestContentSymlinks; TestContentSymlinkChainsAndExcludedTargets |
++| Submodule state and repository boundaries | Capture → contentState.submodules → capture (recursive) | TestContentSubmodulePointerStates (clean/staged/unstaged/combined); TestContentSubmoduleUninitializedAndRefusals; TestContentNestedDetachedSubmodule; TestContentSubmoduleCountBounds; TestContentRelativeSubmoduleURL |
++| Large blobs and protocol size refusal | Capture → contentState.blob → installBlob | TestContentLargeBlobChunksAndLimit; TestContentBlobInstallFailureAndRetry |
++| Sparse/linked worktrees | Capture → readRepository/readFeatures → contentState.capture | TestContentSparseLinkedWorktree; TestContentSparseReadFailure; predecessor TestCaptureLinkedWorktreeSubdirectory |
++| Mandatory exclusions and explicit owner policy | Capture → contentState.validate/excluded; submodules exclusion recheck | TestContentCaptureSelectionAndBytes; TestContentLocalPathOwnerExclusions; TestContentExcludedSubmoduleCannotBypassPolicy |
++
++Additional production refusal/recovery drivers:
++TestContentReadFailureIsNotAbsence (fatal and partial ignored census),
++TestContentDigestRaceAndRetry (same-size edit hidden from ordinary Git diff),
++TestContentBlobInstallFailureAndRetry (unsafe object shard ownership), and
++TestContentCrashAfterInstall (real child exit 73 after installs before result;
++fresh capture reuses verified objects). The child exit is expected failure,
++not a passing capture. No durable snapshot/manifest publication is performed.
++The existing localstore fault suite remains the owner of fsync/install crashes.
++
++## Shared boundaries and strings
++
++- Content entry maps have the exact directory/file/symlink Section 10.4 shape.
++  They use the same canonicaljson validator as Transfer Manifest identity.
++  CheckManifestEntries's 65536/65537 boundary is executed by its named test and
++  the declared-bound proof census. The shared owner checks sorting, overlap,
++  case folding, paths, modes, targets and field presence; the capture walker
++  checks live filesystem containment in addition.
++- Blob descriptors use exact schema/version, SHA-256 identities and 4 MiB chunks.
++  Data streams with fixed memory per file; no truncation or large-file omission.
++  Full byte-stream success is measured at 8 MiB + 4 bytes, and refusal is
++  measured on a real sparse file of 128 GiB + 1 byte. A full successful 128 GiB
++  transfer is not measured. Descriptor identity is verified through the shared
++  canonicaljson owner; a descriptor's raw stored representation has its own
++  byte digest, distinct from its omit-self descriptor identity.
++- New strings are normalized relative paths (scalar), literal entry/schema/MIME
++  tags, SHA-256 IDs (scalar plus canonicaljson), validated UTF-8 symlink targets
++  (canonicaljson plus live containment), and sanitized submodule URL/identity
++  (scalar and existing deriveIdentity). Native paths stay internal metadata.
++  Exclusion classes and include classifications are trusted policy configuration,
++  not evidence from the captured files. Policy root reads distinguish absence
++  from errors and normalize macOS aliases before comparison with Git roots.
++- The single selection owner handles all child prefixes. Built-in conventional
++  filename exclusions are bounded, not a comprehensive content scanner.
++  Arbitrarily named auth/runtime/control artifacts require explicit Exclude or
++  LocalPaths policy. A non-secret include cannot override an exclusion.
++  secprim.Redact is deliberately not used to attest payload confidentiality.
++- Relative submodule mappings follow the documented Git default-remote directory
++  rule (https://git-scm.com/docs/git-submodule). A missing/machine-local default
++  remote refuses instead of copying local config. Initialized child objects are
++  never queried via the parent object database. The pinned corpus test imports
++  its supplied packs into distinct databases; pack production is not claimed.
++
++## Evidence bounds
++
++Object-pack production, raw-index blob delivery, root/child manifest assembly,
++quiescence, end-to-end materialization, and full race/closure strengthening remain
++separate Story work. These types intentionally are not complete Git wire members.
++The existing private-index algorithm is unchanged. Its auxiliary shared-index
++mtime and hard-kill temp cleanup bounds remain in the predecessor review.
++Included bytes are checked before returning, but this is not an atomic snapshot
++and cannot detect change-and-revert between observations. A full adversarial
++filesystem substitution matrix, sparse-pattern changes after reading, every
++submodule grammar clause/depth combination, and native Linux/Windows execution
++are not established by this leaf's test count.
++
++Mutation vectors in content-mutations.json retain the gates while admitting
++selected rejected members. The task-scoped outcome contains actual compile and
++behavior exits, named failing tests, controls and every survivor bound. A source
++census count is only syntactic; it is not behavioral gate coverage. The neutral
++and known-bad controls must succeed before interpreting the battery.
+diff --git a/internal/gitsnap/testdata/content-mutations.json b/internal/gitsnap/testdata/content-mutations.json
+new file mode 100644
+index 0000000..4caeecb
+--- /dev/null
++++ b/internal/gitsnap/testdata/content-mutations.json
+@@ -0,0 +1,172 @@
++[
++  {
++    "name": "C-content-neutral-comment",
++    "file": "content.go",
++    "old": "",
++    "new": "\n// Neutral capture comment.\n",
++    "tests": [],
++    "positive": [],
++    "expect": "survive",
++    "bound": "Comment-only change has no runtime effect; the complete gitsnap suite executes.",
++    "full": false
++  },
++  {
++    "name": "C-content-bad-clear-entries",
++    "file": "content.go",
++    "old": "rawEntries, err := json.Marshal(tree.Entries)",
++    "new": "tree.Entries = nil\n rawEntries, err := json.Marshal(tree.Entries)",
++    "tests": [
++      "TestContentCaptureSelectionAndBytes"
++    ],
++    "positive": [],
++    "expect": "kill",
++    "bound": "",
++    "full": false
++  },
++  {
++    "name": "N-policy-admits-unclassified-allow",
++    "file": "content.go",
++    "old": "err != nil || !nonSecret",
++    "new": "err != nil || (!nonSecret && name != \"ignored/allow\")",
++    "tests": [
++      "TestContentIgnoredDefaultAndPolicyRefusal"
++    ],
++    "positive": [],
++    "expect": "kill",
++    "bound": "",
++    "full": false
++  },
++  {
++    "name": "N-read-admits-quiet-fatal128",
++    "file": "content.go",
++    "old": "if failure != nil {\n\t\treturn nil, refuse(GateContentRead, \"ignored-path enumeration failed\")",
++    "new": "if failure != nil && !strings.Contains(failure.Detail,\"exited 128\") {\n\t\treturn nil, refuse(GateContentRead, \"ignored-path enumeration failed\")",
++    "tests": [
++      "TestContentReadFailureIsNotAbsence"
++    ],
++    "positive": [],
++    "expect": "kill",
++    "bound": "",
++    "full": false
++  },
++  {
++    "name": "N-path-admits-escaping-chain",
++    "file": "content.go",
++    "old": "func safeSymlink(root, name, target string) error {",
++    "new": "func safeSymlink(root, name, target string) error {\n if name == \"escape-chain\" { return nil }",
++    "tests": [
++      "TestContentSymlinkChainsAndExcludedTargets"
++    ],
++    "positive": [],
++    "expect": "kill",
++    "bound": "Original safeSymlink and refusal tokens remain present; the full behavioral suite executes against a one-name early-return bypass.",
++    "full": true
++  },
++  {
++    "name": "N-submodule-admits-stray-uninitialized",
++    "file": "submodules.go",
++    "old": "if len(entries) != 0 {",
++    "new": "if len(entries) != 0 && !(len(entries)==1 && entries[0].Name()==\"stray\") {",
++    "tests": [
++      "TestContentSubmoduleUninitializedAndRefusals"
++    ],
++    "positive": [],
++    "expect": "kill",
++    "bound": "",
++    "full": false
++  },
++  {
++    "name": "N-blob-limit-admits-one-byte-over",
++    "file": "content.go",
++    "old": "size > maxBlobSize {",
++    "new": "size > maxBlobSize+1 {",
++    "tests": [
++      "TestContentLargeBlobChunksAndLimit"
++    ],
++    "positive": [],
++    "expect": "kill",
++    "bound": "",
++    "full": false
++  },
++  {
++    "name": "N-install-admits-shard-failure",
++    "file": "content.go",
++    "old": "if _, err := s.options.Store.PutBlob(id, size, source); err != nil {",
++    "new": "if _, err := s.options.Store.PutBlob(id, size, source); err != nil && !strings.Contains(err.Error(),\"create object shard\") {",
++    "tests": [
++      "TestContentBlobInstallFailureAndRetry"
++    ],
++    "positive": [],
++    "expect": "kill",
++    "bound": "",
++    "full": false
++  },
++  {
++    "name": "N-exclusion-admits-auth-json",
++    "file": "content.go",
++    "old": "case \".ssh\", \"auth.json\", \"credentials.json\", \".git-credentials\":",
++    "new": "case \".ssh\", \"credentials.json\", \".git-credentials\":",
++    "tests": [
++      "TestContentCaptureSelectionAndBytes"
++    ],
++    "positive": [],
++    "expect": "kill",
++    "bound": "",
++    "full": false
++  },
++  {
++    "name": "N-ignored-admits-deny",
++    "file": "content.go",
++    "old": "wanted := s.options.IncludeIgnored[path.Join(prefix, name)]",
++    "new": "wanted := s.options.IncludeIgnored[path.Join(prefix, name)] || name == \"ignored/deny\"",
++    "tests": [
++      "TestContentIgnoredDefaultAndPolicyRefusal"
++    ],
++    "positive": [],
++    "expect": "kill",
++    "bound": "",
++    "full": false
++  },
++  {
++    "name": "N-consistency-admits-five-byte-digest-change",
++    "file": "content.go",
++    "old": "uint64(n) != descriptor.Size || digestHex(hash.Sum(nil)) != descriptor.BlobID",
++    "new": "uint64(n) != descriptor.Size || (digestHex(hash.Sum(nil)) != descriptor.BlobID && descriptor.Size != 5)",
++    "tests": [
++      "TestContentDigestRaceAndRetry"
++    ],
++    "positive": [],
++    "expect": "kill",
++    "bound": "",
++    "full": false
++  },
++  {
++    "name": "N-submodule-exclusion-bypass",
++    "file": "submodules.go",
++    "old": "if s.excluded(root, name, prefix, os.ModeDir) != \"\" {",
++    "new": "if s.excluded(root, name, prefix, os.ModeDir) != \"\" && name != \"vendor/lib\" {",
++    "tests": [
++      "TestContentExcludedSubmoduleCannotBypassPolicy"
++    ],
++    "positive": [],
++    "expect": "kill",
++    "bound": "",
++    "full": false
++  },
++  {
++    "name": "N-entry-set-admits-65537",
++    "file": "../canonicaljson/manifest_entries.go",
++    "old": "\"entries\", 65536)",
++    "new": "\"entries\", 65537)",
++    "tests": [
++      "TestCheckManifestEntriesCountBounds"
++    ],
++    "positive": [
++      "TestCheckManifestEntriesUsesManifestOwner"
++    ],
++    "expect": "kill",
++    "bound": "Selected bound witness at shared CheckManifestEntries entry; Capture delegates its entry set to this owner.",
++    "full": false,
++    "package": "./internal/canonicaljson"
++  }
++]
