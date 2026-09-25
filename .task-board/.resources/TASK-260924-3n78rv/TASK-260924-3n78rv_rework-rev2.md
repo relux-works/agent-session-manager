@@ -1,0 +1,11 @@
+REWORK for TASK-260924-3n78rv, CR rev1 → rev2. Read `TASK-260924-3n78rv_review-verdict-rev1.md` first; it has two findings.
+
+1. **classification-text-axis-untested.** The brief required every event position, but `TestClassifyItemIgnoresPayloadText` sweeps only 5 carriers (tool_call, user_message, instruction_snapshot, usage, opaque_reasoning). A narrowing at `subagent_started` survives. Close the CLASS: DERIVE the carrier set from the closed Canonical Event kind vocabulary and the content-block type vocabulary in code. Iterate the production constants' source of truth, or the spec-derived list the package already validates against, plus an assertion that the derived set equals the spec's closed list at §13.14.1 line 10385. Never hand-list it. Sweep every event kind × every text-carrying field × every adversarial text class × every entry. Kill the reviewer's `subagent_started` narrowing and one more narrowing at a kind of your choosing, each ALONE.
+
+2. **stale-trunk-candidate.** Your `refresh-candidate` attempts failed for reasons outside your control:
+   - task-board #316: a refresh on a CLEAN worktree always fails with "persisting recovery intent";
+   - a later attempt left a recovery intent pinned to your mid-work tree, whose replay scratch was then deleted by the orchestrator's disk keeper (task-board #392).
+
+   The orchestrator has moved that unrecoverable intent aside (backup kept), so no intent exists now. Run `task-board worktree refresh-candidate TASK-260924-3n78rv` EXACTLY ONCE: after all your edits are complete, with the final uncommitted candidate, immediately before the handoff, and never on a clean worktree. If it refuses, record the typed refusal verbatim and stop; do not retry against a changed tree. After it succeeds, check the invariant: every trunk-only path in `git diff --name-only 0ca3e4c <new trunk>` must be blob-equal to the new trunk. Then rerun the tree-bound validation.
+
+Keep every held row unchanged. Run `GOOS=windows GOARCH=amd64 go vet ./...`, exact-tree hygiene through a scratch index including untracked files, the harness and the full configured suite. Keep the checklist current, then run `task-board handoff TASK-260924-3n78rv --role developer`. SCRATCH RULE: no /tmp. Canonical CLI: /Users/iv/.curator/global/bin/task-board. Model: muse-spark max. Reviewer: gpt-6-sol medium.
