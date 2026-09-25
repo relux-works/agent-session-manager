@@ -258,6 +258,18 @@ func checkExtensions(raw json.RawMessage) bool {
 // refused, exactly as the identity owner refuses it.
 const maxExtensionDepth = 256
 
+// CheckExtensionsClosed enforces the full closed extensions rule
+// for sibling packages: reverse-DNS keys (via the environ owner)
+// and values inside the AX common logical data model (integer
+// literals only, |n| <= 2^53-1, no fraction or exponent, nested
+// objects duplicate-free at every depth). It returns nil when the
+// member is closed, otherwise the refusal detail naming the failed
+// rule. It delegates to the single implementation below so the rule
+// keeps one owner.
+func CheckExtensionsClosed(raw json.RawMessage) error {
+	return checkExtensionsClosed(raw)
+}
+
 // checkExtensionsClosed enforces the full closed extensions rule:
 // reverse-DNS keys (via the environ owner) and values inside the AX
 // common logical data model (integer literals only, |n| <= 2^53-1,
@@ -415,6 +427,15 @@ func canonicalizeObject(object map[string]any) ([]byte, error) {
 		return nil, invalid("canonicalize clone bundle object: %v", err)
 	}
 	return canonical, nil
+}
+
+// OmitSelfDigest computes the JCS SHA-256 identity of members with
+// only the self field omitted, for sibling clone packages whose
+// schemas the canonicaljson closed-shape registry refuses by design
+// (see doc.go). It delegates to the single implementation below so
+// the digest construction keeps one owner.
+func OmitSelfDigest(members map[string]json.RawMessage, selfField string) (scalar.Digest, error) {
+	return omitSelfDigest(members, selfField)
 }
 
 // omitSelfDigest computes the JCS SHA-256 identity of members with

@@ -3,7 +3,26 @@
 > Institutional memory. Concise, factual, high-signal.
 > Newest entries first. One block per insight.
 
+## 2026-09-25
+
+### TASK-260830-1esv6u rev3 — chain binding, full enumeration, clause-edge decision
+
+- P1 (source-evidence-chain-mismatch): `Reconcile` binds every non-synthesized row's source-evidence digest to its own candidate's tier-1 raw and refuses swapped/foreign/missing/double-claimed digests with literal codes (missing scanned pre-build, double-claims censused before the per-row checks). Regression test `TestReconcileSourceEvidenceChainBinding` plus 3 gate rows and 4 narrowings, each killed alone; the relation class is oracle rule O9 with 4 rotating faults (~7.2k applications each).
+- P2 (reconciliation-product-not-enumerated): full product N=0..6 × 9 outcomes = 175,779 cells against the independent oracle, with per-shard executable assertions (count from vocabularies, vector uniqueness, all-9-outcomes per vector). Narrowing `N-t3-doublechain-prefix` is invisible on the N≤3 subset (exit 0 log attached) and killed by the N≥4 enumeration alone.
+- P2 (story-cases-have-no-clause-edges, orchestrator decision): no clause edges fabricated — the traceability clause extractor recognizes RFC 2119 keyword lines only and §13.14.2 yields zero (measured by running the extractor, not asserted). Five cases stay section-bound; `TestStoryFinalFidelityClauseEdgesWhereRepresentable` enforces edges wherever representable (positive control + plant). Registry bytes, digest `ab7b66cc...`, and README pins unchanged.
+- HARNESS INTEGRITY (own finding): four carried rows were misreported kills — `T-loss-branch` died at `go vet` and three tuple narrowings were syntax errors, so their killers never ran. Fixed (exact-misclassification T-row, parenthesized tuples); all 72 logs re-verified free of `build failed`. Every kill is now a behavioral test failure.
+- VALIDATION: full `go test ./... -count=1` exit 0 (51/51); 67-row harness 62 KILLED + 4 T KILLED (alone + suite) + 1 control SURVIVED, 0 ERROR; owner suites green; `go vet` + Windows vet + build + gofmt clean; tracecheck `bindings=73 ... unmeasured=5 ... 168 cases`; importer grid diff-clean vs checkpoint (moved classes none). Trunk still `5b7876b`: no refresh. Candidate uncommitted. AC 6 of 6.
+
 ## 2026-09-24
+
+### TASK-260830-1esv6u — story-final reconciliation completeness and registry
+
+- PRODUCER: New `internal/clonereconcile` proves SPEC v0.7.0 §13.14.2 reconciliation completeness (10554-10556) through two entries: `ReadBackHistory` decodes staged/live history solely via `clonereadback.DecodeReadBackEvidenceManifest`, and `Reconcile` censuses tier-1/tier-2 links, owner-decoded fidelity rows at tier 3, and plan/projected/tuple/native pairing, then derives both reports through `clonefidelity`/`cloneplan`/`clonereadback` with the owner-decided valid bit (true-then-false seal).
+- PROPERTY: `TestReconciliationProperty` (2,808 cells: N≤3 class vectors × synth counts × 9 read-back outcomes × rotating faults × rotating validity) plus `TestReconciliationPropertyLargeN` (720 cells, N=4..6) run the production entry against an independent oracle; refusal asserts membership over the broken-rule set, admission asserts the oracle valid bit.
+- GATES: 65-row `TestReconcileGateRefusals` pins every refusal literal exactly; entry/owner-reachability census plus the no-reimplementation guard (both control-planted), skip census (empty allowlist), and the mechanical refusal-site→matrix census are green. Five unreachable-by-construction sites were removed during test design (owner-shadowed duplicates, tier-closure canonical census, owner-guaranteed tuple presence) so every listed site stays breakable.
+- MUTANTS: 63-row harness: 58 narrowings killed alone, 4 token-preserving attacks killed alone and under the full suite, 1 applied neutral control survived; zero ERROR rows. The two fidelity-report forwarding wraps carry no mutant (any weakening refuses identically); documented in TRACEABILITY.
+- REGISTRY: Story-final edit adds five leaf cases and the `section:13.14.2` unmeasured binding (0 scanner clauses, 13.14.5 precedent; no 13.14.4 binding — no implementation in the story). Digest re-derived to `ab7b66cc6d85df8ed7eac2aa5cd7b7fa635db20a3e5092824490b435f94ed3f1`; tracecheck prints `bindings=73 ... unmeasured=5 ... 168 cases`; README ownership paragraph, measured-coverage fenced line, and all pin tests updated at five sites.
+- VALIDATION: Full `go test ./... -count=1` exit 0 (51/51 packages); importer owner suites green; `GOOS=windows go vet ./...` exit 0; gofmt clean; clonereconcile coverage 99.2%; scratch-index tree is exactly 8 modified + 12 new files. Candidate left uncommitted. AC ratio 6 of 6 rows driven (crash/idempotency vacuous-with-proof: pure entries, determinism+purity tests).
 
 ### TASK-260830-2h5uv9 rev5 — always-on common-ID position product
 

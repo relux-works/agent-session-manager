@@ -207,6 +207,157 @@ func TestStoryFinalAntiEntropyCasesAppearInDecodedClauseLists(t *testing.T) {
 	}
 }
 
+// storyFinalFidelityCases lists the five STORY-260830-21bxa3 leaf
+// acceptance cases the story-final edit binds.
+var storyFinalFidelityCases = []string{
+	"story-260830-2ya5le-fidelity-report",
+	"story-260830-1jmmqn-projection-plan",
+	"story-260830-3n78rv-projection-planning",
+	"story-260830-2zboyz-readback-validation",
+	"story-260830-1esv6u-reconciliation",
+}
+
+// TestStoryFinalFidelityCasesAppearInDecodedBinding decodes the
+// adopted registry and proves the STORY-260830-21bxa3 story-final
+// edit: all five leaf acceptance cases are registered, the
+// section:13.14.2 binding owns all five at the section level, and
+// the binding production is the implementing reconciliation entry.
+//
+// ORCHESTRATOR DECISION (CR rev2 finding
+// story-cases-have-no-clause-edges): the traceability clause model
+// extracts clauses only on RFC 2119 keywords, and the §13.14.2
+// reconciliation sentence ("Every captured candidate reconciles
+// once ...") contains none, so the section yields zero extracted
+// clauses and no clause edge can exist. The zero below is MEASURED
+// by running the production extractor over the pinned document —
+// it is not a registry self-assertion — and the limitation is a
+// stated bound (the clonereconcile TRACEABILITY.md bound and the
+// LOGBOOK note name the traceability clause extractor as its
+// owner), not a satisfied clause contract. The stricter clause-edge
+// rule applies wherever it is representable: see
+// TestStoryFinalFidelityClauseEdgesWhereRepresentable.
+func TestStoryFinalFidelityCasesAppearInDecodedBinding(t *testing.T) {
+	registry := decodeRegistryFile(t, "ownership.v0.7.0.json")
+	registered := make(map[string]acceptanceCase, len(registry.AcceptanceCases))
+	for _, acceptance := range registry.AcceptanceCases {
+		registered[acceptance.ID] = acceptance
+	}
+	for _, acceptanceID := range storyFinalFidelityCases {
+		acceptance, ok := registered[acceptanceID]
+		if !ok {
+			t.Errorf("story acceptance case %q is absent from the decoded registry", acceptanceID)
+			continue
+		}
+		if len(acceptance.Tests) == 0 {
+			t.Errorf("story acceptance case %q names no executable test", acceptanceID)
+		}
+	}
+	bindings := sectionBindingsByKey(t, registry)
+	binding, ok := bindings["section:13.14.2"]
+	if !ok {
+		t.Fatalf("decoded registry carries no section:13.14.2 binding")
+	}
+	if binding.Production != (codeReference{Path: "internal/clonereconcile/reconcile.go", Declaration: "Reconcile"}) {
+		t.Errorf("section:13.14.2 production = %+v, want the Reconcile entry", binding.Production)
+	}
+	document, err := specdoc.LoadV070()
+	if err != nil {
+		t.Fatalf("LoadV070: %v", err)
+	}
+	inventory, err := sectionClauseInventory(document, "section:13.14.2")
+	if err != nil {
+		t.Fatalf("section:13.14.2 clause inventory: %v", err)
+	}
+	if len(inventory) != 0 {
+		t.Errorf("section:13.14.2 extractor measures %d clauses, want zero for the clauseless section", len(inventory))
+	}
+	if len(binding.Clauses) != 0 {
+		t.Errorf("section:13.14.2 enumerates %d clauses, want none: no measured clause exists to discharge", len(binding.Clauses))
+	}
+	owned := make(map[string]bool, len(binding.AcceptanceCases))
+	for _, acceptanceID := range binding.AcceptanceCases {
+		owned[acceptanceID] = true
+	}
+	for _, acceptanceID := range storyFinalFidelityCases {
+		if !owned[acceptanceID] {
+			t.Errorf("story acceptance case %q is absent from the decoded section:13.14.2 binding", acceptanceID)
+		}
+	}
+}
+
+// caseHasClauseEdge reports whether any discharged clause of the
+// binding names the acceptance case.
+func caseHasClauseEdge(binding ownershipGroup, acceptanceID string) bool {
+	for _, clause := range binding.Clauses {
+		for _, id := range clause.AcceptanceCases {
+			if id == acceptanceID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestStoryFinalFidelityClauseEdgesWhereRepresentable enforces the
+// stricter clause-edge rule wherever the clause model can
+// represent it: every Story case owned by a section binding whose
+// section yields at least one extracted clause must appear on at
+// least one discharged clause edge. Clauseless sections (today:
+// 13.14.2 owns all five cases and yields zero clauses) keep the
+// section-level edge proven above. The loop fails the day a
+// clause-bearing section owns a Story case without an edge.
+func TestStoryFinalFidelityClauseEdgesWhereRepresentable(t *testing.T) {
+	registry := decodeRegistryFile(t, "ownership.v0.7.0.json")
+	document, err := specdoc.LoadV070()
+	if err != nil {
+		t.Fatalf("LoadV070: %v", err)
+	}
+	bindings := sectionBindingsByKey(t, registry)
+	for _, acceptanceID := range storyFinalFidelityCases {
+		for key, binding := range bindings {
+			if !stringMember(binding.AcceptanceCases, acceptanceID) {
+				continue
+			}
+			inventory, err := sectionClauseInventory(document, key)
+			if err != nil {
+				t.Fatalf("binding %q clause inventory: %v", key, err)
+			}
+			if len(inventory) == 0 {
+				continue
+			}
+			if !caseHasClauseEdge(binding, acceptanceID) {
+				t.Errorf("story acceptance case %q is owned by clause-bearing binding %s (%d extracted clauses) with no clause edge",
+					acceptanceID, key, len(inventory))
+			}
+		}
+	}
+	// Positive control on real registry data: a case the registry
+	// edges to a clause-bearing binding satisfies the predicate.
+	elevenFour, ok := bindings["section:11.4"]
+	if !ok {
+		t.Fatalf("decoded registry carries no section:11.4 binding")
+	}
+	if !caseHasClauseEdge(elevenFour, "story-260830-nxqqaw-inventory-exchange") {
+		t.Errorf("positive control: case story-260830-nxqqaw-inventory-exchange has no clause edge at section:11.4")
+	}
+}
+
+// TestStoryFinalFidelityClauseEdgeControlPlant proves the edge
+// predicate bites: a binding whose clauses name another case only
+// is reported, and an edged case passes.
+func TestStoryFinalFidelityClauseEdgeControlPlant(t *testing.T) {
+	plant := ownershipGroup{Clauses: []dischargedClause{
+		{ID: "9.9#1", AcceptanceCases: []string{"some-other-case"}},
+	}}
+	if caseHasClauseEdge(plant, "story-260830-1esv6u-reconciliation") {
+		t.Fatalf("control plant with no edge reported an edge")
+	}
+	plant.Clauses[0].AcceptanceCases = append(plant.Clauses[0].AcceptanceCases, "story-260830-1esv6u-reconciliation")
+	if !caseHasClauseEdge(plant, "story-260830-1esv6u-reconciliation") {
+		t.Fatalf("control plant with an edge reported none")
+	}
+}
+
 func decodeRegistryFile(t *testing.T, name string) ownershipRegistry {
 	t.Helper()
 
@@ -776,7 +927,10 @@ type storyBindingUpgrade struct {
 // post-adoption story may introduce for a section the trunk baseline never
 // bound. STORY-260830-ptxkqe introduces section 4.1; STORY-260830-2t4g7i
 // introduces section 4.2; STORY-260830-ub60id adds the M2 anti-entropy clauses
-// for Sections 10.7 and 11.4.
+// for Sections 10.7 and 11.4; STORY-260830-21bxa3 binds Section 13.14.2,
+// which carries no scanner-measured clause line and therefore
+// enumerates no clauses (unmeasured, like the carried 13.14.5
+// binding).
 var storyNewV070Bindings = map[string]storyBindingUpgrade{
 	"section:4.2": {
 		Production: codeReference{Path: "internal/tmuxserver/acquire.go", Declaration: "Acquire"},
@@ -822,6 +976,18 @@ var storyNewV070Bindings = map[string]storyBindingUpgrade{
 			{ID: "11.4#5", Line: 7918, Excerpt: "negative fixture <code>MIXED-NS-N1</code> and MUST fail the expected roots and", AcceptanceCases: []string{"story-260830-nxqqaw-inventory-exchange"}},
 			{ID: "11.4#7", Line: 7933, Excerpt: "No last-writer-wins rule exists. Timestamps MUST NOT select a winner.", AcceptanceCases: []string{"story-260830-147hsj-durable-union-projection", "story-260830-2h5uv9-order-duplicate-gap-convergence"}},
 		},
+	},
+	"section:13.14.2": {
+		Production: codeReference{Path: "internal/clonereconcile/reconcile.go", Declaration: "Reconcile"},
+		Cases: []string{
+			"story-260830-2ya5le-fidelity-report",
+			"story-260830-1jmmqn-projection-plan",
+			"story-260830-3n78rv-projection-planning",
+			"story-260830-2zboyz-readback-validation",
+			"story-260830-1esv6u-reconciliation",
+		},
+		Coverage: coverageUnmeasured,
+		Gap:      "Reconcile proves Section 13.14.2 reconciliation completeness over caller-projected key sets with sealed reads and owner-derived reports; the RFC 2119 scanner measures no clause line under 13.14.2 because the section states its obligations as closed-schema tables and reconciliation sentences without uppercase keywords, so the gate cannot measure how much of the section this binding discharges.",
 	},
 }
 
@@ -1339,6 +1505,69 @@ var storyNewV070Cases = map[string]acceptanceCase{
 			{Path: "internal/merkleinventory/sync_rework_test.go", Declaration: "TestDurableSyncConflictAuditsEveryCommonIDPositionWithPeerOnlyRecord"},
 			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncRefusesPeerNamespaceMismatch"},
 			{Path: "internal/merkleinventory/sync_property_test.go", Declaration: "TestDurableSyncUnclosedAcknowledgementAborts"},
+		},
+	},
+	"story-260830-2ya5le-fidelity-report": {
+		ID:         "story-260830-2ya5le-fidelity-report",
+		Production: codeReference{Path: "internal/clonefidelity/report.go", Declaration: "BuildFidelityReport"},
+		Tests: []codeReference{
+			{Path: "internal/clonefidelity/vocab_oracle_test.go", Declaration: "TestDispositionVocabularyOracle"},
+			{Path: "internal/clonefidelity/record_grid_test.go", Declaration: "TestRecordGridOracle"},
+			{Path: "internal/clonefidelity/report_members_test.go", Declaration: "TestReportIdentityIndependent"},
+			{Path: "internal/clonefidelity/report_branches_test.go", Declaration: "TestArchiveTargetBranches"},
+			{Path: "internal/clonefidelity/report_aggregates_test.go", Declaration: "TestCountsDerived"},
+			{Path: "internal/clonefidelity/report_aggregates_test.go", Declaration: "TestEventKindBreakdown"},
+			{Path: "internal/clonefidelity/report_members_test.go", Declaration: "TestReportMemberSet"},
+			{Path: "internal/clonefidelity/report_members_test.go", Declaration: "TestReportDeterminism"},
+		},
+	},
+	"story-260830-1jmmqn-projection-plan": {
+		ID:         "story-260830-1jmmqn-projection-plan",
+		Production: codeReference{Path: "internal/cloneplan/plan.go", Declaration: "BuildProjectionPlan"},
+		Tests: []codeReference{
+			{Path: "internal/cloneplan/dag_test.go", Declaration: "TestDAGWholeDomainCensus"},
+			{Path: "internal/cloneplan/identity_test.go", Declaration: "TestPlanIdentityIndependent"},
+			{Path: "internal/cloneplan/identity_test.go", Declaration: "TestManifestIdentityIndependent"},
+			{Path: "internal/cloneplan/bounds_test.go", Declaration: "TestRowOrderSweep"},
+			{Path: "internal/cloneplan/bounds_test.go", Declaration: "TestRequiredDispositions"},
+			{Path: "internal/cloneplan/members_test.go", Declaration: "TestPlanRoundTrip"},
+		},
+	},
+	"story-260830-3n78rv-projection-planning": {
+		ID:         "story-260830-3n78rv-projection-planning",
+		Production: codeReference{Path: "internal/cloneplanning/plan.go", Declaration: "PlanSession"},
+		Tests: []codeReference{
+			{Path: "internal/cloneplanning/session_test.go", Declaration: "TestPlanSessionCounts"},
+			{Path: "internal/cloneplanning/session_test.go", Declaration: "TestPlanSessionRefusals"},
+			{Path: "internal/cloneplanning/plan_oracle_test.go", Declaration: "TestPlanItemWholeDomainOracle"},
+			{Path: "internal/cloneplanning/ownercensus_test.go", Declaration: "TestDelegationReachesOwner"},
+			{Path: "internal/cloneplanning/classification_test.go", Declaration: "TestClassifyItemValidGrid"},
+		},
+	},
+	"story-260830-2zboyz-readback-validation": {
+		ID:         "story-260830-2zboyz-readback-validation",
+		Production: codeReference{Path: "internal/clonereadback/report.go", Declaration: "BuildValidationReport"},
+		Tests: []codeReference{
+			{Path: "internal/clonereadback/oracle_test.go", Declaration: "TestValidWholeDomainOracle"},
+			{Path: "internal/clonereadback/authority_test.go", Declaration: "TestModeAuthorityGrid"},
+			{Path: "internal/clonereadback/identity_test.go", Declaration: "TestReportIdentityIndependent"},
+			{Path: "internal/clonereadback/identity_test.go", Declaration: "TestReadBackIdentityIndependent"},
+			{Path: "internal/clonereadback/members_test.go", Declaration: "TestMemberCensusExactSets"},
+			{Path: "internal/clonereadback/gates_test.go", Declaration: "TestOwnerDelegation"},
+		},
+	},
+	"story-260830-1esv6u-reconciliation": {
+		ID:         "story-260830-1esv6u-reconciliation",
+		Production: codeReference{Path: "internal/clonereconcile/reconcile.go", Declaration: "Reconcile"},
+		Tests: []codeReference{
+			{Path: "internal/clonereconcile/property_test.go", Declaration: "TestReconciliationProperty"},
+			{Path: "internal/clonereconcile/property_test.go", Declaration: "TestReconciliationPropertyLargeN"},
+			{Path: "internal/clonereconcile/gates_test.go", Declaration: "TestReconcileGateRefusals"},
+			{Path: "internal/clonereconcile/reconcile_test.go", Declaration: "TestReconcileAdmitsValidTargetHistory"},
+			{Path: "internal/clonereconcile/reconcile_test.go", Declaration: "TestReconcileValidFollowsOwner"},
+			{Path: "internal/clonereconcile/reconcile_test.go", Declaration: "TestReadBackHistoryAdmitsSealedPair"},
+			{Path: "internal/clonereconcile/owners_test.go", Declaration: "TestEntryOwnerReachability"},
+			{Path: "internal/clonereconcile/census_test.go", Declaration: "TestGateReachabilityMatrixDerivedFromRefusalSites"},
 		},
 	},
 }

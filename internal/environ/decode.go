@@ -352,6 +352,14 @@ func bytesTrimSpace(raw json.RawMessage) []byte {
 // dot-separated labels, each starting with a lowercase letter.
 var reverseDNSPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}(\.[a-z][a-z0-9-]{0,62})+$`)
 
+// CheckReverseDNS reports whether the value is a reverse-DNS
+// name: at least two dot-separated labels, each starting with a
+// lowercase letter. It owns the single grammar behind extension
+// keys and reverse-DNS extension reason codes.
+func CheckReverseDNS(value string) bool {
+	return len(value) >= 3 && len(value) <= 253 && reverseDNSPattern.MatchString(value)
+}
+
 // CheckExtensions reports whether the member is an object whose
 // every key is reverse-DNS. Extensions never add operations,
 // capabilities, or trust facts; the key grammar is the part of
@@ -362,7 +370,7 @@ func CheckExtensions(raw json.RawMessage) bool {
 		return false
 	}
 	for name := range members {
-		if len(name) < 3 || len(name) > 253 || !reverseDNSPattern.MatchString(name) {
+		if !CheckReverseDNS(name) {
 			return false
 		}
 	}

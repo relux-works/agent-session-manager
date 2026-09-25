@@ -3495,8 +3495,8 @@ go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7
 repository gate used by CI. Its reviewed
 [`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
 registry independently enumerates implementation owners for all 64 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 163
-executable acceptance cases, 72 exact section bindings with their declared
+contract rows, 36 pinned or catalog-referenced normative section keys, 168
+executable acceptance cases, 73 exact section bindings with their declared
 coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
 and the superseded v0.6.0 and v0.5.0 registries are checked as owned legacy projections.
@@ -3597,10 +3597,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=72 full=4 partial=11 sliver=12 unevidenced=41 unmeasured=4 unowned=7 clauses_discharged=88/610
+section coverage: bindings=73 full=4 partial=11 sliver=12 unevidenced=41 unmeasured=5 unowned=7 clauses_discharged=88/610
 ```
 
-Seventy-two section bindings discharge 88 of the 610 normative clauses their
+Seventy-three section bindings discharge 88 of the 610 normative clauses their
 sections carry. Four bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
@@ -3714,8 +3714,8 @@ clauses stay with the landed shape and store authorities; Section 3.2 at 1/13
 binds the socket-custody refusal through `CheckSocketCustody`, while the
 remaining path and custody clauses are outside this edge; and Section 4.2 at
 5/11 binds dedicated-server, no-fallback, and lifecycle adapter clauses #4-#7
-and #9 through the tmux production entries), four are `unmeasured` (Sections
-7.3, 13.12, 13.14.5 and 15.2, each of
+and #9 through the tmux production entries), five are `unmeasured` (Sections
+7.3, 13.12, 13.14.2, 13.14.5 and 15.2, each of
 which carries a gap saying why the scanner measures zero and what is missing),
 and forty-one are `unevidenced`. Seven sections are recorded unowned.
 All 13 sections added by v0.6.0 name pending task owners in the reviewed
@@ -3736,7 +3736,7 @@ other assignment is refused with its ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-Four admitted bindings out of seventy-two cover twelve clauses, and that is
+Four admitted bindings out of seventy-three cover twelve clauses, and that is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and

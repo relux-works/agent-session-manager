@@ -64,6 +64,16 @@ func ValidEventKind(kind string) bool {
 	return false
 }
 
+// EventKinds returns the exact 26-kind event vocabulary Section
+// 13.14.1 states, in specification order. Sibling packages iterate
+// the returned copy so closed maps over every kind keep one owner;
+// callers must not retain and mutate across calls.
+func EventKinds() []string {
+	kinds := make([]string, len(eventKinds))
+	copy(kinds, eventKinds)
+	return kinds
+}
+
 func validVisibility(visibility string) bool {
 	switch visibility {
 	case "public", "projection", "internal", "opaque":
@@ -102,6 +112,24 @@ func validContentBlockType(blockType string) bool {
 		}
 	}
 	return false
+}
+
+// ValidContentBlockType reports whether the name is a message-like
+// content-block type. It delegates to the single Section 13.14.1
+// table above so sibling packages share one vocabulary owner.
+func ValidContentBlockType(blockType string) bool {
+	return validContentBlockType(blockType)
+}
+
+// ContentBlockTypes returns the exact message-like content-block
+// vocabulary Section 13.14.1 states, in specification order.
+// Sibling packages iterate the returned copy so closed maps over
+// every type keep one owner; callers must not retain and mutate
+// across calls.
+func ContentBlockTypes() []string {
+	types := make([]string, len(contentBlockTypes))
+	copy(types, contentBlockTypes)
+	return types
 }
 
 // messageLikeKind reports whether the kind carries a message-like

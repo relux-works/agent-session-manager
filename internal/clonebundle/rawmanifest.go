@@ -474,6 +474,15 @@ func extensionValue(extensions map[string]any) map[string]any {
 	return extensions
 }
 
+// EncodeExtensions validates caller-supplied extensions for
+// sibling Build entries: valid UTF-8 text at every depth (before
+// marshaling, so nothing rewrites to U+FFFD) plus the full closed
+// extensions rule. It delegates to the single implementation below
+// so the rule keeps one owner.
+func EncodeExtensions(extensions map[string]any) ([]byte, error) {
+	return encodeExtensions(extensions)
+}
+
 func encodeExtensions(extensions map[string]any) ([]byte, error) {
 	value := extensionValue(extensions)
 	if !validExtensionText(value) {
