@@ -204,7 +204,7 @@ Gate](#specification-to-code-ownership-gate).
 ```bash
 go run ./internal/traceability/cmd/tracecheck \
   -section 1.6 -section 10.1 -section 10.2 -section 10.3 -section 10.4
-# exits non-zero: 0/31, 0/3, 0/5, 1/3 and 0/25 normative clauses discharged
+# exits non-zero: 0/31, 0/3, 0/5, 1/3 and 21/25 normative clauses discharged
 ```
 
 ## Configuration Loading and Versioned Schemas
@@ -3489,14 +3489,180 @@ The explicit equivalent pins the same inputs by path:
 go run ./internal/catalog/cmd/cataloggen -metadata internal/catalog/catalog.v0.7.0.json -contracts internal/specpin/v0.7.0.lock.json -output internal/catalog/catalog_gen.go -check
 ```
 
+## Git Repository and Index Snapshot
+
+[`internal/gitsnap`](internal/gitsnap) captures the live Git state Sections
+10.4 (`kind = git` member) and 12.1-12.3 require: repository identity,
+sanitized remotes, HEAD/ref mode, worktree metadata, index stages and
+flags, staged and unstaged deltas, and tracked file modes. The production
+entry is `Capture`, which drives the Git executable through a `Runner`
+seam (`ExecGitRunner` in production, a scripted fake in tests). Commands run
+from the repository root; `Worktree.CWD` preserves the requested directory
+relative to that root (`.` at the root). The runner overrides inherited
+`GIT_OPTIONAL_LOCKS` and gives each porcelain diff a disposable index copy:
+Git can refresh stat-only entries without changing the real index bytes.
+Temporary copies are removed when the call returns; abrupt termination can
+leave OS-temp files. This is not a sandbox for external filter programs.
+
+The repository/index and content registry gates name refusals in `gates.go`. The source census
+checks literal call-site registration and test linkage, not behavioral
+coverage of every clause. Its controls exercise comment/string exclusion,
+an unknown gate, and the explicitly invisible alias-call case. The mutation
+harness separately runs named behavioral tests for narrowed gates and full
+suites for neutral and token-preserving controls. It refuses to classify an
+empty test selection as a measured pass.
+
+Boundary tests drive `Capture`: remote counts 16/17, remote-name lengths
+128/129 (including multibyte characters), identity lengths 256/257, index
+counts 65536/65537, stages 3/4, versions 2–4 versus 1/5, and required-filter
+counts 64/65. Git parses filter booleans and supplies configuration defaults;
+feature flags describe effective Git configuration, not a fresh filesystem
+capability probe. Failed reads do not become absent refs or false flags.
+
+Repeat captures of a quiesced repository encode identically. Closing reads
+compare HEAD mode/ref/OID, the actual index path/file identity/digest and
+version, logical entries, and staged/unstaged raw delta streams. Same-OID
+branch switches and index-format rewrites refuse; retry after quiescence is
+supported. These observations are not an atomic transaction, cannot detect
+change-and-revert between reads, and do not attest all working-tree content.
+The `WS-GIT-ROUNDTRIP-1` parent/child index lines still drive `Capture`.
+The [acceptance mapping](internal/gitsnap/testdata/acceptance.md) records 8 of
+8 AC rows driven, with named tests and production call sites.
+
+`Capture(ctx, runner, dir, ContentOptions{Store: store, ...})` additionally
+captures actual tracked and untracked working bytes, explicitly included ignored
+files, directory modes, symlink targets, sparse patterns, and recursive submodule
+state. Omitting `ContentOptions` retains the repository/index observation API;
+that result has no `Content` and must not be used as a complete workspace capture.
+The immutable object store must be outside the checkout. Files stream through
+4 MiB chunks and rewind the guarded file handle, with whole-blob SHA-256, chunk descriptors,
+and existing `localstore.PutBlob` verification and installation. A file above
+128 GiB refuses before its bytes are read. Included bytes are re-read before
+return; a read failure or observed content change refuses the snapshot.
+
+`ContentOptions.IncludeIgnored` lists exact repository-relative files classified
+non-secret by trusted project/provider configuration. The Git ignore census
+must exit successfully without diagnostics: unreadable exclusion policy refuses
+with `GateContentRead` and a nil snapshot, including when Git exits 0 with a
+warning. Missing optional exclusion files retain Git's ordinary absence behavior.
+`Exclude` supplies paths
+or subtrees with diagnostic classes; exclusions override includes. The existing
+`localstore.ResolvedPaths` owner supplies machine-local layout exclusions,
+including canonical path aliases on macOS. Conventional credential, dotenv,
+PID/updater-lock/journal, Git metadata, socket and pipe paths are excluded.
+Dependency lockfiles such as Cargo.lock remain project content; arbitrary live
+lock paths require explicit exclusion policy. Arbitrarily
+named runtime artifacts need explicit owner policy; filenames and an include
+classification are not a confidentiality guarantee. The diagnostic redactor is
+not used as a content classifier. A required submodule excluded by policy
+refuses capture instead of entering through recursion.
+
+Submodule stage-0 gitlinks remain independent of child HEAD/index/working bytes.
+Initialized children are captured recursively; uninitialized children carry no
+invented state, and nonempty uninitialized directories refuse. Relative mappings
+resolve against the default remote using Git directory semantics. Local or
+credential-bearing URLs, conflicting gitlinks, unsafe paths and recursion bounds
+refuse. Filesystem symlink targets are checked component by component, including
+existing chains and dangling in-root targets. Entry-set checks reuse
+`canonicaljson.CheckManifestEntries`, the same validator as wire manifests.
+
+The [content acceptance mapping](internal/gitsnap/testdata/content-acceptance.md)
+records 7 of 7 scoped AC rows with production drivers. The pinned Section 10.4
+pack/index corpus creates real parent and child repositories in separate object
+databases; capture reproduces its working bytes and pointers. These are the accepted content-leaf tests; destination materialization remains
+outside this package. `Capture` itself still returns an internal observation.
+
+`AssembleProvisional` calls `Capture` to assemble repository-local packs,
+exact inventories, raw/logical indexes, blob descriptors and workspace root/tree
+manifests. Each pack is imported into its own empty database without ambient
+object directories, indexes or Git configuration. Required HEAD/upstream/index
+roots, transitive membership, object types and sizes are verified there. Gitlinks
+are resolved only in the child repository. Split indexes become standalone
+indexes in a disposable directory; absent unborn indexes become equivalent empty
+indexes. Source indexes are preserved. Partial clones, shallow history and
+replacement refs refuse. Git subprocesses disable lazy fetch and replacement
+objects; external filter execution remains a trusted configuration boundary.
+
+Assembly requires the selected immutable Workspace Group Record and compares
+member count, IDs, paths, repository identities, remotes, cwd, project config and
+policy with that record. `ValidateProvisional` checks canonical identities,
+transitive child availability, descriptor references, workspace tree binding and
+cwd/config existence through initialized submodules. The selected Group Record
+provides the resume cwd; source directories locate the repositories to read.
+Parent entries cannot overlap child repository partitions. It validates the object graph; it does not read stored
+blob bytes or authorize a checkpoint. Assembly installs those bytes through the
+accepted immutable store and re-scans all repositories after object construction.
+The exact pinned corpus has independent generated-pack import and inventory/raw
+index comparisons in `TestAssemblyNormativeCorpus`.
+
+`(*tmuxserver.Lifecycle).CaptureGitWorkspace` is the production coordinator
+above assembly. It admits only a same-incarnation `quiescing` instance with
+input-closure and provider safe-boundary receipts, or a `stopped` instance. It
+composes the landed lifecycle, Terminal Instance and axpane owners, and calls
+only status and wait-safe-boundary. It never releases input. A crash left in
+`quiescing` is recovered through the owner's existing stop or stale-termination
+path before retry. Every coordinator admission clause has a production-entry
+test that starts from a valid request, breaks one input, and asserts the literal
+refusal code and detail. An AST call-graph census enumerates every reachable
+`captureUnavailable` site, splits each guarded `||` into its disjuncts, and
+requires one matrix row per literal detail/disjunct pair. A source control
+plant adds a disjunct and proves that the census rejects the unlisted row.
+`UnixDialer.Dial` also keeps a missing parent unknown: under pinned SPEC v0.7.0
+§4.C, only a successful status read proves absence. Group-history
+selection/conflict resolution remain with the record owner. No user-facing CLI
+or doctor capture capability is advertised: this internal stop-point entry is
+not a resumable capture workflow. See the
+[provisional assembly acceptance mapping](internal/gitsnap/testdata/assembly-acceptance.md)
+for the scoped production entries; the task-scoped axis inventory records the
+generated ranges and explicit bounds. Existing private-index semantics and
+shared-index auxiliary timestamp bounds remain.
+
+A crash after immutable installs may leave verified, unreferenced blobs; retry
+reuses them. No checkpoint publication occurs in this entry. The
+content-capture crash test verifies the expected exit 73 and a fresh successful
+content capture.
+The assembly crash test observes expected exit 74 after object installation and
+verifies stable retry. The coordinated capture test crashes at pack exit 74 and
+after assembly before closing status at exit 75, then retries from the same
+durable state. Assembly uses caller-owned task scratch for verifier repositories;
+abrupt termination can leave them behind. Packs and raw indexes currently pass
+through memory, while working files stream through the existing blob owner. Native
+validation is macOS arm64 with Apple Git; Windows compilation is not execution,
+and a 128 GiB successful transfer has not been measured. The
+[string-domain audit](internal/gitsnap/testdata/string-domain-audit.md) covers the
+predecessor fields; the content mapping covers new fields and their bounds.
+
+Tools and outputs for this leaf (run from the repository root):
+
+```bash
+go test ./internal/gitsnap -v -cover -count=1
+go vet ./internal/gitsnap
+go build ./...
+python3 .scripts/gitsnap-mutations.py --out .temp/TASK-260830-2bnr39/mutations
+python3 .scripts/gitsnap-mutations.py --vectors internal/gitsnap/testdata/content-mutations.json --out .temp/TASK-260830-3m7m7w/mutations
+python3 .scripts/gitsnap-mutations.py --vectors internal/gitsnap/testdata/assembly-mutations.json --out .temp/TASK-260830-2xt6fd/mutations
+TMPDIR="$PWD/.temp/TASK-260830-2xt6fd" go test ./internal/tmuxserver -run '^(TestCaptureAdmission_.*|TestCaptureCoordinatorAdmissionGateCensus|TestCaptureCoordinatorClauseCensusDetectsAddedDisjunct|TestCapturePropagatesOwnerBoundaryTimestampIntegrity|TestCaptureStopPointStateDomain|TestCaptureBoundaryReceiptIsCreatedWhenAbsent|TestCaptureGitWorkspaceQuiescedAssemblesAndRechecks|TestCaptureNeverTransitionsOutsideStopPointOwnerSet)$' -count=3 -v
+PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/.temp/TASK-260830-2xt6fd" python3 internal/tmuxserver/mutant_harness.py --slice 311:343 --log-dir .temp/TASK-260830-2xt6fd/mutants-capture-rework
+TMPDIR="$PWD/.temp/TASK-260830-2xt6fd" go test ./internal/tmuxserver -run '^TestCapture' -count=1 -v
+```
+
+The mutation tool uses Python 3, Git and Go; it copies the module and internal packages into the requested fresh `.temp/` directory. It writes
+per-command logs with real exit codes and `results.json`, and restores each
+mutant from exact saved bytes. It never edits the source checkout. Broader
+repository verification and task outcome logs live under the task-scoped
+`.temp/TASK-260830-2xt6fd/` directory and are attached to the board. The tmux
+mutant harness patches one production site per row, runs the named test through
+the production entry and stores each raw log under the supplied task-scoped
+directory. The capture suite log and axis inventory are stored there as well.
+
 ## Specification-to-Code Ownership Gate
 
 [`internal/traceability`](internal/traceability) provides the read-only
 repository gate used by CI. Its reviewed
 [`ownership.v0.7.0.json`](internal/traceability/ownership.v0.7.0.json)
 registry independently enumerates implementation owners for all 64 current
-contract rows, 36 pinned or catalog-referenced normative section keys, 168
-executable acceptance cases, 73 exact section bindings with their declared
+contract rows, 36 pinned or catalog-referenced normative section keys, 171
+executable acceptance cases, 76 exact section bindings with their declared
 coverage, 7 disclosed unowned sections, and 33 exact fixture identities or
 Appendix D anchors. The v0.4.3 projection is checked as an owned 55-contract subset,
 and the superseded v0.6.0 and v0.5.0 registries are checked as owned legacy projections.
@@ -3597,10 +3763,10 @@ useful is admitted, and the gate cannot decide otherwise.
 `tracecheck` prints the ratio it measured rather than a sentence about it:
 
 ```text
-section coverage: bindings=73 full=4 partial=11 sliver=12 unevidenced=41 unmeasured=5 unowned=7 clauses_discharged=88/610
+section coverage: bindings=76 full=4 partial=12 sliver=14 unevidenced=41 unmeasured=5 unowned=7 clauses_discharged=113/622
 ```
 
-Seventy-three section bindings discharge 88 of the 610 normative clauses their
+Seventy-six section bindings discharge 113 of the 622 normative clauses their
 sections carry. Four bindings are `full` (Section 6.2, whose single clause is the
 native-Windows `conpty` requirement, discharged by the positive
 `TestEveryPinnedReaderHasPositiveNativeWindowsAndWSL2Lanes` lanes together
@@ -3619,7 +3785,7 @@ manifest-metadata, fsync-verify-install, digest-only-log,
 chunk-agreement, and oversize-refusal clauses are discharged by the
 capture contracts, native capture, and projection fidelity cases, with
 the fsync-verify-install clause additionally discharged by the landed
-localstore immutable-blob-install case), eleven are
+localstore immutable-blob-install case), twelve are
 `partial` (Section 13.13 at 9/11, bound to
 [`internal/matjournal`](internal/matjournal) with the
 [`internal/crashgate`](internal/crashgate) conformance harness, whose
@@ -3675,7 +3841,9 @@ the LeaseToken v2 fencing rule stays with the provhost v2 machinery; Section
 4.C at 5/7, bound to [`internal/tmuxserver`](internal/tmuxserver) through
 `Lifecycle.Execute`, discharges the repeated-identity, wrapper-entrypoint,
 descriptor, attach-authorization, and refused-error clauses #3-#7; clauses
-#1-#2 remain undischarged), twelve are
+#1-#2 remain undischarged; Section 10.4 at 21/25, bound to
+[`internal/gitsnap`](internal/gitsnap) and the capture coordinator, leaves
+clauses #3, #5, #15, and #25 outside this capture scope), fourteen are
 `sliver` (Section 10.3, whose chunk offset invariant is
 enforced by `validateBlobDescriptor` while its two receiver clauses have no
 implementation; Section 5.5 at 1/3, whose discharged negative-battery clause
@@ -3714,9 +3882,11 @@ clauses stay with the landed shape and store authorities; Section 3.2 at 1/13
 binds the socket-custody refusal through `CheckSocketCustody`, while the
 remaining path and custody clauses are outside this edge; and Section 4.2 at
 5/11 binds dedicated-server, no-fallback, and lifecycle adapter clauses #4-#7
-and #9 through the tmux production entries), five are `unmeasured` (Sections
-7.3, 13.12, 13.14.2, 13.14.5 and 15.2, each of
-which carries a gap saying why the scanner measures zero and what is missing),
+and #9 through the tmux production entries; Sections 12.2 and 12.3 add the
+sanitation, provider-quiescence, and byte-recheck clauses while repository
+reconstruction and materialization remain unimplemented), five are `unmeasured` (Sections
+7.3, 13.12, 13.14.2, 13.14.5 and 15.2, each of which carries a gap saying why
+the scanner measures zero and what is missing),
 and forty-one are `unevidenced`. Seven sections are recorded unowned.
 All 13 sections added by v0.6.0 name pending task owners in the reviewed
 registry gaps; these assignments grant no runtime admission. The
@@ -3736,7 +3906,7 @@ other assignment is refused with its ratio and its gap.
 A `partial` binding is refused by assigned-scope admission exactly like an
 `unevidenced` one: admission requires `full`.
 
-Four admitted bindings out of seventy-three cover twelve clauses, and that is
+Four admitted bindings out of seventy-six cover twelve clauses, and that is
 disclosed here rather than hidden: without Section 6.2 the admit path would only
 ever be exercised synthetically. Its discharge is no longer positive-only: the
 native-Windows lanes carry the positive arm and

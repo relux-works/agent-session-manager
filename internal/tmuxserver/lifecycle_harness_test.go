@@ -148,20 +148,12 @@ type lxFixture struct {
 	lc      *Lifecycle
 }
 
-// lxShortRoot stages a sun_path-fitting runtime root under /tmp: the
-// test-temp-dir socket path exceeds the darwin limit, so lifecycle
-// fixtures (which pass the length gate) never use t.TempDir directly.
-// The root is canonicalized before return: custody walks the lexical
-// path without resolving, so the fixture stages the resolved root a
-// production caller would pass (macOS /tmp is a symlink).
+// lxShortRoot stages a sun_path-fitting runtime root inside the test's
+// automatically cleaned temporary directory. The root is canonicalized
+// before return: custody walks the lexical path without resolving.
 func lxShortRoot(t *testing.T) string {
 	t.Helper()
-	short, err := os.MkdirTemp("/tmp", "axl")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(short) })
-	root := filepath.Join(short, "r")
+	root := filepath.Join(shortTestTempDir(t), "r")
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +167,11 @@ func lxShortRoot(t *testing.T) string {
 func newLifecycleFixture(t *testing.T, admitted terminalbackend.Admitted) *lxFixture {
 	t.Helper()
 	root := lxShortRoot(t)
+	return newLifecycleFixtureAtRoot(t, admitted, root)
+}
+
+func newLifecycleFixtureAtRoot(t *testing.T, admitted terminalbackend.Admitted, root string) *lxFixture {
+	t.Helper()
 	runtime, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
 	if err != nil {
 		t.Fatal(err)

@@ -14,15 +14,11 @@ import (
 	"github.com/relux-works/agent-session-manager/internal/terminalbackend"
 )
 
-// lxProbeRoot stages a short runtime root (sun_path-fitting) with a
-// verified leaf for dial/probe/spawn tests.
+// lxProbeRoot stages an isolated runtime root with a verified leaf for
+// dial/probe/spawn tests. The test's t.TempDir owns its cleanup.
 func lxProbeRoot(t *testing.T) (string, string) {
 	t.Helper()
-	short, err := os.MkdirTemp("/tmp", "axprobe")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(short) })
+	short := shortTestTempDir(t)
 	root := filepath.Join(short, "r")
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
@@ -39,15 +35,12 @@ func lxProbeRoot(t *testing.T) (string, string) {
 	return root, SocketPath(runtime)
 }
 
-// lxBareRoot stages a short runtime root with no leaf: the shape an
-// unstaged root leaves behind (the delegated leaf custody refuses).
+// lxBareRoot stages a runtime root with no leaf: the shape an unstaged
+// root leaves behind (the delegated leaf custody refuses). The test's
+// t.TempDir owns its cleanup.
 func lxBareRoot(t *testing.T) (string, string) {
 	t.Helper()
-	short, err := os.MkdirTemp("/tmp", "axbare")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(short) })
+	short := shortTestTempDir(t)
 	root := filepath.Join(short, "r")
 	if err := os.Mkdir(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -103,7 +96,9 @@ func TestUnixDialerLiveStaleUnknown(t *testing.T) {
 
 func TestUnixDialerMissingDirectoryIsUnknown(t *testing.T) {
 	dialer := UnixDialer{}
-	root := t.TempDir()
+	root := shortTestTempDir(t)
+	// A missing parent is a failed socket observation under pinned
+	// SPEC.v0.7.0 §4.C's successful-status-only absence rule.
 	if got := dialer.Dial(filepath.Join(root, "nodir", "ax.sock")); got != DialUnknown {
 		t.Fatalf("missing directory = %s, want unknown", got)
 	}

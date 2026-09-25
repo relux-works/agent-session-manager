@@ -38,23 +38,17 @@ import (
 // requires record_id to be a well-formed digest but never recomputes
 // it, and the conjoined CalculateObjectIdentity entry validates shape
 // only (its digest return is discarded below); the entry that would
-// attest the binding, canonicaljson.VerifyObjectIdentity, has no
-// production call site attesting provider-identity records. The only
-// production call sites (internal/sessrepo, TASK-260830-wbpf1v) attest
-// session-record and session-event bindings — and the load
-// re-verification among them does recompute whatever digest stored
-// bytes claim, including a provider-identity one, before refusing it.
-// The two entry decodes refuse any other schema before Verify; the
-// load path re-verifies stored blobs through Verify and refuses a
-// non-event_id self field or an index-disagreeing digest at its named
-// arms (pinned in that leaf by
-// TestLoadRefusesProviderIdentityBlobAtEventPath and
-// TestLoadRefusesSwappedEventBlobs). So no transport gate and no
-// persistence path attests a provider-identity binding today; the one
-// path that recomputes such a digest refuses it. An earlier revision
-// of this comment claimed a schema gate in front of every Verify call,
-// which the load site never had; that false universal is withdrawn
-// here.
+// attest the binding, canonicaljson.VerifyObjectIdentity. That verifier
+// is generic and is also used for other schemas; those call sites do not
+// establish whether CheckIdentity attests provider identity. In the
+// separate internal/sessrepo persistence path, the session-record and
+// session-event entry decodes refuse other schemas before Verify, while
+// load re-verification checks the stored blob and refuses a non-event_id
+// self field or an index-disagreeing digest. Those local behaviors are
+// pinned by TestLoadRefusesProviderIdentityBlobAtEventPath and
+// TestLoadRefusesSwappedEventBlobs; they make no claim about every use of
+// the generic verifier. TestCheckIdentityDoesNotVerifyBinding drives this
+// package's shape-only admission at its production entry.
 //
 // This is deferred, not decided. Conjoining Verify here would refuse
 // records this gate documents as admitted: every boundary admission in

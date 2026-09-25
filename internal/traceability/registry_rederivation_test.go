@@ -96,7 +96,8 @@ func TestV070RegistryRederivesFromTrunkV060Registry(t *testing.T) {
 
 // TestStoryV070AcceptanceCasesHaveClauseEdges prevents a declaration-only
 // addition from being mistaken for measured coverage. Each Story leaf case
-// added by the tmux backend Story must be listed on an executed clause edge.
+// added by the tmux backend and Git workspace capture Stories must be listed
+// on a decoded, executed clause edge.
 func TestStoryV070AcceptanceCasesHaveClauseEdges(t *testing.T) {
 	t.Parallel()
 
@@ -119,10 +120,22 @@ func TestStoryV070AcceptanceCasesHaveClauseEdges(t *testing.T) {
 		"tmux-socket-custody-v070": {
 			"section:3.2": "3.2#8",
 		},
+		"git-repository-index-snapshot-v070": {
+			"section:10.4": "10.4#9,10.4#10",
+		},
+		"git-content-capture-v070": {
+			"section:10.4": "10.4#1,10.4#2,10.4#6,10.4#18",
+			"section:12.2": "12.2#1,12.2#2",
+			"section:12.3": "12.3#5",
+		},
+		"git-workspace-complete-capture-v070": {
+			"section:10.4": "10.4#11,10.4#12,10.4#13,10.4#14,10.4#23",
+			"section:12.3": "12.3#1",
+		},
 	}
 
 	for acceptanceID, sections := range wantEdges {
-		for bindingKey, clauseIDs := range sections {
+		for bindingKey, clauseIDList := range sections {
 			binding, ok := bindings[bindingKey]
 			if !ok {
 				t.Fatalf("acceptance case %q requires absent binding %s", acceptanceID, bindingKey)
@@ -137,22 +150,66 @@ func TestStoryV070AcceptanceCasesHaveClauseEdges(t *testing.T) {
 			if !groupHasCase {
 				t.Fatalf("acceptance case %q is absent from binding %s", acceptanceID, bindingKey)
 			}
+			remaining := map[string]bool{}
+			for _, clauseID := range strings.Split(clauseIDList, ",") {
+				remaining[clauseID] = true
+			}
 			for _, clause := range binding.Clauses {
-				if !strings.Contains(","+clauseIDs+",", ","+clause.ID+",") {
+				if !remaining[clause.ID] {
 					continue
 				}
 				for _, id := range clause.AcceptanceCases {
 					if id == acceptanceID {
-						clauseIDs = strings.ReplaceAll(clauseIDs, clause.ID, "")
+						delete(remaining, clause.ID)
 						break
 					}
 				}
 			}
-			for _, clauseID := range strings.Split(clauseIDs, ",") {
-				if clauseID != "" {
-					t.Errorf("acceptance case %q has no decoded clause edge at %s %s", acceptanceID, bindingKey, clauseID)
+			for clauseID := range remaining {
+				t.Errorf("acceptance case %q has no decoded clause edge at %s %s", acceptanceID, bindingKey, clauseID)
+			}
+		}
+	}
+}
+
+func TestGitWorkspaceStoryLeafCasesDecodeWithClauseEdges(t *testing.T) {
+	t.Parallel()
+
+	registry := decodeRegistryFile(t, "ownership.v0.7.0.json")
+	want := map[string]codeReference{
+		"git-repository-index-snapshot-v070":  {Path: "internal/gitsnap/snapshot.go", Declaration: "Capture"},
+		"git-content-capture-v070":            {Path: "internal/gitsnap/snapshot.go", Declaration: "Capture"},
+		"git-workspace-complete-capture-v070": {Path: "internal/tmuxserver/capture_git_workspace.go", Declaration: "CaptureGitWorkspace"},
+	}
+	for id, production := range want {
+		var found *acceptanceCase
+		for i := range registry.AcceptanceCases {
+			if registry.AcceptanceCases[i].ID == id {
+				found = &registry.AcceptanceCases[i]
+				break
+			}
+		}
+		if found == nil {
+			t.Fatalf("decoded v0.7.0 registry is missing Git workspace leaf case %q", id)
+		}
+		if found.Production != production || len(found.Tests) == 0 {
+			t.Errorf("decoded Git workspace case %q = %+v, want production %+v and named tests", id, found, production)
+		}
+		seenClause := false
+		for _, group := range registry.Ownership {
+			if group.Kind != ownershipSectionBinding {
+				continue
+			}
+			for _, clause := range group.Clauses {
+				for _, owner := range clause.AcceptanceCases {
+					if owner == id {
+						seenClause = true
+					}
 				}
 			}
+		}
+		if !seenClause {
+			t.Errorf("decoded Git workspace case %q has no clause edge", id)
 		}
 	}
 }
@@ -954,6 +1011,33 @@ var storyNewV070Bindings = map[string]storyBindingUpgrade{
 			{ID: "4.1#5", Line: 1399, Excerpt: "<code>status</code> plus that binding MUST prove absence or identify the one", AcceptanceCases: []string{"terminal-create-recovery-exact"}},
 		},
 	},
+	"section:12.1": {
+		Production: codeReference{Path: "internal/tmuxserver/capture_git_workspace.go", Declaration: "CaptureGitWorkspace"},
+		Cases:      []string{"git-workspace-complete-capture-v070"},
+		Coverage:   coverageUnevidenced,
+		Gap:        "CaptureGitWorkspace returns a provisional workspace-group root and proves child closure under Section 10.4#11/#12, but no checkpoint publisher references that root. Section 12.1#1 checkpoint linkage is therefore not discharged by this leaf.",
+		Clauses:    []dischargedClause{},
+	},
+	"section:12.2": {
+		Production: codeReference{Path: "internal/gitsnap/snapshot.go", Declaration: "Capture"},
+		Cases:      []string{"git-repository-index-snapshot-v070", "git-content-capture-v070"},
+		Coverage:   coverageSliver,
+		Gap:        "Capture rejects credential-bearing remote URLs and excludes machine-local content for clauses 12.2#1/#2. Repository config allowlist reconstruction and the exact WS-GIT/WS-TREE parser-before-Git destination-materialization gates (#3 through #6) are not implemented in this capture leaf.",
+		Clauses: []dischargedClause{
+			{ID: "12.2#1", Line: 9060, Excerpt: "Remote URLs MUST be sanitized. User info containing a password/token, credential", AcceptanceCases: []string{"git-repository-index-snapshot-v070", "git-content-capture-v070"}},
+			{ID: "12.2#2", Line: 9061, Excerpt: "helpers with embedded secrets, and machine-local paths MUST be removed.", AcceptanceCases: []string{"git-repository-index-snapshot-v070", "git-content-capture-v070"}},
+		},
+	},
+	"section:12.3": {
+		Production: codeReference{Path: "internal/tmuxserver/capture_git_workspace.go", Declaration: "CaptureGitWorkspace"},
+		Cases:      []string{"git-content-capture-v070", "git-workspace-complete-capture-v070"},
+		Coverage:   coverageSliver,
+		Gap:        "CaptureGitWorkspace quiesces input/provider work and rechecks source state for 12.3#1; actual staged-versus-working state is preserved for #5. Materialization steps 1–8 (#2), the complete materialization fail-closed matrix (#3), and the no-silent-network materialization rule (#4) have no destination materializer in this leaf.",
+		Clauses: []dischargedClause{
+			{ID: "12.3#1", Line: 9076, Excerpt: "Capture MUST quiesce agent input and filesystem-mutating provider work. It MUST", AcceptanceCases: []string{"git-workspace-complete-capture-v070"}},
+			{ID: "12.3#5", Line: 9106, Excerpt: "<code>gitlink_oid</code>, and checked-out <code>head.oid</code> MUST reproduce the", AcceptanceCases: []string{"git-content-capture-v070"}},
+		},
+	},
 	"section:10.7": {
 		Production: codeReference{Path: "internal/merkleinventory/durable.go", Declaration: "SyncFrom"},
 		Cases:      []string{"story-260830-147hsj-durable-union-projection", "story-260830-2h5uv9-order-duplicate-gap-convergence"},
@@ -1133,6 +1217,35 @@ var storyUpgradedV070Bindings = map[string]storyBindingUpgrade{
 			{ID: "10.2#5", Line: 4902, Excerpt: "A larger file MUST fail capture with <code>capability_unavailable</code> before publishing a partial manifest.", AcceptanceCases: []string{"clone-native-capture"}},
 		},
 	},
+	"section:10.4": {
+		Production: codeReference{Path: "internal/gitsnap/assembly.go", Declaration: "AssembleProvisional"},
+		Cases:      []string{"scalar-closed-enum-validation", "scalar-uuid-validation", "scalar-digest-validation", "canonical-object-identity", "canonical-identity-refusal", "git-repository-index-snapshot-v070", "git-content-capture-v070", "git-workspace-complete-capture-v070"},
+		Coverage:   coveragePartial,
+		Gap:        "AssembleProvisional and CaptureGitWorkspace discharge 21 of 25 measured Section 10.4 clauses. Clauses 10.4#3 (checkpoint/provider/task-board manifest selection), #5 (hardlink target semantics), #15 (PROVIDER-CAPTURE-N1 transfer response admission), and #25 (cross-platform conditional support) remain outside this capture/assembly leaf. The scope has no checkpoint publisher, hardlink materializer, external provider capture response, or cross-platform runtime proof.",
+		Clauses: []dischargedClause{
+			{ID: "10.4#1", Line: 4973, Excerpt: "entry. Capture selection MUST exclude Terminal Instance Bindings and backend-", AcceptanceCases: []string{"git-content-capture-v070"}},
+			{ID: "10.4#2", Line: 4978, Excerpt: "Applicable exclusions MUST be named in <code>excluded_classes</code>; omission", AcceptanceCases: []string{"git-content-capture-v070"}},
+			{ID: "10.4#4", Line: 5015, Excerpt: "Every file entry MUST reference a Blob Descriptor whose blob ID and size equal", AcceptanceCases: []string{"scalar-digest-validation", "git-content-capture-v070", "git-workspace-complete-capture-v070"}},
+			{ID: "10.4#6", Line: 5017, Excerpt: "A symlink target is interpreted relative to its containing directory and MUST", AcceptanceCases: []string{"git-content-capture-v070"}},
+			{ID: "10.4#7", Line: 5019, Excerpt: "Absolute or escaping targets fail. Entries and child partitions MUST contain", AcceptanceCases: []string{"git-content-capture-v070", "git-workspace-complete-capture-v070"}},
+			{ID: "10.4#8", Line: 5057, Excerpt: "the child repository and MUST NOT be required to resolve in the superproject", AcceptanceCases: []string{"git-content-capture-v070", "git-workspace-complete-capture-v070"}},
+			{ID: "10.4#9", Line: 5063, Excerpt: "The raw Git index blob and the logical entries MUST describe the same supported", AcceptanceCases: []string{"git-repository-index-snapshot-v070", "git-workspace-complete-capture-v070"}},
+			{ID: "10.4#10", Line: 5080, Excerpt: "head is branch or detached, never unborn. Its head OID MUST resolve as a commit", AcceptanceCases: []string{"scalar-closed-enum-validation", "git-repository-index-snapshot-v070", "git-workspace-complete-capture-v070"}},
+			{ID: "10.4#11", Line: 5091, Excerpt: "managed-tree, and submodule manifest MUST occur in the workspace root's", AcceptanceCases: []string{"scalar-uuid-validation", "git-workspace-complete-capture-v070"}},
+			{ID: "10.4#12", Line: 5093, Excerpt: "MUST exist in that closure.", AcceptanceCases: []string{"git-workspace-complete-capture-v070"}},
+			{ID: "10.4#13", Line: 5141, Excerpt: "database MUST resolve only the displayed parent commit; indexing the child pack", AcceptanceCases: []string{"git-workspace-complete-capture-v070"}},
+			{ID: "10.4#14", Line: 5142, Excerpt: "in a different empty bare object database MUST resolve only the displayed child", AcceptanceCases: []string{"git-workspace-complete-capture-v070"}},
+			{ID: "10.4#16", Line: 5261, Excerpt: "containing <code>GitSubmodule.working_tree_manifest_id</code> MUST equal this", AcceptanceCases: []string{"git-content-capture-v070", "git-workspace-complete-capture-v070"}},
+			{ID: "10.4#17", Line: 5264, Excerpt: "<code>GitSubmodule.head.oid</code> MUST name the same checked-out commit present", AcceptanceCases: []string{"git-content-capture-v070", "git-workspace-complete-capture-v070"}},
+			{ID: "10.4#18", Line: 5412, Excerpt: "<code>AGENTS.md</code>. A round trip MUST reproduce all those facts, byte-for-", AcceptanceCases: []string{"git-content-capture-v070"}},
+			{ID: "10.4#19", Line: 5432, Excerpt: "parent-pack closure. B and C MUST resolve as commits in the isolated child", AcceptanceCases: []string{"git-content-capture-v070", "git-workspace-complete-capture-v070"}},
+			{ID: "10.4#20", Line: 5434, Excerpt: "child repository. Capture and materialization MUST retain the exact triple and", AcceptanceCases: []string{"git-content-capture-v070"}},
+			{ID: "10.4#21", Line: 5435, Excerpt: "MUST NOT normalize the index to the checked-out child or copy a child commit", AcceptanceCases: []string{"git-content-capture-v070"}},
+			{ID: "10.4#22", Line: 5456, Excerpt: "An encoded identity-addressed JSON/CBOR object MUST NOT exceed 5,242,880 bytes.", AcceptanceCases: []string{"canonical-object-identity", "canonical-identity-refusal"}},
+			{ID: "10.4#23", Line: 5457, Excerpt: "A larger entry or index list MUST be partitioned into path-disjoint child", AcceptanceCases: []string{"git-workspace-complete-capture-v070"}},
+			{ID: "10.4#24", Line: 5460, Excerpt: "files are unsupported and MUST fail unless an explicit exclusion applies.", AcceptanceCases: []string{"git-content-capture-v070"}},
+		},
+	},
 }
 
 // storyBindingExtensions are the two already-measured bindings that this
@@ -1149,6 +1262,100 @@ var storyBindingExtensions = map[string]struct{}{
 // story final leaves add to the adopted registry. Each is pinned literally;
 // any further addition still fails as an unreviewed claim.
 var storyNewV070Cases = map[string]acceptanceCase{
+	"git-repository-index-snapshot-v070": {
+		ID:         "git-repository-index-snapshot-v070",
+		Production: codeReference{Path: "internal/gitsnap/snapshot.go", Declaration: "Capture"},
+		Tests: []codeReference{
+			{Path: "internal/gitsnap/capture_test.go", Declaration: "TestCaptureLiveBranchRepository"},
+			{Path: "internal/gitsnap/capture_test.go", Declaration: "TestCaptureLiveHeadModes"},
+			{Path: "internal/gitsnap/capture_test.go", Declaration: "TestCaptureLiveIndexFlags"},
+			{Path: "internal/gitsnap/capture_test.go", Declaration: "TestCaptureLiveConflictStages"},
+			{Path: "internal/gitsnap/bounds_edge_test.go", Declaration: "TestEdgeIndexMaxAccepts"},
+			{Path: "internal/gitsnap/bounds_edge_test.go", Declaration: "TestEdgeIndexMaxPlusOneRefuses"},
+			{Path: "internal/gitsnap/bounds_edge_test.go", Declaration: "TestEdgeIdentity256CharsAccepts"},
+			{Path: "internal/gitsnap/bounds_edge_test.go", Declaration: "TestEdgeIdentity257CharsRefuses"},
+			{Path: "internal/gitsnap/bounds_edge_test.go", Declaration: "TestEdgeRemotesSixteenAccepts"},
+			{Path: "internal/gitsnap/bounds_edge_test.go", Declaration: "TestEdgeRemotesSeventeenRefuses"},
+			{Path: "internal/gitsnap/refusal_test.go", Declaration: "TestRefuseCredentialBearingRemote"},
+			{Path: "internal/gitsnap/refusal_test.go", Declaration: "TestRefuseCredentialPushURL"},
+			{Path: "internal/gitsnap/refusal_test.go", Declaration: "TestRefuseCrossFormatOID"},
+		},
+	},
+	"git-content-capture-v070": {
+		ID:         "git-content-capture-v070",
+		Production: codeReference{Path: "internal/gitsnap/snapshot.go", Declaration: "Capture"},
+		Tests: []codeReference{
+			{Path: "internal/gitsnap/content_test.go", Declaration: "TestContentCaptureSelectionAndBytes"},
+			{Path: "internal/gitsnap/content_test.go", Declaration: "TestContentIgnoredDefaultAndPolicyRefusal"},
+			{Path: "internal/gitsnap/content_test.go", Declaration: "TestContentSymlinks"},
+			{Path: "internal/gitsnap/content_test.go", Declaration: "TestContentSymlinkChainsAndExcludedTargets"},
+			{Path: "internal/gitsnap/content_test.go", Declaration: "TestContentSymlinkChainBoundaryAtProductionCapture"},
+			{Path: "internal/gitsnap/content_test.go", Declaration: "TestContentSubmodulePointerStates"},
+			{Path: "internal/gitsnap/content_test.go", Declaration: "TestContentSubmoduleUninitializedAndRefusals"},
+			{Path: "internal/gitsnap/content_test.go", Declaration: "TestContentSubmoduleCountBounds"},
+			{Path: "internal/gitsnap/content_test.go", Declaration: "TestContentLocalPathOwnerExclusions"},
+			{Path: "internal/gitsnap/content_test.go", Declaration: "TestContentDigestRaceAndRetry"},
+			{Path: "internal/gitsnap/content_test.go", Declaration: "TestContentLargeBlobChunksAndLimit"},
+			{Path: "internal/gitsnap/refusal_test.go", Declaration: "TestRefuseSpecialWorktreeFile"},
+		},
+	},
+	"git-workspace-complete-capture-v070": {
+		ID:         "git-workspace-complete-capture-v070",
+		Production: codeReference{Path: "internal/tmuxserver/capture_git_workspace.go", Declaration: "CaptureGitWorkspace"},
+		Tests: []codeReference{
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureGitWorkspaceQuiescedAssemblesAndRechecks"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureGitWorkspaceSourceChangeRefusalAndRetry"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureGitWorkspaceStoppedAssemblesWithoutBoundary"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureStopPointStateDomain"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureProviderProofRequirements"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureFinalStatusStateDomain"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureNeverTransitionsOutsideStopPointOwnerSet"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureRejectsCheckpointBoundaryAsProviderProof"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureRejectsParkedEvenWithPriorQuiescenceReceipt"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureFailureRetryUsesRequestStop"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureProcessCrashRetry"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_LifecycleRequired"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_ExactStatusIdentityRequired"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_OpeningStatusIdentityMatch"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_InitialAbsent"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_InitialParked"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_InitialActive"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_InitialStaleFenced"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_InitialUnavailable"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_AssemblyRunnerRequired"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_StoppedBoundaryBodyForbidden"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_StoppedIncarnationRequired"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_QuiescingBoundaryRequired"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_BoundaryIdentityMatchesStatus"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_CheckpointOnlyProviderProof"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_QuiescingIncarnationRequired"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_CurrentInputClosureReceiptRequired"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_InputClosureReceiptMissing"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_InputClosureReceiptOperation"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_InputClosureReceiptTimestamp"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_CurrentProviderBoundaryReceiptRequired"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_ProviderBoundaryReceiptOperation"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_ClosingStatusIdentityMatch"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_IncarnationStableAcrossCapture"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_IncarnationRecordPresentAtClose"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_FinalStateRemainsHeld"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_StoppedRemainsStopped"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureAdmission_ClosureBarrierStillProven"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureCoordinatorAdmissionGateCensus"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureCoordinatorClauseCensusDetectsAddedDisjunct"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCaptureBoundaryReceiptIsCreatedWhenAbsent"},
+			{Path: "internal/tmuxserver/capture_git_workspace_test.go", Declaration: "TestCapturePropagatesOwnerBoundaryTimestampIntegrity"},
+			{Path: "internal/gitsnap/assembly_test.go", Declaration: "TestAssemblyNormativeCorpus"},
+			{Path: "internal/gitsnap/assembly_test.go", Declaration: "TestAssemblyPackIndexAndBytes"},
+			{Path: "internal/gitsnap/assembly_test.go", Declaration: "TestAssemblyRecursivePacks"},
+			{Path: "internal/gitsnap/assembly_test.go", Declaration: "TestAssemblyIsolatedDatabaseIgnoresAmbientObjects"},
+			{Path: "internal/gitsnap/assembly_test.go", Declaration: "TestValidateProvisionalClosureAndDescriptors"},
+			{Path: "internal/gitsnap/assembly_test.go", Declaration: "TestAssemblyGroupRecordAgreement"},
+			{Path: "internal/gitsnap/assembly_test.go", Declaration: "TestAssemblyMissingConfigClosure"},
+			{Path: "internal/gitsnap/assembly_test.go", Declaration: "TestAssemblyManifestFanout"},
+			{Path: "internal/gitsnap/assembly_test.go", Declaration: "TestAssemblyOptionsAndUnsupportedSources"},
+		},
+	},
 	"tmux-attach-overlap-v070": {
 		ID:         "tmux-attach-overlap-v070",
 		Production: codeReference{Path: "internal/tmuxserver/lifecycle.go", Declaration: "Execute"},

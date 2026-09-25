@@ -15,6 +15,14 @@
 
 ## 2026-09-24
 
+### TASK-260830-2xt6fd review rev1 rework — capture-gate reachability
+
+- GATE MATRIX: Rebuilt valid capture requests with the real runner, assembly, boundary body, current-incarnation quiesce receipt, and proven barrier. Four named production-entry tests now break one gate input each and assert literal refusal code/detail; an AST census requires a one-to-one row/test for every direct admission refusal. Valid quiescing-with-boundary and stopped controls pass. The parked-state and four admission-gate narrowings were each killed alone twice; a separate stopped-closing-state and Dial narrowings were included in the same two runs. The census plant was killed, the harmless control survived.
+- BOUND: The terminal owner does not persist transient `creating`; its status projection is `unavailable`. Capture tests the raw creating owner input and asserts the observed unavailable refusal instead of adding a parallel state reader. Capture remains a closed-spec stop-point operation and recovery uses landed stop/terminate-stale paths; there is no release transition.
+- DIAL: `UnixDialer.Dial` leaves missing-parent `ENOENT` unknown under SPEC v0.7.0 §4.C's successful-status-only absence rule. The production `TestUnixDialerMissingDirectoryIsUnknown` kills the exact narrowing. Base/candidate importer probe moved `stale` to `unknown`; other importer package outcomes remained green.
+- VALIDATION: Exact candidate `env -u TMPDIR go test ./... -count=1`, host vet, Windows vet, build, gofmt, diff check, and delta lint exited 0. Full `go test ./... -cover` exited 1 on the 10-minute timeout in `tmuxserver.TestCustodyModeOracleAtProductionEntries` during a concurrent repo-wide race run; it is not reported green. Tracecheck is 106/597 with canonical ownership digest `bc46c7705670bc331811a32eb25a5712331fd11248c207a61c7544023f84107b`; the README pin plant was refused as expected. The harness and all exact-tree checks are logged under `.temp/TASK-260830-2xt6fd/`.
+- WORKTREE: Candidate remains uncommitted at checkpoint `49d1d660c11c4e1f1564d72ab7e28b3f6cd63203`. `task-board.config.json` is byte-identical to that checkpoint. The importer outcome grid covers every Story-touched package and names the only moved class, absent-parent Dial observation.
+
 ### TASK-260830-1esv6u — story-final reconciliation completeness and registry
 
 - PRODUCER: New `internal/clonereconcile` proves SPEC v0.7.0 §13.14.2 reconciliation completeness (10554-10556) through two entries: `ReadBackHistory` decodes staged/live history solely via `clonereadback.DecodeReadBackEvidenceManifest`, and `Reconcile` censuses tier-1/tier-2 links, owner-decoded fidelity rows at tier 3, and plan/projected/tuple/native pairing, then derives both reports through `clonefidelity`/`cloneplan`/`clonereadback` with the owner-decided valid bit (true-then-false seal).
@@ -1288,6 +1296,36 @@
 - VALIDATION DISCIPLINE: an initial full test run overlapped the ownership-registry update and failed tracecheck with the old compiled digest against the new file. That run is reported exit 1; the next run exposed a missed tracecheck output-count fixture (98 instead of 105), which was corrected. Stable-tree reruns own handoff evidence. Original files remain untouched during mutants (Go overlays), with a green neutral and compiling known-bad control.
 - BOARD: task-board validate exited 0 while reporting 225 shared activity/mirror issues; none named this leaf or its Story. The exit status is recorded, but it is not represented as an issue-free board. Shared board repair is outside this leaf.
 - BOUNDS: no durable mutation, hence no crash-write injection. Read failure/absence/recovery and immutable snapshots are driven through Load. Sibling transport/lifecycle and directory publication tasks own authenticated connection and payload enforcement. Outcome and per-command/mutant logs use the task ID on the board.
+## 2026-09-08
+
+### Working-copy capture — shared owners and path-alias exclusion
+- SCOPE: TASK-260830-3m7m7w, accepted predecessor checkpoint d888cd576f5962eb258e40ca487f7711b2215610. ContentOptions extends the existing Capture entry and leaves the private-index algorithm intact.
+- OWNERS: safe regular-file reads use secprim.Guard.Open, durable installs use localstore.PutBlob, entry/blob grammar uses canonicaljson. A diagnostic redactor is not a secret classifier. Trusted include classifications and owner path exclusions remain explicit inputs.
+- FINDING: Git canonicalizes macOS /var paths to /private/var. Comparing AX layout paths lexically missed exclusions; canonicalize policy roots, distinguish missing ordinary components from failed reads/dangling links, and test the real alias through Capture.
+- EVIDENCE: exact pinned parent/child pack/index payloads instantiate separate real Git databases; working bytes and independent pointers are verified. A child process exits 73 after blob installs and before a result; fresh capture reuses verified bytes. No durable checkpoint/manifest publication is implemented.
+- INSTRUMENT: census method-control assumed its appended call would be last across files. Check membership plus the exact count increase instead. The new entry-array boundary is driven at 65536/65537 and executed by the existing bound-proof census.
+- BOUNDS: no whole-program secret guarantee, CLI capture/doctor capability, object-pack production, workspace manifest closure, cross-platform runtime, change-and-revert race detection or measured 128 GiB success claim. Mutant outcomes and actual command exits belong to the task-scoped evidence packet.
+
+### Git capture CR rev2 — seven review findings and evidence correction
+- SCOPE: TASK-260830-2bnr39, preserved Story checkpoint 7aa151a and CR rev1 tree 2a7575a. Reworked the existing candidate; no manual commits or Story branch changes.
+- F1: inherited optional-lock settings now lose to runner-owned values. Real Git 2.50.1 also refreshes stat-only index entries regardless of that environment guard. Disabling autoRefreshIndex prevented writes but produced false M deltas; per-diff private index copies retain Git comparison semantics. Copies preserve original mtime because Git uses it for racy-index checks, and are cleaned on return. Byte-preservation, failure cleanup, alternate-index and split-index tests drive real Git. Trusted external filter configuration is not sandboxed.
+- F2/F3: compare captured HEAD mode/ref/OID and actual index path/file identity/digest/version in addition to logical entries and raw deltas. Commands use repo-root paths; requested relative cwd is retained. Branch switches at the same OID, detach without index writes, v2-to-v4 rewrites, identical-byte file replacements and root/sub/linked worktrees have drivers.
+- F4/F5: documented absence is separate from failed/partial reads. Upstream uses a successful for-each-ref field read; config booleans use Git parsing, defaults are configuration semantics, and required-filter names retain dotted subsections and last-value precedence. Mid-read fatal/transport/partial faults are injected individually through Capture. Successful empty HEAD reads also refuse.
+- F6: enforce 1..128-character remote names with ASCII/multibyte boundaries. Output-schema audit also found the 64-member required-filter limit; it now has a gate and edge tests. Native metadata and supplementary delta OIDs are explicitly distinguished from wire scalars in testdata/string-domain-audit.md.
+- F7 CORRECTION: the 0137 rev1 claim of “0 unmeasured” was false: its OID-neutral row executed no tests. The 59-site figure was a syntax census, not 59 clause proofs. New harness always executes full neutral suites, records applied/compile/behavior status separately, and adds narrowed NotRepository, HeadRef and UpstreamRef cases. Gate-level results and every survivor bound are in the corrected task outcome; no exhaustive clause claim is made.
+- ANOMALIES: the first rework neutral control correctly failed on private-index mtime drift; logs retain that failure. The original detach probe changed the index too, so its HEAD-only mutant could be caught by a different sentinel. The revised fixture uses update-ref --no-deref to change HEAD alone. Earlier mutation runs remain archived with their actual nonzero statuses.
+- EVIDENCE: TASK-260830-2bnr39_rework-rev2.md and TASK-260830-2bnr39_rework-evidence-rev2.tar.gz. AC drivers remain 8 of 8; global traceability ownership counts are unchanged (17/428 clauses discharged), not expanded by this leaf. Runtime validation is macOS arm64; full content/closure and upstream #176/#177 remain outside scope.
+
+
+### 0137 — gitsnap leaf: NUL layout, version-0 rule, M8 neutralization
+- SCOPE: TASK-260830-2bnr39. New `internal/gitsnap` (`Capture` entry, 16 gates, 61 tests) + README section. No existing production touched.
+- FINDING: `git ls-files --stage --debug -z` puts NUL between path and debug block, not between records. First parser split on NUL and died on real output; cursor parser honors the layout. `internal/gitsnap/snapshot.go:parseIndexEntries`.
+- FINDING: unborn repo with no index file reports index version "0". Snapshot carries configured `index.version` when 2|3|4 else git default 2. `readIndexVersion`.
+- FINDING: `--debug` flags word carries ITA 0x20000000, skip-worktree 0x40000000, assume-unchanged 0x8000; `-v` tag cannot see ITA (shows H). fsmonitor bit 0x10000000 parsed but never observed live on this host; scripted only, stated bound.
+- ANOMALY (closed): first M8 mutant (OID-format check swap) survived because prefixes are constructed from the probed format, never parsed — unreachable through `Capture`. Replaced with true narrowing M8b (admits 40-hex HEAD in sha256 repo, killed); swap kept as labeled neutral control.
+- EVIDENCE: board outcomes `TASK-260830-2bnr39_gitsnap-evidence.md` + `TASK-260830-2bnr39_mutant-harness.log`. Battery 20 killed / 2 neutral-ok / 0 holes / 0 unmeasured (22 rows). Census 59 sites / 16 gates.
+- GATES: `go build ./...` 0, `go vet` 0, `go test ./... -count=1` 0, `-cover` 0 (gitsnap 83.5%), `tracecheck` 0 (counts unchanged), gofmt clean.
+- STATUS: Ready for review, handed off to review. Work left uncommitted in the worktree.
 
 ## 2026-09-07
 
@@ -2877,3 +2915,126 @@ assertion here rather than a brittle one.
 - ANOMALY (harness, not product): `TestUnixDialerMissingDirectoryIsUnknown` fails when TMPDIR is unset (falls back to short /tmp paths): the landed dialer maps connect-ENOENT to stale, and the test's unknown verdict relies on macOS TMPDIR paths exceeding the 104-byte sun_path limit. First-leaf landed code, green in every configured gate; left untouched as out of leaf scope. The no-tmux proof runs with TMPDIR set.
 - VALIDATION (exit 0, this run): 30/30 configured commands (gofmt, build, vet, full suite 248s, full race 443s, cover tmuxserver 89.0% / termbind 83.5%, 17 fuzz gates, tracecheck, cataloggen -check, linux/windows builds, JSON check, board validate, diff check); GOOS=windows vet with test files; changed-package race; restricted-PATH no-tmux suite (tmux unresolvable, pgrep clean before/after, 461 top-level PASS); harness 298/298 tmuxserver + 43/43 termbind on two full passes with one raw log per plant; isolated shared-plant attribution 24 kills + 2 companion greens × 2 rounds. Census recomputed by script: 267 measured of 5536, 191 bound, 160 named undriven gaps; Tables B/D mirror byte-identically.
 - STATUS: ready for review; worktree intentionally UNCOMMITTED for Story handoff snapshot. Results standalone + matrix + `TASK-260830-1c28dz_producer-evidence.tar.gz` attached to the board item.
+### TASK-260830-3m7m7w CR1 F1 rework: successful-exit incomplete ignore census
+
+- Review context: RUN-260907-68f937, revision 1, F1 P1, failed-read-as-absence, repeat-of:none; predecessor d888cd576f5962eb258e40ca487f7711b2215610 remains accepted/checkpointed.
+- Real Git returns exit 0 with a permission diagnostic when info/exclude or core.excludesFile cannot be read. Dropping stderr let the content walker capture previously ignored private bytes. New production-entry tests reproduce both sources before the fix (test command exit 1).
+- The content census now assesses Runner.Run exit/error/stderr together, refusing any diagnostic with GateContentRead and nil Snapshot. No warning-text parsing, policy-source duplication, or changes to private-index execution. Missing optional policies remain legitimate absence.
+- Regression drivers: TestContentIgnoreCensusWarningRefuses and TestContentExcludePolicyReadCompleteness. Both real policy sources run missing/readable/unreadable/restored controls, preserve index bytes, and retry; three repeats pass (6/6 real permission-warning cases). Root-like permission bypass and Windows mode semantics are explicit skip bounds.
+- Narrowing vector N-read-admits-success-diagnostic admits exit-0 diagnostics while retaining process/nonzero/malformed-output refusal; full measured mutant and command results are attached in the task-scoped revision-2 outcome.
+- Scope remains this stationary content-policy read. Full Git pack/raw-index/manifest closure and provider quiescence belong to TASK-260830-2xt6fd. No CLI/doctor capability is added. Producer changes remain uncommitted for managed independent review.
+
+## 2026-09-08 — TASK-260830-2xt6fd provisional Git transfer assembly
+
+- Added per-repository pack/index/blob and workspace manifest construction below coordinated capture. The runtime owner chain remains external; stable observations do not establish held quiescence and no capture/doctor capability is advertised.
+- Exact pinned parent/child payloads now drive generated-pack offline import, inventory/raw-index agreement and recursive working bytes. Large child closures partition through empty composites, without duplicating entries.
+- Full tests exposed an obsolete provider-host assumption: a repository-wide scan treated every generic `VerifyObjectIdentity` call as provider-identity attestation. New Git manifest/blob/group-record verification disproved that implication. Replaced the proxy with a direct `CheckIdentity` mismatched-digest behavioral witness and corrected the bound's prose. Provider identity admission behavior is unchanged; its deferred binding-owner decision remains deferred. The new test claims nothing about unknown paths in other packages.
+- The private index observation witness contains native stat metadata. Root/subdirectory comparison now explicitly verifies its identity/size/mtime/digest contract and compares snapshot fields separately, avoiding irrelevant atime differences. Source index writes are still forbidden and tested.
+- RUN-260908-ec0794 preserves full six-row acceptance. Validation and mutant outcomes, including real failures and surviving bounds, are attached under task-scoped resource names before lifecycle exit.
+- The closure audit additionally found and corrected a transitive-path gap: a member's selected cwd/config can live in an initialized submodule. Assembly now uses the immutable Group Record's resume cwd and resolves cwd/config through mapped child trees, while refusing parent entries that cross child repository partitions. The per-manifest entry-count limit is not applied to the aggregate closure. Positive nested-path and negative missing/overlapping-partition fixtures drive the component entries.
+
+## 2026-09-24 — TASK-260830-2xt6fd resumed quiescence contract audit
+
+- Preserved the pre-refresh candidate in refs/backup/2xt6fd-pre-refresh-20260924T072226Z, replayed its two signed Story checkpoints onto trunk 6d3bff9, and repaired stale worktree copies. The post-repair mechanical audit proves all 2,116 trunk-only paths are blob-equal in the worktree, index, and candidate tree; all 42 pre-refresh candidate paths remain byte-identical. The refresh invocation's terminal exit was not observed, so it is not reported as a green command.
+- Re-anchored the cited v0.5.0 clauses to v0.7.0: §§4.C, 4.1–4.2, 10.2–10.4, and 12.1–12.3 have byte-identical section bodies at their new line ranges. The quiescence rule itself did not change.
+- Stop-the-line finding: tmux Lifecycle supports durable quiesce-input and wait-safe-boundary. The closed lifecycle API has no same-instance release operation or input-reopened side effect. QuiesceBarrierProven keeps input closed until a new incarnation; the tested reopen sequence requires request-stop followed by restore. gitsnap has no production lifecycle caller, and AssembleProvisional explicitly returns only provisional transfer state. Adding an unlock in gitsnap or using restore as a temporary release would fork/bypass the landed owner contract.
+- Current-source checks: go test ./internal/gitsnap -count=1 (exit 0, 189.652s); focused terminstance quiescence/boundary tests (exit 0); focused tmuxserver quiesce/boundary/restore tests (exit 0); git diff --check (exit 0). The full configured suite, mutation harness, Windows vet, tracecheck/section runs, registry rederivation and story-final registry update were not run because the missing owner release contract prevents a safe production integration and handoff.
+- Required input to resume: decide whether capture may leave a live instance quiescing until stop/restore, or assign the existing lifecycle owner to add a generation-bound capture hold/release with durable refusal, release and crash recovery. Recommended: owner-managed scoped hold/release, then wire the capture coordinator through it.
+
+## 2026-09-24 — TASK-260830-2xt6fd orchestrator decision and implementation
+
+- The attached decision resolves the earlier owner/API question from the pinned v0.7.0 contract: capture is a stop-point operation. §4.C is closed; there is no same-incarnation transition from `quiescing` to `active`. The coordinator accepts only a current-incarnation quiescing state with input-closure and provider-boundary receipts, or `stopped`, then it holds the window through assembly and the closing status check. It adds no release, restore, or unlock transition.
+- Failure/crash leaves the instance in the landed owner's state. Recovery uses `request-stop` or stale termination, then a stopped retry. The earlier recommendation to add a scoped hold/release is superseded; non-disruptive capture returning to `active` requires a specification change and is out of contract for this task.
+- Evidence is task-scoped in `.temp/TASK-260830-2xt6fd/`: spec crosswalk, axis inventory, coverage map, importer outcome grid, isolated per-plant logs/results, and standalone validation logs. The evidence reports the one missing-child narrowing survivor and four broad package controls that timed out, without treating either as green evidence.
+
+### TASK-260830-2xt6fd developer handoff validation — 2026-09-24
+
+- The final candidate implements the stop-point capture decision without a release path. `CaptureGitWorkspace` admits same-incarnation `quiescing` with input/provider receipts or `stopped`, runs `AssembleProvisional`, then rechecks status and source identity. `coverage-map.md` measures 6 of 6 final-leaf acceptance rows at their production call sites; no surface table was supplied, so that brief gap is explicit.
+- The final `go test ./internal/tmuxserver -count=1 -v` passed (exit 0, 337.331s). The full `go test -cover` suite was split into nine direct bounded package shards; each exited 0, and the package inventory audit proves 46/46 packages are present. `tmuxserver` coverage is 87.9%, `gitsnap` 84.4%, `provhost` 85.7%, and traceability/tracecheck 87.2%/88.5%.
+- Host `go vet ./...`, Windows/amd64 `go vet ./...`, and `go build ./...` all exited 0. `gofmt -l internal` and its empty-output assertion both exited 0; `git diff --check` exited 0. Full tracecheck exited 0 with 73 bindings and 106/597 clauses discharged; the README pin matches. Section runs intentionally refused assignment as full ownership: 10.4 = 21/25 (exit 1), 12.1 = 0/1 (exit 1), 12.2 = 2/6 (exit 1), 12.3 = 2/5 (exit 1); each excluded row and acceptance-criteria bound is listed in the attached coverage map.
+- Narrowing evidence: 16 gitsnap kills and one missing-child survivor; the survivor is not counted as an independent visit-gate proof because required tree binding still rejects its fixture. Two capture narrowing mutants and one dialer missing-parent mutant were rerun on the final candidate and killed by their named tests. The harmless comment-only control survived. Four broad mutant harness controls exceeded their 240-second bound and remain diagnostics, not passing evidence.
+- A full tmuxserver run exposed that long `t.TempDir()` names could consume the Unix `sun_path` budget before custody. The Unix test helper now creates with `t.TempDir()`, relocates that owned directory under canonical `/var/tmp`, and removes it through `t.Cleanup`; 144 production-entry depth/position cases then reach the custody gate, and the final full package and coverage run are green. No test scratch writes to `/tmp` remain.
+- Earlier monolithic `go test ./... -v` runs are retained honestly: two pre-fix runs exited 1 on the old ENOENT classification and one attempt was interrupted at the command limit (exit 143). A pre-helper full tmuxserver run also exited 1 on overlong test roots. The later bounded full coverage run passes all 46 packages; `tmuxserver-full-03.log` independently records the full verbose package pass. Outcome and curated evidence archive are attached to TASK-260830-2xt6fd. The Story worktree remains uncommitted.
+
+## 2026-09-24 — TASK-260830-2xt6fd rev2 review evidence follow-up
+
+- Re-ran the current 368-row shipped tmuxserver mutant harness in bounded slices. Every row has a raw per-plant log and named test/run; 366 are KILLED and two survive. The shadowed attach-deadline narrowing is explicitly supplementary and not counted as gate evidence; the comment-only control is the expected harness-survivor control. Each changed gate selection from rev2 was separately run twice; the broad manifest itself ran once, and the result artifact states that limit. The corrected 120:140 slice is counted; superseded failed attempts remain diagnostics.
+- Broad slices 0:320 used the Story worktree; 320:368 used an isolated candidate copy. All 13 changed tmuxserver/termbind/terminstance/axpane paths were byte-identical across those copies.
+- Exact-tree sequential package reruns: resumesmoke, sessquery, tracecheck and tmuxserver passed; tmuxserver's first standalone retry hit the 10-minute package timeout in `TestCustodyPathComponentByteLengthsAtProductionEntries` cleanup while unrelated tests were active. The isolated test passed in 90.473s and the clean full package retry passed in 320.735s. The exact-tree full `go test ./...` retry and coverage run both remain red due package timeouts under concurrent repository test load; no green claim is made for those commands.
+- Results and raw evidence are in `.temp/TASK-260830-2xt6fd/`, including the 368-row mutant table and raw per-plant logs. Acceptance remains 6 of 6 final-leaf rows; no surface table was provided. Worktree remains uncommitted.
+
+## 2026-09-25 — TASK-260830-2xt6fd rev3 refreshed handoff evidence
+
+- Refreshed candidate tree 7bebe7213a4c3c71410c591b14b2761d2e8d4bdc sits on
+  trunk 5b7876be29cf578ff02583660d77fc10944e855c. Mechanically compared
+  pre-refresh Story delta 6040c3815b61c344ebbe821f29a947d35292a877 with trunk:
+  142 trunk-only paths, all blob-equal, no missing paths or mismatches.
+- Rev3 AST census: 22 captureUnavailable refusal sites, each paired with one
+  literal-detail test row. Site-specific narrowings are 22/22 killed in each
+  of two isolated passes. The final admission/census/domain set passes -count=3.
+  Two fixtures were subsequently sharpened to isolate the stopped-boundary
+  body and closing-incarnation gates; current baseline rows pass three times
+  and their fresh individual narrowing reruns are attached.
+- Re-derived the v0.7.0 ownership digest as
+  b7a3861fa8693ee451ae6742d9dd5de85268497191eed6c305887bec7f086737.
+  Current tracecheck is 166 acceptance cases, 75 bindings, 113/622 clauses
+  discharged; README pin matches and the wrong-figure plant is expected-red.
+- Exact-tree native and Windows vet, build, tracecheck, traceability, README
+  pin, gofmt, diff check, and current capture determinism checks are green.
+  The monolithic full suite was interrupted at its call limit after 44/47
+  package outputs (real exit 1); the remaining package suites were run
+  separately and passed, so all 47 packages have direct green standard-suite
+  evidence. A full refreshed-tree coverage suite and a post-refresh full
+  368-row shipped mutant manifest were not rerun; the 22 rev3 refusal-site
+  narrowings were run twice, and the changed-package coverage shard is
+  attached if it completes before handoff.
+- Importer base/candidate comparison on 5b7876b -> 7bebe721 reports 4,098
+  shared named-test keys, one movement (missing-parent Dial fail -> pass),
+  and no other shared status movement; candidate-only capture/assembly and
+  new gitsnap cases are explicitly listed.
+- Boundary incident disclosed: four inventory text files were first created
+  in sibling repo scratch at 03:16:46–03:16:48 +0400, then moved into this
+  worktree. The sibling sources were absent at the 04:27:23 +0400 sample.
+  No control-root files were edited; the task results file records
+  run_wrote_outside_worktree for the temporary scratch excursion.
+- Task results and evidence tar are attached through the task-board resource
+  CLI. Worktree remains uncommitted for Story checkpoint handoff.
+
+### 2026-09-25 — TASK-260830-2xt6fd rev6 rework
+
+Reworked the capture admission census to count every nested refusal disjunct and added one matrix row plus a narrowing for each of 27 clauses. All 27 clause mutants and census controls were killed in two isolated passes; the harmless control survived. Added a separate provider-boundary timestamp repeat-of test and narrowing, retained the original reviewer test, and kept this owner-integrity check outside the refusal-clause matrix. The broad determinism run first exposed that its test name collided with the matrix-row namespace; renamed it and reran the census plus owner test at `-count=3`, exit 0. The refreshed trunk invariant found 0 mismatches across 2,547 trunk-only paths. Current vet, Windows vet, build and diff checks passed. The full all-package test command hit the 10-minute bound and was terminated (exit 143); importer comparison is recorded as pre-refresh and is not claimed exact to the refreshed tree. See task-scoped rev6 results and evidence resources.
+
+### 2026-09-25 — TASK-260830-2xt6fd rev6 rework handoff evidence
+
+- The rev6 clause census maps all 27 capture refusal disjuncts to literal
+  production-entry rows. Its two census controls fail when planted; each of
+  the 27 admission narrowings is recorded killed alone twice. The six receipt
+  disjuncts that close the rev5 repeat-of finding were independently rerun
+  alone twice on this candidate; the applied harmless control survived.
+- Exact-tree package verification is green: go test ./... exit 0 across 52
+  packages; eight bounded coverage commands cover the same 52 packages.
+  Build, host vet, Windows vet, golangci-lint delta, gofmt and diff check pass.
+- Fresh importer comparison used origin/main eb12183 as base and candidate
+  scratch-index tree d1842fe. No shared test key changed status. gitsnap is
+  absent from the base and contributes 270 candidate-only passing test keys.
+- Registry digest b3c19a372b72d48f01757bc209162e8da7d3fd4a56908169fc18c7d9009314d2
+  re-derives; full tracecheck reports 76 bindings and 113/622 clauses.
+  Section-scoped runs for 10.4, 12.1-12.3, 4.C and 4.2 refuse partial or
+  unowned scopes exactly where the coverage map declares them out of contract.
+  The current README pin passes and the wrong-figure plant is rejected.
+- A broad TestCapture filter determinism attempt was interrupted (exit 1);
+  the scoped new census/admission set passes -count=3 (exit 0). An initial
+  README plant used a relative copy-root and failed on file lookup; the
+  absolute-root repeat reached and failed the deliberately wrong 77/76 figure.
+- Current origin/main is an ancestor of the Story checkpoints; no new trunk
+  commits are pending refresh. The Story candidate remains uncommitted.
+  Detailed commands, exit codes, scope bounds and evidence paths are attached
+  as task-scoped rev7 results and evidence resources.
+
+
+2026-09-25 — duplicate-object narrowing follow-up for TASK-260830-2xt6fd rev6: an isolated `sync-duplicate-delivery-drops-active-object` source overlay first survived `TestDurableSyncDuplicateDeliveryIsByteIdentical`, because that test snapshots only after initial synchronization and therefore did not notice an object removed during the initial duplicate path. The same one-condition narrowing was then run against the existing production-entry `TestDurableJSONAddIsIdempotentAcrossCrashRestartByNamespace`; reopening the store after an identical retry detects the missing persisted object. Three independent solo runs were killed (the outer test and all namespace subtests failed). This follow-up changes no tracked merkleinventory implementation or test; it records the measured bound and uses the existing recovery test as the independent oracle. Raw logs are attached in `TASK-260830-2xt6fd_evidence-rev7.tar.gz`.
+
+
+2026-09-25 — TASK-260830-2xt6fd rev7 validation note: the focused capture-admission determinism suite passed at `-count=3`. A broader capture test repeat was interrupted and is not pass evidence. After a LOGBOOK-only delta, a full `go test ./...` retry was interrupted at `internal/tmuxserver` while other full Go suites were running; the isolated package rerun passed. A second full retry was stopped at 9m18s (exit 143) before the shell-call limit. The complete earlier full-suite green evidence remains reusable because production source, tests, README, registry, configuration, and environment identity did not change. Exact attempts and exit codes are recorded in the task-scoped rev7 results artifact.
+
+2026-09-25 — TASK-260830-2xt6fd rev8 handoff validation: the 27-row capture admission/census production-entry selector passed `-count=3` (exit 0, 230.649s). Two isolated receipt-mutation passes each killed the six receipt narrowings and added-disjunct census plant; the applied comment-only control survived. Scratch-index tree is `531a9e60aac785325e3de407b950e5ead241804e`; scratch-index diff check and `gofmt -l internal` are clean, and `task-board.config.json` matches refreshed base `eb12183`. The automatic Change Request validation's monolithic `go test ./... -count=1 -v` returned exit 1 without a failing-test line or cancellation reason in its captured log; this remains failed/unknown, not green. All-package bounded evidence and full-suite green evidence on the unchanged source/test/config/environment identity are described with their tree identities in the attached rev8 results.

@@ -22,8 +22,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err := run([]string{"-root", repositoryRoot}, &output); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
-	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=168 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
-		"section coverage: bindings=73 full=4 partial=11 sliver=12 unevidenced=41 unmeasured=5 unowned=7 clauses_discharged=88/610\n"
+	want := "traceability ok: contracts=64 normative_sections=36 acceptance_cases=171 fixtures=33 compatibility_contracts=55 assigned_scopes=0\n" +
+		"section coverage: bindings=76 full=4 partial=12 sliver=14 unevidenced=41 unmeasured=5 unowned=7 clauses_discharged=113/622\n"
 	if output.String() != want {
 		t.Fatalf("run() output = %q, want %q", output.String(), want)
 	}
@@ -55,8 +55,8 @@ func TestRunReportsExactCoverageAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run(assigned sections) error = %v", err)
 	}
-	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=168 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
-		"section coverage: bindings=73 full=4 partial=11 sliver=12 unevidenced=41 unmeasured=5 unowned=7 clauses_discharged=88/610\n"
+	want = "traceability ok: contracts=64 normative_sections=36 acceptance_cases=171 fixtures=33 compatibility_contracts=55 assigned_scopes=1\n" +
+		"section coverage: bindings=76 full=4 partial=12 sliver=14 unevidenced=41 unmeasured=5 unowned=7 clauses_discharged=113/622\n"
 	if output.String() != want {
 		t.Fatalf("run(assigned sections) output = %q, want %q", output.String(), want)
 	}
@@ -139,7 +139,7 @@ func TestRunRefusesEveryAssignedSectionThatOnlySlivers(t *testing.T) {
 		{"9.2", "discharges 0/35 normative clauses, which is unevidenced coverage"},
 		{"10.1", "discharges 0/3 normative clauses, which is unevidenced coverage"},
 		{"10.3", "discharges 1/3 normative clauses, which is sliver coverage"},
-		{"10.4", "discharges 0/25 normative clauses, which is unevidenced coverage"},
+		{"10.4", "discharges 21/25 normative clauses, which is partial coverage"},
 		{"13.14.5", "discharges 0/0 normative clauses, which is unmeasured coverage"},
 		{"14.2", "discharges 8/9 normative clauses, which is partial coverage"},
 		{"15.1", "discharges 5/7 normative clauses, which is partial coverage"},
@@ -189,7 +189,7 @@ func TestMainRejectsRenamedScalarSectionOwnerDeclarations(t *testing.T) {
 		{"10.1", "internal/canonicaljson/closed_shapes.go", "validateImmutableObjectShape", "func validateImmutableObjectShape(", "func renamedValidateImmutableObjectShape("},
 		{"10.2", "internal/clonesnap/capture.go", "Capture", "func Capture(", "func renamedCapture("},
 		{"10.3", "internal/canonicaljson/closed_shapes.go", "validateBlobDescriptor", "func validateBlobDescriptor", "func renamedValidateBlobDescriptor"},
-		{"10.4", "internal/canonicaljson/closed_shapes.go", "validateTransferManifest", "func validateTransferManifest", "func renamedValidateTransferManifest"},
+		{"10.4", "internal/gitsnap/assembly.go", "AssembleProvisional", "func AssembleProvisional(", "func renamedAssembleProvisional("},
 		{"17.3", "internal/canonicaljson/closed_shapes.go", "validateMigrationProvenance", "func validateMigrationProvenance", "func renamedValidateMigrationProvenance"},
 	}
 

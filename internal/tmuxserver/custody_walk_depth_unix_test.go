@@ -4,6 +4,7 @@ package tmuxserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/build"
@@ -23,15 +24,18 @@ import (
 )
 
 func TestCustodyAncestorWalkGeneratedDepthAtProductionEntries(t *testing.T) {
+	fixtureBase := shortTestTempDir(t)
 	entries := []string{"Probe", "Spawn", "Execute"}
+	positions := []string{"nearest_runtime_ancestor", "middle_ancestor", "deepest_non_root_ancestor"}
 	for extraDepth := 1; extraDepth <= 16; extraDepth++ {
 		extraDepth := extraDepth
-		for _, entry := range entries {
+		for entryIndex, entry := range entries {
 			entry := entry
-			for _, position := range []string{"nearest_runtime_ancestor", "middle_ancestor", "deepest_non_root_ancestor"} {
+			for positionIndex, position := range positions {
 				position := position
 				t.Run(fmt.Sprintf("extra_%02d/%s/%s", extraDepth, position, entry), func(t *testing.T) {
-					root, socket, fx, _ := newCustodyOracleEntryFixtureAtDepth(t, entry, extraDepth)
+					caseBase := filepath.Join(fixtureBase, fmt.Sprintf("c%d-%d-%d", extraDepth, entryIndex, positionIndex))
+					root, socket, fx, _ := newCustodyOracleEntryFixtureAtDepthUnderBase(t, entry, extraDepth, caseBase)
 					ancestors := custodyAncestors(root)
 					if len(ancestors) < extraDepth+2 {
 						t.Fatalf("extra depth %d produced %d ancestor components, want at least %d", extraDepth, len(ancestors), extraDepth+2)
@@ -59,6 +63,18 @@ func TestCustodyAncestorWalkGeneratedDepthAtProductionEntries(t *testing.T) {
 					t.Cleanup(func() { custodyModeProjection = previousProjection })
 
 					err, effects := runCustodyOracleEntry(t, entry, root, socket, fx)
+					var typed *Error
+					if errors.As(err, &typed) && typed.Code == "tmux_socket_path_too_long" {
+						assertCustodyPermissionRefusal(t, err, "tmux_socket_path_too_long", "socket path length")
+						if effects != 0 {
+							t.Fatalf("%s performed %d effect(s) before refusing an overlong socket path", entry, effects)
+						}
+						if projectionHits != 0 {
+							t.Fatalf("overlong socket path reached the custody ancestor projection %d times through %s", projectionHits, entry)
+						}
+						t.Logf("%s extra depth %d is outside the reachable socket-path domain; entry refused before custody", entry, extraDepth)
+						return
+					}
 					assertCustodyPermissionRefusal(t, err, "tmux_unsafe_socket_path", "socket ancestor")
 					if effects != 0 {
 						t.Fatalf("%s performed %d effect(s) before refusing mode 0777 at %s", entry, effects, target)

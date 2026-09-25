@@ -1,0 +1,475 @@
+[
+  {
+    "name": "C-neutral-comment",
+    "file": "snapshot.go",
+    "old": "",
+    "new": "\n// gitsnap neutral instrument control\n",
+    "tests": [],
+    "positive": [],
+    "expect": "survive",
+    "full": true,
+    "bound": "Comment-only change cannot affect runtime behavior; full suite must execute."
+  },
+  {
+    "name": "M1-stage-admits-4",
+    "file": "snapshot.go",
+    "old": "stageValue > 3",
+    "new": "stageValue > 4",
+    "tests": [
+      "TestRefuseIndexStageFour"
+    ],
+    "positive": [
+      "TestEdgeStageThreeAccepts"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M2-version-admits-5",
+    "file": "snapshot.go",
+    "old": "[]string{\"2\", \"3\", \"4\"}",
+    "new": "[]string{\"2\", \"3\", \"4\", \"5\"}",
+    "tests": [
+      "TestRefuseIndexVersionFive"
+    ],
+    "positive": [
+      "TestCompatIndexVersions"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M3-remotes-admits-17",
+    "file": "snapshot.go",
+    "old": "len(names) > maxRemotes",
+    "new": "len(names) > maxRemotes+1",
+    "tests": [
+      "TestEdgeRemotesSeventeenRefuses"
+    ],
+    "positive": [
+      "TestEdgeRemotesSixteenAccepts"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M4-entries-admits-65537",
+    "file": "snapshot.go",
+    "old": "len(entries) > maxIndexEntries",
+    "new": "len(entries) > maxIndexEntries+1",
+    "tests": [
+      "TestEdgeIndexMaxPlusOneRefuses"
+    ],
+    "positive": [
+      "TestEdgeIndexMaxAccepts"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M5-identity-admits-257",
+    "file": "snapshot.go",
+    "old": "count > maxIdentityRune",
+    "new": "count > maxIdentityRune+1",
+    "tests": [
+      "TestEdgeIdentity257CharsRefuses"
+    ],
+    "positive": [
+      "TestEdgeIdentity256CharsAccepts"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M6-unborn-admits-tags",
+    "file": "snapshot.go",
+    "old": "strings.HasPrefix(ref, \"refs/heads/\")",
+    "new": "strings.HasPrefix(ref, \"refs/\")",
+    "tests": [
+      "TestRefuseUnbornNonBranchRef"
+    ],
+    "positive": [],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M7-delta-admits-X",
+    "file": "snapshot.go",
+    "old": "if !known {",
+    "new": "if !known && letter != \"X\" {",
+    "tests": [
+      "TestRefuseUnknownDeltaStatus"
+    ],
+    "positive": [],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M8b-branch-admits-40hex-in-sha256-repo",
+    "file": "snapshot.go",
+    "old": "\t\tparsedOID, err := scalar.ParseGitOIDForObjectFormat(objectFormat+\":\"+oid, objectFormat)\n\t\tif err != nil {\n\t\t\treturn Head{}, refuse(GateHeadOIDFormat, \"HEAD oid invalid: \"+err.Error())\n\t\t}",
+    "new": "\t\tparsedOID, err := scalar.ParseGitOIDForObjectFormat(objectFormat+\":\"+oid, objectFormat)\n\t\tif err != nil && len(oid) != 40 {\n\t\t\treturn Head{}, refuse(GateHeadOIDFormat, \"HEAD oid invalid: \"+err.Error())\n\t\t}\n\t\tif err != nil {\n\t\t\tparsedOID, _ = scalar.ParseGitOID(\"sha1:\" + oid)\n\t\t}",
+    "tests": [
+      "TestRefuseCrossFormatOID"
+    ],
+    "positive": [
+      "TestCompatSHA256ObjectFormat"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "C-neutral-oid-swap-survives",
+    "file": "snapshot.go",
+    "old": "scalar.ParseGitOIDForObjectFormat(objectFormat+\":\"+oid, objectFormat)",
+    "new": "scalar.ParseGitOID(objectFormat+\":\"+oid)",
+    "tests": [],
+    "positive": [],
+    "limit": 1,
+    "expect": "survive",
+    "full": false,
+    "bound": "Both scalar parsers enforce prefix/length; the supplied objectFormat is also the constructed prefix. This substitution is behavior-neutral at this call site; it does not cover cross-format acceptance elsewhere."
+  },
+  {
+    "name": "M9-sort-admits-duplicate",
+    "file": "snapshot.go",
+    "old": "current.Stage <= previous.Stage",
+    "new": "current.Stage < previous.Stage",
+    "tests": [
+      "TestRefuseDuplicateIndexEntry"
+    ],
+    "positive": [
+      "TestRefuseUnsortedIndex"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M10-fetch-push-swapped",
+    "file": "snapshot.go",
+    "old": "\t\tcase \"(fetch)\":\n\t\t\tfetch[name] = url\n\t\tcase \"(push)\":\n\t\t\tpush[name] = url",
+    "new": "\t\tcase \"(fetch)\":\n\t\t\tpush[name] = url\n\t\tcase \"(push)\":\n\t\t\tfetch[name] = url",
+    "tests": [
+      "TestRemoteFetchPushMapping"
+    ],
+    "positive": [
+      "TestAcceptBaselineSnapshot"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": true,
+    "bound": ""
+  },
+  {
+    "name": "M11-assume-bit-swapped",
+    "file": "snapshot.go",
+    "old": "AssumeUnchanged: flags&flagAssumeUnchanged != 0,",
+    "new": "AssumeUnchanged: flags&flagSkipWorktree != 0,",
+    "tests": [
+      "TestCaptureLiveBranchRepository"
+    ],
+    "positive": [],
+    "limit": 0,
+    "expect": "kill",
+    "full": true,
+    "bound": ""
+  },
+  {
+    "name": "M17-push-credential-admission",
+    "file": "snapshot.go",
+    "old": "\t\t\tpushURL, err := scalar.ParseSanitizedGitURL(url)\n\t\t\tif err != nil {\n\t\t\t\treturn nil, refuse(GateRemoteURL, \"remote \"+strconv.Quote(name)+\" push URL: \"+err.Error())\n\t\t\t}\n\t\t\tvalue := pushURL.String()\n\t\t\tremote.PushURL = &value",
+    "new": "\t\t\tpushURL, _ := scalar.ParseSanitizedGitURL(url)\n\t\t\tvalue := url\n\t\t\t_ = pushURL\n\t\t\tremote.PushURL = &value",
+    "tests": [
+      "TestRefuseCredentialPushURL"
+    ],
+    "positive": [
+      "TestRemoteFetchPushMapping"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M18-index-admits-8hex-oid",
+    "file": "snapshot.go",
+    "old": "\tparsedOID, err := scalar.ParseGitOIDForObjectFormat(objectFormat+\":\"+parts[1], objectFormat)\n\tif err != nil {\n\t\treturn IndexEntry{}, nil, refuse(GateIndexEntry, \"index oid invalid: \"+err.Error())\n\t}",
+    "new": "\tparsedOID, err := scalar.ParseGitOIDForObjectFormat(objectFormat+\":\"+parts[1], objectFormat)\n\tif err != nil && len(parts[1]) != 8 {\n\t\treturn IndexEntry{}, nil, refuse(GateIndexEntry, \"index oid invalid: \"+err.Error())\n\t}\n\tif err != nil {\n\t\tparsedOID, _ = scalar.ParseGitOID(\"sha1:\" + parts[1] + strings.Repeat(\"0\", 32))\n\t}",
+    "tests": [
+      "TestRefuseIndexBadOID"
+    ],
+    "positive": [
+      "TestRefuseIndexBadMode"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M19-worktree-admits-fifo",
+    "file": "snapshot.go",
+    "old": "\tdefault:\n\t\treturn \"\", 0, refuse(GateWorktreeKind, \"unsupported special file \"+strconv.Quote(name))",
+    "new": "\tdefault:\n\t\tif mode&os.ModeNamedPipe != 0 {\n\t\t\treturn KindOther, 0, nil\n\t\t}\n\t\treturn \"\", 0, refuse(GateWorktreeKind, \"unsupported special file \"+strconv.Quote(name))",
+    "tests": [
+      "TestRefuseSpecialWorktreeFile"
+    ],
+    "positive": [
+      "TestCaptureLiveBranchRepository"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M12-remotes-min-disabled",
+    "file": "snapshot.go",
+    "old": "if len(names) < 1 {",
+    "new": "if len(names) < 0 {",
+    "tests": [
+      "TestRefuseNoRemotes"
+    ],
+    "positive": [],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M13-branch-ref-clause-disabled",
+    "file": "snapshot.go",
+    "old": "return Head{}, refuse(GateHeadRef, \"HEAD ref invalid: \"+err.Error())",
+    "new": "parsedRef, _ = scalar.ParseGitRef(\"refs/heads/mutant\")",
+    "tests": [
+      "TestRefuseBranchWithLiteralHeadRef"
+    ],
+    "positive": [],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M14-consistency-index-clause-disabled",
+    "file": "snapshot.go",
+    "old": "if !bytes.Equal(again, indexBytes) {",
+    "new": "if false && !bytes.Equal(again, indexBytes) {",
+    "tests": [
+      "TestConsistencyRefusesIndexMutationArmedOnce"
+    ],
+    "positive": [
+      "TestConsistencyRefusesHeadMutation"
+    ],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M15-corrupt-head-clause-disabled",
+    "file": "snapshot.go",
+    "old": "return Head{}, refuse(GateHeadCorrupt, \"HEAD names no ref and no commit\")",
+    "new": "return Head{Mode: \"detached\"}, nil",
+    "tests": [
+      "TestRefuseCorruptHead"
+    ],
+    "positive": [],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "M16-upstream-clause-disabled",
+    "file": "snapshot.go",
+    "old": "return nil, refuse(GateUpstreamRef, \"upstream ref invalid: \"+perr.Error())",
+    "new": "parsed, _ = scalar.ParseGitRef(\"refs/healed/mutant\")",
+    "tests": [
+      "TestRefuseBadUpstream"
+    ],
+    "positive": [],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "C-bad-inverted-sort",
+    "file": "snapshot.go",
+    "old": "if current.Path < previous.Path",
+    "new": "if current.Path > previous.Path",
+    "tests": [
+      "TestAcceptBaselineSnapshot"
+    ],
+    "positive": [],
+    "limit": 0,
+    "expect": "kill",
+    "full": false,
+    "bound": ""
+  },
+  {
+    "name": "N20-not-repository-admits-fatal-128",
+    "file": "snapshot.go",
+    "old": "result.ExitCode == 1 && len(result.Stdout) == 0",
+    "new": "(result.ExitCode == 1 || result.ExitCode == 128) && len(result.Stdout) == 0",
+    "tests": [
+      "TestReviewFeatureReadFailure"
+    ],
+    "positive": [],
+    "expect": "kill"
+  },
+  {
+    "name": "N21-head-ref-admits-HEAD",
+    "file": "snapshot.go",
+    "old": "\t\tif err != nil {\n\t\t\treturn Head{}, refuse(GateHeadRef, \"HEAD ref invalid: \"+err.Error())\n\t\t}",
+    "new": "\t\tif err != nil && ref != \"HEAD\" {\n\t\t\treturn Head{}, refuse(GateHeadRef, \"HEAD ref invalid: \"+err.Error())\n\t\t}\n        if err != nil { parsedRef, _ = scalar.ParseGitRef(\"refs/heads/feature/ax\") }",
+    "tests": [
+      "TestCaptureRefGrammarAtEachRead"
+    ],
+    "positive": [],
+    "expect": "kill"
+  },
+  {
+    "name": "N22-upstream-admits-HEAD",
+    "file": "snapshot.go",
+    "old": "\tif perr != nil {\n\t\treturn nil, refuse(GateUpstreamRef, \"upstream ref invalid: \"+perr.Error())\n\t}",
+    "new": "\tif perr != nil && ref != \"HEAD\" {\n\t\treturn nil, refuse(GateUpstreamRef, \"upstream ref invalid: \"+perr.Error())\n\t}\n    if perr != nil { parsed, _ = scalar.ParseGitRef(\"refs/remotes/origin/feature/ax\") }",
+    "tests": [
+      "TestCaptureRefGrammarAtEachRead"
+    ],
+    "positive": [],
+    "expect": "kill"
+  },
+  {
+    "name": "N23-remote-name-admits-129",
+    "file": "snapshot.go",
+    "old": "utf8.RuneCountInString(name) > maxRemoteNameRune",
+    "new": "utf8.RuneCountInString(name) > maxRemoteNameRune+1",
+    "tests": [
+      "TestCaptureRemoteNameBounds"
+    ],
+    "positive": [],
+    "expect": "kill"
+  },
+  {
+    "name": "N24-filters-admits-65",
+    "file": "snapshot.go",
+    "old": "len(features.RequiredFilters) > maxRequiredFilters",
+    "new": "len(features.RequiredFilters) > maxRequiredFilters+1",
+    "tests": [
+      "TestCaptureRequiredFilterCountBounds"
+    ],
+    "positive": [],
+    "expect": "kill"
+  },
+  {
+    "name": "N25-consistency-admits-same-length-index-change",
+    "file": "snapshot.go",
+    "old": "if !bytes.Equal(again, indexBytes) {",
+    "new": "if !bytes.Equal(again, indexBytes) && len(again) != len(indexBytes) {",
+    "tests": [
+      "TestConsistencyRefusesIndexMutationArmedOnce"
+    ],
+    "positive": [],
+    "expect": "kill"
+  },
+  {
+    "name": "N26-consistency-admits-same-oid-branch-switch",
+    "file": "snapshot.go",
+    "old": "if !reflect.DeepEqual(nowHead, head) {",
+    "new": "if !reflect.DeepEqual(nowHead, head) && nowHead.oidValue() != head.oidValue() {",
+    "tests": [
+      "TestReviewHeadRefRace",
+      "TestCaptureSameOIDHeadModeRace"
+    ],
+    "positive": [],
+    "expect": "kill"
+  },
+  {
+    "name": "N27-consistency-admits-index-version-only-change",
+    "file": "snapshot.go",
+    "old": "if !indexState.equal(nowState) || version != nowVersion {",
+    "new": "if (!indexState.equal(nowState) || version != nowVersion) && version == nowVersion {",
+    "tests": [
+      "TestReviewIndexVersionRace"
+    ],
+    "positive": [],
+    "expect": "kill"
+  },
+  {
+    "name": "N28-lock-env-inherited-one-wins",
+    "file": "runner.go",
+    "old": "append(os.Environ(), \"GIT_OPTIONAL_LOCKS=0\")",
+    "new": "append([]string{\"GIT_OPTIONAL_LOCKS=0\"}, os.Environ()...)",
+    "tests": [
+      "TestReviewRunnerLockOverride"
+    ],
+    "positive": [],
+    "expect": "kill"
+  },
+  {
+    "name": "N29-diff-bypasses-private-index",
+    "file": "runner.go",
+    "old": "len(args) > 0 && args[0] == \"diff\"",
+    "new": "len(args) > 0 && args[0] == \"diff\" && len(args) > 1 && args[1] == \"--cached\"",
+    "tests": [
+      "TestReviewLockOverrideMutatesIndex"
+    ],
+    "positive": [],
+    "expect": "kill"
+  },
+  {
+    "name": "N30-feature-default-symlinks-false",
+    "file": "snapshot.go",
+    "old": "{\"core.symlinks\", &features.Symlinks, true}",
+    "new": "{\"core.symlinks\", &features.Symlinks, false}",
+    "tests": [
+      "TestReviewSymlinkDefault"
+    ],
+    "positive": [],
+    "expect": "kill"
+  },
+  {
+    "name": "N31-filter-boolean-raw-yes",
+    "file": "snapshot.go",
+    "old": "result, err := runOK(ctx, runner, dir, \"config\", \"--bool\", \"--get\", key)",
+    "new": "result, err := runOK(ctx, runner, dir, \"config\", \"--get\", key)",
+    "tests": [
+      "TestReviewRequiredFilterBoolean"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "limit": 0
+  },
+  {
+    "name": "N32-subdir-keeps-caller-command-scope",
+    "file": "snapshot.go",
+    "old": "dir = repo.worktree.RepoRoot",
+    "new": "// dir = repo.worktree.RepoRoot (token preserved; caller directory retained)",
+    "tests": [
+      "TestCaptureRootAndSubdirectoryAgree"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "full": true
+  }
+]

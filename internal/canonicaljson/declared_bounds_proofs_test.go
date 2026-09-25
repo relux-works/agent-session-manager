@@ -60,7 +60,8 @@ var subsumedBoundProofs = map[boundObligation]boundSubsumption{
 func collectBoundProofClaims(t *testing.T) []boundObligation {
 	t.Helper()
 
-	var claims []boundObligation
+	TestCheckManifestEntriesCountBounds(t)
+	claims := []boundObligation{{key: "CheckManifestEntries|requireArray|entries|-..65536", direction: boundMaximum}}
 	for _, proof := range coreRecordBoundProofs() {
 		if proof.maximum >= 0 {
 			claims = append(claims, boundObligation{key: proof.key, direction: boundMaximum})

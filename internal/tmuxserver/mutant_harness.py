@@ -29,15 +29,13 @@ Usage:
   PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py
   PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py N-mode-create
   PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py --slice 0:50 --log-dir .temp/mutants/group-01
-  PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py --log-dir /tmp/mutant-logs
+  PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py --log-dir .temp/TASK-ID/mutant-logs
   AX_MUTANT_VERBOSE=1 PYTHONDONTWRITEBYTECODE=1 python3 internal/tmuxserver/mutant_harness.py N-mode-create
 """
 
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1439,22 +1437,22 @@ MUTANTS = [
     Mutant(
         name="N-probe-dial-refused",
         path=f"{PACKAGE}/probe.go",
-        find='(errno == syscall.ECONNREFUSED || errno == syscall.ENOENT)',
-        replace='(errno == syscall.ENOENT)',
+        find='if errno == syscall.ECONNREFUSED {\n\t\t\treturn DialStale\n\t\t}',
+        replace='if errno == syscall.ECONNREFUSED {\n\t\t\treturn DialUnknown\n\t\t}',
         count=1,
         run="TestUnixDialerLiveStaleUnknown",
         expect="KILLED",
-        note="Admits exactly refused sockets past the stale mapping (they read unknown); missing sockets still read stale, and the ENOENT arm keeps its own row. Kill path: the dead listener proves nothing instead of staleness.",
+        note="Narrows the stale classification by misclassifying exactly ECONNREFUSED as unknown; missing sockets remain stale and the ENOENT arm stays intact. Kill path: the dead-listener row reads unknown instead of stale.",
     ),
     Mutant(
         name="N-probe-dial-enoent",
         path=f"{PACKAGE}/probe.go",
-        find='(errno == syscall.ECONNREFUSED || errno == syscall.ENOENT)',
-        replace='(errno == syscall.ECONNREFUSED)',
+        find='if statErr == nil && parent.IsDir() {\n\t\t\t\treturn DialStale\n\t\t\t}',
+        replace='if statErr == nil && parent.IsDir() {\n\t\t\t\treturn DialUnknown\n\t\t\t}',
         count=1,
         run="TestUnixDialerMissingSocketIsStale",
         expect="KILLED",
-        note="Admits exactly missing sockets past the stale mapping (they read unknown); refused sockets still read stale, and the ECONNREFUSED arm keeps its own row. Kill path: the unbound path proves nothing instead of staleness.",
+        note="Narrows the stale classification by misclassifying exactly ENOENT under an existing parent as unknown; ECONNREFUSED remains stale and the parent-status guard stays intact. Kill path: the missing-socket row reads unknown instead of stale.",
     ),
     Mutant(
         name="N-probe-unknown-passthrough",
@@ -3182,6 +3180,86 @@ MUTANTS = [
         note="Refreshes ownership for exactly the committed attach client before attach admission; the Lifecycle.Execute test records the attempted lease refresh and plants a real successor write so the narrowing is behaviorally killed.",
     ),
     Mutant(
+        name="N-capture-admits-parked",
+        path=f"{PACKAGE}/capture_git_workspace.go",
+        find="return state == terminalbackend.StateQuiescing || state == terminalbackend.StateStopped",
+        replace="return state == terminalbackend.StateQuiescing || state == terminalbackend.StateStopped || state == terminalbackend.StateParked",
+        count=1,
+        run="TestCaptureAdmission_InitialParked",
+        expect="KILLED",
+        note="Admits exactly parked through the capture stop-point state gate; the request retains Runner, Assembly, current-incarnation closure and provider-boundary evidence. The state-domain test requires the literal unsupported-state refusal detail for parked.",
+    ),
+    Mutant(
+        name="N-capture-admits-checkpoint-proof",
+        path=f"{PACKAGE}/capture_git_workspace.go",
+        find='if boundaryParams.ProviderProofKind != "provider_quiescence" && boundaryParams.ProviderProofKind != "provider_process_exit" {',
+        replace='if boundaryParams.ProviderProofKind != "provider_quiescence" && boundaryParams.ProviderProofKind != "provider_process_exit" && boundaryParams.ProviderProofKind != "ax_checkpoint_boundary" {',
+        count=1,
+        run="TestCaptureAdmission_CheckpointOnlyProviderProof",
+        expect="KILLED",
+        note="Admits exactly the checkpoint-only proof kind through the provider-proof gate. The named production-entry test carries a valid Runner, Assembly, current closure receipt and provider boundary, and asserts the literal refusal code and detail.",
+    ),
+    Mutant(
+        name="N-capture-admits-foreign-quiesce-receipt",
+        path=f"{PACKAGE}/capture_git_workspace.go",
+        find='if quiesce.Incarnation != incarnation {',
+        replace='if quiesce.Incarnation != incarnation && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {',
+        count=1,
+        run="TestCaptureAdmission_CurrentInputClosureReceiptRequired",
+        expect="KILLED",
+        note="Drops only the receipt-incarnation comparison for the one valid fixture group, admitting that foreign receipt while a separate current provider-boundary receipt keeps the baseline barrier proven. The named test asserts the literal receipt refusal through CaptureGitWorkspace.",
+    ),
+    Mutant(
+        name="N-capture-admits-unproven-barrier-for-one-group",
+        path=f"{PACKAGE}/capture_git_workspace.go",
+        find='if !proven {\n\t\t\treturn nil, captureUnavailable("input-closure barrier no longer proves capture hold")\n\t\t}',
+        replace='if !proven && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {\n\t\t\treturn nil, captureUnavailable("input-closure barrier no longer proves capture hold")\n\t\t}',
+        count=1,
+        run="TestCaptureAdmission_ClosureBarrierStillProven",
+        expect="KILLED",
+        note="Admits an unproven barrier only for one workspace-group identity; all other groups still refuse. The named test invalidates both closure receipts after pack assembly and asserts the literal close-time barrier refusal.",
+    ),
+    Mutant(
+        name="N-capture-admits-stopped-to-quiescing-for-one-group",
+        path=f"{PACKAGE}/capture_git_workspace.go",
+        find='if final.Status.State != terminalbackend.StateStopped {\n\t\t\treturn nil, captureUnavailable("stopped capture did not remain stopped")\n\t\t}',
+        replace='if final.Status.State != terminalbackend.StateStopped && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {\n\t\t\treturn nil, captureUnavailable("stopped capture did not remain stopped")\n\t\t}',
+        count=1,
+        run="TestCaptureAdmission_StoppedRemainsStopped",
+        expect="KILLED",
+        note="Admits a stopped capture that becomes quiescing only for one workspace-group identity. The named test changes the close-time state from stopped to quiescing after the pack phase and requires the literal stopped-stays-stopped refusal.",
+    ),
+    Mutant(
+        name="C-capture-census-unlisted-refusal-site",
+        path=f"{PACKAGE}/capture_git_workspace.go",
+        find='if boundaryParams.ProviderProofKind != "provider_quiescence" && boundaryParams.ProviderProofKind != "provider_process_exit" {',
+        replace='if boundaryParams.ProviderProofKind != "provider_quiescence" && boundaryParams.ProviderProofKind != "provider_process_exit" {\n\t\t\tif boundaryParams.ProviderProofKind == "ax_checkpoint_boundary" {\n\t\t\t\treturn nil, captureUnavailable("unlisted capture admission site")\n\t\t\t}',
+        count=1,
+        run="TestCaptureCoordinatorAdmissionGateCensus",
+        expect="KILLED",
+        note="Census control: adds one new direct refusal site under the proof-kind branch without adding a matrix row. The source census must reject the two-site branch instead of claiming its one-row mapping.",
+    ),
+    Mutant(
+        name="C-capture-census-nonliteral-detail",
+        path=f"{PACKAGE}/capture_git_workspace.go",
+        find='captureUnavailable("checkpoint boundary alone does not prove provider quiescence")',
+        replace='captureUnavailable(fmt.Sprint("checkpoint boundary alone does not prove provider quiescence"))',
+        count=1,
+        run="TestCaptureCoordinatorAdmissionGateCensus",
+        expect="KILLED",
+        note="Census control: preserves the detail value at runtime but replaces the literal AST node with a computed string. The census must reject non-literal detail sites rather than silently dropping them.",
+    ),
+    Mutant(
+        name="N-capture-restores-with-boundary-token-preserved",
+        path=f"{PACKAGE}/capture_git_workspace.go",
+        find='Operation: "wait-safe-boundary", Body: request.BoundaryBody,',
+        replace='Operation: "restore", Body: request.BoundaryBody,',
+        count=1,
+        run="(TestCaptureGitWorkspaceQuiescedAssemblesAndRechecks|TestCaptureNeverTransitionsOutsideStopPointOwnerSet)",
+        expect="KILLED",
+        note="Replaces the coordinator's real wait-safe-boundary transition with restore while the wait-safe-boundary token remains in the parser and receipt checks. The harness runs the AST structural gate and a real successful-capture behavioral test; the unauthorized transition and broken capture must both be observed.",
+    ),
+    Mutant(
         name="C-control",
         path=f"{PACKAGE}/errors.go",
         find="// Error is a package-local refusal. Code is one of the Code*",
@@ -3192,6 +3270,252 @@ MUTANTS = [
         note="Harmless control: a comment-only edit that must SURVIVE, proving the harness observes outcomes.",
     ),
 ]
+
+
+MUTANTS.extend(
+    [
+        Mutant(
+            name="N-capture-admits-nil-lifecycle",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if lc == nil {\n\t\treturn nil, captureUnavailable("lifecycle is required")\n\t}',
+            replace='if lc == nil && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {\n\t\treturn nil, captureUnavailable("lifecycle is required")\n\t}',
+            count=1,
+            run="TestCaptureAdmission_LifecycleRequired",
+            expect="KILLED",
+            note="Admits the nil Lifecycle receiver only for the valid matrix fixture group; the production entry test requires the literal lifecycle refusal and therefore catches the nil dereference.",
+        ),
+        Mutant(
+            name="N-capture-admits-session-scoped-status",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find="if !statusBody.HasTerminalInstanceID {",
+            replace='if !statusBody.HasTerminalInstanceID && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {',
+            count=1,
+            run="TestCaptureAdmission_ExactStatusIdentityRequired",
+            expect="KILLED",
+            note="Admits the session-scoped status shape for exactly the matrix fixture group; later boundary identity cannot turn it into an exact-instance capture.",
+        ),
+        Mutant(
+            name="N-capture-admits-opening-status-nonmatch",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find="if !initial.Status.IdentityMatch {",
+            replace='if !initial.Status.IdentityMatch && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {',
+            count=1,
+            run="TestCaptureAdmission_OpeningStatusIdentityMatch",
+            expect="KILLED",
+            note="Admits the fixture's exact status query after its backend generation no longer matches the binding; the downstream absent-state refusal cannot satisfy the matrix row.",
+        ),
+        Mutant(
+            name="N-capture-admits-absent-opening-state",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find="return state == terminalbackend.StateQuiescing || state == terminalbackend.StateStopped",
+            replace="return state == terminalbackend.StateQuiescing || state == terminalbackend.StateStopped || state == terminalbackend.StateAbsent",
+            count=1,
+            run="TestCaptureAdmission_InitialAbsent",
+            expect="KILLED",
+            note="Admits exactly the absent opening state past the stop-point state domain; the row requires the absent-state refusal from CaptureGitWorkspace.",
+        ),
+        Mutant(
+            name="N-capture-admits-active-opening-state",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find="return state == terminalbackend.StateQuiescing || state == terminalbackend.StateStopped",
+            replace="return state == terminalbackend.StateQuiescing || state == terminalbackend.StateStopped || state == terminalbackend.StateActive",
+            count=1,
+            run="TestCaptureAdmission_InitialActive",
+            expect="KILLED",
+            note="Admits exactly the active opening state past the stop-point state domain; the boundary owner then rejects its false quiescing source and the literal active-state row fails.",
+        ),
+        Mutant(
+            name="N-capture-admits-stale-fenced-opening-state",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find="return state == terminalbackend.StateQuiescing || state == terminalbackend.StateStopped",
+            replace="return state == terminalbackend.StateQuiescing || state == terminalbackend.StateStopped || state == terminalbackend.StateStaleFenced",
+            count=1,
+            run="TestCaptureAdmission_InitialStaleFenced",
+            expect="KILLED",
+            note="Admits exactly stale_fenced at the opening state gate; the named production-entry row requires that state to refuse.",
+        ),
+        Mutant(
+            name="N-capture-admits-unavailable-opening-state",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find="return state == terminalbackend.StateQuiescing || state == terminalbackend.StateStopped",
+            replace="return state == terminalbackend.StateQuiescing || state == terminalbackend.StateStopped || state == terminalbackend.StateUnavailable",
+            count=1,
+            run="TestCaptureAdmission_InitialUnavailable",
+            expect="KILLED",
+            note="Admits exactly unavailable at the opening state gate; the named production-entry row requires the literal unavailable-state refusal.",
+        ),
+        Mutant(
+            name="N-capture-admits-nil-assembly-runner",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if request.Runner == nil {\n\t\treturn nil, captureUnavailable("Git assembly runner is required")\n\t}',
+            replace='if request.Runner == nil && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {\n\t\treturn nil, captureUnavailable("Git assembly runner is required")\n\t}',
+            count=1,
+            run="TestCaptureAdmission_AssemblyRunnerRequired",
+            expect="KILLED",
+            note="Admits a missing assembly runner for exactly the valid matrix fixture group; assembly returns without the required typed capture refusal.",
+        ),
+        Mutant(
+            name="N-capture-admits-stopped-boundary-body",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find="if len(request.BoundaryBody) != 0 {",
+            replace='if len(request.BoundaryBody) != 0 && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {',
+            count=1,
+            run="TestCaptureAdmission_StoppedBoundaryBodyForbidden",
+            expect="KILLED",
+            note="Admits a stopped capture carrying the one valid fixture boundary body; the stopped path must still refuse rather than ignore an operation token.",
+        ),
+        Mutant(
+            name="N-capture-admits-stopped-without-incarnation",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if !found {\n\t\t\treturn nil, captureUnavailable("stopped capture has no current incarnation record")\n\t\t}',
+            replace='if !found && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {\n\t\t\treturn nil, captureUnavailable("stopped capture has no current incarnation record")\n\t\t}',
+            count=1,
+            run="TestCaptureAdmission_StoppedIncarnationRequired",
+            expect="KILLED",
+            note="Admits the stopped fixture after its current incarnation record is removed; the later close check is not the opening record refusal required by this row.",
+        ),
+        Mutant(
+            name="N-capture-admits-quiescing-without-boundary",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if len(request.BoundaryBody) == 0 {\n\t\t\treturn nil, captureUnavailable("quiescing capture requires a provider safe-boundary operation")\n\t\t}',
+            replace='if len(request.BoundaryBody) == 0 && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {\n\t\t\treturn nil, captureUnavailable("quiescing capture requires a provider safe-boundary operation")\n\t\t}',
+            count=1,
+            run="TestCaptureAdmission_QuiescingBoundaryRequired",
+            expect="KILLED",
+            note="Admits exactly the boundary-less matrix request for its fixture group; the parser's protocol error cannot satisfy the missing-provider-boundary row.",
+        ),
+        Mutant(
+            name="N-capture-admits-boundary-identity-drift",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find="if !sameCaptureIdentity(statusBody, boundaryContext) {",
+            replace='if !sameCaptureIdentity(statusBody, boundaryContext) && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {',
+            count=1,
+            run="TestCaptureAdmission_BoundaryIdentityMatchesStatus",
+            expect="KILLED",
+            note="Admits the one boundary context with a drifted session identity for the fixture group; the subsequent missing closure receipt is not the literal identity-mismatch refusal.",
+        ),
+        Mutant(
+            name="N-capture-admits-quiescing-without-incarnation",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if !found {\n\t\t\treturn nil, captureUnavailable("quiescing capture has no current incarnation record")\n\t\t}',
+            replace='if !found && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {\n\t\t\treturn nil, captureUnavailable("quiescing capture has no current incarnation record")\n\t\t}',
+            count=1,
+            run="TestCaptureAdmission_QuiescingIncarnationRequired",
+            expect="KILLED",
+            note="Admits the quiescing fixture with its incarnation file removed; the next closure-receipt check must not stand in for the missing-incarnation refusal.",
+        ),
+        Mutant(
+            name="N-capture-admits-foreign-provider-boundary-receipt",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if boundaryReceipt.Incarnation != incarnation {',
+            replace='if boundaryReceipt.Incarnation != incarnation && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {',
+            count=1,
+            run="TestCaptureAdmission_CurrentProviderBoundaryReceiptRequired",
+            expect="KILLED",
+            note="Admits exactly the fixture's other-incarnation provider receipt while all other boundary receipt and proof checks remain; the row requires the literal provider-boundary refusal.",
+        ),
+        Mutant(
+            name="N-capture-admits-missing-input-closure-receipt",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if !found {\n\t\t\treturn nil, captureUnavailable("current-incarnation input-closure receipt is missing")\n\t\t}',
+            replace='if !found && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {\n\t\t\treturn nil, captureUnavailable("current-incarnation input-closure receipt is missing")\n\t\t}',
+            count=1,
+            run="TestCaptureAdmission_InputClosureReceiptMissing",
+            expect="KILLED",
+            note="Admits exactly a missing quiesce receipt for the valid matrix fixture group; the named CaptureGitWorkspace row asserts the literal missing-receipt code and detail.",
+        ),
+        Mutant(
+            name="N-capture-admits-wrong-input-closure-operation",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if quiesce.Operation != "quiesce-input" {',
+            replace='if quiesce.Operation != "quiesce-input" && !(quiesce.Operation == "wait-safe-boundary" && request.Assembly.WorkspaceGroupID == "01900000-0000-7000-8000-000000000001") {',
+            count=1,
+            run="TestCaptureAdmission_InputClosureReceiptOperation",
+            expect="KILLED",
+            note="Admits only the sibling wait-safe-boundary operation for the fixture group; all other wrong operations still refuse at this clause.",
+        ),
+        Mutant(
+            name="N-capture-admits-unobserved-input-closure-receipt",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if _, err := scalar.ParseTimestamp(quiesce.InputClosedAt); err != nil {',
+            replace='if _, err := scalar.ParseTimestamp(quiesce.InputClosedAt); err != nil && !(quiesce.InputClosedAt == "" && request.Assembly.WorkspaceGroupID == "01900000-0000-7000-8000-000000000001") {',
+            count=1,
+            run="TestCaptureAdmission_InputClosureReceiptTimestamp",
+            expect="KILLED",
+            note="Admits exactly the empty input-closure timestamp for the valid matrix fixture group; the table-driven entry row also checks a different malformed timestamp so the mutation cannot be masked by an independent parser gate.",
+        ),
+        Mutant(
+            name="N-capture-admits-wrong-provider-boundary-operation",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if boundaryReceipt.Operation != "wait-safe-boundary" {',
+            replace='if boundaryReceipt.Operation != "wait-safe-boundary" && !(boundaryReceipt.Operation == "quiesce-input" && request.Assembly.WorkspaceGroupID == "01900000-0000-7000-8000-000000000001") {',
+            count=1,
+            run="TestCaptureAdmission_ProviderBoundaryReceiptOperation",
+            expect="KILLED",
+            note="Admits only the sibling quiesce-input operation for the fixture group; the named entry test asserts the literal provider-receipt refusal.",
+        ),
+        Mutant(
+            name="N-capture-admits-empty-provider-boundary-timestamp",
+            path=f"{PACKAGE}/lifecycle.go",
+            find='\t\tif stored.BoundaryObservedAt == "" {\n\t\t\treturn "", &Error{Code: terminalbackend.CodeIntegrityFailure, Detail: "boundary outcome image"}\n\t\t}\n',
+            replace='\t\tif stored.BoundaryObservedAt == "" && key != "0198f4c8-8e50-7f66-8f70-222222222221/boundary/0198f4c8-8e50-7f66-8f70-666666666661/provider_quiescence" {\n\t\t\treturn "", &Error{Code: terminalbackend.CodeIntegrityFailure, Detail: "boundary outcome image"}\n\t\t}\n',
+            count=1,
+            run="TestCaptureOwnerBoundaryEmptyTimestampRepeatOf",
+            expect="KILLED",
+            note="Admits exactly the empty provider-boundary timestamp for the capture fixture; the named CaptureGitWorkspace entry row requires the literal owner-integrity code and detail.",
+        ),
+        Mutant(
+            name="N-capture-admits-disappeared-closing-incarnation",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if !found {\n\t\treturn nil, captureUnavailable("Terminal Instance incarnation record disappeared during capture")\n\t}',
+            replace='if !found && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {\n\t\treturn nil, captureUnavailable("Terminal Instance incarnation record disappeared during capture")\n\t}',
+            count=1,
+            run="TestCaptureAdmission_IncarnationRecordPresentAtClose",
+            expect="KILLED",
+            note="Admits exactly a disappeared closing incarnation record for the valid fixture group; the named entry test removes the file after assembly and asserts the literal refusal.",
+        ),
+        Mutant(
+            name="C-capture-census-added-disjunct",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find='if !found {\n\t\t\treturn nil, captureUnavailable("current-incarnation input-closure receipt is missing")\n\t\t}',
+            replace='if !found || quiesce.Operation == "" {\n\t\t\treturn nil, captureUnavailable("current-incarnation input-closure receipt is missing")\n\t\t}',
+            count=1,
+            run="TestCaptureCoordinatorAdmissionGateCensus",
+            expect="KILLED",
+            note="Control plant adds an OR disjunct under an existing captureUnavailable site. The AST census must find the new detail/disjunct pair has no matrix row.",
+        ),
+        Mutant(
+            name="N-capture-admits-closing-status-nonmatch",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find="if !final.Status.IdentityMatch {",
+            replace='if !final.Status.IdentityMatch && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {',
+            count=1,
+            run="TestCaptureAdmission_ClosingStatusIdentityMatch",
+            expect="KILLED",
+            note="Admits the final exact-status nonmatch produced by changing the body generation during assembly; the downstream state refusal is not the closing identity row.",
+        ),
+        Mutant(
+            name="N-capture-admits-changed-closing-incarnation",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find="if found && currentIncarnation != incarnation {",
+            replace='if found && currentIncarnation != incarnation && request.Assembly.WorkspaceGroupID != "01900000-0000-7000-8000-000000000001" {',
+            count=1,
+            run="TestCaptureAdmission_IncarnationStableAcrossCapture",
+            expect="KILLED",
+            note="Admits exactly the rotated quiescence incarnation at the closing recheck; the named production-entry test requires same-incarnation refusal.",
+        ),
+        Mutant(
+            name="N-capture-admits-final-parked-state",
+            path=f"{PACKAGE}/capture_git_workspace.go",
+            find="if !captureStateAllowed(final.Status.State) {",
+            replace="if !captureStateAllowed(final.Status.State) && final.Status.State != terminalbackend.StateParked {",
+            count=1,
+            run="TestCaptureAdmission_FinalStateRemainsHeld",
+            expect="KILLED",
+            note="Admits exactly parked at the closing held-state gate; the capture would return a successful assembly with a parked final state, which the named row rejects.",
+        ),
+    ]
+)
 
 
 def custody_permission_mask_mutants() -> list[Mutant]:
@@ -3514,6 +3838,19 @@ MUTANTS.extend(
     ]
 )
 
+MUTANTS.append(
+    Mutant(
+        name="N-unix-dialer-missing-parent-admits-stale",
+        path=f"{PACKAGE}/probe.go",
+        find="\t\t\tif statErr == nil && parent.IsDir() {\n",
+        replace="\t\t\tif statErr == nil && parent.IsDir() || errors.Is(statErr, os.ErrNotExist) {\n",
+        count=1,
+        run="TestUnixDialerMissingDirectoryIsUnknown",
+        expect="KILLED",
+        note="Admits exactly ENOENT with an absent containing directory as stale; the named production Dial test requires that case to stay unknown.",
+    )
+)
+
 
 def apply(mutant: Mutant, original: str) -> str:
     return original.replace(mutant.find, mutant.replace)
@@ -3525,20 +3862,17 @@ def run_mutant(mutant: Mutant, log_dir: Path | None) -> str:
     found = original.count(mutant.find)
     if found != mutant.count:
         return f"ERROR: {mutant.name}: patch anchors {found}, want {mutant.count}"
-    with tempfile.TemporaryDirectory() as staging:
-        backup = Path(staging) / "backup"
-        shutil.copy2(target, backup)
-        try:
-            target.write_text(apply(mutant, original))
-            run = subprocess.run(
-                ["go", "test", *PACKAGES, "-run", mutant.run, "-count=1"],
-                cwd=REPO,
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-        finally:
-            shutil.copy2(backup, target)
+    try:
+        target.write_text(apply(mutant, original))
+        run = subprocess.run(
+            ["go", "test", *PACKAGES, "-run", mutant.run, "-count=1"],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    finally:
+        target.write_text(original)
     output = (run.stdout + run.stderr).strip()
     if os.environ.get("AX_MUTANT_VERBOSE") == "1":
         print(f"--- raw: {mutant.name}: exit {run.returncode} ---", flush=True)

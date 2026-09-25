@@ -427,11 +427,7 @@ func TestCheckSocketCustodyIdentityMismatchRefuses(t *testing.T) {
 }
 
 func TestSocketCustodySymlinkRefusesAtProbeAndSpawn(t *testing.T) {
-	short, err := os.MkdirTemp("/tmp", "axalias")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(short) })
+	short := shortTestTempDir(t)
 	holder := filepath.Join(short, "holder")
 	if err := os.Mkdir(holder, 0o755); err != nil {
 		t.Fatal(err)

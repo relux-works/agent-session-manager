@@ -2,7 +2,7 @@ package tmuxserver
 
 import (
 	"errors"
-	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/relux-works/agent-session-manager/internal/scalar"
@@ -27,21 +27,16 @@ func (dialer *fakeDialer) Dial(socket string) DialOutcome {
 
 func TestUnixDialerMissingSocketIsStale(t *testing.T) {
 	// Under a verified parent a missing socket proves no bind: stale,
-	// never unknown, never live. The path stages under /tmp: a
-	// test-temp-dir path would exceed sun_path and dial EINVAL.
+	// never unknown, never live. The containing test temp directory keeps
+	// the socket path short enough for the platform's unix address limit.
 	dialer := UnixDialer{}
-	short, err := os.MkdirTemp("/tmp", "axdial")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(short) })
-	if got := dialer.Dial(short + "/ax.sock"); got != DialStale {
+	if got := dialer.Dial(filepath.Join(shortTestTempDir(t), "ax.sock")); got != DialStale {
 		t.Fatalf("missing socket = %s, want stale", got)
 	}
 }
 
 func TestServerProberRefusesWithoutDependencies(t *testing.T) {
-	root := t.TempDir()
+	root := shortTestTempDir(t)
 	prober := ServerProber{Root: root, Platform: scalar.PlatformMacOS}
 	if _, err := prober.Probe(root + "/tmux/ax.sock"); err == nil {
 		t.Fatal("nil dialer/admission probed")

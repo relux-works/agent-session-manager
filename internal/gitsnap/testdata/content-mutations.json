@@ -1,0 +1,188 @@
+[
+  {
+    "name": "C-content-neutral-comment",
+    "file": "content.go",
+    "old": "",
+    "new": "\n// Neutral capture comment.\n",
+    "tests": [],
+    "positive": [],
+    "expect": "survive",
+    "bound": "Comment-only change has no runtime effect; the complete gitsnap suite executes.",
+    "full": false
+  },
+  {
+    "name": "C-content-bad-clear-entries",
+    "file": "content.go",
+    "old": "rawEntries, err := json.Marshal(tree.Entries)",
+    "new": "tree.Entries = nil\n rawEntries, err := json.Marshal(tree.Entries)",
+    "tests": [
+      "TestContentCaptureSelectionAndBytes"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-policy-admits-unclassified-allow",
+    "file": "content.go",
+    "old": "err != nil || !nonSecret",
+    "new": "err != nil || (!nonSecret && name != \"ignored/allow\")",
+    "tests": [
+      "TestContentIgnoredDefaultAndPolicyRefusal"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-read-admits-quiet-fatal128",
+    "file": "content.go",
+    "old": "ignoredResult.ExitCode != 0",
+    "new": "(ignoredResult.ExitCode != 0 && ignoredResult.ExitCode != 128)",
+    "tests": [
+      "TestContentReadFailureIsNotAbsence"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-read-admits-success-diagnostic",
+    "file": "content.go",
+    "old": "len(ignoredResult.Stderr) != 0",
+    "new": "(len(ignoredResult.Stderr) != 0 && ignoredResult.ExitCode != 0)",
+    "tests": [
+      "TestContentIgnoreCensusWarningRefuses",
+      "TestContentExcludePolicyReadCompleteness"
+    ],
+    "positive": [
+      "TestContentReadFailureIsNotAbsence"
+    ],
+    "expect": "kill",
+    "bound": "Admits only successful-exit diagnostics; nonzero exits, process errors, and malformed NUL output remain gated. Real permission witnesses must execute on the review host.",
+    "full": false
+  },
+  {
+    "name": "N-path-admits-escaping-chain",
+    "file": "content.go",
+    "old": "func safeSymlink(root, name, target string) error {",
+    "new": "func safeSymlink(root, name, target string) error {\n if name == \"escape-chain\" { return nil }",
+    "tests": [
+      "TestContentSymlinkChainsAndExcludedTargets"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "Original safeSymlink and refusal tokens remain present; the full behavioral suite executes against a one-name early-return bypass.",
+    "full": true
+  },
+  {
+    "name": "N-submodule-admits-stray-uninitialized",
+    "file": "submodules.go",
+    "old": "if len(entries) != 0 {",
+    "new": "if len(entries) != 0 && !(len(entries)==1 && entries[0].Name()==\"stray\") {",
+    "tests": [
+      "TestContentSubmoduleUninitializedAndRefusals"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-blob-limit-admits-one-byte-over",
+    "file": "content.go",
+    "old": "size > maxBlobSize {",
+    "new": "size > maxBlobSize+1 {",
+    "tests": [
+      "TestContentLargeBlobChunksAndLimit"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-install-admits-shard-failure",
+    "file": "content.go",
+    "old": "if _, err := s.options.Store.PutBlob(id, size, source); err != nil {",
+    "new": "if _, err := s.options.Store.PutBlob(id, size, source); err != nil && !strings.Contains(err.Error(),\"create object shard\") {",
+    "tests": [
+      "TestContentBlobInstallFailureAndRetry"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-exclusion-admits-auth-json",
+    "file": "content.go",
+    "old": "case \".ssh\", \"auth.json\", \"credentials.json\", \".git-credentials\":",
+    "new": "case \".ssh\", \"credentials.json\", \".git-credentials\":",
+    "tests": [
+      "TestContentCaptureSelectionAndBytes"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-ignored-admits-deny",
+    "file": "content.go",
+    "old": "wanted := s.options.IncludeIgnored[path.Join(prefix, name)]",
+    "new": "wanted := s.options.IncludeIgnored[path.Join(prefix, name)] || name == \"ignored/deny\"",
+    "tests": [
+      "TestContentIgnoredDefaultAndPolicyRefusal"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-consistency-admits-five-byte-digest-change",
+    "file": "content.go",
+    "old": "uint64(n) != descriptor.Size || digestHex(hash.Sum(nil)) != descriptor.BlobID",
+    "new": "uint64(n) != descriptor.Size || (digestHex(hash.Sum(nil)) != descriptor.BlobID && descriptor.Size != 5)",
+    "tests": [
+      "TestContentDigestRaceAndRetry"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-submodule-exclusion-bypass",
+    "file": "submodules.go",
+    "old": "if s.excluded(root, name, prefix, os.ModeDir) != \"\" {",
+    "new": "if s.excluded(root, name, prefix, os.ModeDir) != \"\" && name != \"vendor/lib\" {",
+    "tests": [
+      "TestContentExcludedSubmoduleCannotBypassPolicy"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-entry-set-admits-65537",
+    "file": "../canonicaljson/manifest_entries.go",
+    "old": "\"entries\", 65536)",
+    "new": "\"entries\", 65537)",
+    "tests": [
+      "TestCheckManifestEntriesCountBounds"
+    ],
+    "positive": [
+      "TestCheckManifestEntriesUsesManifestOwner"
+    ],
+    "expect": "kill",
+    "bound": "Selected bound witness at shared CheckManifestEntries entry; Capture delegates its entry set to this owner.",
+    "full": false,
+    "package": "./internal/canonicaljson"
+  }
+]

@@ -319,6 +319,36 @@ func newCustodyOracleEntryFixtureAtDepth(t *testing.T, entry string, extraDepth 
 	} else {
 		root, socket = lxProbeRoot(t)
 	}
+	return extendCustodyOracleFixtureAtDepth(t, root, socket, fx, extraDepth)
+}
+
+func newCustodyOracleEntryFixtureAtDepthUnderBase(t *testing.T, entry string, extraDepth int, caseBase string) (string, string, *lxFixture, []string) {
+	t.Helper()
+	if err := os.Mkdir(caseBase, 0o700); err != nil {
+		t.Fatalf("create custody case base: %v", err)
+	}
+	root := filepath.Join(caseBase, "r")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create custody runtime root: %v", err)
+	}
+	var socket string
+	var fx *lxFixture
+	if entry == "Execute" {
+		fx = newLifecycleFixtureAtRoot(t, fullLifecycleAdmitted(), root)
+		recordBinding(t, fx, lxDigestA)
+		root, socket = fx.root, fx.socket
+	} else {
+		runtimeDir, err := EnsureRuntimeDir(root, RuntimeDirName, scalar.PlatformMacOS, nil)
+		if err != nil {
+			t.Fatalf("create custody runtime directory: %v", err)
+		}
+		socket = SocketPath(runtimeDir)
+	}
+	return extendCustodyOracleFixtureAtDepth(t, root, socket, fx, extraDepth)
+}
+
+func extendCustodyOracleFixtureAtDepth(t *testing.T, root, socket string, fx *lxFixture, extraDepth int) (string, string, *lxFixture, []string) {
+	t.Helper()
 	if extraDepth == 0 {
 		return root, socket, fx, nil
 	}

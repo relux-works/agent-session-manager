@@ -39,14 +39,9 @@ func TestCheckSocketCustodyAdmitsCompliant(t *testing.T) {
 }
 
 func TestCheckSocketCustodyAdmitsLiveSocket(t *testing.T) {
-	// Short root: the temp-dir socket path would exceed the platform
-	// sun_path (bind: invalid argument), which is B18 itself.
-	short, err := os.MkdirTemp("/tmp", "axsock")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(short) })
-	root := filepath.Join(short, "r")
+	// The containing test temp directory keeps the socket path within the
+	// platform's unix address limit while retaining automatic cleanup.
+	root := filepath.Join(shortTestTempDir(t), "r")
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}

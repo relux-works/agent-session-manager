@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -41,12 +42,15 @@ type UnixDialer struct {
 	Timeout time.Duration
 }
 
-// Dial connects to socket over unix: success is live; ECONNREFUSED or
-// ENOENT is stale; every other failure (timeout, permission,
-// impossible length) is unknown. ENOENT is stale rather than unknown
-// because the caller length-gates and custody-checks first: under a
-// verified parent, a missing socket proves no bind, not a broken
-// tree. This function dials only.
+// Dial connects to socket over unix: success is live; ECONNREFUSED is
+// stale; ENOENT is stale only when the containing directory still
+// exists, so a missing directory remains unknown. Every other failure
+// (timeout, permission, impossible length) is unknown. This is an
+// application of pinned SPEC.v0.7.0 §4.C's rule that only a successful
+// status read proves absence: a missing parent is a failed observation,
+// not evidence that this dedicated server is absent. The caller still
+// length-gates and custody-checks before dialing; this function does not
+// authorize a socket or repair its parent.
 func (dialer UnixDialer) Dial(socket string) DialOutcome {
 	timeout := dialer.Timeout
 	if timeout <= 0 {
@@ -58,8 +62,16 @@ func (dialer UnixDialer) Dial(socket string) DialOutcome {
 		return DialLive
 	}
 	var errno syscall.Errno
-	if errors.As(err, &errno) && (errno == syscall.ECONNREFUSED || errno == syscall.ENOENT) {
-		return DialStale
+	if errors.As(err, &errno) {
+		if errno == syscall.ECONNREFUSED {
+			return DialStale
+		}
+		if errno == syscall.ENOENT {
+			parent, statErr := os.Stat(filepath.Dir(socket))
+			if statErr == nil && parent.IsDir() {
+				return DialStale
+			}
+		}
 	}
 	return DialUnknown
 }

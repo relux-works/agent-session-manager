@@ -1,0 +1,244 @@
+[
+  {
+    "name": "C-assembly-neutral-comment",
+    "file": "assembly.go",
+    "old": "",
+    "new": "\n// Neutral assembly comment.\n",
+    "tests": [],
+    "positive": [],
+    "expect": "survive",
+    "bound": "Comment-only change has no runtime effect; the full behavioral package suite executes.",
+    "full": false
+  },
+  {
+    "name": "C-assembly-bad-empty-object-roots",
+    "file": "transfer_objects.go",
+    "old": "return result, nil\n}\n\nfunc objectLines",
+    "new": "return []string{}, nil\n}\n\nfunc objectLines",
+    "tests": [
+      "TestAssemblyNormativeCorpus"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-assembly-read-admits-success-warning",
+    "file": "transfer_objects.go",
+    "old": "len(result.Stderr) != 0",
+    "new": "(len(result.Stderr) != 0 && result.ExitCode != 0)",
+    "tests": [
+      "TestAssemblyFailedReadsAndCorruptObjects"
+    ],
+    "positive": [
+      "TestAssemblyPackIndexAndBytes"
+    ],
+    "expect": "kill",
+    "bound": "Only successful-exit diagnostics are admitted; process/nonzero failures stay refused.",
+    "full": false
+  },
+  {
+    "name": "N-assembly-raw-index-admits-two-entry-disagreement",
+    "file": "transfer_objects.go",
+    "old": "!reflect.DeepEqual(entries, snapshot.Index.Entries)",
+    "new": "(!reflect.DeepEqual(entries, snapshot.Index.Entries) && len(entries) != 2)",
+    "tests": [
+      "TestAssemblyFailedReadsAndCorruptObjects"
+    ],
+    "positive": [
+      "TestAssemblyNormativeCorpus"
+    ],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-assembly-checksum-admits-last-bit-flip",
+    "file": "transfer_objects.go",
+    "old": "return bytes.Equal(sum[:], checksum)\n}",
+    "new": "return bytes.Equal(sum[:], checksum) || (bytes.Equal(sum[:len(sum)-1],checksum[:len(checksum)-1]) && checksum[len(checksum)-1] == sum[len(sum)-1]^1)\n}",
+    "tests": [
+      "TestAssemblyRawIndexRefusals"
+    ],
+    "positive": [
+      "TestAssemblyPackIndexAndBytes"
+    ],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-assembly-inventory-admits-four-object-metadata-mismatch",
+    "file": "transfer_objects.go",
+    "old": "if !bytes.Equal(details, inventory) {",
+    "new": "if !bytes.Equal(details, inventory) && result.count != 4 {",
+    "tests": [
+      "TestAssemblyFailedReadsAndCorruptObjects"
+    ],
+    "positive": [
+      "TestAssemblyNormativeCorpus"
+    ],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-assembly-source-admits-working-file-change",
+    "file": "assembly.go",
+    "old": "if !sameObservation(snapshots[i], again) {",
+    "new": "if !sameObservation(snapshots[i], again) && !func() bool { raw,_:=json.Marshal(again.Content.Entries); return bytes.Contains(raw,[]byte(\"sha256:7e4fa2eb8c7ac089739d5defc4489fad68a100d92082ca35c6b40a4524821f87\")) }() {",
+    "tests": [
+      "TestAssemblySourceChangesAndRetry"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-assembly-group-admits-repository-identity-mismatch",
+    "file": "assembly.go",
+    "old": "if !reflect.DeepEqual(member[key], wire[key]) {",
+    "new": "if !reflect.DeepEqual(member[key], wire[key]) && key != \"repository_identity\" {",
+    "tests": [
+      "TestAssemblyGroupRecordAgreement"
+    ],
+    "positive": [
+      "TestAssemblyNormativeCorpus"
+    ],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-assembly-descriptor-admits-seven-byte-entry",
+    "file": "assembly.go",
+    "old": "(size != nil && !reflect.DeepEqual(float64(descriptor.Size), size))",
+    "new": "(size != nil && size != float64(7) && !reflect.DeepEqual(float64(descriptor.Size), size))",
+    "tests": [
+      "TestValidateProvisionalClosureAndDescriptors"
+    ],
+    "positive": [
+      "TestAssemblyNormativeCorpus"
+    ],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-assembly-closure-admits-one-missing-child",
+    "file": "assembly.go",
+    "old": "if !ok {\n\t\t\treturn refuse(GateManifestClosure, \"child manifest missing from closure\")\n\t\t}",
+    "new": "if !ok {\n if len(manifests)==1 { reached[id]=true; return nil }; return refuse(GateManifestClosure, \"child manifest missing from closure\")\n }",
+    "tests": [
+      "TestValidateProvisionalClosureAndDescriptors"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "A direct missing-child admission may be subsumed by the required repository-tree binding; a survivor establishes no independent visit-gate proof.",
+    "full": false
+  },
+  {
+    "name": "N-assembly-path-admits-missing-config-token-preserved",
+    "file": "assembly.go",
+    "old": "func checkCapturedPaths(entries []map[string]any, cwd string, configs []string) error {",
+    "new": "func checkCapturedPaths(entries []map[string]any, cwd string, configs []string) error {\n if len(configs)==1 && configs[0]==\"missing\" { return nil }",
+    "tests": [
+      "TestAssemblyMissingConfigClosure"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "Preserves checkCapturedPaths and GateContentPath source tokens while admitting only the group-named missing config. Full behavioral suite executes.",
+    "full": true
+  },
+  {
+    "name": "N-assembly-features-admits-origin-promisor",
+    "file": "transfer_objects.go",
+    "old": "if fields[1] == \"true\" {",
+    "new": "if fields[1] == \"true\" && fields[0] != \"remote.origin.promisor\" {",
+    "tests": [
+      "TestAssemblyOptionsAndUnsupportedSources"
+    ],
+    "positive": [],
+    "expect": "kill",
+    "bound": "",
+    "full": false
+  },
+  {
+    "name": "N-assembly-install-admits-shard-failure",
+    "file": "content.go",
+    "old": "if _, err := s.options.Store.PutBlob(id, size, source); err != nil {",
+    "new": "if _, err := s.options.Store.PutBlob(id, size, source); err != nil && !strings.Contains(err.Error(),\"create object shard\") {",
+    "tests": [
+      "TestAssemblyStoreFailureAndRetry"
+    ],
+    "positive": [
+      "TestAssemblyNormativeCorpus"
+    ],
+    "expect": "kill",
+    "bound": "Narrows the existing blob owner error gate to admit only shard creation failures through AssembleProvisional.",
+    "full": false
+  },
+  {
+    "name": "C-provider-binding-token-preserved",
+    "file": "../provhost/identity.go",
+    "old": "canonicaljson.CalculateObjectIdentity(body); err != nil {",
+    "new": "canonicaljson.VerifyObjectIdentity(body); err != nil {",
+    "tests": [
+      "TestCheckIdentityDoesNotVerifyBinding"
+    ],
+    "positive": [
+      "TestSpecIdentityExampleVerifiesAgainstItsClaimedDigest"
+    ],
+    "expect": "kill",
+    "bound": "Behavioral control, not a narrowing proof: the VerifyObjectIdentity token remains while CheckIdentity starts enforcing the previously unverified binding. Full provider-host suite must expose the changed admission.",
+    "full": true,
+    "package": "./internal/provhost"
+  },
+  {
+    "name": "N-assembly-policy-admits-unclassified-extra",
+    "file": "content.go",
+    "old": "err != nil || !nonSecret",
+    "new": "err != nil || (!nonSecret && name != \"ignored-extra\")",
+    "tests": [
+      "TestAssemblyInvalidIncludePolicy"
+    ],
+    "positive": [
+      "TestAssemblyNormativeCorpus"
+    ],
+    "expect": "kill",
+    "bound": "Admits precisely one named invalid non-secret policy entry while other unclassified includes still refuse.",
+    "full": false
+  },
+  {
+    "name": "N-assembly-closure-admits-one-unbound-tree",
+    "file": "assembly.go",
+    "old": "manifest[\"kind\"] == \"workspace_tree\" && !boundTrees[id]",
+    "new": "manifest[\"kind\"] == \"workspace_tree\" && !boundTrees[id] && len(manifests) != 3",
+    "tests": [
+      "TestValidateProvisionalClosureAndDescriptors"
+    ],
+    "positive": [
+      "TestAssemblyNormativeCorpus"
+    ],
+    "expect": "kill",
+    "bound": "Admits a single extra reachable tree alongside the root and required member tree.",
+    "full": false
+  },
+  {
+    "name": "N-assembly-path-admits-one-parent-partition-entry",
+    "file": "assembly.go",
+    "old": "if workspacePathsOverlap(name, subPath) && (entry[\"type\"] != \"directory\" || len(strings.Split(name, \"/\")) > len(strings.Split(subPath, \"/\"))) {",
+    "new": "if name != \"vendor/lib/spill\" && workspacePathsOverlap(name, subPath) && (entry[\"type\"] != \"directory\" || len(strings.Split(name, \"/\")) > len(strings.Split(subPath, \"/\"))) {",
+    "tests": [
+      "TestValidateProvisionalParentChildOverlap"
+    ],
+    "positive": [
+      "TestAssemblyRecursiveCWDAndConfigClosure"
+    ],
+    "expect": "kill",
+    "bound": "Only vendor/lib/spill may cross the parent/child partition boundary; other overlaps remain refused.",
+    "full": false
+  }
+]
